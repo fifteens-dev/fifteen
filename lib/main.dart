@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/verification_code_screen.dart';
 import 'screens/invite_code_screen.dart';
@@ -9,6 +10,7 @@ import 'screens/username_creation_screen.dart';
 import 'screens/profile_setup_screen.dart';
 import 'screens/terms_of_service_screen.dart';
 import 'screens/privacy_policy_screen.dart';
+import 'screens/dev_tools_screen.dart';
 import 'constants/app_colors.dart';
 
 void main() async {
@@ -56,7 +58,7 @@ class FifteenApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      initialRoute: '/',
+      initialRoute: kDebugMode ? '/dev-tools' : '/',
       routes: {
         '/': (context) => const PhoneAuthScreen(),
         '/verification': (context) => const VerificationCodeScreen(),
@@ -66,6 +68,7 @@ class FifteenApp extends StatelessWidget {
         '/profile-setup': (context) => const ProfileSetupScreen(),
         '/terms-of-service': (context) => const TermsOfServiceScreen(),
         '/privacy-policy': (context) => const PrivacyPolicyScreen(),
+        '/dev-tools': (context) => const DevToolsScreen(),
       },
     );
   }

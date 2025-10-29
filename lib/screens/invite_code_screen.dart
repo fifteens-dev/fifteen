@@ -4,6 +4,8 @@ import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
+import '../services/invite_code_service.dart';
+import '../services/auth_service.dart';
 
 /// 招待コード入力画面
 class InviteCodeScreen extends StatefulWidget {
@@ -15,6 +17,8 @@ class InviteCodeScreen extends StatefulWidget {
 
 class _InviteCodeScreenState extends State<InviteCodeScreen> {
   final TextEditingController _inviteCodeController = TextEditingController();
+  final InviteCodeService _inviteCodeService = InviteCodeService();
+  final AuthService _authService = AuthService();
   bool _isLoading = false;
 
   @override
@@ -23,15 +27,17 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
     super.dispose();
   }
 
-  void _handleNext() {
-    final inviteCode = _inviteCodeController.text.trim();
+  Future<void> _handleNext() async {
+    final inviteCode = _inviteCodeController.text.trim().toUpperCase();
     if (inviteCode.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('招待コードを入力してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('招待コードを入力してください'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
       return;
     }
 
@@ -39,16 +45,54 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       _isLoading = true;
     });
 
-    // TODO: 招待コード検証を実装
-    Future.delayed(const Duration(seconds: 1), () {
+    try {
+      // 招待コードを検証
+      final isValid = await _inviteCodeService.validateInviteCode(inviteCode);
+
+      if (!isValid) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('無効な招待コードです'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 招待コードを使用済みにする
+      final currentUser = _authService.currentUser;
+      if (currentUser != null) {
+        await _inviteCodeService.markInviteCodeAsUsed(
+          inviteCode,
+          currentUser.uid,
+        );
+      }
+
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        // TODO: 名前入力画面への遷移
-        Navigator.pushNamed(context, '/name-input');
+        // 名前入力画面へ遷移
+        Navigator.pushReplacementNamed(context, '/name-input');
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('招待コードの検証に失敗しました'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   @override

@@ -4,6 +4,7 @@ import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/phone_input_field.dart';
 import '../widgets/primary_button.dart';
+import '../services/auth_service.dart';
 
 /// 電話番号認証画面
 class PhoneAuthScreen extends StatefulWidget {
@@ -15,7 +16,9 @@ class PhoneAuthScreen extends StatefulWidget {
 
 class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
   final TextEditingController _phoneController = TextEditingController();
+  final AuthService _authService = AuthService();
   bool _isLoading = false;
+  String _countryCode = '+81';
 
   @override
   void dispose() {
@@ -23,16 +26,18 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
     super.dispose();
   }
 
-  void _handleSendVerification() {
+  Future<void> _handleSendVerification() async {
     // 電話番号のバリデーション
     final phoneNumber = _phoneController.text.replaceAll(RegExp(r'\D'), '');
     if (phoneNumber.length != 11) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('正しい電話番号を入力してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('正しい電話番号を入力してください'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
       return;
     }
 
@@ -40,17 +45,65 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
       _isLoading = true;
     });
 
-    // TODO: Firebase認証処理を実装
-    // 現在はデモ用に1秒後に完了
-    Future.delayed(const Duration(seconds: 1), () {
+    // 国際電話番号形式に変換
+    final fullPhoneNumber = '$_countryCode${phoneNumber.substring(1)}';
+
+    try {
+      await _authService.verifyPhoneNumber(
+        phoneNumber: fullPhoneNumber,
+        onCodeSent: (verificationId) {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+            // 認証コード入力画面へ遷移
+            Navigator.pushNamed(
+              context,
+              '/verification',
+              arguments: {
+                'verificationId': verificationId,
+                'phoneNumber': fullPhoneNumber,
+              },
+            );
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(error),
+                backgroundColor: AppColors.error,
+              ),
+            );
+          }
+        },
+        onAutoVerify: (credential) async {
+          // 自動認証成功（Android）
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+            // 招待コード画面へ遷移
+            Navigator.pushReplacementNamed(context, '/invite-code');
+          }
+        },
+      );
+    } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        // 認証コード入力画面への遷移
-        Navigator.pushNamed(context, '/verification');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('認証の送信に失敗しました'),
+            backgroundColor: AppColors.error,
+          ),
+        );
       }
-    });
+    }
   }
 
   void _handleCountryCodeTap() {

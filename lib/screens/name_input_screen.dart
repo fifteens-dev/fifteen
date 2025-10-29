@@ -4,6 +4,8 @@ import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
+import '../services/user_service.dart';
+import '../services/auth_service.dart';
 
 /// 名前入力画面
 class NameInputScreen extends StatefulWidget {
@@ -15,6 +17,8 @@ class NameInputScreen extends StatefulWidget {
 
 class _NameInputScreenState extends State<NameInputScreen> {
   final TextEditingController _nameController = TextEditingController();
+  final UserService _userService = UserService();
+  final AuthService _authService = AuthService();
   bool _isLoading = false;
 
   @override
@@ -23,15 +27,17 @@ class _NameInputScreenState extends State<NameInputScreen> {
     super.dispose();
   }
 
-  void _handleNext() {
+  Future<void> _handleNext() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('名前を入力してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('名前を入力してください'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
       return;
     }
 
@@ -39,16 +45,36 @@ class _NameInputScreenState extends State<NameInputScreen> {
       _isLoading = true;
     });
 
-    // TODO: 名前を保存
-    Future.delayed(const Duration(seconds: 1), () {
+    try {
+      final currentUser = _authService.currentUser;
+      if (currentUser != null) {
+        // 名前をFirestoreに保存
+        await _userService.updateUser(
+          uid: currentUser.uid,
+          name: name,
+        );
+
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+          // ユーザーネーム作成画面へ遷移
+          Navigator.pushReplacementNamed(context, '/username-creation');
+        }
+      }
+    } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        // TODO: ユーザーネーム作成画面への遷移
-        Navigator.pushNamed(context, '/username-creation');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('名前の保存に失敗しました'),
+            backgroundColor: AppColors.error,
+          ),
+        );
       }
-    });
+    }
   }
 
   @override

@@ -1,72 +1,33 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
-import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
 
 /// プロフィール設定画面
 class ProfileSetupScreen extends StatefulWidget {
-  final String username;
-  final String name;
-
-  const ProfileSetupScreen({
-    super.key,
-    this.username = 'taroooooda',
-    this.name = '後藤　太郎',
-  });
+  const ProfileSetupScreen({super.key});
 
   @override
   State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
 }
 
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
-  final TextEditingController _bioController = TextEditingController();
-  File? _profileImage;
   bool _isLoading = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _bioController.text = 'aoyama'; // デモ用の初期値
-  }
+  void _handleComplete() {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('プロフィール設定が完了しました！'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 2),
+        ),
+      );
 
-  @override
-  void dispose() {
-    _bioController.dispose();
-    super.dispose();
-  }
-
-  void _handleImagePick() {
-    // TODO: 画像選択機能を実装
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('画像選択機能は開発中です'),
-      ),
-    );
-  }
-
-  void _handleNext() {
-    setState(() {
-      _isLoading = true;
-    });
-
-    // TODO: プロフィール情報を保存してホーム画面へ遷移
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('プロフィール設定が完了しました！'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-        // TODO: ホーム画面への遷移を実装
-      }
-    });
+      // TODO: メイン画面（ホーム画面）への遷移を実装
+      // 今は完了メッセージのみ表示
+    }
   }
 
   @override
@@ -80,137 +41,66 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           icon: const Icon(Icons.arrow_back_ios, color: AppColors.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(widget.username, style: AppTextStyles.heading),
+        title: const Text('15s', style: AppTextStyles.appTitle),
         centerTitle: true,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: AppDimensions.paddingLarge,
           ),
           child: Column(
             children: [
-              const SizedBox(height: 40),
-              // プロフィール画像
-              Stack(
-                children: [
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.surface,
-                      border: Border.all(
-                        color: AppColors.border,
-                        width: 2,
-                      ),
-                    ),
-                    child: _profileImage != null
-                        ? ClipOval(
-                            child: Image.file(
-                              _profileImage!,
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        : const Icon(
-                            Icons.person,
-                            size: 60,
-                            color: AppColors.textSecondary,
-                          ),
-                  ),
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: GestureDetector(
-                      onTap: _handleImagePick,
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.buttonPrimary,
-                        ),
-                        child: const Icon(
-                          Icons.camera_alt,
-                          color: AppColors.buttonText,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 80),
+              // プロフィール設定完了メッセージ
+              const Text(
+                'プロフィール設定',
+                style: AppTextStyles.heading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                '認証が完了しました！\nプロフィール画像はあとで設定できます。',
+                style: AppTextStyles.body,
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppDimensions.paddingXLarge),
-              // プロフィール情報表示
-              _buildProfileInfoRow('名前', widget.name),
-              const SizedBox(height: AppDimensions.paddingMedium),
-              _buildProfileInfoRow('ユーザー名', widget.username),
-              const SizedBox(height: AppDimensions.paddingMedium),
-              // 自己紹介
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 8.0),
-                    child: Text(
-                      '自己紹介',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 14,
-                      ),
-                    ),
+              // プロフィール画像プレースホルダー
+              Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.surface,
+                  border: Border.all(
+                    color: AppColors.border,
+                    width: 2,
                   ),
-                  CommonInputField(
-                    controller: _bioController,
-                    hintText: '自己紹介を入力',
-                    keyboardType: TextInputType.multiline,
-                    maxLines: 3,
-                    maxLength: 150,
-                  ),
-                ],
+                ),
+                child: const Icon(
+                  Icons.person,
+                  size: 60,
+                  color: AppColors.textSecondary,
+                ),
               ),
               const SizedBox(height: AppDimensions.paddingXLarge),
+              const Text(
+                '画像のアップロードはFirebase Storageの\n設定後に実装されます',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 14,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const Spacer(),
               PrimaryButton(
-                text: '次へ',
-                onPressed: _handleNext,
+                text: '完了',
+                onPressed: _handleComplete,
                 isLoading: _isLoading,
               ),
+              const SizedBox(height: AppDimensions.paddingLarge),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildProfileInfoRow(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppDimensions.paddingMedium,
-        vertical: AppDimensions.paddingMedium,
-      ),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: AppColors.border,
-            width: 1,
-          ),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 16,
-            ),
-          ),
-          Text(
-            value,
-            style: AppTextStyles.body,
-          ),
-        ],
       ),
     );
   }

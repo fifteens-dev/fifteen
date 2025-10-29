@@ -4,6 +4,8 @@ import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
+import '../services/user_service.dart';
+import '../services/auth_service.dart';
 
 /// ユーザーネーム作成画面
 class UsernameCreationScreen extends StatefulWidget {
@@ -15,6 +17,8 @@ class UsernameCreationScreen extends StatefulWidget {
 
 class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
   final TextEditingController _usernameController = TextEditingController();
+  final UserService _userService = UserService();
+  final AuthService _authService = AuthService();
   bool _isLoading = false;
 
   @override
@@ -23,26 +27,43 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
     super.dispose();
   }
 
-  void _handleNext() {
-    final username = _usernameController.text.trim();
+  Future<void> _handleNext() async {
+    final username = _usernameController.text.trim().toLowerCase();
     if (username.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ユーザーネームを入力してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ユーザーネームを入力してください'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
       return;
     }
 
     // ユーザーネームのバリデーション（英数字とアンダースコアのみ）
     if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(username)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ユーザーネームは英数字とアンダースコアのみ使用できます'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ユーザーネームは英数字とアンダースコアのみ使用できます'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      return;
+    }
+
+    // 長さのバリデーション
+    if (username.length < 3 || username.length > 20) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ユーザーネームは3〜20文字で設定してください'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
       return;
     }
 
@@ -50,16 +71,54 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
       _isLoading = true;
     });
 
-    // TODO: ユーザーネームの重複チェックと保存
-    Future.delayed(const Duration(seconds: 1), () {
+    try {
+      // ユーザーネームの重複チェック
+      final isAvailable = await _userService.isUsernameAvailable(username);
+
+      if (!isAvailable) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('このユーザーネームは既に使用されています'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+        return;
+      }
+
+      // ユーザーネームを保存
+      final currentUser = _authService.currentUser;
+      if (currentUser != null) {
+        await _userService.updateUser(
+          uid: currentUser.uid,
+          username: username,
+        );
+
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+          // プロフィール設定画面へ遷移
+          Navigator.pushReplacementNamed(context, '/profile-setup');
+        }
+      }
+    } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        // TODO: プロフィール設定画面への遷移
-        Navigator.pushNamed(context, '/profile-setup');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ユーザーネームの保存に失敗しました'),
+            backgroundColor: AppColors.error,
+          ),
+        );
       }
-    });
+    }
   }
 
   @override

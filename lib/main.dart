@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/verification_code_screen.dart';
 import 'screens/invite_code_screen.dart';
@@ -10,7 +11,23 @@ import 'screens/terms_of_service_screen.dart';
 import 'screens/privacy_policy_screen.dart';
 import 'constants/app_colors.dart';
 
-void main() {
+void main() async {
+  // Flutter バインディングの初期化
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Firebaseの初期化
+  await Firebase.initializeApp(
+    options: const FirebaseOptions(
+      apiKey: "AIzaSyDCmLAnjE41x_rHsf-8AoYwQ3IOQz2-Z6w",
+      authDomain: "fifteens-39cfe.firebaseapp.com",
+      projectId: "fifteens-39cfe",
+      storageBucket: "fifteens-39cfe.firebasestorage.app",
+      messagingSenderId: "344562966483",
+      appId: "1:344562966483:web:73af472946c9242529d926",
+      measurementId: "G-GEGD7ZZ950",
+    ),
+  );
+
   // ステータスバーの設定
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

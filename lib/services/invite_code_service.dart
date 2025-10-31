@@ -1,12 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+/// 招待コード検証結果
+enum InviteCodeValidationResult {
+  valid,              // 有効
+  notFound,           // 存在しない
+  alreadyUsed,        // すでに使用済み
+  expired,            // 期限切れ
+  error,              // エラー
+}
+
 class InviteCodeService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _inviteCodesCollection = 'invite_codes';
 
-  // 招待コードを検証
-  Future<bool> validateInviteCode(String code) async {
+  // 招待コードを検証（詳細な結果を返す）
+  Future<InviteCodeValidationResult> validateInviteCodeDetailed(String code) async {
     try {
       final doc = await _firestore
           .collection(_inviteCodesCollection)
@@ -14,33 +23,39 @@ class InviteCodeService {
           .get();
 
       if (!doc.exists) {
-        return false;
+        return InviteCodeValidationResult.notFound;
       }
 
       final data = doc.data();
-      if (data == null) return false;
+      if (data == null) return InviteCodeValidationResult.notFound;
 
       // 使用済みかチェック
       final isUsed = data['isUsed'] ?? false;
       if (isUsed) {
-        return false;
+        return InviteCodeValidationResult.alreadyUsed;
       }
 
       // 有効期限をチェック（オプション）
       if (data.containsKey('expiresAt')) {
         final expiresAt = (data['expiresAt'] as Timestamp).toDate();
         if (DateTime.now().isAfter(expiresAt)) {
-          return false;
+          return InviteCodeValidationResult.expired;
         }
       }
 
-      return true;
+      return InviteCodeValidationResult.valid;
     } catch (e) {
       if (kDebugMode) {
         print('Error validating invite code: $e');
       }
-      return false;
+      return InviteCodeValidationResult.error;
     }
+  }
+
+  // 招待コードを検証（後方互換性のため）
+  Future<bool> validateInviteCode(String code) async {
+    final result = await validateInviteCodeDetailed(code);
+    return result == InviteCodeValidationResult.valid;
   }
 
   // 招待コードを使用済みにする

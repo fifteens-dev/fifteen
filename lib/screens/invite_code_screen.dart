@@ -46,17 +46,37 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
     });
 
     try {
-      // 招待コードを検証
-      final isValid = await _inviteCodeService.validateInviteCode(inviteCode);
+      // 招待コードを検証（詳細な結果を取得）
+      final validationResult = await _inviteCodeService.validateInviteCodeDetailed(inviteCode);
 
-      if (!isValid) {
+      // 検証結果に応じたエラーメッセージを表示
+      String? errorMessage;
+      switch (validationResult) {
+        case InviteCodeValidationResult.valid:
+          // 有効な場合は次のステップへ
+          break;
+        case InviteCodeValidationResult.notFound:
+          errorMessage = '無効な招待コードです';
+          break;
+        case InviteCodeValidationResult.alreadyUsed:
+          errorMessage = 'この招待コードはすでに使用されています';
+          break;
+        case InviteCodeValidationResult.expired:
+          errorMessage = 'この招待コードは有効期限切れです';
+          break;
+        case InviteCodeValidationResult.error:
+          errorMessage = '招待コードの検証に失敗しました';
+          break;
+      }
+
+      if (errorMessage != null) {
         if (mounted) {
           setState(() {
             _isLoading = false;
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('無効な招待コードです'),
+            SnackBar(
+              content: Text(errorMessage),
               backgroundColor: AppColors.error,
             ),
           );

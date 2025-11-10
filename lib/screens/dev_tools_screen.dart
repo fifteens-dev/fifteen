@@ -57,6 +57,45 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
     }
   }
 
+  Future<void> _handleCreateTestPosts() async {
+    setState(() {
+      _isLoading = true;
+      _statusMessage = 'テスト用投稿データを作成中...';
+    });
+
+    try {
+      await _setupTestData.createTestPosts();
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '✅ テスト用投稿データの作成が完了しました！';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('テスト用投稿データが作成されました'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '❌ エラー: $e';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -158,8 +197,30 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               const SizedBox(height: AppDimensions.paddingXLarge),
               const Divider(color: AppColors.border),
               const SizedBox(height: AppDimensions.paddingMedium),
+
+              // テスト用投稿データ作成セクション
               const Text(
-                '認証フローのテスト',
+                'テスト用投稿データの作成',
+                style: AppTextStyles.heading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                'タイムラインに表示するテスト用の投稿データを作成します。',
+                style: AppTextStyles.body,
+              ),
+              const SizedBox(height: AppDimensions.paddingLarge),
+              PrimaryButton(
+                text: 'テスト用投稿データを作成',
+                onPressed: _handleCreateTestPosts,
+                isLoading: _isLoading,
+              ),
+              const SizedBox(height: AppDimensions.paddingXLarge),
+              const Divider(color: AppColors.border),
+              const SizedBox(height: AppDimensions.paddingMedium),
+
+              // ナビゲーションセクション
+              const Text(
+                '画面遷移',
                 style: AppTextStyles.heading,
               ),
               const SizedBox(height: AppDimensions.paddingMedium),
@@ -173,6 +234,18 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
                   minimumSize: const Size(double.infinity, 50),
                 ),
                 child: const Text('電話番号認証画面へ'),
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pushNamed(context, '/home');
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textPrimary,
+                  side: const BorderSide(color: AppColors.border),
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                child: const Text('ホーム画面へ'),
               ),
             ],
           ),

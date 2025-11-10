@@ -12,6 +12,7 @@ class CommonInputField extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final int? maxLines;
   final int? maxLength;
+  final String? Function(String?)? validator;
 
   const CommonInputField({
     super.key,
@@ -21,6 +22,7 @@ class CommonInputField extends StatelessWidget {
     this.inputFormatters,
     this.maxLines = 1,
     this.maxLength,
+    this.validator,
   });
 
   @override
@@ -34,13 +36,14 @@ class CommonInputField extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMedium),
       ),
-      child: TextField(
+      child: TextFormField(
         controller: controller,
         style: AppTextStyles.input,
         keyboardType: keyboardType,
         inputFormatters: inputFormatters,
         maxLines: maxLines,
         maxLength: maxLength,
+        validator: validator,
         decoration: InputDecoration(
           hintText: hintText,
           hintStyle: AppTextStyles.placeholder,
@@ -50,6 +53,10 @@ class CommonInputField extends StatelessWidget {
             vertical: AppDimensions.paddingMedium,
           ),
           counterText: '', // 文字数カウンターを非表示
+          errorStyle: const TextStyle(
+            color: AppColors.error,
+            fontSize: 12,
+          ),
         ),
       ),
     );

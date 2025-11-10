@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import '../models/track_model.dart';
 
 /// テスト用データをFirestoreにセットアップするユーティリティ
 class SetupTestData {
@@ -32,6 +33,79 @@ class SetupTestData {
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error creating test invite codes: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// テスト用投稿データを作成
+  Future<void> createTestPosts() async {
+    try {
+      final testPosts = [
+        {
+          'userId': 'test_user_1',
+          'username': 'knyaita',
+          'userIconUrl': null,
+          'track': TrackModel(
+            trackId: 'track_1',
+            trackName: 'いとしのエリー',
+            artistName: 'サザンオールスターズ',
+            albumImageUrl: '',
+          ).toMap(),
+          'likeCount': 3,
+          'commentCount': 3,
+          'likedUserIds': [],
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        {
+          'userId': 'test_user_2',
+          'username': 'musiclover',
+          'userIconUrl': null,
+          'track': TrackModel(
+            trackId: 'track_2',
+            trackName: 'Lemon',
+            artistName: '米津玄師',
+            albumImageUrl: '',
+          ).toMap(),
+          'likeCount': 5,
+          'commentCount': 2,
+          'likedUserIds': [],
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        {
+          'userId': 'test_user_3',
+          'username': 'vibemaker',
+          'userIconUrl': null,
+          'track': TrackModel(
+            trackId: 'track_3',
+            trackName: 'きらり',
+            artistName: '藤井風',
+            albumImageUrl: '',
+          ).toMap(),
+          'likeCount': 8,
+          'commentCount': 4,
+          'likedUserIds': [],
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+      ];
+
+      for (final postData in testPosts) {
+        await _firestore.collection('posts').add(postData);
+        if (kDebugMode) {
+          final track = postData['track'] as Map<String, dynamic>;
+          print('✅ Created test post: ${track['trackName']}');
+        }
+      }
+
+      if (kDebugMode) {
+        print('✅ All test posts created successfully!');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error creating test posts: $e');
       }
       rethrow;
     }

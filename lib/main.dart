@@ -11,6 +11,8 @@ import 'screens/profile_setup_screen.dart';
 import 'screens/terms_of_service_screen.dart';
 import 'screens/privacy_policy_screen.dart';
 import 'screens/dev_tools_screen.dart';
+import 'screens/home_screen.dart';
+import 'screens/create_post_screen.dart';
 import 'constants/app_colors.dart';
 
 void main() async {
@@ -62,7 +64,7 @@ class FifteenApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      initialRoute: kDebugMode ? '/dev-tools' : '/',
+      initialRoute: '/dev-tools', // テスト用に常に開発者ツールから開始
       routes: {
         '/': (context) => const PhoneAuthScreen(),
         '/verification': (context) => const VerificationCodeScreen(),
@@ -73,6 +75,8 @@ class FifteenApp extends StatelessWidget {
         '/terms-of-service': (context) => const TermsOfServiceScreen(),
         '/privacy-policy': (context) => const PrivacyPolicyScreen(),
         '/dev-tools': (context) => const DevToolsScreen(),
+        '/home': (context) => const HomeScreen(),
+        '/create-post': (context) => const CreatePostScreen(),
       },
     );
   }

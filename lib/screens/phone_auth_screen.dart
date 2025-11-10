@@ -29,11 +29,32 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
   Future<void> _handleSendVerification() async {
     // 電話番号のバリデーション
     final phoneNumber = _phoneController.text.replaceAll(RegExp(r'\D'), '');
+
+    // テストモード: 000-0000-0000 や 111-1111-1111 などの簡単な番号でスキップ
+    if (phoneNumber.length >= 10 && RegExp(r'^([0-9])\1+$').hasMatch(phoneNumber)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎉 テストモード: 認証をスキップしてホーム画面へ'),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        // テストモードでホーム画面へ直接遷移
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/home');
+          }
+        });
+      }
+      return;
+    }
+
     if (phoneNumber.length != 11) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('正しい電話番号を入力してください'),
+            content: Text('正しい電話番号を入力してください（テストモード: 同じ数字を10桁以上）'),
             backgroundColor: AppColors.error,
           ),
         );

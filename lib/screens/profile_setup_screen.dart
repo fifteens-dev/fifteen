@@ -25,8 +25,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         ),
       );
 
-      // TODO: メイン画面（ホーム画面）への遷移を実装
-      // 今は完了メッセージのみ表示
+      // ホーム画面への遷移（認証フロー完了）
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            '/home',
+            (route) => false, // すべての前の画面を削除
+          );
+        }
+      });
     }
   }
 

@@ -25,11 +25,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         ),
       );
 
-      // ホーム画面への遷移（認証フロー完了）
+      // 音楽ライブラリ接続画面への遷移
       Future.delayed(const Duration(seconds: 1), () {
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil(
-            '/home',
+            '/music-connection',
             (route) => false, // すべての前の画面を削除
           );
         }

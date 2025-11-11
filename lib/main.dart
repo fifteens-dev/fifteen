@@ -8,6 +8,8 @@ import 'screens/invite_code_screen.dart';
 import 'screens/name_input_screen.dart';
 import 'screens/username_creation_screen.dart';
 import 'screens/profile_setup_screen.dart';
+import 'screens/music_connection_screen.dart';
+import 'screens/first_timeline_screen.dart';
 import 'screens/terms_of_service_screen.dart';
 import 'screens/privacy_policy_screen.dart';
 import 'screens/dev_tools_screen.dart';
@@ -72,6 +74,8 @@ class FifteenApp extends StatelessWidget {
         '/name-input': (context) => const NameInputScreen(),
         '/username-creation': (context) => const UsernameCreationScreen(),
         '/profile-setup': (context) => const ProfileSetupScreen(),
+        '/music-connection': (context) => const MusicConnectionScreen(),
+        '/first-timeline': (context) => const FirstTimelineScreen(),
         '/terms-of-service': (context) => const TermsOfServiceScreen(),
         '/privacy-policy': (context) => const PrivacyPolicyScreen(),
         '/dev-tools': (context) => const DevToolsScreen(),

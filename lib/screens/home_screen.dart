@@ -194,6 +194,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// タイムライン（投稿カードリスト）
+  ///
+  /// StreamBuilderを使用してFirestoreからリアルタイムで投稿データを取得します。
+  /// 他のユーザーが投稿を作成したり、いいねを押した場合、
+  /// 自動的にUIが更新され、すべてのユーザーに変更が即座に反映されます。
   Widget _buildTimeline() {
     return StreamBuilder<List<PostModel>>(
       stream: _postService.getPostsStream(limit: 20),
@@ -260,7 +264,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // 投稿カードリストを表示
         final posts = snapshot.data!;
-        final currentUserId = _auth.currentUser?.uid;
+        // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
+        final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
 
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 15),
@@ -269,6 +274,7 @@ class _HomeScreenState extends State<HomeScreen> {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: PostCard(
+                  key: ValueKey(post.postId), // 投稿IDをkeyにして状態を保持
                   post: post,
                   currentUserId: currentUserId,
                   onLike: () => _handleLike(post),
@@ -286,15 +292,14 @@ class _HomeScreenState extends State<HomeScreen> {
   /// いいねボタンが押されたときの処理
   Future<void> _handleLike(PostModel post) async {
     final currentUser = _auth.currentUser;
-    if (currentUser == null) {
-      _showMessage('ログインしてください');
-      return;
-    }
+
+    // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
+    final userId = currentUser?.uid ?? 'test_user_temp';
 
     try {
       await _postService.toggleLike(
         postId: post.postId,
-        userId: currentUser.uid,
+        userId: userId,
       );
     } catch (e) {
       _showMessage('いいねに失敗しました');

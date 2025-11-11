@@ -3,7 +3,7 @@ import '../models/post_model.dart';
 import '../constants/app_colors.dart';
 
 /// 投稿カードウィジェット
-class PostCard extends StatelessWidget {
+class PostCard extends StatefulWidget {
   final PostModel post;
   final VoidCallback? onLike;
   final VoidCallback? onComment;
@@ -18,6 +18,67 @@ class PostCard extends StatelessWidget {
     this.onAdd,
     this.currentUserId,
   });
+
+  @override
+  State<PostCard> createState() => _PostCardState();
+}
+
+class _PostCardState extends State<PostCard> {
+  // 楽観的UI更新（Optimistic Update）用のローカル状態
+  //
+  // ユーザーがいいねボタンをクリックした時、Firestoreへの更新を待たずに
+  // 即座にUIを更新するための一時的な状態です。
+  //
+  // Firestoreから正しい更新データが返ってきたら、この楽観的状態はリセットされ、
+  // 実際のFirestoreデータが表示されます。
+  //
+  // これにより、他のユーザーがいいねを押した場合も、リアルタイムで
+  // すべてのクライアントに反映されます。
+  bool? _isLikedOptimistic;
+  int? _likeCountOptimistic;
+
+  /// いいねボタンが押された時の処理（楽観的UI更新）
+  void _handleLikeTap() {
+    if (widget.onLike != null) {
+      setState(() {
+        // 現在のいいね状態を取得
+        final currentIsLiked = _isLikedOptimistic ??
+            (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!));
+        final currentLikeCount = _likeCountOptimistic ?? widget.post.likeCount;
+
+        // 楽観的に状態を反転
+        _isLikedOptimistic = !currentIsLiked;
+        _likeCountOptimistic = currentIsLiked ? currentLikeCount - 1 : currentLikeCount + 1;
+      });
+
+      // 実際のFirestore更新を実行
+      widget.onLike!();
+    }
+  }
+
+  @override
+  void didUpdateWidget(PostCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Firestoreから新しいデータが来た場合、楽観的状態と一致するかチェック
+    if (oldWidget.post.postId != widget.post.postId) {
+      // 異なる投稿に変わった場合はリセット
+      _isLikedOptimistic = null;
+      _likeCountOptimistic = null;
+    } else if (_isLikedOptimistic != null || _likeCountOptimistic != null) {
+      // 楽観的状態が設定されている場合、Firestoreの状態と比較
+      final actualIsLiked = widget.currentUserId != null &&
+          widget.post.isLikedBy(widget.currentUserId!);
+      final actualLikeCount = widget.post.likeCount;
+
+      // 楽観的状態とFirestoreの状態が一致した場合のみリセット
+      if (_isLikedOptimistic == actualIsLiked &&
+          _likeCountOptimistic == actualLikeCount) {
+        _isLikedOptimistic = null;
+        _likeCountOptimistic = null;
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -115,9 +176,9 @@ class PostCard extends StatelessWidget {
 
   /// アルバムカバー
   Widget _buildAlbumCover() {
-    return post.track.albumImageUrl.isNotEmpty
+    return widget.post.track.albumImageUrl.isNotEmpty
         ? Image.network(
-            post.track.albumImageUrl,
+            widget.post.track.albumImageUrl,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) {
               return _buildAlbumPlaceholder();
@@ -143,7 +204,7 @@ class PostCard extends StatelessWidget {
   /// コメントボタン
   Widget _buildCommentButton() {
     return GestureDetector(
-      onTap: onComment,
+      onTap: widget.onComment,
       child: Container(
         height: 43,
         decoration: BoxDecoration(
@@ -206,7 +267,7 @@ class PostCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          post.track.trackName,
+          widget.post.track.trackName,
           style: const TextStyle(
             fontSize: 25,
             fontWeight: FontWeight.bold,
@@ -217,7 +278,7 @@ class PostCard extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          post.track.artistName,
+          widget.post.track.artistName,
           style: const TextStyle(
             fontSize: 13,
             color: Colors.black,
@@ -231,16 +292,18 @@ class PostCard extends StatelessWidget {
 
   /// リアクション（いいね、コメント、追加）
   Widget _buildReactions() {
-    // 現在のユーザーがいいねしているかチェック
-    final isLiked = currentUserId != null && post.isLikedBy(currentUserId!);
+    // 楽観的UI更新を優先、なければ実際の状態を使用
+    final isLiked = _isLikedOptimistic ??
+        (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!));
+    final likeCount = _likeCountOptimistic ?? widget.post.likeCount;
 
     return Row(
       children: [
         // いいね
         _buildReactionItem(
           icon: isLiked ? Icons.favorite : Icons.favorite_border,
-          count: post.likeCount,
-          onTap: onLike,
+          count: likeCount,
+          onTap: _handleLikeTap,
           isActive: isLiked,
         ),
         const SizedBox(width: 12),
@@ -248,14 +311,14 @@ class PostCard extends StatelessWidget {
         // コメント
         _buildReactionItem(
           icon: Icons.chat_bubble_outline,
-          count: post.commentCount,
-          onTap: onComment,
+          count: widget.post.commentCount,
+          onTap: widget.onComment,
         ),
         const SizedBox(width: 12),
 
         // 追加
         GestureDetector(
-          onTap: onAdd,
+          onTap: widget.onAdd,
           child: Container(
             width: 23,
             height: 23,
@@ -345,10 +408,10 @@ class PostCard extends StatelessWidget {
             shape: BoxShape.circle,
             color: Colors.grey[400],
           ),
-          child: post.userIconUrl != null && post.userIconUrl!.isNotEmpty
+          child: widget.post.userIconUrl != null && widget.post.userIconUrl!.isNotEmpty
               ? ClipOval(
                   child: Image.network(
-                    post.userIconUrl!,
+                    widget.post.userIconUrl!,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) {
                       return const Icon(Icons.person, size: 20, color: Colors.white);
@@ -361,7 +424,7 @@ class PostCard extends StatelessWidget {
 
         // ユーザー名
         Text(
-          post.username,
+          widget.post.username,
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,

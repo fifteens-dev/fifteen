@@ -40,7 +40,8 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
             duration: Duration(seconds: 2),
           ),
         );
-        // テストモードでホーム画面へ直接遷移
+
+        // テストモードでホーム画面へ直接遷移（認証なし）
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) {
             Navigator.pushReplacementNamed(context, '/home');

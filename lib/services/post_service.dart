@@ -67,12 +67,28 @@ class PostService {
   }
 
   /// 投稿のリアルタイムストリームを取得
+  ///
+  /// このメソッドはFirestoreのsnapshotsを使用して、リアルタイムで投稿データを取得します。
+  /// 他のユーザーがいいねを押したり、新しい投稿を作成した場合、
+  /// 自動的にStreamが更新され、すべてのクライアントに変更が反映されます。
+  ///
+  /// [limit] 取得する投稿の最大数（デフォルト: 20）
+  ///
+  /// 使用例：
+  /// ```dart
+  /// StreamBuilder<List<PostModel>>(
+  ///   stream: postService.getPostsStream(limit: 20),
+  ///   builder: (context, snapshot) {
+  ///     // UIを構築
+  ///   },
+  /// )
+  /// ```
   Stream<List<PostModel>> getPostsStream({int limit = 20}) {
     return _firestore
         .collection(_postsCollection)
         .orderBy('createdAt', descending: true)
         .limit(limit)
-        .snapshots()
+        .snapshots() // リアルタイム更新を受信
         .map((snapshot) {
       return snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))

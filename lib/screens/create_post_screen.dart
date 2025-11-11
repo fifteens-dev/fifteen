@@ -44,25 +44,23 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
 
     final currentUser = _auth.currentUser;
-    if (currentUser == null) {
-      _showMessage('ログインしてください');
-      return;
-    }
+
+    // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
+    final userId = currentUser?.uid ?? 'test_user_${DateTime.now().millisecondsSinceEpoch}';
 
     setState(() {
       _isLoading = true;
     });
 
     try {
-      // ユーザー情報を取得
-      final userModel = await _userService.getUser(currentUser.uid);
-      if (userModel == null) {
-        _showMessage('ユーザー情報の取得に失敗しました');
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
+      // ユーザー情報を取得（テストモードの場合はnullを許容）
+      final userModel = currentUser != null
+          ? await _userService.getUser(currentUser.uid)
+          : null;
+
+      // 匿名ユーザー（テストモード）の場合はデフォルト情報を使用
+      final username = userModel?.username ?? 'test_user';
+      final userIconUrl = userModel?.profileImageUrl;
 
       // トラック情報を作成
       final track = TrackModel(
@@ -74,9 +72,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
       // 投稿を作成
       await _postService.createPost(
-        userId: currentUser.uid,
-        username: userModel.username ?? 'Unknown',
-        userIconUrl: userModel.profileImageUrl,
+        userId: userId,
+        username: username,
+        userIconUrl: userIconUrl,
         trackData: track.toMap(),
       );
 

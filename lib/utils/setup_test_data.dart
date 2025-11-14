@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/track_model.dart';
+import '../models/post_theme.dart';
 
 /// テスト用データをFirestoreにセットアップするユーティリティ
 class SetupTestData {
@@ -57,6 +58,7 @@ class SetupTestData {
           'likedUserIds': [],
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
+          'theme': PostTheme.blueGreen.toMap(),
         },
         {
           'userId': 'test_user_2',
@@ -73,6 +75,7 @@ class SetupTestData {
           'likedUserIds': [],
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
+          'theme': PostTheme.purple.toMap(),
         },
         {
           'userId': 'test_user_3',
@@ -89,6 +92,7 @@ class SetupTestData {
           'likedUserIds': [],
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
+          'theme': PostTheme.beige.toMap(),
         },
       ];
 

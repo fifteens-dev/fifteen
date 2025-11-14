@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
+import '../widgets/post_card.dart';
+import '../utils/test_data.dart';
 
 /// 初回タイムライン画面
 ///
 /// 音楽ライブラリ接続後に表示される、投稿がまだない空の状態の画面
 /// 最初の投稿を促すUI
+/// テスト段階では、ダミーの投稿カードを表示
 class FirstTimelineScreen extends StatelessWidget {
   const FirstTimelineScreen({super.key});
 
@@ -23,9 +26,9 @@ class FirstTimelineScreen extends StatelessWidget {
             // Vibeバー（プレースホルダー）
             _buildVibeBar(),
 
-            // メインコンテンツ（空の投稿カード）
+            // メインコンテンツ（投稿カードのタイムライン）
             Expanded(
-              child: _buildEmptyState(context),
+              child: _buildTimeline(context),
             ),
 
             // ボトムナビゲーション
@@ -149,58 +152,47 @@ class FirstTimelineScreen extends StatelessWidget {
     );
   }
 
-  /// 空の状態（最初の投稿を促す）
-  Widget _buildEmptyState(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 363,
-        height: 644,
-        margin: const EdgeInsets.only(top: 0),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.white, width: 1),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Center(
-          child: GestureDetector(
-            onTap: () => _navigateToCreatePost(context),
-            child: Container(
-              width: 120,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 25,
-                    height: 25,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      size: 15,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    '投稿する',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  /// タイムライン（テスト用のダミー投稿カードを表示）
+  Widget _buildTimeline(BuildContext context) {
+    final testPosts = TestData.generateTestPosts();
+    const currentUserId = 'test_user_temp'; // テスト用のユーザーID
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 16),
+      itemCount: testPosts.length,
+      itemBuilder: (context, index) {
+        final post = testPosts[index];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: PostCard(
+            key: ValueKey(post.postId),
+            post: post,
+            currentUserId: currentUserId,
+            onLike: () => _handleLike(post),
+            onComment: () => _handleComment(post),
+            onAdd: () => _handleAdd(post),
           ),
-        ),
-      ),
+        );
+      },
     );
+  }
+
+  /// いいねボタンが押されたときの処理（テストモード）
+  void _handleLike(dynamic post) {
+    // テストモード: コンソールにログ出力
+    debugPrint('Like pressed for post: ${post.postId}');
+  }
+
+  /// コメントボタンが押されたときの処理（テストモード）
+  void _handleComment(dynamic post) {
+    // テストモード: コンソールにログ出力
+    debugPrint('Comment pressed for post: ${post.postId}');
+  }
+
+  /// 追加ボタンが押されたときの処理（テストモード）
+  void _handleAdd(dynamic post) {
+    // テストモード: コンソールにログ出力
+    debugPrint('Add pressed for post: ${post.postId}');
   }
 
   /// ボトムナビゲーション

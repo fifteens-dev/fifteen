@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'track_model.dart';
+import 'post_theme.dart';
 
 /// 投稿情報を表すモデル
 class PostModel {
@@ -13,6 +14,7 @@ class PostModel {
   final List<String> likedUserIds; // いいねしたユーザーのIDリスト
   final DateTime createdAt;
   final DateTime updatedAt;
+  final PostTheme theme; // カラーテーマ
 
   PostModel({
     required this.postId,
@@ -25,6 +27,7 @@ class PostModel {
     this.likedUserIds = const [],
     required this.createdAt,
     required this.updatedAt,
+    this.theme = PostTheme.defaultTheme,
   });
 
   // Firestoreドキュメントから作成
@@ -42,6 +45,9 @@ class PostModel {
       likedUserIds: List<String>.from(data['likedUserIds'] ?? []),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      theme: data['theme'] != null
+          ? PostTheme.fromMap(data['theme'] as Map<String, dynamic>)
+          : PostTheme.defaultTheme,
     );
   }
 
@@ -57,6 +63,7 @@ class PostModel {
       'likedUserIds': likedUserIds,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
+      'theme': theme.toMap(),
     };
   }
 
@@ -72,6 +79,7 @@ class PostModel {
     List<String>? likedUserIds,
     DateTime? createdAt,
     DateTime? updatedAt,
+    PostTheme? theme,
   }) {
     return PostModel(
       postId: postId ?? this.postId,
@@ -84,6 +92,7 @@ class PostModel {
       likedUserIds: likedUserIds ?? this.likedUserIds,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      theme: theme ?? this.theme,
     );
   }
 

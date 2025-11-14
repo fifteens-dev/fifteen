@@ -5,6 +5,7 @@ import '../models/post_model.dart';
 import '../models/track_model.dart';
 import '../widgets/post_card.dart';
 import '../services/post_service.dart';
+import '../utils/test_data.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -226,44 +227,13 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        // データがない場合
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.music_note,
-                    size: 64,
-                    color: Colors.white54,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'まだ投稿がありません',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '最初の投稿をしてみましょう！',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white.withOpacity(0.7),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
+        // デバッグ用: 常にテストデータを表示（Firestoreの古いデータを無視）
+        final posts = TestData.generateTestPosts();
 
-        // 投稿カードリストを表示
-        final posts = snapshot.data!;
+        // 本番用（Firestoreデータを使用する場合）:
+        // final posts = (snapshot.hasData && snapshot.data!.isNotEmpty)
+        //     ? snapshot.data!
+        //     : TestData.generateTestPosts();
         // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
         final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
 
@@ -302,7 +272,11 @@ class _HomeScreenState extends State<HomeScreen> {
         userId: userId,
       );
     } catch (e) {
-      _showMessage('いいねに失敗しました');
+      // テストデータの場合はエラーメッセージを表示しない
+      // （test_post_で始まるIDはテストデータ）
+      if (!post.postId.startsWith('test_post_')) {
+        _showMessage('いいねに失敗しました');
+      }
     }
   }
 

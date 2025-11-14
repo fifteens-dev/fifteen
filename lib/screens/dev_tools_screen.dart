@@ -111,13 +111,14 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppDimensions.paddingLarge,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppDimensions.paddingLarge,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               const SizedBox(height: 40),
               const Text(
                 'テストデータのセットアップ',
@@ -248,6 +249,7 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
                 child: const Text('ホーム画面へ'),
               ),
             ],
+            ),
           ),
         ),
       ),

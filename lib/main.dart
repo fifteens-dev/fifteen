@@ -66,7 +66,7 @@ class FifteenApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      initialRoute: '/dev-tools', // テスト用に常に開発者ツールから開始
+      initialRoute: '/dev-tools', // 開発ツール画面から開始（招待コード作成）
       routes: {
         '/': (context) => const PhoneAuthScreen(),
         '/verification': (context) => const VerificationCodeScreen(),

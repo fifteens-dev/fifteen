@@ -238,13 +238,13 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     );
   }
 
-  /// カード裏面（写真+歌詞カード+グラデーション）
+  /// カード裏面（写真+アルバムカード+下部セクション）
   Widget _buildBack() {
     final theme = widget.post.theme;
     final screenWidth = MediaQuery.of(context).size.width;
     final cardWidth = screenWidth - 30; // 左右15pxずつの余白を引く
-    final photoHeight = cardWidth * (3 / 4); // 写真エリア（3部分）
-    final contentHeight = cardWidth * (1 / 4); // コンテンツエリア（1部分）
+    final photoHeight = cardWidth * (4 / 3); // 写真エリア（大きめ）
+    final contentHeight = cardWidth * (7 / 12); // コンテンツエリア
     final cardHeight = cardWidth * (7 / 4); // 表面と同じ長方形（7:4の比率）
 
     return Transform(
@@ -263,7 +263,7 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
           borderRadius: BorderRadius.circular(18),
           child: Stack(
             children: [
-              // 写真エリア（上部3/4）
+              // 写真エリア（上部）
               Positioned(
                 left: 0,
                 top: 0,
@@ -282,21 +282,21 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                 ),
               ),
 
-              // ユーザー情報（右上）
+              // ユーザー情報（左上）
               Positioned(
-                right: 15,
+                left: 15,
                 top: 15,
-                child: _buildUserInfoTopRight(theme),
+                child: _buildUserInfoTopLeft(theme),
               ),
 
-              // 歌詞カード（写真エリアとコンテンツエリアの境界付近）
+              // 小さなアルバムカード（写真の上部中央）
               Positioned(
-                left: 61.89,
-                top: photoHeight * 0.7, // 写真エリアの70%の位置
-                child: _buildLyricsCard(),
+                left: cardWidth * 0.25,
+                top: 20,
+                child: _buildMiniAlbumCard(),
               ),
 
-              // グラデーションオーバーレイ（下部1/4）
+              // 下部コンテンツセクション
               Positioned(
                 left: 0,
                 right: 0,
@@ -311,48 +311,114 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                         theme.gradientStart,
                         theme.gradientEnd,
                       ],
-                      stops: const [0.0377, 1.0],
+                      stops: const [0.0, 1.0],
                     ),
                   ),
-                ),
-              ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 曲名（大きく）
+                        Text(
+                          widget.post.track.trackName,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
 
-              // コンテンツ（下部1/4）
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: contentHeight,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // "Provided courtesy of Apple Music"
-                      Padding(
-                        padding: const EdgeInsets.only(left: 3),
-                        child: Text(
+                        // アーティスト名
+                        Text(
+                          widget.post.track.artistName,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: theme.secondaryTextColor,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 12),
+
+                        // リアクションとユーザーアバター
+                        Row(
+                          children: [
+                            // いいね
+                            _buildReactionButton(
+                              icon: _isLikedOptimistic ??
+                                (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!))
+                                ? Icons.favorite
+                                : Icons.favorite_border,
+                              color: _isLikedOptimistic ??
+                                (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!))
+                                ? Colors.red
+                                : Colors.white,
+                              count: _likeCountOptimistic ?? widget.post.likeCount,
+                              onTap: _handleLikeTap,
+                            ),
+                            const SizedBox(width: 16),
+
+                            // コメント
+                            _buildReactionButton(
+                              icon: Icons.chat_bubble_outline,
+                              color: Colors.white,
+                              count: widget.post.commentCount,
+                              onTap: widget.onComment,
+                            ),
+                            const SizedBox(width: 16),
+
+                            // 追加
+                            _buildReactionButton(
+                              icon: Icons.add_circle_outline,
+                              color: Colors.white,
+                              count: null,
+                              onTap: widget.onAdd,
+                            ),
+
+                            const Spacer(),
+
+                            // ユーザーアバター
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.grey,
+                              ),
+                              child: widget.post.userIconUrl != null && widget.post.userIconUrl!.isNotEmpty
+                                  ? ClipOval(
+                                      child: Image.network(
+                                        widget.post.userIconUrl!,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return const Icon(Icons.person, size: 24, color: Colors.white);
+                                        },
+                                      ),
+                                    )
+                                  : const Icon(Icons.person, size: 24, color: Colors.white),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // コメントボタン
+                        _buildCommentButton(theme),
+                        const Spacer(),
+
+                        // "Provided courtesy of Apple Music"
+                        Text(
                           'Provided courtesy of Apple Music',
                           style: TextStyle(
                             fontSize: 10,
                             color: theme.secondaryTextColor,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-
-                      // コメントボタン
-                      _buildCommentButton(theme),
-                      const SizedBox(height: 6),
-
-                      // 曲名とアーティスト名（裏面はフォントサイズ小）
-                      _buildTrackInfoBack(theme),
-                      const SizedBox(height: 2),
-
-                      // リアクション
-                      _buildReactions(theme),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -486,50 +552,148 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     );
   }
 
-  /// ユーザー情報（裏面の右上）
-  Widget _buildUserInfoTopRight(PostTheme theme) {
-    return Row(
+  /// ユーザー情報（裏面の左上）
+  Widget _buildUserInfoTopLeft(PostTheme theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         // ユーザー名
         Text(
           widget.post.username,
           style: const TextStyle(
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
             color: Colors.white,
             shadows: [
               Shadow(
                 offset: Offset(0, 1),
-                blurRadius: 2,
-                color: Colors.black45,
+                blurRadius: 3,
+                color: Colors.black54,
               ),
             ],
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(height: 2),
 
-        // ユーザーアイコン
-        Container(
-          width: 32,
-          height: 32,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.grey,
+        // ハッシュタグ/質問テキスト
+        const Text(
+          '#ドライブの時に聴きたい曲は？',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.white,
+            shadows: [
+              Shadow(
+                offset: Offset(0, 1),
+                blurRadius: 3,
+                color: Colors.black54,
+              ),
+            ],
           ),
-          child: widget.post.userIconUrl != null && widget.post.userIconUrl!.isNotEmpty
-              ? ClipOval(
-                  child: Image.network(
-                    widget.post.userIconUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(Icons.person, size: 20, color: Colors.white);
-                    },
-                  ),
-                )
-              : const Icon(Icons.person, size: 20, color: Colors.white),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         ),
       ],
+    );
+  }
+
+  /// 小さなアルバムカード（裏面の写真上部）
+  Widget _buildMiniAlbumCard() {
+    return Container(
+      width: 200,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xB3000000), // 半透明の黒背景
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          // アルバムカバー
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              color: Colors.grey[800],
+            ),
+            child: widget.post.track.albumImageUrl.isNotEmpty
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.network(
+                      widget.post.track.albumImageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(Icons.album, color: Colors.white54, size: 30);
+                      },
+                    ),
+                  )
+                : const Icon(Icons.album, color: Colors.white54, size: 30),
+          ),
+          const SizedBox(width: 10),
+
+          // トラック情報
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.post.track.trackName,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  widget.post.track.artistName,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.white70,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// リアクションボタン（いいね、コメント、追加）
+  Widget _buildReactionButton({
+    required IconData icon,
+    required Color color,
+    required int? count,
+    required VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 24,
+            color: color,
+          ),
+          if (count != null) ...[
+            const SizedBox(width: 4),
+            Text(
+              count.toString(),
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

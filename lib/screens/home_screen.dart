@@ -6,6 +6,7 @@ import '../models/track_model.dart';
 import '../widgets/post_card.dart';
 import '../services/post_service.dart';
 import '../utils/test_data.dart';
+import 'comment_screen.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -15,10 +16,71 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
   int _selectedIndex = 0;
   final PostService _postService = PostService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  bool get wantKeepAlive => true;
+
+  // 投稿ごとのコメント数を保持（楽観的UI更新用）
+  final Map<String, int> _commentCounts = {};
+
+  // 投稿ごとのいいね数を保持（楽観的UI更新用）
+  final Map<String, int> _likeCounts = {};
+
+  // ユーザーがいいねした投稿IDのセット（楽観的UI更新用）
+  final Set<String> _likedPostIds = {};
+
+  // 投稿リストをキャッシュ（再構築を避けるため）
+  List<PostModel>? _cachedPosts;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPosts();
+    _loadLocalLikeStates();
+  }
+
+  /// 投稿リストを読み込み
+  void _loadPosts() {
+    _cachedPosts = TestData.generateTestPosts();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// ローカルストレージからいいね状態を読み込み
+  Future<void> _loadLocalLikeStates() async {
+    final posts = TestData.generateTestPosts();
+    final userId = _auth.currentUser?.uid ?? 'test_user_temp';
+
+    for (final post in posts) {
+      if (post.postId.startsWith('test_post_')) {
+        // ローカルストレージからいいね状態を読み込み
+        final likeState = await TestData.getLikeState(post.postId);
+        final likeCount = likeState['likeCount'] as int;
+        final likedUserIds = List<String>.from(likeState['likedUserIds']);
+
+        if (likeCount > 0) {
+          _likeCounts[post.postId] = likeCount;
+        }
+
+        if (likedUserIds.contains(userId)) {
+          _likedPostIds.add(post.postId);
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   // ボトムナビゲーションのタップ処理
   void _onItemTapped(int index) {
@@ -47,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixinのために必要
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -57,15 +120,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // メインコンテンツ（スクロール可能）
             Expanded(
-              child: ListView(
-                children: [
+              child: CustomScrollView(
+                controller: _scrollController,
+                slivers: [
                   // Vibeバー
-                  _buildVibeBar(),
+                  SliverToBoxAdapter(
+                    child: _buildVibeBar(),
+                  ),
 
-                  const SizedBox(height: 16),
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 16),
+                  ),
 
                   // 投稿カード束（タイムライン）
-                  _buildTimeline(),
+                  _buildTimelineSliver(),
                 ],
               ),
             ),
@@ -194,7 +262,79 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// タイムライン（投稿カードリスト）
+  /// タイムライン（投稿カードリスト）- Sliver版
+  ///
+  /// キャッシュされた投稿リストを使用してスクロール位置を確実に保持します。
+  Widget _buildTimelineSliver() {
+    // キャッシュされた投稿リストがない場合はローディング表示
+    if (_cachedPosts == null) {
+      return const SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
+        ),
+      );
+    }
+
+    final posts = _cachedPosts!;
+    final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
+
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 15),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final post = posts[index];
+
+            // コメント数といいね数のオーバーライドを適用
+            var displayPost = post;
+
+            // コメント数のオーバーライド
+            if (_commentCounts.containsKey(post.postId)) {
+              displayPost = displayPost.copyWith(commentCount: _commentCounts[post.postId]);
+            }
+
+            // いいね数のオーバーライド
+            if (_likeCounts.containsKey(post.postId)) {
+              displayPost = displayPost.copyWith(likeCount: _likeCounts[post.postId]);
+            }
+
+            // いいね状態のオーバーライド
+            if (_likedPostIds.contains(post.postId)) {
+              // ユーザーがいいねしている場合、likedUserIdsにユーザーIDを追加
+              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
+              if (!updatedLikedUserIds.contains(currentUserId)) {
+                updatedLikedUserIds.add(currentUserId);
+                displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+              }
+            } else if (_likeCounts.containsKey(post.postId)) {
+              // いいね解除した場合、likedUserIdsからユーザーIDを削除
+              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
+              updatedLikedUserIds.remove(currentUserId);
+              displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+            }
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: PostCard(
+                key: ValueKey(post.postId), // 投稿IDをkeyにして状態を保持
+                post: displayPost,
+                currentUserId: currentUserId,
+                onLike: () => _handleLike(post),
+                onComment: () => _handleComment(post),
+                onAdd: () => _handleAdd(post),
+              ),
+            );
+          },
+          childCount: posts.length,
+        ),
+      ),
+    );
+  }
+
+  /// タイムライン（投稿カードリスト）- 旧版（未使用）
   ///
   /// StreamBuilderを使用してFirestoreからリアルタイムで投稿データを取得します。
   /// 他のユーザーが投稿を作成したり、いいねを押した場合、
@@ -241,11 +381,39 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 15),
           child: Column(
             children: posts.map((post) {
+              // コメント数といいね数のオーバーライドを適用
+              var displayPost = post;
+
+              // コメント数のオーバーライド
+              if (_commentCounts.containsKey(post.postId)) {
+                displayPost = displayPost.copyWith(commentCount: _commentCounts[post.postId]);
+              }
+
+              // いいね数のオーバーライド
+              if (_likeCounts.containsKey(post.postId)) {
+                displayPost = displayPost.copyWith(likeCount: _likeCounts[post.postId]);
+              }
+
+              // いいね状態のオーバーライド
+              if (_likedPostIds.contains(post.postId)) {
+                // ユーザーがいいねしている場合、likedUserIdsにユーザーIDを追加
+                final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
+                if (!updatedLikedUserIds.contains(currentUserId)) {
+                  updatedLikedUserIds.add(currentUserId);
+                  displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+                }
+              } else if (_likeCounts.containsKey(post.postId)) {
+                // いいね解除した場合、likedUserIdsからユーザーIDを削除
+                final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
+                updatedLikedUserIds.remove(currentUserId);
+                displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+              }
+
               return Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: PostCard(
                   key: ValueKey(post.postId), // 投稿IDをkeyにして状態を保持
-                  post: post,
+                  post: displayPost,
                   currentUserId: currentUserId,
                   onLike: () => _handleLike(post),
                   onComment: () => _handleComment(post),
@@ -266,24 +434,108 @@ class _HomeScreenState extends State<HomeScreen> {
     // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
     final userId = currentUser?.uid ?? 'test_user_temp';
 
+    // テスト投稿の場合はTestDataを使用
+    if (post.postId.startsWith('test_post_')) {
+      try {
+        // 元のいいね数を取得（表示上のオーバーライドがあればそれを使用）
+        final originalLikeCount = _likeCounts[post.postId] ?? post.likeCount;
+
+        // TestDataでいいねをトグル（ローカルストレージに保存）
+        await TestData.toggleLike(post.postId, userId, originalLikeCount);
+
+        // 更新されたいいね状態を取得
+        final likeState = await TestData.getLikeState(post.postId);
+        final likeCount = likeState['likeCount'] as int;
+        final likedUserIds = List<String>.from(likeState['likedUserIds']);
+
+        // ローカルの状態マップを更新（setState不要 - PostCardの楽観的UIが表示を担当）
+        if (likeCount > 0) {
+          _likeCounts[post.postId] = likeCount;
+        } else {
+          _likeCounts.remove(post.postId);
+        }
+
+        if (likedUserIds.contains(userId)) {
+          _likedPostIds.add(post.postId);
+        } else {
+          _likedPostIds.remove(post.postId);
+        }
+      } catch (e) {
+        print('いいねの保存に失敗: $e');
+        _showMessage('いいねに失敗しました');
+      }
+      return;
+    }
+
+    // 通常の投稿の場合は既存のロジック
+    // 現在のいいね状態を取得
+    final currentLikeCount = _likeCounts[post.postId] ?? post.likeCount;
+    final isCurrentlyLiked = _likedPostIds.contains(post.postId) || post.isLikedBy(userId);
+
+    // 楽観的UI更新: 先に状態を更新
+    setState(() {
+      if (isCurrentlyLiked) {
+        // いいね解除
+        _likedPostIds.remove(post.postId);
+        _likeCounts[post.postId] = currentLikeCount - 1;
+      } else {
+        // いいね追加
+        _likedPostIds.add(post.postId);
+        _likeCounts[post.postId] = currentLikeCount + 1;
+      }
+    });
+
     try {
       await _postService.toggleLike(
         postId: post.postId,
         userId: userId,
       );
     } catch (e) {
-      // テストデータの場合はエラーメッセージを表示しない
-      // （test_post_で始まるIDはテストデータ）
-      if (!post.postId.startsWith('test_post_')) {
-        _showMessage('いいねに失敗しました');
+      // エラーが発生したら状態を元に戻す
+      if (mounted) {
+        setState(() {
+          if (isCurrentlyLiked) {
+            _likedPostIds.add(post.postId);
+            _likeCounts[post.postId] = currentLikeCount;
+          } else {
+            _likedPostIds.remove(post.postId);
+            _likeCounts[post.postId] = currentLikeCount;
+          }
+        });
       }
+
+      _showMessage('いいねに失敗しました');
+    }
+  }
+
+  /// コメント数を更新（コメント画面から呼ばれる）
+  void _updateCommentCount(String postId, int count) {
+    if (mounted) {
+      setState(() {
+        _commentCounts[postId] = count;
+      });
     }
   }
 
   /// コメントボタンが押されたときの処理
-  void _handleComment(PostModel post) {
-    // TODO: コメント画面への遷移を実装
-    _showMessage('コメント機能は今後実装予定です');
+  Future<void> _handleComment(PostModel post) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CommentScreen(
+          post: post,
+          onCommentCountChanged: (count) => _updateCommentCount(post.postId, count),
+        ),
+      ),
+    );
+
+    // 戻ってきた後、念のためコメント数を更新
+    if (post.postId.startsWith('test_post_') && mounted) {
+      final commentCount = await TestData.getCommentCount(post.postId);
+      setState(() {
+        _commentCounts[post.postId] = commentCount;
+      });
+    }
   }
 
   /// 追加ボタンが押されたときの処理

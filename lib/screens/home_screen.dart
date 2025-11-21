@@ -7,6 +7,7 @@ import '../widgets/post_card.dart';
 import '../services/post_service.dart';
 import '../utils/test_data.dart';
 import 'comment_screen.dart';
+import 'profile_screen.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -101,8 +102,11 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         Navigator.pushNamed(context, '/create-post');
         break;
       case 3:
-        // アカウント画面
-        _showMessage('アカウント画面は今後実装予定です');
+        // プロフィール画面へ遷移
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const ProfileScreen()),
+        );
         break;
     }
   }

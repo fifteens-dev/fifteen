@@ -1,0 +1,420 @@
+import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'account_edit_screen.dart';
+import 'notification_settings_screen.dart';
+import 'linked_services_screen.dart';
+import 'help_screen.dart';
+import 'login_info_screen.dart';
+import 'invitation_screen.dart';
+
+/// 設定画面
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // ヘッダー
+            _buildHeader(context),
+
+            // メインコンテンツ
+            Expanded(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+
+                      // あなたのアカウント
+                      _buildSectionLabel('あなたのアカウント'),
+                      const SizedBox(height: 8),
+                      _buildAccountCard(context),
+
+                      const SizedBox(height: 24),
+
+                      // アカウント設定
+                      _buildSectionLabel('アカウント設定'),
+                      const SizedBox(height: 8),
+                      _buildSettingsCard([
+                        _SettingsItem(
+                          icon: Icons.account_circle_outlined,
+                          title: 'ログイン情報の確認',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) =>
+                                      const LoginInfoScreen()),
+                            );
+                          },
+                        ),
+                      ]),
+
+                      const SizedBox(height: 24),
+
+                      // 設定
+                      _buildSectionLabel('設定'),
+                      const SizedBox(height: 8),
+                      _buildSettingsCard([
+                        _SettingsItem(
+                          icon: Icons.notifications_outlined,
+                          title: '通知',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) =>
+                                      const NotificationSettingsScreen()),
+                            );
+                          },
+                        ),
+                        _SettingsItem(
+                          icon: Icons.music_note_outlined,
+                          title: '連携サービス',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) =>
+                                      const LinkedServicesScreen()),
+                            );
+                          },
+                          showDivider: true,
+                        ),
+                        _SettingsItem(
+                          icon: Icons.info_outline,
+                          title: '招待',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) =>
+                                      const InvitationScreen()),
+                            );
+                          },
+                          showDivider: true,
+                        ),
+                      ]),
+
+                      const SizedBox(height: 24),
+
+                      // 基本情報
+                      _buildSectionLabel('基本情報'),
+                      const SizedBox(height: 8),
+                      _buildSettingsCard([
+                        _SettingsItem(
+                          icon: Icons.help_outline,
+                          title: 'ヘルプ',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) => const HelpScreen()),
+                            );
+                          },
+                        ),
+                        _SettingsItem(
+                          icon: Icons.info_outline,
+                          title: '基本情報',
+                          onTap: () {},
+                          showDivider: true,
+                        ),
+                      ]),
+
+                      const SizedBox(height: 24),
+
+                      // ログアウトボタン
+                      _buildLogoutButton(context),
+
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// ヘッダー
+  Widget _buildHeader(BuildContext context) {
+    return Container(
+      height: 45,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: [
+          // 戻るボタン
+          IconButton(
+            icon: const Icon(Icons.chevron_left, color: Colors.white, size: 28),
+            onPressed: () => Navigator.pop(context),
+          ),
+          // タイトル
+          const Expanded(
+            child: Text(
+              '設定',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          // スペーサー（バランス用）
+          const SizedBox(width: 48),
+        ],
+      ),
+    );
+  }
+
+  /// セクションラベル
+  Widget _buildSectionLabel(String label) {
+    return Text(
+      label,
+      style: const TextStyle(
+        color: Color(0xFF555557),
+        fontSize: 11,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+  }
+
+  /// アカウントカード
+  Widget _buildAccountCard(BuildContext context) {
+    return Container(
+      height: 82,
+      decoration: BoxDecoration(
+        color: Colors.grey[800],
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(15),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const AccountEditScreen()),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+            child: Row(
+              children: [
+                // プロフィール画像
+                Container(
+                  width: 59,
+                  height: 59,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.grey[700],
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    size: 35,
+                    color: Colors.white54,
+                  ),
+                ),
+                const SizedBox(width: 18),
+                // 名前とユーザーID
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '後藤　太郎',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'taroooooda',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.8),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // 矢印
+                const Icon(
+                  Icons.chevron_right,
+                  color: Colors.white54,
+                  size: 29,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 設定カード
+  Widget _buildSettingsCard(List<_SettingsItem> items) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[800],
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Column(
+        children: items.asMap().entries.map((entry) {
+          final index = entry.key;
+          final item = entry.value;
+          final isFirst = index == 0;
+          final isLast = index == items.length - 1;
+
+          return Column(
+            children: [
+              if (item.showDivider)
+                Divider(
+                  height: 1,
+                  thickness: 0.5,
+                  color: Colors.grey[700],
+                ),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.only(
+                    topLeft: isFirst ? const Radius.circular(15) : Radius.zero,
+                    topRight: isFirst ? const Radius.circular(15) : Radius.zero,
+                    bottomLeft: isLast ? const Radius.circular(15) : Radius.zero,
+                    bottomRight: isLast ? const Radius.circular(15) : Radius.zero,
+                  ),
+                  onTap: item.onTap,
+                  child: Container(
+                    height: 50,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        Icon(
+                          item.icon,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            item.title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const Icon(
+                          Icons.chevron_right,
+                          color: Colors.white54,
+                          size: 29,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  /// ログアウトボタン
+  Widget _buildLogoutButton(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: 50,
+      decoration: BoxDecoration(
+        color: Colors.grey[800],
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(15),
+          onTap: () => _showLogoutDialog(context),
+          child: const Center(
+            child: Text(
+              'ログアウト',
+              style: TextStyle(
+                color: Colors.red,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// ログアウト確認ダイアログ
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text(
+          'ログアウト',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'ログアウトしますか？',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'キャンセル',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await FirebaseAuth.instance.signOut();
+              if (context.mounted) {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              }
+            },
+            child: const Text(
+              'ログアウト',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 設定項目データクラス
+class _SettingsItem {
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+  final bool showDivider;
+
+  _SettingsItem({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.showDivider = false,
+  });
+}

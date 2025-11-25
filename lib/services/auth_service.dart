@@ -93,6 +93,27 @@ class AuthService {
     }
   }
 
+  // テスト用：匿名認証でサインイン（開発用）
+  Future<UserCredential?> signInAnonymouslyForTesting() async {
+    try {
+      final userCredential = await _auth.signInAnonymously();
+      if (kDebugMode) {
+        print('✅ Test user signed in anonymously: ${userCredential.user?.uid}');
+      }
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) {
+        print('FirebaseAuthException in signInAnonymously: ${e.code} - ${e.message}');
+      }
+      throw Exception('匿名認証に失敗しました');
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error in signInAnonymouslyForTesting: $e');
+      }
+      throw Exception('予期しないエラーが発生しました');
+    }
+  }
+
   // サインアウト
   Future<void> signOut() async {
     await _auth.signOut();

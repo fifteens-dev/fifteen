@@ -67,6 +67,16 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
       return;
     }
 
+    // Web開発用：Firebase認証がない場合はFirestoreへの保存をスキップ
+    final currentUser = _authService.currentUser;
+    if (currentUser == null) {
+      // 認証ユーザーがいない場合は、保存せず次の画面へ
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/profile-setup');
+      }
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -91,20 +101,17 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
       }
 
       // ユーザーネームを保存
-      final currentUser = _authService.currentUser;
-      if (currentUser != null) {
-        await _userService.updateUser(
-          uid: currentUser.uid,
-          username: username,
-        );
+      await _userService.updateUser(
+        uid: currentUser.uid,
+        username: username,
+      );
 
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-          // プロフィール設定画面へ遷移
-          Navigator.pushReplacementNamed(context, '/profile-setup');
-        }
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        // プロフィール設定画面へ遷移
+        Navigator.pushReplacementNamed(context, '/profile-setup');
       }
     } catch (e) {
       if (mounted) {

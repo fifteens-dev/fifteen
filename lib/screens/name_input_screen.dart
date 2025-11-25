@@ -41,26 +41,33 @@ class _NameInputScreenState extends State<NameInputScreen> {
       return;
     }
 
+    // Web開発用：Firebase認証がない場合はFirestoreへの保存をスキップ
+    final currentUser = _authService.currentUser;
+    if (currentUser == null) {
+      // 認証ユーザーがいない場合は、保存せず次の画面へ
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/username-creation');
+      }
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final currentUser = _authService.currentUser;
-      if (currentUser != null) {
-        // 名前をFirestoreに保存
-        await _userService.updateUser(
-          uid: currentUser.uid,
-          name: name,
-        );
+      // 名前をFirestoreに保存
+      await _userService.updateUser(
+        uid: currentUser.uid,
+        name: name,
+      );
 
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-          // ユーザーネーム作成画面へ遷移
-          Navigator.pushReplacementNamed(context, '/username-creation');
-        }
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        // ユーザーネーム作成画面へ遷移
+        Navigator.pushReplacementNamed(context, '/username-creation');
       }
     } catch (e) {
       if (mounted) {

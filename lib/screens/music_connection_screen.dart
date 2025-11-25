@@ -207,9 +207,9 @@ class MusicConnectionScreen extends StatelessWidget {
 
     // TODO: 実際のSpotify OAuth認証を実装
 
-    // 初回タイムライン画面へ遷移
+    // ホーム画面へ遷移
     if (context.mounted) {
-      Navigator.pushReplacementNamed(context, '/first-timeline');
+      Navigator.pushReplacementNamed(context, '/home');
     }
   }
 
@@ -224,9 +224,9 @@ class MusicConnectionScreen extends StatelessWidget {
 
     // TODO: 実際のApple Music認証を実装
 
-    // 初回タイムライン画面へ遷移
+    // ホーム画面へ遷移
     if (context.mounted) {
-      Navigator.pushReplacementNamed(context, '/first-timeline');
+      Navigator.pushReplacementNamed(context, '/home');
     }
   }
 
@@ -239,9 +239,9 @@ class MusicConnectionScreen extends StatelessWidget {
       appleMusicConnected: false,
     );
 
-    // 初回タイムライン画面へ遷移
+    // ホーム画面へ遷移
     if (context.mounted) {
-      Navigator.pushReplacementNamed(context, '/first-timeline');
+      Navigator.pushReplacementNamed(context, '/home');
     }
   }
 }

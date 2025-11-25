@@ -219,6 +219,45 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               const Divider(color: AppColors.border),
               const SizedBox(height: AppDimensions.paddingMedium),
 
+              // 開発者用電話番号セクション
+              const Text(
+                '開発者用電話番号',
+                style: AppTextStyles.heading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                '電話番号認証画面で以下の特殊な電話番号を入力すると、開発用のショートカット機能が使えます。\n\n※ Web環境では11111111111を使用して認証をスキップしてください（Firebase認証なし）。',
+                style: AppTextStyles.body,
+              ),
+              const SizedBox(height: AppDimensions.paddingLarge),
+              Container(
+                padding: const EdgeInsets.all(AppDimensions.paddingMedium),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildPhoneNumberItem(
+                      '00000000000',
+                      '全ての認証フローをスキップしてホーム画面へ直接移動',
+                      Icons.home,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildPhoneNumberItem(
+                      '11111111111',
+                      '認証をスキップして招待コード画面へ移動（Web開発用）',
+                      Icons.confirmation_number,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppDimensions.paddingXLarge),
+              const Divider(color: AppColors.border),
+              const SizedBox(height: AppDimensions.paddingMedium),
+
               // ナビゲーションセクション
               const Text(
                 '画面遷移',
@@ -277,6 +316,44 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPhoneNumberItem(String phoneNumber, String description, IconData icon) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          color: AppColors.accent,
+          size: 24,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                phoneNumber,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

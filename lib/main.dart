@@ -15,6 +15,7 @@ import 'screens/privacy_policy_screen.dart';
 import 'screens/dev_tools_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/create_post_screen.dart';
+import 'screens/photo_picker_screen.dart';
 import 'constants/app_colors.dart';
 
 void main() async {
@@ -81,6 +82,7 @@ class FifteenApp extends StatelessWidget {
         '/dev-tools': (context) => const DevToolsScreen(),
         '/home': (context) => const HomeScreen(),
         '/create-post': (context) => const CreatePostScreen(),
+        '/photo-picker': (context) => const PhotoPickerScreen(),
       },
     );
   }

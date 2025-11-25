@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
+import '../services/settings_service.dart';
 
 /// 音楽ライブラリ接続画面
 ///
@@ -196,36 +197,51 @@ class MusicConnectionScreen extends StatelessWidget {
   }
 
   /// Spotify接続処理
-  void _handleSpotifyConnection(BuildContext context) {
-    // TODO: 実際のSpotify OAuth認証を実装
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Spotify連携機能は今後実装予定です'),
-        backgroundColor: AppColors.textSecondary,
-      ),
+  void _handleSpotifyConnection(BuildContext context) async {
+    // 連携サービス設定を保存（Spotifyをオン、Apple Musicをオフ）
+    final settingsService = SettingsService();
+    await settingsService.saveAllLinkedServicesSettings(
+      spotifyConnected: true,
+      appleMusicConnected: false,
     );
 
-    // テストモード: 初回タイムライン画面へ遷移
-    Navigator.pushReplacementNamed(context, '/first-timeline');
+    // TODO: 実際のSpotify OAuth認証を実装
+
+    // 初回タイムライン画面へ遷移
+    if (context.mounted) {
+      Navigator.pushReplacementNamed(context, '/first-timeline');
+    }
   }
 
   /// Apple Music接続処理
-  void _handleAppleMusicConnection(BuildContext context) {
-    // TODO: 実際のApple Music認証を実装
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Apple Music連携機能は今後実装予定です'),
-        backgroundColor: AppColors.textSecondary,
-      ),
+  void _handleAppleMusicConnection(BuildContext context) async {
+    // 連携サービス設定を保存（Apple Musicをオン、Spotifyをオフ）
+    final settingsService = SettingsService();
+    await settingsService.saveAllLinkedServicesSettings(
+      spotifyConnected: false,
+      appleMusicConnected: true,
     );
 
-    // テストモード: 初回タイムライン画面へ遷移
-    Navigator.pushReplacementNamed(context, '/first-timeline');
+    // TODO: 実際のApple Music認証を実装
+
+    // 初回タイムライン画面へ遷移
+    if (context.mounted) {
+      Navigator.pushReplacementNamed(context, '/first-timeline');
+    }
   }
 
   /// 接続をスキップ
-  void _skipConnection(BuildContext context) {
+  void _skipConnection(BuildContext context) async {
+    // 連携サービス設定を保存（両方オフ）
+    final settingsService = SettingsService();
+    await settingsService.saveAllLinkedServicesSettings(
+      spotifyConnected: false,
+      appleMusicConnected: false,
+    );
+
     // 初回タイムライン画面へ遷移
-    Navigator.pushReplacementNamed(context, '/first-timeline');
+    if (context.mounted) {
+      Navigator.pushReplacementNamed(context, '/first-timeline');
+    }
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/settings_service.dart';
 
 /// 通知設定画面
 class NotificationSettingsScreen extends StatefulWidget {
@@ -11,11 +12,54 @@ class NotificationSettingsScreen extends StatefulWidget {
 
 class _NotificationSettingsScreenState
     extends State<NotificationSettingsScreen> {
+  final SettingsService _settingsService = SettingsService();
+
   // 通知設定の状態
   bool _vibeNotification = true;
   bool _likeCommentNotification = true;
   bool _followNotification = true;
   bool _officialNotification = true;
+
+  // ローディング状態
+  bool _isLoading = true;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  /// 設定を読み込む
+  Future<void> _loadSettings() async {
+    final settings = await _settingsService.getAllNotificationSettings();
+    if (mounted) {
+      setState(() {
+        _vibeNotification = settings['vibeNotification'] ?? true;
+        _likeCommentNotification = settings['likeCommentNotification'] ?? true;
+        _followNotification = settings['followNotification'] ?? true;
+        _officialNotification = settings['officialNotification'] ?? true;
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// 設定を保存する
+  Future<void> _saveSettings() async {
+    setState(() => _isSaving = true);
+
+    await _settingsService.saveAllNotificationSettings(
+      vibeNotification: _vibeNotification,
+      likeCommentNotification: _likeCommentNotification,
+      followNotification: _followNotification,
+      officialNotification: _officialNotification,
+    );
+
+    if (mounted) {
+      setState(() => _isSaving = false);
+      Navigator.pop(context);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,19 +73,25 @@ class _NotificationSettingsScreenState
 
             // メインコンテンツ
             Expanded(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 17),
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF5D8FFF),
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 17),
 
-                      // 通知設定カード
-                      _buildNotificationCard(),
-                    ],
-                  ),
-                ),
-              ),
+                            // 通知設定カード
+                            _buildNotificationCard(),
+                          ],
+                        ),
+                      ),
+                    ),
             ),
           ],
         ),
@@ -75,18 +125,24 @@ class _NotificationSettingsScreenState
           ),
           // 保存ボタン
           TextButton(
-            onPressed: () {
-              // TODO: 保存処理
-              Navigator.pop(context);
-            },
-            child: const Text(
-              '保存',
-              style: TextStyle(
-                color: Color(0xFF5D8FFF),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            onPressed: _isSaving ? null : _saveSettings,
+            child: _isSaving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF5D8FFF),
+                    ),
+                  )
+                : const Text(
+                    '保存',
+                    style: TextStyle(
+                      color: Color(0xFF5D8FFF),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
           ),
         ],
       ),

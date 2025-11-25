@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/settings_service.dart';
 
 /// 連携サービス画面
 class LinkedServicesScreen extends StatefulWidget {
@@ -9,9 +10,48 @@ class LinkedServicesScreen extends StatefulWidget {
 }
 
 class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
-  // 連携状態（実際にはFirestoreから取得）
-  bool _spotifyConnected = true;
+  final SettingsService _settingsService = SettingsService();
+
+  // 連携状態
+  bool _spotifyConnected = false;
   bool _appleMusicConnected = false;
+
+  // ローディング状態
+  bool _isLoading = true;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  /// 設定を読み込む
+  Future<void> _loadSettings() async {
+    final settings = await _settingsService.getAllLinkedServicesSettings();
+    if (mounted) {
+      setState(() {
+        _spotifyConnected = settings['spotifyConnected'] ?? false;
+        _appleMusicConnected = settings['appleMusicConnected'] ?? false;
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// 設定を保存する
+  Future<void> _saveSettings() async {
+    setState(() => _isSaving = true);
+
+    await _settingsService.saveAllLinkedServicesSettings(
+      spotifyConnected: _spotifyConnected,
+      appleMusicConnected: _appleMusicConnected,
+    );
+
+    if (mounted) {
+      setState(() => _isSaving = false);
+      Navigator.pop(context);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,19 +65,25 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
 
             // メインコンテンツ
             Expanded(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 17),
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF5D8FFF),
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 17),
 
-                      // サービスカード
-                      _buildServicesCard(),
-                    ],
-                  ),
-                ),
-              ),
+                            // サービスカード
+                            _buildServicesCard(),
+                          ],
+                        ),
+                      ),
+                    ),
             ),
           ],
         ),
@@ -71,18 +117,24 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
           ),
           // 保存ボタン
           TextButton(
-            onPressed: () {
-              // TODO: 保存処理
-              Navigator.pop(context);
-            },
-            child: const Text(
-              '保存',
-              style: TextStyle(
-                color: Color(0xFF5D8FFF),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            onPressed: _isSaving ? null : _saveSettings,
+            child: _isSaving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF5D8FFF),
+                    ),
+                  )
+                : const Text(
+                    '保存',
+                    style: TextStyle(
+                      color: Color(0xFF5D8FFF),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
           ),
         ],
       ),

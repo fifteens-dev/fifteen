@@ -30,23 +30,11 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
     // 電話番号のバリデーション
     final phoneNumber = _phoneController.text.replaceAll(RegExp(r'\D'), '');
 
-    // テストモード: 000-0000-0000 や 111-1111-1111 などの簡単な番号でスキップ
-    if (phoneNumber.length >= 10 && RegExp(r'^([0-9])\1+$').hasMatch(phoneNumber)) {
+    // テストモード: 11111111111 で招待コード画面へスキップ
+    if (phoneNumber == '11111111111') {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🎉 テストモード: 認証をスキップしてホーム画面へ'),
-            backgroundColor: AppColors.success,
-            duration: Duration(seconds: 2),
-          ),
-        );
-
-        // テストモードでホーム画面へ直接遷移（認証なし）
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            Navigator.pushReplacementNamed(context, '/home');
-          }
-        });
+        // テストモードで招待コード画面へ遷移（認証スキップ）
+        Navigator.pushReplacementNamed(context, '/invite-code');
       }
       return;
     }
@@ -55,7 +43,7 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('正しい電話番号を入力してください（テストモード: 同じ数字を10桁以上）'),
+            content: Text('正しい電話番号を入力してください'),
             backgroundColor: AppColors.error,
           ),
         );

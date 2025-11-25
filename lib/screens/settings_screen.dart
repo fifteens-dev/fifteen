@@ -6,6 +6,7 @@ import 'linked_services_screen.dart';
 import 'help_screen.dart';
 import 'login_info_screen.dart';
 import 'invitation_screen.dart';
+import 'basic_info_screen.dart';
 
 /// 設定画面
 class SettingsScreen extends StatelessWidget {
@@ -122,7 +123,14 @@ class SettingsScreen extends StatelessWidget {
                         _SettingsItem(
                           icon: Icons.info_outline,
                           title: '基本情報',
-                          onTap: () {},
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) =>
+                                      const BasicInfoScreen()),
+                            );
+                          },
                           showDivider: true,
                         ),
                       ]),

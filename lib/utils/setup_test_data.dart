@@ -34,8 +34,15 @@ class SetupTestData {
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error creating test invite codes: $e');
+        // 権限エラーの場合は警告のみ（Firestoreルールの設定が必要）
+        if (e.toString().contains('permission-denied')) {
+          print('⚠️ Firestoreの権限エラーです。招待コード「TEST123」は手動で認証してください。');
+        }
       }
-      rethrow;
+      // 権限エラーの場合は再スローしない
+      if (!e.toString().contains('permission-denied')) {
+        rethrow;
+      }
     }
   }
 
@@ -131,6 +138,11 @@ class SetupTestData {
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error setting up test data: $e');
+        // 権限エラーの場合は警告のみ
+        if (e.toString().contains('permission-denied')) {
+          print('⚠️ Firestoreの権限エラーです。招待コード画面では「TEST123」を入力してテストしてください。');
+          return; // 成功として扱う
+        }
       }
       rethrow;
     }

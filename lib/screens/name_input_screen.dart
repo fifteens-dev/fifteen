@@ -44,9 +44,13 @@ class _NameInputScreenState extends State<NameInputScreen> {
     // Web開発用：Firebase認証がない場合はFirestoreへの保存をスキップ
     final currentUser = _authService.currentUser;
     if (currentUser == null) {
-      // 認証ユーザーがいない場合は、保存せず次の画面へ
+      // 認証ユーザーがいない場合は、保存せず次の画面へ（名前を渡す）
       if (mounted) {
-        Navigator.pushReplacementNamed(context, '/username-creation');
+        Navigator.pushReplacementNamed(
+          context,
+          '/username-creation',
+          arguments: {'name': name},
+        );
       }
       return;
     }
@@ -66,8 +70,12 @@ class _NameInputScreenState extends State<NameInputScreen> {
         setState(() {
           _isLoading = false;
         });
-        // ユーザーネーム作成画面へ遷移
-        Navigator.pushReplacementNamed(context, '/username-creation');
+        // ユーザーネーム作成画面へ遷移（名前を渡す）
+        Navigator.pushReplacementNamed(
+          context,
+          '/username-creation',
+          arguments: {'name': name},
+        );
       }
     } catch (e) {
       if (mounted) {

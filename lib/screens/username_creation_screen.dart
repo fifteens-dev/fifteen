@@ -20,6 +20,21 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
   final UserService _userService = UserService();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
+  String _name = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // 前の画面から名前を受け取る
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      if (args != null && args['name'] != null) {
+        setState(() {
+          _name = args['name'];
+        });
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -70,9 +85,16 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
     // Web開発用：Firebase認証がない場合はFirestoreへの保存をスキップ
     final currentUser = _authService.currentUser;
     if (currentUser == null) {
-      // 認証ユーザーがいない場合は、保存せず次の画面へ
+      // 認証ユーザーがいない場合は、保存せず次の画面へ（名前とユーザーネームを渡す）
       if (mounted) {
-        Navigator.pushReplacementNamed(context, '/profile-setup');
+        Navigator.pushReplacementNamed(
+          context,
+          '/profile-setup',
+          arguments: {
+            'name': _name,
+            'username': username,
+          },
+        );
       }
       return;
     }
@@ -110,8 +132,15 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
         setState(() {
           _isLoading = false;
         });
-        // プロフィール設定画面へ遷移
-        Navigator.pushReplacementNamed(context, '/profile-setup');
+        // プロフィール設定画面へ遷移（名前とユーザーネームを渡す）
+        Navigator.pushReplacementNamed(
+          context,
+          '/profile-setup',
+          arguments: {
+            'name': _name,
+            'username': username,
+          },
+        );
       }
     } catch (e) {
       if (mounted) {

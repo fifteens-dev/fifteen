@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/app_colors.dart';
+import '../services/user_service.dart';
+import '../models/user_model.dart';
 import 'settings_screen.dart';
 
 /// プロフィール画面（自分）
@@ -12,14 +14,51 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final UserService _userService = UserService();
   int _selectedTabIndex = 0; // 0: グリッド, 1: 保存
 
-  // ダミーデータ
-  final String _displayName = '後藤 太郎';
-  final String _username = 'taroooooda';
+  // ユーザーデータ
+  UserModel? _userData;
+  bool _isLoading = true;
+
   final int _tracksCount = 18;
   final int _followersCount = 87;
   final int _followingCount = 89;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  /// ユーザーデータを読み込み
+  Future<void> _loadUserData() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    // Web開発用：Firebase認証がない場合はダミーデータを使用
+    if (currentUser == null) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+
+    try {
+      final userData = await _userService.getUser(currentUser.uid);
+      if (mounted) {
+        setState(() {
+          _userData = userData;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   // ダミーの投稿データ
   final List<Map<String, String>> _posts = [
@@ -57,6 +96,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF121212),
+        body: Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
@@ -95,6 +143,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// ヘッダー（ユーザーID + 設定アイコン）
   Widget _buildHeader() {
+    final username = _userData?.username ?? 'ユーザー名';
+
     return Container(
       height: 45,
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -108,7 +158,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           // ユーザーID
           Text(
-            _username,
+            username,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 20,
@@ -132,6 +182,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// プロフィール情報セクション
   Widget _buildProfileInfo() {
+    final displayName = _userData?.name ?? '名前未設定';
+    final bio = 'aoyama'; // TODO: UserModelにbioフィールドを追加
+    final profileImageUrl = _userData?.profileImageUrl;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 27, vertical: 16),
       child: Column(
@@ -146,7 +200,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _displayName,
+                      displayName,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 20,
@@ -155,7 +209,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'aoyama',
+                      bio,
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.7),
                         fontSize: 12,
@@ -173,11 +227,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   color: Colors.grey[800],
                 ),
                 child: ClipOval(
-                  child: Icon(
-                    Icons.person,
-                    size: 40,
-                    color: Colors.grey[600],
-                  ),
+                  child: profileImageUrl != null
+                      ? Image.network(
+                          profileImageUrl,
+                          width: 65,
+                          height: 65,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Icon(
+                              Icons.person,
+                              size: 40,
+                              color: Colors.grey[600],
+                            );
+                          },
+                        )
+                      : Icon(
+                          Icons.person,
+                          size: 40,
+                          color: Colors.grey[600],
+                        ),
                 ),
               ),
             ],

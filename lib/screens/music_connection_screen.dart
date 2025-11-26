@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
-import '../constants/app_text_styles.dart';
-import '../constants/app_dimensions.dart';
 import '../services/settings_service.dart';
+import 'home_screen.dart';
 
 /// 音楽ライブラリ接続画面
 ///
 /// プロフィール設定完了後に表示される画面
 /// SpotifyまたはApple Musicとの連携を促す
+/// 背景にホーム画面を表示し、ダイアログ的なUIで接続オプションを表示
 class MusicConnectionScreen extends StatelessWidget {
   const MusicConnectionScreen({super.key});
 
@@ -15,41 +15,24 @@ class MusicConnectionScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            // 背景の投稿カード（ぼかし効果）
-            _buildBackgroundCard(),
-
-            // グラデーションオーバーレイ
-            _buildGradientOverlay(),
-
-            // メインコンテンツ
-            _buildContent(context),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 背景の投稿カード（ぼかし効果付き）
-  Widget _buildBackgroundCard() {
-    return Positioned.fill(
-      child: Opacity(
-        opacity: 0.3,
-        child: Container(
-          margin: const EdgeInsets.only(top: 210, left: 15, right: 15),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.white, width: 1),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: const Center(
-            child: Text(
-              'サンプル投稿カード',
-              style: TextStyle(color: Colors.white54),
+      body: Stack(
+        children: [
+          // 背景: ホーム画面（非インタラクティブ）
+          const IgnorePointer(
+            child: Opacity(
+              opacity: 0.3,
+              child: HomeScreen(),
             ),
           ),
-        ),
+
+          // グラデーションオーバーレイ
+          _buildGradientOverlay(),
+
+          // メインコンテンツ
+          SafeArea(
+            child: _buildContent(context),
+          ),
+        ],
       ),
     );
   }
@@ -60,7 +43,7 @@ class MusicConnectionScreen extends StatelessWidget {
       left: 0,
       right: 0,
       top: 367,
-      height: 485,
+      bottom: 0,
       child: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -79,15 +62,16 @@ class MusicConnectionScreen extends StatelessWidget {
 
   /// メインコンテンツ
   Widget _buildContent(BuildContext context) {
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppDimensions.paddingLarge),
-        child: Column(
-          children: [
-            const SizedBox(height: 500), // 上部スペース
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 39),
+      child: Column(
+        children: [
+          const Spacer(flex: 324),
 
-            // タイトル
-            const Text(
+          // タイトル
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
               '音楽ライブラリに接続',
               style: TextStyle(
                 fontSize: 18,
@@ -95,55 +79,59 @@ class MusicConnectionScreen extends StatelessWidget {
                 color: Colors.white,
               ),
             ),
-            const SizedBox(height: 24),
+          ),
+          const SizedBox(height: 21),
 
-            // 説明文
-            const Text(
-              '自身の音楽ライブラリと連携して、あなたの音を15秒に。\nまだ登録していなくても、プレビュー再生は無料で楽しめます。',
-              textAlign: TextAlign.center,
+          // 説明文
+          const Text(
+            '自身の音楽ライブラリと連携して、あなたの音を15秒に。\nまだ登録していなくても、プレビュー再生は無料で楽しめます。',
+            textAlign: TextAlign.left,
+            style: TextStyle(
+              fontSize: 12,
+              color: Color(0xFFEBEBEA),
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 31),
+
+          // Apple Musicボタン（順序変更：Apple Music → Spotify）
+          _buildMusicServiceButton(
+            context: context,
+            iconAsset: 'assets/icons/apple_music.png', // TODO: アイコンを追加
+            label: 'Apple Musicと連携する',
+            onTap: () => _handleAppleMusicConnection(context),
+          ),
+          const SizedBox(height: 21),
+
+          // Spotifyボタン
+          _buildMusicServiceButton(
+            context: context,
+            iconAsset: 'assets/icons/spotify.png', // TODO: アイコンを追加
+            label: 'Spotifyと連携する',
+            onTap: () => _handleSpotifyConnection(context),
+          ),
+          const SizedBox(height: 22),
+
+          // 接続せずに続行
+          TextButton(
+            onPressed: () => _skipConnection(context),
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              '接続せずに続行',
               style: TextStyle(
-                fontSize: 12,
-                color: Colors.white,
-                height: 1.5,
+                fontSize: 13,
+                color: Color(0xFFEBEBEA),
+                decoration: TextDecoration.none,
               ),
             ),
-            const SizedBox(height: 32),
+          ),
 
-            // Spotifyボタン
-            _buildMusicServiceButton(
-              context: context,
-              icon: Icons.music_note, // 実際のSpotifyアイコンの代わり
-              iconColor: const Color(0xFF1DB954), // Spotify緑
-              label: 'Spotifyと連携する',
-              onTap: () => _handleSpotifyConnection(context),
-            ),
-            const SizedBox(height: 16),
-
-            // Apple Musicボタン
-            _buildMusicServiceButton(
-              context: context,
-              icon: Icons.music_note, // 実際のApple Musicアイコンの代わり
-              iconColor: const Color(0xFFFA243C), // Apple Music赤
-              label: 'Apple Musicと連携する',
-              onTap: () => _handleAppleMusicConnection(context),
-            ),
-            const SizedBox(height: 24),
-
-            // 接続せずに続行
-            TextButton(
-              onPressed: () => _skipConnection(context),
-              child: const Text(
-                '接続せずに続行',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFFEBEBEA),
-                  decoration: TextDecoration.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 40),
-          ],
-        ),
+          const Spacer(flex: 161),
+        ],
       ),
     );
   }
@@ -151,8 +139,7 @@ class MusicConnectionScreen extends StatelessWidget {
   /// 音楽サービス接続ボタン
   Widget _buildMusicServiceButton({
     required BuildContext context,
-    required IconData icon,
-    required Color iconColor,
+    required String iconAsset,
     required String label,
     required VoidCallback onTap,
   }) {
@@ -162,23 +149,38 @@ class MusicConnectionScreen extends StatelessWidget {
         width: 315,
         height: 50,
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: const Color(0xFF121212),
           borderRadius: BorderRadius.circular(33),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 25,
-              height: 25,
-              decoration: BoxDecoration(
-                color: iconColor,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Icon(
-                icon,
-                size: 16,
-                color: Colors.white,
+            // アイコン
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.asset(
+                iconAsset,
+                width: 25,
+                height: 25,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  // フォールバック: アイコンが見つからない場合
+                  return Container(
+                    width: 25,
+                    height: 25,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Icon(
+                      Icons.music_note,
+                      size: 16,
+                      color: label.contains('Apple')
+                          ? const Color(0xFFFA243C)
+                          : const Color(0xFF1DB954),
+                    ),
+                  );
+                },
               ),
             ),
             const SizedBox(width: 12),
@@ -196,23 +198,6 @@ class MusicConnectionScreen extends StatelessWidget {
     );
   }
 
-  /// Spotify接続処理
-  void _handleSpotifyConnection(BuildContext context) async {
-    // 連携サービス設定を保存（Spotifyをオン、Apple Musicをオフ）
-    final settingsService = SettingsService();
-    await settingsService.saveAllLinkedServicesSettings(
-      spotifyConnected: true,
-      appleMusicConnected: false,
-    );
-
-    // TODO: 実際のSpotify OAuth認証を実装
-
-    // ホーム画面へ遷移
-    if (context.mounted) {
-      Navigator.pushReplacementNamed(context, '/home');
-    }
-  }
-
   /// Apple Music接続処理
   void _handleAppleMusicConnection(BuildContext context) async {
     // 連携サービス設定を保存（Apple Musicをオン、Spotifyをオフ）
@@ -223,6 +208,23 @@ class MusicConnectionScreen extends StatelessWidget {
     );
 
     // TODO: 実際のApple Music認証を実装
+
+    // ホーム画面へ遷移
+    if (context.mounted) {
+      Navigator.pushReplacementNamed(context, '/home');
+    }
+  }
+
+  /// Spotify接続処理
+  void _handleSpotifyConnection(BuildContext context) async {
+    // 連携サービス設定を保存（Spotifyをオン、Apple Musicをオフ）
+    final settingsService = SettingsService();
+    await settingsService.saveAllLinkedServicesSettings(
+      spotifyConnected: true,
+      appleMusicConnected: false,
+    );
+
+    // TODO: 実際のSpotify OAuth認証を実装
 
     // ホーム画面へ遷移
     if (context.mounted) {

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show Uint8List;
 import '../constants/app_colors.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
+import '../services/storage_service.dart';
 
 /// プロフィール設定画面
 class ProfileSetupScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class ProfileSetupScreen extends StatefulWidget {
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final AuthService _authService = AuthService();
   final UserService _userService = UserService();
+  final StorageService _storageService = StorageService();
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
@@ -228,11 +230,21 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     });
 
     try {
+      // プロフィール画像をアップロード（選択されている場合）
+      String? profileImageUrl;
+      if (_selectedImageBytes != null) {
+        profileImageUrl = await _storageService.uploadProfileImage(
+          userId: currentUser.uid,
+          imageBytes: _selectedImageBytes!,
+        );
+      }
+
       // Firestoreに保存
       await _userService.updateUser(
         uid: currentUser.uid,
         name: name,
         username: username,
+        profileImageUrl: profileImageUrl,
         // bio: bio, // TODO: UserServiceにbioフィールドを追加
       );
 
@@ -249,8 +261,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           _isSaving = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('プロフィールの保存に失敗しました'),
+          SnackBar(
+            content: Text('プロフィールの保存に失敗しました: $e'),
             backgroundColor: AppColors.error,
           ),
         );

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/user_service.dart';
+import '../models/user_model.dart';
 import 'account_edit_screen.dart';
 import 'notification_settings_screen.dart';
 import 'linked_services_screen.dart';
@@ -9,8 +11,51 @@ import 'invitation_screen.dart';
 import 'basic_info_screen.dart';
 
 /// 設定画面
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final UserService _userService = UserService();
+  UserModel? _userData;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  /// ユーザーデータを読み込み
+  Future<void> _loadUserData() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser == null) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+
+    try {
+      final userData = await _userService.getUser(currentUser.uid);
+      if (mounted) {
+        setState(() {
+          _userData = userData;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -197,6 +242,10 @@ class SettingsScreen extends StatelessWidget {
 
   /// アカウントカード
   Widget _buildAccountCard(BuildContext context) {
+    final name = _userData?.name ?? '名前未設定';
+    final username = _userData?.username ?? 'ユーザー名';
+    final profileImageUrl = _userData?.profileImageUrl;
+
     return Container(
       height: 82,
       decoration: BoxDecoration(
@@ -225,10 +274,26 @@ class SettingsScreen extends StatelessWidget {
                     shape: BoxShape.circle,
                     color: Colors.grey[700],
                   ),
-                  child: const Icon(
-                    Icons.person,
-                    size: 35,
-                    color: Colors.white54,
+                  child: ClipOval(
+                    child: profileImageUrl != null
+                        ? Image.network(
+                            profileImageUrl,
+                            width: 59,
+                            height: 59,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Icon(
+                                Icons.person,
+                                size: 35,
+                                color: Colors.white54,
+                              );
+                            },
+                          )
+                        : const Icon(
+                            Icons.person,
+                            size: 35,
+                            color: Colors.white54,
+                          ),
                   ),
                 ),
                 const SizedBox(width: 18),
@@ -238,9 +303,9 @@ class SettingsScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        '後藤　太郎',
-                        style: TextStyle(
+                      Text(
+                        name,
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -248,7 +313,7 @@ class SettingsScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'taroooooda',
+                        username,
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 13,

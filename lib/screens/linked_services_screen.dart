@@ -178,42 +178,66 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
 
   /// Spotifyアイコン
   Widget _buildSpotifyIcon() {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1DB954),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Center(
-        child: Icon(
-          Icons.music_note,
-          color: Colors.black,
-          size: 24,
-        ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.asset(
+        'assets/icons/spotify.png',
+        width: 40,
+        height: 40,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          // フォールバック: アイコンが見つからない場合
+          return Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFF1DB954),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.music_note,
+                color: Colors.black,
+                size: 24,
+              ),
+            ),
+          );
+        },
       ),
     );
   }
 
   /// Apple Musicアイコン
   Widget _buildAppleMusicIcon() {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFA2D48), Color(0xFFFA6E58)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: const Center(
-        child: Icon(
-          Icons.music_note,
-          color: Colors.white,
-          size: 20,
-        ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.asset(
+        'assets/icons/apple_music.png',
+        width: 40,
+        height: 40,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          // フォールバック: アイコンが見つからない場合
+          return Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFA2D48), Color(0xFFFA6E58)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.music_note,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+          );
+        },
       ),
     );
   }

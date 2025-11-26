@@ -5,7 +5,6 @@ import '../constants/app_dimensions.dart';
 import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
 import '../services/invite_code_service.dart';
-import '../services/auth_service.dart';
 
 /// 招待コード入力画面
 class InviteCodeScreen extends StatefulWidget {
@@ -18,7 +17,6 @@ class InviteCodeScreen extends StatefulWidget {
 class _InviteCodeScreenState extends State<InviteCodeScreen> {
   final TextEditingController _inviteCodeController = TextEditingController();
   final InviteCodeService _inviteCodeService = InviteCodeService();
-  final AuthService _authService = AuthService();
   bool _isLoading = false;
 
   @override
@@ -84,20 +82,11 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
         return;
       }
 
-      // 招待コードを使用済みにする
-      final currentUser = _authService.currentUser;
-      if (currentUser != null) {
-        await _inviteCodeService.markInviteCodeAsUsed(
-          inviteCode,
-          currentUser.uid,
-        );
-      }
-
+      // 招待コードが有効な場合、名前入力画面へ遷移
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        // 名前入力画面へ遷移
         Navigator.pushReplacementNamed(context, '/name-input');
       }
     } catch (e) {
@@ -106,8 +95,8 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
           _isLoading = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('招待コードの検証に失敗しました'),
+          SnackBar(
+            content: Text('エラーが発生しました: ${e.toString().replaceFirst('Exception: ', '')}'),
             backgroundColor: AppColors.error,
           ),
         );

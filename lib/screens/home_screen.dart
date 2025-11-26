@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../models/track_model.dart';
@@ -98,8 +99,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         _showMessage('検索機能は今後実装予定です');
         break;
       case 2:
-        // 投稿作成画面へ遷移
-        Navigator.pushNamed(context, '/create-post');
+        // 楽曲選択画面へ遷移
+        Navigator.pushNamed(context, '/music-selection');
         break;
       case 3:
         // プロフィール画面へ遷移
@@ -585,9 +586,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
               index: 1,
             ),
             // 投稿ボタン
-            _buildNavItem(
-              icon: Icons.add_box_outlined,
-              selectedIcon: Icons.add_box,
+            _buildNavItemSvg(
+              svgPath: 'assets/icons/post_icon.svg',
               index: 2,
             ),
             // アカウントボタン
@@ -614,6 +614,26 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         isSelected ? (selectedIcon ?? icon) : icon,
         color: Colors.white,
         size: 28,
+      ),
+      onPressed: () => _onItemTapped(index),
+    );
+  }
+
+  /// ナビゲーションアイテム（SVG版）
+  Widget _buildNavItemSvg({
+    required String svgPath,
+    required int index,
+  }) {
+    final isSelected = _selectedIndex == index;
+    return IconButton(
+      icon: SvgPicture.asset(
+        svgPath,
+        width: 28,
+        height: 28,
+        colorFilter: const ColorFilter.mode(
+          Colors.white,
+          BlendMode.srcIn,
+        ),
       ),
       onPressed: () => _onItemTapped(index),
     );

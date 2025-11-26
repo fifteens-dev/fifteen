@@ -114,6 +114,42 @@ class AuthService {
     }
   }
 
+  // 招待コード認証でサインイン（匿名認証を使用）
+  Future<UserCredential?> signInWithInviteCode(String inviteCode) async {
+    try {
+      // 既にサインイン済みのユーザーがいる場合は、そのユーザーを使用
+      final currentUser = _auth.currentUser;
+      if (currentUser != null) {
+        if (kDebugMode) {
+          print('✅ Using existing user for invite code: ${currentUser.uid}');
+          print('   Invite code: $inviteCode');
+        }
+        // 既存のユーザーをUserCredentialとして返す
+        // Note: この場合、実際のUserCredentialオブジェクトは作成されないため、
+        // 呼び出し側でcurrentUserを直接使用する必要がある
+        return null; // currentUserが存在することを示すためnullを返す
+      }
+
+      // ユーザーがいない場合は匿名認証でFirebaseユーザーを作成
+      final userCredential = await _auth.signInAnonymously();
+      if (kDebugMode) {
+        print('✅ User signed in with invite code: ${userCredential.user?.uid}');
+        print('   Invite code: $inviteCode');
+      }
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) {
+        print('FirebaseAuthException in signInWithInviteCode: ${e.code} - ${e.message}');
+      }
+      throw Exception('認証に失敗しました');
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error in signInWithInviteCode: $e');
+      }
+      throw Exception('予期しないエラーが発生しました');
+    }
+  }
+
   // サインアウト
   Future<void> signOut() async {
     await _auth.signOut();

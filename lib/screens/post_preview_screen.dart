@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/track_model.dart';
 
@@ -62,10 +63,15 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> {
             // ヘッダー
             _buildHeader(),
 
-            // 投稿カードプレビュー
+            // 投稿カードプレビュー（スクロール可能）
             Expanded(
-              child: Center(
-                child: _buildPostCard(),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: _buildPostCard(),
+                  ),
+                ),
               ),
             ),
           ],
@@ -299,7 +305,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> {
         ),
         child: Column(
           children: [
-            const SizedBox(height: 9),
+            const SizedBox(height: 7),
             // Apple Music クレジット
             _buildAppleMusicCredit(),
 
@@ -308,17 +314,17 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> {
             // 楽曲情報
             _buildTrackInfo(),
 
-            const SizedBox(height: 5),
+            const SizedBox(height: 4),
 
             // リアクション欄
             _buildReactions(),
 
-            const SizedBox(height: 9),
+            const SizedBox(height: 7),
 
             // コメント入力欄
             _buildCommentInput(),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
           ],
         ),
       ),
@@ -388,8 +394,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> {
           const SizedBox(width: 12),
 
           // コメントボタン
-          _buildReactionButton(
-            icon: Icons.chat_bubble_outline,
+          _buildCommentButton(
             count: '3',
           ),
           const SizedBox(width: 12),
@@ -432,6 +437,34 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> {
           icon,
           color: Colors.white,
           size: 25,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          count,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.white,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// コメントボタン
+  Widget _buildCommentButton({
+    required String count,
+  }) {
+    return Row(
+      children: [
+        SvgPicture.asset(
+          'assets/icons/message_circle.svg',
+          width: 25,
+          height: 25,
+          colorFilter: const ColorFilter.mode(
+            Colors.white,
+            BlendMode.srcIn,
+          ),
         ),
         const SizedBox(width: 6),
         Text(

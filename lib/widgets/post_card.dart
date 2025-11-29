@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
 
@@ -363,9 +364,7 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                             const SizedBox(width: 16),
 
                             // コメント
-                            _buildReactionButton(
-                              icon: Icons.chat_bubble_outline,
-                              color: Colors.white,
+                            _buildCommentReactionBack(
                               count: widget.post.commentCount,
                               onTap: widget.onComment,
                             ),
@@ -697,6 +696,38 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     );
   }
 
+  /// コメントリアクションボタン（裏面用・SVGアイコン使用）
+  Widget _buildCommentReactionBack({
+    required int count,
+    required VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SvgPicture.asset(
+            'assets/icons/message_circle.svg',
+            width: 24,
+            height: 24,
+            colorFilter: const ColorFilter.mode(
+              Colors.white,
+              BlendMode.srcIn,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            count.toString(),
+            style: const TextStyle(
+              fontSize: 14,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// コメントボタン
   Widget _buildCommentButton(PostTheme theme) {
     return GestureDetector(
@@ -860,8 +891,7 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
         const SizedBox(width: 12),
 
         // コメント
-        _buildReactionItem(
-          icon: Icons.chat_bubble_rounded,
+        _buildCommentReaction(
           count: widget.post.commentCount,
           onTap: widget.onComment,
           theme: theme,
@@ -917,6 +947,39 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: isActive ? Colors.red : theme.textColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// コメントリアクションアイテム（SVGアイコン使用）
+  Widget _buildCommentReaction({
+    required int count,
+    VoidCallback? onTap,
+    required PostTheme theme,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Row(
+        children: [
+          SvgPicture.asset(
+            'assets/icons/message_circle.svg',
+            width: 25,
+            height: 25,
+            colorFilter: ColorFilter.mode(
+              theme.iconColor,
+              BlendMode.srcIn,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: theme.textColor,
             ),
           ),
         ],

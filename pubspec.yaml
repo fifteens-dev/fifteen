@@ -73,6 +73,7 @@ flutter:
     - assets/icons/emotion.png
     - assets/icons/post_icon.svg
     - assets/icons/grid.svg
+    - assets/icons/message_circle.svg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

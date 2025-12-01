@@ -6,6 +6,7 @@ import '../models/post_model.dart';
 import '../models/track_model.dart';
 import '../widgets/post_card.dart';
 import '../services/post_service.dart';
+import '../services/spotify_service.dart';
 import '../utils/test_data.dart';
 import 'comment_screen.dart';
 import 'search_screen.dart';
@@ -23,6 +24,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
   int _selectedIndex = 0;
   final PostService _postService = PostService();
+  final SpotifyService _spotifyService = SpotifyService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
 
@@ -48,9 +50,44 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     _loadLocalLikeStates();
   }
 
-  /// 投稿リストを読み込み
-  void _loadPosts() {
-    _cachedPosts = TestData.generateTestPosts();
+  /// 投稿リストを読み込み（Spotifyからアルバムアートワークを取得）
+  Future<void> _loadPosts() async {
+    // テストデータを取得
+    final testPosts = TestData.generateTestPosts();
+
+    // 各投稿の楽曲名でSpotify検索し、アルバムアートワークを更新
+    final updatedPosts = <PostModel>[];
+
+    for (final post in testPosts) {
+      try {
+        // 楽曲名とアーティスト名で検索
+        final searchQuery = '${post.track.trackName} ${post.track.artistName}';
+        final tracks = await _spotifyService.searchTracks(searchQuery, limit: 1);
+
+        if (tracks.isNotEmpty) {
+          // 検索結果の最初のトラックのアルバムアートワークを使用
+          final spotifyTrack = tracks.first;
+          final updatedTrack = post.track.copyWith(
+            albumImageUrl: spotifyTrack.albumImageUrl,
+          );
+          final updatedPost = post.copyWith(track: updatedTrack);
+          updatedPosts.add(updatedPost);
+        } else {
+          // 検索結果がない場合は元の投稿をそのまま使用
+          updatedPosts.add(post);
+        }
+      } catch (e) {
+        print('Spotifyアルバムアートワーク取得エラー: $e');
+        // エラーの場合は元の投稿をそのまま使用
+        updatedPosts.add(post);
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _cachedPosts = updatedPosts;
+      });
+    }
   }
 
   @override

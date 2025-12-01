@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../models/track_model.dart';
+import '../services/spotify_service.dart';
 import 'post_preview_screen.dart';
 
 /// 投稿用楽曲選択画面
@@ -13,6 +14,7 @@ class MusicSelectionScreen extends StatefulWidget {
 
 class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final SpotifyService _spotifyService = SpotifyService();
 
   // 選択された楽曲
   TrackModel? _selectedTrack;
@@ -29,68 +31,70 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   // 選択されたVibeカテゴリー（例: 「ドライブで聴きたい曲」）
   String? _selectedVibeCategory;
 
-  // テスト用楽曲リスト
-  final List<TrackModel> _tracks = [
-    TrackModel(
-      trackId: '1',
-      trackName: '白い恋人達',
-      artistName: '桑田圭介',
-      albumImageUrl: 'https://via.placeholder.com/47',
-    ),
-    TrackModel(
-      trackId: '2',
-      trackName: 'かわいいだけじゃダメですか？',
-      artistName: 'CUTIE STREET',
-      albumImageUrl: 'https://via.placeholder.com/47',
-    ),
-    TrackModel(
-      trackId: '3',
-      trackName: 'ケセラセラ',
-      artistName: 'Mrs. Green Apple',
-      albumImageUrl: 'https://via.placeholder.com/47',
-    ),
-    TrackModel(
-      trackId: '4',
-      trackName: 'いとしのエリー',
-      artistName: 'サザンオールスターズ',
-      albumImageUrl: 'https://via.placeholder.com/47',
-    ),
-    TrackModel(
-      trackId: '5',
-      trackName: 'さよならエレジー',
-      artistName: '菅田将暉',
-      albumImageUrl: 'https://via.placeholder.com/47',
-    ),
-    TrackModel(
-      trackId: '6',
-      trackName: 'ドライフラワー',
-      artistName: '優里',
-      albumImageUrl: 'https://via.placeholder.com/47',
-    ),
-    TrackModel(
-      trackId: '7',
-      trackName: '怪獣の花唄',
-      artistName: 'Vaundy',
-      albumImageUrl: 'https://via.placeholder.com/47',
-    ),
-    TrackModel(
-      trackId: '8',
-      trackName: '残酷な天使のテーゼ',
-      artistName: '高橋洋子',
-      albumImageUrl: 'https://via.placeholder.com/47',
-    ),
-    TrackModel(
-      trackId: '9',
-      trackName: 'LAST PARTY',
-      artistName: 'BAD HOP',
-      albumImageUrl: 'https://via.placeholder.com/47',
-    ),
-  ];
+  // 楽曲リスト（Spotify APIから取得）
+  List<TrackModel> _tracks = [];
+
+  // ローディング状態
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialTracks();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// 初期楽曲を読み込み（人気の楽曲を表示）
+  Future<void> _loadInitialTracks() async {
+    setState(() => _isLoading = true);
+
+    try {
+      // 人気のJ-POPアーティストをシードにしておすすめを取得
+      final tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 20);
+
+      if (mounted) {
+        setState(() {
+          _tracks = tracks;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading initial tracks: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  /// 楽曲を検索
+  Future<void> _searchTracks(String query) async {
+    if (query.isEmpty) {
+      _loadInitialTracks();
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final tracks = await _spotifyService.searchTracks(query, limit: 20);
+
+      if (mounted) {
+        setState(() {
+          _tracks = tracks;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error searching tracks: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   /// 楽曲を選択
@@ -152,7 +156,25 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
             // 楽曲リスト or グリッド
             Expanded(
-              child: _isGridView ? _buildTrackGrid() : _buildTrackList(),
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF5D8FFF),
+                      ),
+                    )
+                  : _tracks.isEmpty
+                      ? const Center(
+                          child: Text(
+                            '楽曲が見つかりませんでした',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF9F9F9F),
+                            ),
+                          ),
+                        )
+                      : _isGridView
+                          ? _buildTrackGrid()
+                          : _buildTrackList(),
             ),
           ],
         ),
@@ -243,7 +265,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                   contentPadding: EdgeInsets.zero,
                 ),
                 onChanged: (value) {
-                  // TODO: 検索機能を実装
+                  _searchTracks(value);
                 },
               ),
             ),

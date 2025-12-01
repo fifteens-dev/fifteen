@@ -270,7 +270,7 @@ class TestData {
         theme: PostTheme.blueGreen,
       ),
 
-      // 投稿カード2（紫系グラデーション - いつか結婚しても）
+      // 投稿カード2（紫系グラデーション - ヒロイン）
       PostModel(
         postId: 'test_post_2',
         userId: 'test_user_2',
@@ -278,8 +278,8 @@ class TestData {
         userIconUrl: null,
         track: TrackModel(
           trackId: 'track_2',
-          trackName: 'いつか結婚しても',
-          artistName: 'My Hair is Bad',
+          trackName: 'ヒロイン',
+          artistName: 'back number',
           albumImageUrl: 'https://picsum.photos/seed/album2/400/400',
         ),
         likeCount: 3,
@@ -290,7 +290,7 @@ class TestData {
         theme: PostTheme.purple,
       ),
 
-      // 投稿カード3（ベージュ系グラデーション）
+      // 投稿カード3（ベージュ系グラデーション - 白い恋人達）
       PostModel(
         postId: 'test_post_3',
         userId: 'test_user_3',
@@ -298,8 +298,8 @@ class TestData {
         userIconUrl: null,
         track: TrackModel(
           trackId: 'track_3',
-          trackName: 'Electric Dreams',
-          artistName: 'Neon Lights',
+          trackName: '白い恋人達',
+          artistName: '桑田佳祐',
           albumImageUrl: 'https://picsum.photos/seed/album3/400/400',
         ),
         likeCount: 89,
@@ -310,7 +310,7 @@ class TestData {
         theme: PostTheme.beige,
       ),
 
-      // 投稿カード4（青緑系グラデーション）
+      // 投稿カード4（青緑系グラデーション - LAST PARTY）
       PostModel(
         postId: 'test_post_4',
         userId: 'test_user_4',
@@ -318,8 +318,8 @@ class TestData {
         userIconUrl: null,
         track: TrackModel(
           trackId: 'track_4',
-          trackName: 'Dancing Queen',
-          artistName: 'ABBA',
+          trackName: 'LAST PARTY',
+          artistName: 'BAD HOP',
           albumImageUrl: 'https://picsum.photos/seed/album4/400/400',
         ),
         likeCount: 256,
@@ -330,7 +330,7 @@ class TestData {
         theme: PostTheme.blueGreen,
       ),
 
-      // 投稿カード5（紫系グラデーション）
+      // 投稿カード5（紫系グラデーション - かわいいだけじゃダメですか？）
       PostModel(
         postId: 'test_post_5',
         userId: 'test_user_5',
@@ -338,8 +338,8 @@ class TestData {
         userIconUrl: null,
         track: TrackModel(
           trackId: 'track_5',
-          trackName: 'Neon Nights',
-          artistName: 'The Weeknd',
+          trackName: 'かわいいだけじゃダメですか？',
+          artistName: 'CUTIE STREET',
           albumImageUrl: 'https://picsum.photos/seed/album5/400/400',
         ),
         likeCount: 512,
@@ -350,7 +350,7 @@ class TestData {
         theme: PostTheme.purple,
       ),
 
-      // 投稿カード6（ベージュ系グラデーション）
+      // 投稿カード6（ベージュ系グラデーション - One more time, One more chance）
       PostModel(
         postId: 'test_post_6',
         userId: 'test_user_6',
@@ -358,8 +358,8 @@ class TestData {
         userIconUrl: null,
         track: TrackModel(
           trackId: 'track_6',
-          trackName: 'Sunrise Festival',
-          artistName: 'Calvin Harris',
+          trackName: 'One more time, One more chance',
+          artistName: '山崎まさよし',
           albumImageUrl: 'https://picsum.photos/seed/album6/400/400',
         ),
         likeCount: 1024,
@@ -415,7 +415,7 @@ class TestData {
           userId: 'user_d',
           username: 'indie_lover',
           userIconUrl: null,
-          content: 'マイヘア最高！この曲大好き',
+          content: 'back number最高！この曲大好き',
           createdAt: DateTime.now().subtract(const Duration(hours: 4)),
           updatedAt: DateTime.now().subtract(const Duration(hours: 4)),
         ),
@@ -445,9 +445,9 @@ class TestData {
           commentId: 'comment_3_1',
           postId: postId,
           userId: 'user_g',
-          username: 'edm_fan',
+          username: 'winter_lover',
           userIconUrl: null,
-          content: 'このビート最高すぎる🔥',
+          content: '冬の定番曲！桑田さんの歌声最高',
           createdAt: DateTime.now().subtract(const Duration(hours: 7)),
           updatedAt: DateTime.now().subtract(const Duration(hours: 7)),
         ),
@@ -457,9 +457,9 @@ class TestData {
           commentId: 'comment_4_1',
           postId: postId,
           userId: 'user_h',
-          username: 'disco_queen',
+          username: 'hiphop_head',
           userIconUrl: null,
-          content: 'ABBAは永遠の名曲ばかり！',
+          content: 'BAD HOPのこの曲やばい！',
           createdAt: DateTime.now().subtract(const Duration(hours: 20)),
           updatedAt: DateTime.now().subtract(const Duration(hours: 20)),
         ),
@@ -467,9 +467,9 @@ class TestData {
           commentId: 'comment_4_2',
           postId: postId,
           userId: 'user_i',
-          username: '70s_lover',
+          username: 'rap_fan',
           userIconUrl: null,
-          content: 'ダンシングクイーン聴くと元気出る',
+          content: 'パーティーで絶対盛り上がる',
           createdAt: DateTime.now().subtract(const Duration(hours: 18)),
           updatedAt: DateTime.now().subtract(const Duration(hours: 18)),
         ),

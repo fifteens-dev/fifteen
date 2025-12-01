@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/app_colors.dart';
 import '../services/user_service.dart';
+import '../services/spotify_service.dart';
 import '../models/user_model.dart';
 import 'settings_screen.dart';
 
@@ -15,6 +16,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final UserService _userService = UserService();
+  final SpotifyService _spotifyService = SpotifyService();
   int _selectedTabIndex = 0; // 0: グリッド, 1: 保存
 
   // ユーザーデータ
@@ -25,10 +27,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final int _followersCount = 87;
   final int _followingCount = 89;
 
+  // 今日の楽曲のアルバムアートワーク
+  String? _todaysTrackAlbumArt;
+
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _loadAlbumArtworks();
   }
 
   /// ユーザーデータを読み込み
@@ -56,6 +62,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() {
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  /// アルバムアートワークを読み込み
+  Future<void> _loadAlbumArtworks() async {
+    // 今日の楽曲のアルバムアートワークを取得
+    try {
+      final todaysTracks = await _spotifyService.searchTracks(
+        'いとしのエリー サザンオールスターズ',
+        limit: 1,
+      );
+      if (todaysTracks.isNotEmpty && mounted) {
+        setState(() {
+          _todaysTrackAlbumArt = todaysTracks.first.albumImageUrl;
+        });
+      }
+    } catch (e) {
+      print('今日の楽曲のアルバムアートワーク取得エラー: $e');
+    }
+
+    // 投稿グリッドの各楽曲のアルバムアートワークを取得
+    for (int i = 0; i < _posts.length; i++) {
+      final post = _posts[i];
+      try {
+        final searchQuery = '${post['trackName']} ${post['artistName']}';
+        final tracks = await _spotifyService.searchTracks(searchQuery, limit: 1);
+
+        if (tracks.isNotEmpty && mounted) {
+          setState(() {
+            _posts[i]['albumArt'] = tracks.first.albumImageUrl ?? '';
+          });
+        }
+      } catch (e) {
+        print('投稿 $i のアルバムアートワーク取得エラー: $e');
       }
     }
   }
@@ -326,11 +367,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     color: Colors.grey[800],
                     borderRadius: BorderRadius.circular(3),
                   ),
-                  child: const Icon(
-                    Icons.album,
-                    size: 40,
-                    color: Colors.white54,
-                  ),
+                  child: _todaysTrackAlbumArt != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: Image.network(
+                            _todaysTrackAlbumArt!,
+                            width: 80,
+                            height: 80,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Icon(
+                                Icons.album,
+                                size: 40,
+                                color: Colors.white54,
+                              );
+                            },
+                          ),
+                        )
+                      : const Icon(
+                          Icons.album,
+                          size: 40,
+                          color: Colors.white54,
+                        ),
                 ),
                 const SizedBox(width: 14),
                 // 曲名とアーティスト
@@ -478,6 +536,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// 投稿アイテム
   Widget _buildPostItem(Map<String, String> post) {
+    final albumArt = post['albumArt'];
+
     return Container(
       padding: const EdgeInsets.all(0),
       child: Column(
@@ -492,11 +552,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: Colors.grey[800],
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: const Icon(
-                Icons.album,
-                size: 50,
-                color: Colors.white54,
-              ),
+              child: albumArt != null && albumArt.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: Image.network(
+                        albumArt,
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Icon(
+                            Icons.album,
+                            size: 50,
+                            color: Colors.white54,
+                          );
+                        },
+                      ),
+                    )
+                  : const Icon(
+                      Icons.album,
+                      size: 50,
+                      color: Colors.white54,
+                    ),
             ),
           ),
           // 曲名

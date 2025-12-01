@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/verification_code_screen.dart';
 import 'screens/invite_code_screen.dart';
@@ -22,6 +23,9 @@ import 'constants/app_colors.dart';
 void main() async {
   // Flutter バインディングの初期化
   WidgetsFlutterBinding.ensureInitialized();
+
+  // .envファイルの読み込み
+  await dotenv.load(fileName: ".env");
 
   // Firebaseの初期化（Webのみ、AndroidとiOSは自動初期化される）
   if (kIsWeb) {

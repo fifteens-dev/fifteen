@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/track_model.dart';
+import 'post_photo_selection_screen.dart';
 
 /// 投稿プレビュー画面
 class PostPreviewScreen extends StatefulWidget {
@@ -24,25 +25,19 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> {
 
   /// 写真を追加
   Future<void> _pickImage() async {
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.gallery,
-      );
-      if (image != null) {
-        setState(() {
-          _selectedImage = image;
-        });
-      }
-    } catch (e) {
-      // エラー処理
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('画像の選択に失敗しました: $e'),
-            backgroundColor: const Color(0xFFE53935),
-          ),
-        );
-      }
+    // 写真選択画面へ遷移
+    final XFile? selectedImage = await Navigator.push<XFile>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PostPhotoSelectionScreen(track: widget.track),
+      ),
+    );
+
+    // 選択された写真を設定
+    if (selectedImage != null) {
+      setState(() {
+        _selectedImage = selectedImage;
+      });
     }
   }
 
@@ -177,10 +172,15 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(18),
                 child: _selectedImage != null
-                    ? Image.file(
-                        File(_selectedImage!.path),
-                        fit: BoxFit.cover,
-                      )
+                    ? kIsWeb
+                        ? Image.network(
+                            _selectedImage!.path,
+                            fit: BoxFit.cover,
+                          )
+                        : Image.file(
+                            File(_selectedImage!.path),
+                            fit: BoxFit.cover,
+                          )
                     : _buildAddPhotoButton(),
               ),
             ),

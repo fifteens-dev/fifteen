@@ -74,6 +74,16 @@ flutter:
     - assets/icons/post_icon.svg
     - assets/icons/grid.svg
     - assets/icons/message_circle.svg
+    - assets/icons/lyrics/layout_1_selected.svg
+    - assets/icons/lyrics/layout_1_unselected.svg
+    - assets/icons/lyrics/layout_2_selected.svg
+    - assets/icons/lyrics/layout_2_unselected.svg
+    - assets/icons/lyrics/layout_3_selected.svg
+    - assets/icons/lyrics/layout_3_unselected.svg
+    - assets/icons/lyrics/layout_4_selected.svg
+    - assets/icons/lyrics/layout_4_unselected.svg
+    - assets/icons/lyrics/layout_5_selected.svg
+    - assets/icons/lyrics/layout_5_unselected.svg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

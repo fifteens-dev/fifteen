@@ -8,7 +8,9 @@ import '../widgets/post_card.dart';
 import '../services/post_service.dart';
 import '../utils/test_data.dart';
 import 'comment_screen.dart';
+import 'search_screen.dart';
 import 'profile_screen.dart';
+import 'activity_screen.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -95,8 +97,11 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         // ホーム（現在の画面）
         break;
       case 1:
-        // 検索画面
-        _showMessage('検索機能は今後実装予定です');
+        // 検索画面へ遷移
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const SearchScreen()),
+        );
         break;
       case 2:
         // 楽曲選択画面へ遷移
@@ -173,7 +178,11 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           IconButton(
             icon: const Icon(Icons.notifications_outlined, color: Colors.white),
             onPressed: () {
-              // TODO: 通知画面へ遷移
+              // アクティビティ画面へ遷移
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ActivityScreen()),
+              );
             },
           ),
         ],

@@ -84,7 +84,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
   }
 
   /// 次へボタン押下
-  void _onNext() {
+  Future<void> _onNext() async {
     if (_selectedImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -96,7 +96,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
     }
 
     // 歌詞カード選択画面へ遷移
-    Navigator.push(
+    final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
         builder: (context) => LyricsCardSelectionScreen(
@@ -105,6 +105,11 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
         ),
       ),
     );
+
+    // 歌詞カード選択画面から戻ってきた場合、PostPreviewScreenにデータを返す
+    if (result != null && mounted) {
+      Navigator.pop(context, result);
+    }
   }
 
   @override

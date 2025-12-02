@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../models/track_model.dart';
 import 'package:image_picker/image_picker.dart';
-import 'post_final_preview_screen.dart';
 
 /// 歌詞カード選択画面
 class LyricsCardSelectionScreen extends StatefulWidget {
@@ -26,14 +25,6 @@ class _LyricsCardSelectionScreenState
     extends State<LyricsCardSelectionScreen> {
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
   Offset _cardPosition = Offset.zero; // 歌詞カードの位置
-
-  /// 投稿ボタン押下
-  void _onPost() {
-    // TODO: 投稿処理を実装
-    // 選択した写真を持って投稿プレビュー画面に戻る（2つ戻る）
-    Navigator.pop(context); // 歌詞カード選択画面を閉じる
-    Navigator.pop(context, widget.selectedImage); // 写真選択画面を閉じて、プレビュー画面に画像を返す
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -93,18 +84,8 @@ class _LyricsCardSelectionScreenState
             ),
           ),
 
-          // 投稿ボタン
-          GestureDetector(
-            onTap: _onPost,
-            child: const Text(
-              '投稿する',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF7F7F7F), // グレー表示
-              ),
-            ),
-          ),
+          // 次へボタン（プレースホルダー）
+          const SizedBox(width: 60), // スペース確保
         ],
       ),
     );
@@ -328,6 +309,15 @@ class _LyricsCardSelectionScreenState
                         color: const Color(0xFF9F9F9F),
                         borderRadius: BorderRadius.circular(3),
                       ),
+                      child: widget.track.albumImageUrl.isNotEmpty
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(3),
+                              child: Image.network(
+                                widget.track.albumImageUrl,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : null,
                     ),
                     const SizedBox(width: 10),
                     // 楽曲情報
@@ -383,6 +373,15 @@ class _LyricsCardSelectionScreenState
                 color: const Color(0xFF9F9F9F),
                 borderRadius: BorderRadius.circular(3),
               ),
+              child: widget.track.albumImageUrl.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: Image.network(
+                        widget.track.albumImageUrl,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  : null,
             ),
             const SizedBox(height: 7),
             // トラック情報
@@ -438,6 +437,15 @@ class _LyricsCardSelectionScreenState
                 color: const Color(0xFF9F9F9F),
                 borderRadius: BorderRadius.circular(3),
               ),
+              child: widget.track.albumImageUrl.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: Image.network(
+                        widget.track.albumImageUrl,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  : null,
             ),
             const SizedBox(width: 9),
             // トラック情報
@@ -483,6 +491,15 @@ class _LyricsCardSelectionScreenState
           color: const Color(0xFF9F9F9F),
           borderRadius: BorderRadius.circular(2),
         ),
+        child: widget.track.albumImageUrl.isNotEmpty
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: Image.network(
+                  widget.track.albumImageUrl,
+                  fit: BoxFit.cover,
+                ),
+              )
+            : null,
       );
   }
 
@@ -508,6 +525,15 @@ class _LyricsCardSelectionScreenState
                   color: const Color(0xFF9F9F9F),
                   borderRadius: BorderRadius.circular(3),
                 ),
+                child: widget.track.albumImageUrl.isNotEmpty
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(3),
+                        child: Image.network(
+                          widget.track.albumImageUrl,
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    : null,
               ),
             ),
             // トラック情報
@@ -660,18 +686,12 @@ class _LyricsCardSelectionScreenState
         // 確認ボタン
         GestureDetector(
           onTap: () {
-            // 投稿カード最終プレビュー画面へ遷移
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => PostFinalPreviewScreen(
-                  track: widget.track,
-                  selectedImage: widget.selectedImage,
-                  selectedLayoutIndex: _selectedLayoutIndex,
-                  cardPosition: _cardPosition,
-                ),
-              ),
-            );
+            // 選択した写真、レイアウト、カード位置をPostPreviewScreenに返す
+            Navigator.pop(context, {
+              'image': widget.selectedImage,
+              'layoutIndex': _selectedLayoutIndex,
+              'cardPosition': _cardPosition,
+            });
           },
           child: Container(
             width: 45,

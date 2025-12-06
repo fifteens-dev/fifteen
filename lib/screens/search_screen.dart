@@ -44,14 +44,29 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildHeader() {
     return Container(
       height: 50,
-      alignment: Alignment.center,
-      child: const Text(
-        '15s',
-        style: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // 戻るボタン
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          // タイトル
+          const Text(
+            '15s',
+            style: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+          // 右側のスペース（バランス用）
+          const SizedBox(width: 48),
+        ],
       ),
     );
   }

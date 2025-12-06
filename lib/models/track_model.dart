@@ -8,6 +8,7 @@ class TrackModel {
   final String albumImageUrl;
   final String? trackUrl; // 音楽ファイルのURL（将来的に実装）
   final String? previewUrl; // プレビューURL（将来的に実装）
+  final String? lyrics; // 歌詞
 
   TrackModel({
     required this.trackId,
@@ -16,6 +17,7 @@ class TrackModel {
     required this.albumImageUrl,
     this.trackUrl,
     this.previewUrl,
+    this.lyrics,
   });
 
   // Mapから作成
@@ -27,6 +29,7 @@ class TrackModel {
       albumImageUrl: map['albumImageUrl'] ?? '',
       trackUrl: map['trackUrl'],
       previewUrl: map['previewUrl'],
+      lyrics: map['lyrics'],
     );
   }
 
@@ -39,6 +42,7 @@ class TrackModel {
       'albumImageUrl': albumImageUrl,
       'trackUrl': trackUrl,
       'previewUrl': previewUrl,
+      'lyrics': lyrics,
     };
   }
 
@@ -50,6 +54,7 @@ class TrackModel {
     String? albumImageUrl,
     String? trackUrl,
     String? previewUrl,
+    String? lyrics,
   }) {
     return TrackModel(
       trackId: trackId ?? this.trackId,
@@ -58,6 +63,7 @@ class TrackModel {
       albumImageUrl: albumImageUrl ?? this.albumImageUrl,
       trackUrl: trackUrl ?? this.trackUrl,
       previewUrl: previewUrl ?? this.previewUrl,
+      lyrics: lyrics ?? this.lyrics,
     );
   }
 }

@@ -1,8 +1,12 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
+import '../services/audio_player_service.dart';
+import '../services/itunes_search_service.dart';
 
 /// 投稿カードウィジェット（表裏反転アニメーション付き）
 class PostCard extends StatefulWidget {
@@ -25,7 +29,7 @@ class PostCard extends StatefulWidget {
   State<PostCard> createState() => _PostCardState();
 }
 
-class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin {
+class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
   bool _showFront = true;
@@ -33,6 +37,17 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
   // 楽観的UI更新用のローカル状態
   bool? _isLikedOptimistic;
   int? _likeCountOptimistic;
+
+  // 音楽再生サービス
+  final AudioPlayerService _audioService = AudioPlayerService();
+  final ITunesSearchService _itunesService = ITunesSearchService();
+
+  // 動的に取得したpreview URLをキャッシュ
+  String? _cachedPreviewUrl;
+
+  // スクロール時にウィジェットの状態を保持
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -52,12 +67,62 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     super.dispose();
   }
 
+  /// Spotifyで楽曲を開く
+  Future<void> _openInSpotify() async {
+    final trackId = widget.post.track.trackId;
+    final spotifyUrl = Uri.parse('https://open.spotify.com/track/$trackId');
+
+    try {
+      print('Opening Spotify: $spotifyUrl');
+      if (await canLaunchUrl(spotifyUrl)) {
+        await launchUrl(spotifyUrl, mode: LaunchMode.externalApplication);
+      } else {
+        print('Could not launch $spotifyUrl');
+      }
+    } catch (e) {
+      print('Error opening Spotify: $e');
+    }
+  }
+
   /// カードをタップして裏返す
-  void _flipCard() {
+  void _flipCard() async {
     if (_showFront) {
       _flipController.forward();
+      print('=== Flipping to back ===');
+      print('Track: ${widget.post.track.trackName} - ${widget.post.track.artistName}');
+
+      // キャッシュまたは動的に取得したpreview URLを使用
+      String? previewUrl = _cachedPreviewUrl;
+
+      // キャッシュがない場合、iTunes APIから取得
+      if (previewUrl == null) {
+        print('🍎 Fetching preview URL from iTunes...');
+        previewUrl = await _itunesService.getPreviewUrl(
+          trackName: widget.post.track.trackName,
+          artistName: widget.post.track.artistName,
+        );
+
+        if (previewUrl != null) {
+          _cachedPreviewUrl = previewUrl; // キャッシュに保存
+          print('✅ iTunes preview URL obtained and cached');
+        } else {
+          print('❌ No preview URL found from iTunes');
+        }
+      } else {
+        print('📦 Using cached preview URL');
+      }
+
+      // プレビューURLがあれば再生
+      if (previewUrl != null && previewUrl.isNotEmpty) {
+        print('▶️  Starting playback...');
+        _audioService.playPreview(previewUrl);
+      } else {
+        print('⚠️  No preview URL available');
+      }
     } else {
       _flipController.reverse();
+      print('=== Flipping to front - stopping playback ===');
+      _audioService.stop();
     }
     setState(() {
       _showFront = !_showFront;
@@ -102,6 +167,8 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixinのために必要
+
     return AnimatedBuilder(
       animation: _flipAnimation,
       builder: (context, child) {
@@ -658,6 +725,60 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                 ),
               ],
             ),
+          ),
+
+          // 再生/一時停止ボタン
+          StreamBuilder<PlayerState>(
+            stream: _audioService.playerStateStream,
+            builder: (context, snapshot) {
+              // キャッシュされたpreview URLを使用
+              final previewUrl = _cachedPreviewUrl;
+              final isThisTrackPlaying = previewUrl != null && _audioService.isPlayingUrl(previewUrl);
+              final isPaused = _audioService.isPaused;
+
+              return IconButton(
+                icon: Icon(
+                  isThisTrackPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                  color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
+                  size: 32,
+                ),
+                onPressed: () async {
+                  if (isThisTrackPlaying) {
+                    // 再生中の場合は一時停止
+                    _audioService.pause();
+                  } else if (isPaused && previewUrl != null) {
+                    // 一時停止中の場合は再開
+                    _audioService.resume();
+                  } else {
+                    // 停止中の場合は再生開始
+                    String? urlToPlay = previewUrl;
+
+                    // preview URLがまだ取得されていない場合は取得
+                    if (urlToPlay == null) {
+                      print('🍎 Fetching preview URL for playback...');
+                      urlToPlay = await _itunesService.getPreviewUrl(
+                        trackName: widget.post.track.trackName,
+                        artistName: widget.post.track.artistName,
+                      );
+
+                      if (urlToPlay != null) {
+                        setState(() {
+                          _cachedPreviewUrl = urlToPlay;
+                        });
+                        print('✅ Preview URL obtained and cached');
+                      } else {
+                        print('❌ Failed to obtain preview URL');
+                        return;
+                      }
+                    }
+
+                    _audioService.playPreview(urlToPlay);
+                  }
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              );
+            },
           ),
         ],
       ),

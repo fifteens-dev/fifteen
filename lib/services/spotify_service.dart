@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/track_model.dart';
+import 'itunes_search_service.dart';
 
 /// Spotify Web API サービス
 class SpotifyService {
@@ -11,6 +12,9 @@ class SpotifyService {
 
   String? _accessToken;
   DateTime? _tokenExpiry;
+
+  // iTunes Search APIのフォールバック
+  final ITunesSearchService _itunesService = ITunesSearchService();
 
   /// Client IDとClient Secretを取得
   String get _clientId => dotenv.env['SPOTIFY_CLIENT_ID'] ?? '';
@@ -56,12 +60,15 @@ class SpotifyService {
     }
   }
 
-  /// 楽曲を検索
+  /// 楽曲を検索（アルバムアートはSpotify、プレビューURLはiTunes）
   Future<List<TrackModel>> searchTracks(String query, {int limit = 20}) async {
     if (query.isEmpty) return [];
 
     final token = await _getAccessToken();
-    if (token == null) return [];
+    if (token == null) {
+      // トークン取得失敗時はiTunesにフォールバック
+      return await _itunesService.searchTracks(query, limit: limit);
+    }
 
     try {
       final encodedQuery = Uri.encodeComponent(query);
@@ -77,11 +84,11 @@ class SpotifyService {
         final tracks = data['tracks']['items'] as List;
 
         return tracks.map((trackData) {
-          // アルバムアートワークを取得（最も大きい画像を使用）
+          // アルバムアートワークを取得
           final images = trackData['album']['images'] as List;
           String albumImageUrl = '';
           if (images.isNotEmpty) {
-            albumImageUrl = images[0]['url']; // 最初の画像（通常は最大サイズ）
+            albumImageUrl = images[0]['url'];
           }
 
           // アーティスト名を取得
@@ -96,16 +103,18 @@ class SpotifyService {
             trackName: trackData['name'],
             artistName: artistName,
             albumImageUrl: albumImageUrl,
-            previewUrl: trackData['preview_url'], // 30秒のプレビューURL
+            previewUrl: '', // previewUrlは空にして、カード裏返し時にiTunesから取得
           );
         }).toList();
       } else {
         print('Spotify search error: ${response.statusCode} ${response.body}');
-        return [];
+        // エラー時はiTunesにフォールバック
+        return await _itunesService.searchTracks(query, limit: limit);
       }
     } catch (e) {
       print('Error searching tracks: $e');
-      return [];
+      // エラー時はiTunesにフォールバック
+      return await _itunesService.searchTracks(query, limit: limit);
     }
   }
 

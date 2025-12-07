@@ -15,6 +15,7 @@ class PostCard extends StatefulWidget {
   final VoidCallback? onComment;
   final VoidCallback? onAdd;
   final String? currentUserId;
+  final AudioPlayerService audioService; // 音楽再生サービス（外部から注入）
 
   const PostCard({
     super.key,
@@ -23,6 +24,7 @@ class PostCard extends StatefulWidget {
     this.onComment,
     this.onAdd,
     this.currentUserId,
+    required this.audioService, // 必須パラメータ
   });
 
   @override
@@ -38,8 +40,7 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
   bool? _isLikedOptimistic;
   int? _likeCountOptimistic;
 
-  // 音楽再生サービス
-  final AudioPlayerService _audioService = AudioPlayerService();
+  // iTunes検索サービス
   final ITunesSearchService _itunesService = ITunesSearchService();
 
   // 動的に取得したpreview URLをキャッシュ
@@ -115,14 +116,14 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
       // プレビューURLがあれば再生
       if (previewUrl != null && previewUrl.isNotEmpty) {
         print('▶️  Starting playback...');
-        _audioService.playPreview(previewUrl);
+        widget.audioService.playPreview(previewUrl);
       } else {
         print('⚠️  No preview URL available');
       }
     } else {
       _flipController.reverse();
       print('=== Flipping to front - stopping playback ===');
-      _audioService.stop();
+      widget.audioService.stop();
     }
     setState(() {
       _showFront = !_showFront;
@@ -169,31 +170,37 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixinのために必要
 
-    return AnimatedBuilder(
-      animation: _flipAnimation,
-      builder: (context, child) {
-        final angle = _flipAnimation.value * pi;
-        final isFront = angle < pi / 2;
+    return Center(
+      child: SizedBox(
+        width: 363.0,
+        height: 644.0,
+        child: AnimatedBuilder(
+          animation: _flipAnimation,
+          builder: (context, child) {
+            final angle = _flipAnimation.value * pi;
+            final isFront = angle < pi / 2;
 
-        return Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.001)
-            ..rotateY(angle),
-          child: isFront ? _buildFront() : _buildBack(),
-        );
-      },
+            return Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.001)
+                ..rotateY(angle),
+              child: isFront ? _buildFront() : _buildBack(),
+            );
+          },
+        ),
+      ),
     );
   }
 
   /// カード表面（アルバムカバー全表示）
   Widget _buildFront() {
     final theme = widget.post.theme;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final cardWidth = screenWidth - 30; // 左右15pxずつの余白を引く
-    final albumSize = cardWidth; // アルバムカバーは正方形（4部分）
-    final contentHeight = cardWidth * (3 / 4); // コンテンツエリア（3部分）
-    final cardHeight = albumSize + contentHeight; // 4:3の比率
+    // Figmaの基準サイズで固定（拡大縮小しない）
+    const cardWidth = 363.0;
+    const albumSize = 363.0; // アルバムカバーは正方形
+    const contentHeight = 294.0; // タイトルエリア
+    const cardHeight = 644.0; // 全体の高さ（13pxのオーバーラップ込み）
 
     return GestureDetector(
       onTap: _flipCard,
@@ -242,61 +249,82 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      theme.gradientStart,
-                      theme.gradientEnd,
+                      theme.gradientStart.withOpacity(0.0), // 上端は透明（アルバムと重なる部分）
+                      theme.gradientEnd, // 13px以降は不透明
                     ],
-                    stops: const [0.0377, 1.0],
+                    stops: const [0.0, 0.0442], // 上部4.42% (13px/294px) でグラデーション完了
                   ),
                 ),
               ),
             ),
 
-            // コンテンツ（下部）
+            // コンテンツ（下部）- Figmaに合わせて絶対配置
+            // Figmaは下から計測（Y軸反転）なので、294px基準で変換
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
               height: contentHeight,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 1),
-                    // ユーザー情報（一番上）
-                    _buildUserInfo(theme),
-                    const SizedBox(height: 3),
+              child: Stack(
+                children: [
+                  // ユーザー情報 - Figma: bottom: 238px → top: 56px (294-238), left: 12px
+                  Positioned(
+                    left: cardWidth * (12 / 363),
+                    top: contentHeight * (24 / 294),
+                    child: _buildUserInfo(theme),
+                  ),
 
-                    // 曲名とアーティスト名
-                    _buildTrackInfo(theme),
-                    const SizedBox(height: 4),
+                  // 曲名とアーティスト名 - Figma: bottom: 185px → top: 109px (294-185), left: 11px, right: 66px
+                  Positioned(
+                    left: cardWidth * (11 / 363),
+                    top: contentHeight * (63 / 294),
+                    right: cardWidth * (66 / 363),
+                    child: _buildTrackInfo(theme),
+                  ),
 
-                    // リアクション（いいね、コメント、追加）といいねした人のアイコン
-                    _buildReactions(theme),
-                    const SizedBox(height: 4),
+                  // シェアボタン - Figma: bottom: 195px → top: 99px (294-195), left: 314px
+                  Positioned(
+                    left: cardWidth * (314 / 363),
+                    top: contentHeight * (63 / 294),
+                    child: _buildShareButton(),
+                  ),
 
-                    // 音楽波形
-                    _buildWaveform(theme),
-                    const SizedBox(height: 4),
+                  // リアクション - Figma: bottom: 141px → top: 153px (294-141), left: 12px, right: 12px
+                  Positioned(
+                    left: cardWidth * (12 / 363),
+                    right: cardWidth * (12 / 363),
+                    top: contentHeight * (128 / 294),
+                    child: _buildReactions(theme),
+                  ),
 
-                    // コメント入力欄
-                    _buildCommentButton(theme),
-                    const Spacer(),
+                  // 音楽波形 - Figma: bottom: 96px → top: 198px (294-96), left: 4px, right: 5px
+                  Positioned(
+                    left: cardWidth * (12 / 363),
+                    top: contentHeight * (166 / 294),
+                    child: _buildWaveform(theme),
+                  ),
 
-                    // "Provided courtesy of Apple Music"（一番下）
-                    Padding(
-                      padding: const EdgeInsets.only(left: 5, bottom: 2),
-                      child: Text(
-                        'Provided courtesy of Apple Music',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: theme.secondaryTextColor,
-                        ),
+                  // コメント入力欄 - Figma: bottom: 40px → top: 254px (294-40), left: 12px, right: 12px
+                  Positioned(
+                    left: cardWidth * (12 / 363),
+                    right: cardWidth * (12 / 363),
+                    top: contentHeight * (211 / 294),
+                    child: _buildCommentButton(theme),
+                  ),
+
+                  // "Provided courtesy of Apple Music" - Figma: bottom: 12px → top: 282px (294-12), left: 17px
+                  Positioned(
+                    left: cardWidth * (17 / 363),
+                    top: contentHeight * (268 / 294),
+                    child: Text(
+                      'Provided courtesy of Apple Music',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: theme.secondaryTextColor.withOpacity(0.7),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -309,11 +337,11 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
   /// カード裏面（写真+アルバムカード+下部セクション）
   Widget _buildBack() {
     final theme = widget.post.theme;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final cardWidth = screenWidth - 30; // 左右15pxずつの余白を引く
-    final photoHeight = cardWidth * (4 / 3); // 写真エリア（大きめ）
-    final contentHeight = cardWidth * (7 / 12); // コンテンツエリア
-    final cardHeight = cardWidth * (7 / 4); // 表面と同じ長方形（7:4の比率）
+    // Figmaの基準サイズで固定（拡大縮小しない）
+    const cardWidth = 363.0;
+    const photoHeight = 484.0; // 写真エリア
+    const contentHeight = 174.0; // タイトルエリア
+    const cardHeight = 644.0; // 全体の高さ（14pxのオーバーラップ込み）
 
     return Transform(
       alignment: Alignment.center,
@@ -376,10 +404,10 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        theme.gradientStart,
-                        theme.gradientEnd,
+                        theme.gradientStart.withOpacity(0.0), // 上端は透明（写真と重なる部分）
+                        theme.gradientEnd, // 14px以降は不透明
                       ],
-                      stops: const [0.0, 1.0],
+                      stops: const [0.0, 0.0805], // 上部8.05% (14px/174px) でグラデーション完了
                     ),
                   ),
                   child: Padding(
@@ -729,12 +757,12 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
 
           // 再生/一時停止ボタン
           StreamBuilder<PlayerState>(
-            stream: _audioService.playerStateStream,
+            stream: widget.audioService.playerStateStream,
             builder: (context, snapshot) {
               // キャッシュされたpreview URLを使用
               final previewUrl = _cachedPreviewUrl;
-              final isThisTrackPlaying = previewUrl != null && _audioService.isPlayingUrl(previewUrl);
-              final isPaused = _audioService.isPaused;
+              final isThisTrackPlaying = previewUrl != null && widget.audioService.isPlayingUrl(previewUrl);
+              final isPaused = widget.audioService.isPaused;
 
               return IconButton(
                 icon: Icon(
@@ -745,10 +773,10 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                 onPressed: () async {
                   if (isThisTrackPlaying) {
                     // 再生中の場合は一時停止
-                    _audioService.pause();
+                    widget.audioService.pause();
                   } else if (isPaused && previewUrl != null) {
                     // 一時停止中の場合は再開
-                    _audioService.resume();
+                    widget.audioService.resume();
                   } else {
                     // 停止中の場合は再生開始
                     String? urlToPlay = previewUrl;
@@ -772,7 +800,7 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                       }
                     }
 
-                    _audioService.playPreview(urlToPlay);
+                    widget.audioService.playPreview(urlToPlay);
                   }
                 },
                 padding: EdgeInsets.zero,
@@ -890,10 +918,11 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     final seed = widget.post.postId.hashCode;
     final random = Random(seed);
 
-    // カードの幅を取得
-    final screenWidth = MediaQuery.of(context).size.width;
-    final cardWidth = screenWidth - 30; // 左右15pxずつの余白を引く
-    final availableWidth = cardWidth - 24; // カード内のpadding（左右12pxずつ）を引く
+    // Figmaの基準サイズで固定（拡大縮小しない）
+    const cardWidth = 363.0;
+    const cardHeight = 644.0;
+    const contentHeight = 294.0;
+    const availableWidth = cardWidth - 24; // カード内のpadding（左右12pxずつ）を引く
 
     // バーの幅とマージンから必要なバーの数を計算
     const barWidth = 2.5;
@@ -902,7 +931,7 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     final barCount = (availableWidth / totalBarWidth).floor();
 
     return Container(
-      height: 50,
+      height: contentHeight * (32 / 294),
       child: Row(
         children: List.generate(barCount, (index) {
           // 大、小、大のパターン（-π/4〜5π/4の範囲）
@@ -917,9 +946,9 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
           // 0〜1の範囲を0.3〜1.0の範囲にマッピング
           final baseHeight = 0.3 + waveValue * 0.7;
 
-          // 15〜48の範囲にスケーリング + ランダムな変動（±3px）
+          // 5〜32の範囲にスケーリング + ランダムな変動（±3px）
           final randomVariation = (random.nextDouble() - 0.5) * 6;
-          final height = 15.0 + (baseHeight * 33.0) + randomVariation;
+          final height = 5.0 + (baseHeight * 28.0) + randomVariation;
 
           return Container(
             width: barWidth,
@@ -937,18 +966,21 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
 
   /// 曲名とアーティスト名（表面）
   Widget _buildTrackInfo(PostTheme theme) {
+    // Positionedで配置されているため、利用可能な幅を計算
+    // left: 11px, right: 66px → 利用可能幅: 363 - 11 - 66 = 286px
+    const availableWidth = 286.0;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          widget.post.track.trackName,
+        MarqueeText(
+          text: widget.post.track.trackName,
           style: TextStyle(
             fontSize: 25,
             fontWeight: FontWeight.bold,
             color: theme.textColor,
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+          width: availableWidth,
         ),
         const SizedBox(height: 4),
         Text(
@@ -995,6 +1027,11 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
 
   /// リアクション（いいね、コメント、追加）
   Widget _buildReactions(PostTheme theme) {
+    // Figmaの基準サイズで固定（拡大縮小しない）
+    const cardWidth = 363.0;
+    const cardHeight = 644.0;
+    const contentHeight = 294.0;
+
     final isLiked = _isLikedOptimistic ??
         (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!));
     final likeCount = _likeCountOptimistic ?? widget.post.likeCount;
@@ -1009,7 +1046,7 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
           isActive: isLiked,
           theme: theme,
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: cardWidth * (15 / 363)),
 
         // コメント
         _buildCommentReaction(
@@ -1017,14 +1054,14 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
           onTap: widget.onComment,
           theme: theme,
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: cardWidth * (15 / 363)),
 
         // 追加
         GestureDetector(
           onTap: widget.onAdd,
           child: Container(
-            width: 23,
-            height: 23,
+            width: cardWidth * (25 / 363),
+            height: contentHeight * (25 / 294),
             decoration: const BoxDecoration(
               shape: BoxShape.circle,
             ),
@@ -1167,6 +1204,143 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
           ),
         ),
       ],
+    );
+  }
+
+  /// シェアボタン
+  Widget _buildShareButton() {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: IconButton(
+        icon: const Icon(
+          Icons.share_outlined,
+          color: Colors.white,
+          size: 20,
+        ),
+        onPressed: () {
+          // TODO: シェア機能の実装
+          print('Share post: ${widget.post.track.trackName}');
+        },
+        padding: EdgeInsets.zero,
+      ),
+    );
+  }
+}
+
+/// テキストが長い場合に横スクロールするマーキーウィジェット
+class MarqueeText extends StatefulWidget {
+  final String text;
+  final TextStyle? style;
+  final double width;
+
+  const MarqueeText({
+    super.key,
+    required this.text,
+    this.style,
+    required this.width,
+  });
+
+  @override
+  State<MarqueeText> createState() => _MarqueeTextState();
+}
+
+class _MarqueeTextState extends State<MarqueeText> {
+  late ScrollController _scrollController;
+  bool _needsScrolling = false;
+  double _textWidth = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndStartScrolling();
+    });
+  }
+
+  void _checkAndStartScrolling() async {
+    // テキストの幅を計算
+    final textPainter = TextPainter(
+      text: TextSpan(text: widget.text, style: widget.style),
+      maxLines: 1,
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    _textWidth = textPainter.width;
+
+    if (_textWidth > widget.width) {
+      setState(() {
+        _needsScrolling = true;
+      });
+
+      // スクロールアニメーションを開始
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return;
+
+      while (mounted) {
+        // 右から左へスクロール
+        await _scrollController.animateTo(
+          _textWidth - widget.width + 20,
+          duration: const Duration(seconds: 5),
+          curve: Curves.linear,
+        );
+
+        // 少し待つ
+        await Future.delayed(const Duration(seconds: 1));
+        if (!mounted) return;
+
+        // 左端に戻る
+        await _scrollController.animateTo(
+          0,
+          duration: const Duration(seconds: 5),
+          curve: Curves.linear,
+        );
+
+        // 少し待つ
+        await Future.delayed(const Duration(seconds: 1));
+        if (!mounted) return;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_needsScrolling) {
+      return SizedBox(
+        width: widget.width,
+        child: Text(
+          widget.text,
+          style: widget.style,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: widget.width,
+      child: SingleChildScrollView(
+        controller: _scrollController,
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        child: Text(
+          widget.text,
+          style: widget.style,
+          maxLines: 1,
+        ),
+      ),
     );
   }
 }

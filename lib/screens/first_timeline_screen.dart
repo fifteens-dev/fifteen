@@ -3,6 +3,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/post_card.dart';
+import '../services/audio_player_service.dart';
 import '../utils/test_data.dart';
 
 /// 初回タイムライン画面
@@ -10,8 +11,16 @@ import '../utils/test_data.dart';
 /// 音楽ライブラリ接続後に表示される、投稿がまだない空の状態の画面
 /// 最初の投稿を促すUI
 /// テスト段階では、ダミーの投稿カードを表示
-class FirstTimelineScreen extends StatelessWidget {
+class FirstTimelineScreen extends StatefulWidget {
   const FirstTimelineScreen({super.key});
+
+  @override
+  State<FirstTimelineScreen> createState() => _FirstTimelineScreenState();
+}
+
+class _FirstTimelineScreenState extends State<FirstTimelineScreen> {
+  // 音楽再生サービス
+  final AudioPlayerService _audioService = AudioPlayerService();
 
   @override
   Widget build(BuildContext context) {
@@ -168,6 +177,7 @@ class FirstTimelineScreen extends StatelessWidget {
             key: ValueKey(post.postId),
             post: post,
             currentUserId: currentUserId,
+            audioService: _audioService,
             onLike: () => _handleLike(post),
             onComment: () => _handleComment(post),
             onAdd: () => _handleAdd(post),

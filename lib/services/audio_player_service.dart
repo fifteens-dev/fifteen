@@ -2,10 +2,6 @@ import 'package:just_audio/just_audio.dart';
 
 /// 音楽再生を管理するサービス
 class AudioPlayerService {
-  static final AudioPlayerService _instance = AudioPlayerService._internal();
-  factory AudioPlayerService() => _instance;
-  AudioPlayerService._internal();
-
   AudioPlayer? _audioPlayer;
   String? _currentUrl;
 
@@ -86,6 +82,18 @@ class AudioPlayerService {
 
   /// プレイヤーの状態ストリーム
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
+
+  /// 再生位置のストリーム
+  Stream<Duration> get positionStream => _player.positionStream;
+
+  /// 楽曲の長さのストリーム
+  Stream<Duration?> get durationStream => _player.durationStream;
+
+  /// 現在の楽曲の長さ
+  Duration? get duration => _player.duration;
+
+  /// 現在の再生位置
+  Duration get position => _player.position;
 
   /// リソースを解放
   Future<void> dispose() async {

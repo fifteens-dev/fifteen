@@ -7,6 +7,7 @@ import '../models/track_model.dart';
 import '../widgets/post_card.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
+import '../services/audio_player_service.dart';
 import '../utils/test_data.dart';
 import 'comment_screen.dart';
 import 'search_screen.dart';
@@ -27,6 +28,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   final SpotifyService _spotifyService = SpotifyService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
+
+  // ホーム画面専用の音楽再生サービス（全てのPostCardで共有）
+  final AudioPlayerService _homeAudioService = AudioPlayerService();
 
   @override
   bool get wantKeepAlive => true;
@@ -135,6 +139,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         break;
       case 1:
         // 検索画面へ遷移
+        // ホーム画面の音楽を停止
+        _homeAudioService.stop();
         Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => const SearchScreen()),
@@ -142,10 +148,14 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         break;
       case 2:
         // 楽曲選択画面へ遷移
+        // ホーム画面の音楽を停止
+        _homeAudioService.stop();
         Navigator.pushNamed(context, '/music-selection');
         break;
       case 3:
         // プロフィール画面へ遷移
+        // ホーム画面の音楽を停止
+        _homeAudioService.stop();
         Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => const ProfileScreen()),
@@ -215,6 +225,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           IconButton(
             icon: const Icon(Icons.notifications_outlined, color: Colors.white),
             onPressed: () {
+              // ホーム画面の音楽を停止
+              _homeAudioService.stop();
               // アクティビティ画面へ遷移
               Navigator.push(
                 context,
@@ -373,6 +385,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 key: ValueKey(post.postId), // 投稿IDをkeyにして状態を保持
                 post: displayPost,
                 currentUserId: currentUserId,
+                audioService: _homeAudioService, // ホーム画面専用の音楽再生サービスを渡す
                 onLike: () => _handleLike(post),
                 onComment: () => _handleComment(post),
                 onAdd: () => _handleAdd(post),
@@ -466,6 +479,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   key: ValueKey(post.postId), // 投稿IDをkeyにして状態を保持
                   post: displayPost,
                   currentUserId: currentUserId,
+                  audioService: _homeAudioService,
                   onLike: () => _handleLike(post),
                   onComment: () => _handleComment(post),
                   onAdd: () => _handleAdd(post),
@@ -570,6 +584,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
   /// コメントボタンが押されたときの処理
   Future<void> _handleComment(PostModel post) async {
+    // コメント画面では音楽を継続するため、停止しない
     await Navigator.push(
       context,
       MaterialPageRoute(

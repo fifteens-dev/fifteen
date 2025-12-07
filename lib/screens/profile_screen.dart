@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:just_audio/just_audio.dart';
 import '../constants/app_colors.dart';
 import '../services/user_service.dart';
 import '../services/spotify_service.dart';
+import '../services/audio_player_service.dart';
+import '../services/itunes_search_service.dart';
 import '../models/user_model.dart';
 import 'settings_screen.dart';
 
@@ -17,6 +20,8 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final UserService _userService = UserService();
   final SpotifyService _spotifyService = SpotifyService();
+  final AudioPlayerService _audioService = AudioPlayerService();
+  final ITunesSearchService _itunesService = ITunesSearchService();
   int _selectedTabIndex = 0; // 0: グリッド, 1: 保存
 
   // ユーザーデータ
@@ -29,6 +34,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // 今日の楽曲のアルバムアートワーク
   String? _todaysTrackAlbumArt;
+
+  // 今日の楽曲のプレビューURL（キャッシュ）
+  String? _todaysTrackPreviewUrl;
 
   @override
   void initState() {
@@ -418,27 +426,98 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 // 再生ボタンと時間
                 Column(
                   children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: const Icon(
-                        Icons.play_arrow,
-                        color: Colors.white,
-                        size: 24,
-                      ),
+                    StreamBuilder<PlayerState>(
+                      stream: _audioService.playerStateStream,
+                      builder: (context, snapshot) {
+                        final isThisTrackPlaying = _todaysTrackPreviewUrl != null &&
+                            _audioService.isPlayingUrl(_todaysTrackPreviewUrl!);
+                        final isPaused = _audioService.isPaused;
+
+                        return GestureDetector(
+                          onTap: () async {
+                            if (isThisTrackPlaying) {
+                              // 再生中の場合は一時停止
+                              _audioService.pause();
+                            } else if (isPaused && _todaysTrackPreviewUrl != null) {
+                              // 一時停止中の場合は再開
+                              _audioService.resume();
+                            } else {
+                              // 停止中の場合は再生開始
+                              String? urlToPlay = _todaysTrackPreviewUrl;
+
+                              // preview URLがまだ取得されていない場合は取得
+                              if (urlToPlay == null) {
+                                print('🍎 Fetching preview URL for today\'s track...');
+                                urlToPlay = await _itunesService.getPreviewUrl(
+                                  trackName: 'いとしのエリー',
+                                  artistName: 'サザンオールスターズ',
+                                );
+
+                                if (urlToPlay != null) {
+                                  setState(() {
+                                    _todaysTrackPreviewUrl = urlToPlay;
+                                  });
+                                  print('✅ Preview URL obtained and cached');
+                                } else {
+                                  print('❌ Failed to obtain preview URL');
+                                  return;
+                                }
+                              }
+
+                              _audioService.playPreview(urlToPlay);
+                            }
+                          },
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
+                                width: 2,
+                              ),
+                            ),
+                            child: Icon(
+                              isThisTrackPlaying ? Icons.pause : Icons.play_arrow,
+                              color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '0:15',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    StreamBuilder<Duration>(
+                      stream: _audioService.positionStream,
+                      builder: (context, positionSnapshot) {
+                        return StreamBuilder<Duration?>(
+                          stream: _audioService.durationStream,
+                          builder: (context, durationSnapshot) {
+                            final duration = durationSnapshot.data;
+                            final position = positionSnapshot.data ?? Duration.zero;
+
+                            // 残り時間を計算
+                            // durationがnullの場合は、iTunesプレビューのデフォルト長さ（30秒）を表示
+                            final remaining = duration != null
+                                ? duration - position
+                                : const Duration(seconds: 30);
+
+                            // フォーマット
+                            final minutes = remaining.inMinutes;
+                            final seconds = remaining.inSeconds % 60;
+                            final timeText = '$minutes:${seconds.toString().padLeft(2, '0')}';
+
+                            return Text(
+                              timeText,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            );
+                          },
+                        );
+                      },
                     ),
                   ],
                 ),

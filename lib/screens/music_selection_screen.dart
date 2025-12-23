@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
 import '../services/spotify_service.dart';
+import '../services/music_service_manager.dart';
 import '../services/post_service.dart';
 import '../utils/test_data.dart';
 import 'post_preview_screen.dart';
@@ -18,6 +19,7 @@ class MusicSelectionScreen extends StatefulWidget {
 class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   final TextEditingController _searchController = TextEditingController();
   final SpotifyService _spotifyService = SpotifyService();
+  final MusicServiceManager _musicServiceManager = MusicServiceManager();
   final PostService _postService = PostService();
 
   // 選択された楽曲
@@ -138,8 +140,23 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // My Playlistは人気のJ-POPを表示
-      final tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 20);
+      // 音楽サービスに連携している場合は、ユーザーのお気に入り楽曲を取得
+      final isAuthenticated = await _musicServiceManager.isAuthenticated();
+
+      List<TrackModel> tracks;
+      if (isAuthenticated) {
+        // 連携済み: お気に入り楽曲を取得
+        tracks = await _musicServiceManager.getSavedTracks(limit: 50);
+
+        // お気に入り楽曲が取得できなかった場合はフォールバック
+        if (tracks.isEmpty) {
+          print('お気に入り楽曲が見つかりませんでした。デフォルトの検索結果を表示します。');
+          tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 20);
+        }
+      } else {
+        // 未連携: 人気のJ-POPを表示
+        tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 20);
+      }
 
       if (mounted) {
         setState(() {

@@ -298,4 +298,67 @@ class SpotifyService {
       return [];
     }
   }
+
+  /// ユーザーのお気に入り楽曲（Saved Tracks）を取得
+  /// OAuth認証が必要（user-library-readスコープ）
+  Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {
+    final token = await _getAccessToken();
+    if (token == null) {
+      print('Failed to get access token for saved tracks');
+      return [];
+    }
+
+    // OAuth認証トークンが必要（Client Credentialsでは不可）
+    if (!await _authService.isAuthenticated()) {
+      print('OAuth authentication required for saved tracks');
+      return [];
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me/tracks?limit=$limit'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final items = data['items'] as List;
+
+        return items.where((item) => item['track'] != null).map((item) {
+          final trackData = item['track'];
+
+          // アルバムアートワークを取得
+          final images = trackData['album']['images'] as List;
+          String albumImageUrl = '';
+          if (images.isNotEmpty) {
+            albumImageUrl = images[0]['url'];
+          }
+
+          // アーティスト名を取得
+          final artists = trackData['artists'] as List;
+          String artistName = '';
+          if (artists.isNotEmpty) {
+            artistName = artists.map((a) => a['name']).join(', ');
+          }
+
+          return TrackModel(
+            trackId: trackData['id'],
+            trackName: trackData['name'],
+            artistName: artistName,
+            albumImageUrl: albumImageUrl,
+            previewUrl: '', // プレビューURLは後でiTunesから取得
+          );
+        }).toList();
+      } else {
+        print(
+            'Spotify saved tracks error: ${response.statusCode} ${response.body}');
+        return [];
+      }
+    } catch (e) {
+      print('Error getting saved tracks: $e');
+      return [];
+    }
+  }
 }

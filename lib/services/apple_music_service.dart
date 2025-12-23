@@ -240,4 +240,13 @@ class AppleMusicService {
       return [];
     }
   }
+
+  /// ユーザーのお気に入り楽曲を取得
+  /// User Token認証が必要（未実装のため現在は空を返す）
+  Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {
+    // TODO: User Token認証を実装後、Library APIを使用
+    // GET /v1/me/library/songs
+    print('Apple Music User Token認証が未実装のため、お気に入り楽曲の取得ができません');
+    return [];
+  }
 }

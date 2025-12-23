@@ -154,4 +154,23 @@ class MusicServiceManager {
         return [];
     }
   }
+
+  /// ユーザーのお気に入り楽曲を取得
+  Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {
+    final service = await getSelectedService();
+
+    switch (service) {
+      case MusicServiceType.spotify:
+        // OAuth認証済みの場合のみお気に入り楽曲を取得
+        if (await _spotifyAuthService.isAuthenticated()) {
+          return await _spotifyService.getSavedTracks(limit: limit);
+        }
+        return [];
+      case MusicServiceType.appleMusic:
+        // Apple Music User Token認証が必要（未実装）
+        return await _appleMusicService.getSavedTracks(limit: limit);
+      case MusicServiceType.none:
+        return [];
+    }
+  }
 }

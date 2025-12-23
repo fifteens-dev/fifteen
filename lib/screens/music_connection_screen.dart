@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../services/settings_service.dart';
+import '../services/music_service_manager.dart';
+import '../models/music_service_type.dart';
 import 'home_screen.dart';
 
 /// 音楽ライブラリ接続画面
@@ -200,35 +202,107 @@ class MusicConnectionScreen extends StatelessWidget {
 
   /// Apple Music接続処理
   void _handleAppleMusicConnection(BuildContext context) async {
-    // 連携サービス設定を保存（Apple Musicをオン、Spotifyをオフ）
+    final musicServiceManager = MusicServiceManager();
     final settingsService = SettingsService();
-    await settingsService.saveAllLinkedServicesSettings(
-      spotifyConnected: false,
-      appleMusicConnected: true,
-    );
 
-    // TODO: 実際のApple Music認証を実装
+    // Apple Musicを選択
+    await musicServiceManager.setSelectedService(MusicServiceType.appleMusic);
 
-    // ホーム画面へ遷移
-    if (context.mounted) {
+    // Apple Music認証を試行
+    final success = await musicServiceManager.login();
+
+    if (!context.mounted) return;
+
+    if (success) {
+      // 認証成功: 連携サービス設定を保存
+      await settingsService.saveAllLinkedServicesSettings(
+        spotifyConnected: false,
+        appleMusicConnected: true,
+      );
+
+      // 成功メッセージ
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Apple Musicと連携しました'),
+          backgroundColor: Color(0xFF4CAF50),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // ホーム画面へ遷移
       Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      // 認証失敗: エラーメッセージを表示
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Apple Musicの連携に失敗しました。User Token認証が未実装です。'),
+          backgroundColor: Color(0xFFE53935),
+          duration: Duration(seconds: 3),
+        ),
+      );
+
+      // 連携なしでホーム画面へ遷移
+      await settingsService.saveAllLinkedServicesSettings(
+        spotifyConnected: false,
+        appleMusicConnected: false,
+      );
+
+      if (context.mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
+      }
     }
   }
 
   /// Spotify接続処理
   void _handleSpotifyConnection(BuildContext context) async {
-    // 連携サービス設定を保存（Spotifyをオン、Apple Musicをオフ）
+    final musicServiceManager = MusicServiceManager();
     final settingsService = SettingsService();
-    await settingsService.saveAllLinkedServicesSettings(
-      spotifyConnected: true,
-      appleMusicConnected: false,
-    );
 
-    // TODO: 実際のSpotify OAuth認証を実装
+    // Spotifyを選択
+    await musicServiceManager.setSelectedService(MusicServiceType.spotify);
 
-    // ホーム画面へ遷移
-    if (context.mounted) {
+    // Spotify OAuth認証を試行
+    final success = await musicServiceManager.login();
+
+    if (!context.mounted) return;
+
+    if (success) {
+      // 認証成功: 連携サービス設定を保存
+      await settingsService.saveAllLinkedServicesSettings(
+        spotifyConnected: true,
+        appleMusicConnected: false,
+      );
+
+      // 成功メッセージ
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Spotifyと連携しました'),
+          backgroundColor: Color(0xFF4CAF50),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // ホーム画面へ遷移
       Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      // 認証失敗またはキャンセル: エラーメッセージを表示
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Spotifyの連携に失敗しました。もう一度お試しください。'),
+          backgroundColor: Color(0xFFE53935),
+          duration: Duration(seconds: 3),
+        ),
+      );
+
+      // 連携なしでホーム画面へ遷移
+      await settingsService.saveAllLinkedServicesSettings(
+        spotifyConnected: false,
+        appleMusicConnected: false,
+      );
+
+      if (context.mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
+      }
     }
   }
 

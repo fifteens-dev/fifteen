@@ -20,6 +20,7 @@ class PostCard extends StatefulWidget {
   final AudioPlayerService audioService; // 音楽再生サービス（外部から注入）
   final bool showFrontOnly; // trueの場合、表面のみ表示（反転なし）
   final VoidCallback? onCardTap; // showFrontOnly時の外部タップハンドラ
+  final bool isSaved; // 保存済みかどうか
 
   const PostCard({
     super.key,
@@ -31,13 +32,15 @@ class PostCard extends StatefulWidget {
     required this.audioService, // 必須パラメータ
     this.showFrontOnly = false, // デフォルトは両面表示
     this.onCardTap, // 外部タップハンドラ（オプション）
+    this.isSaved = false, // デフォルトは未保存
   });
 
   @override
   State<PostCard> createState() => _PostCardState();
 }
 
-class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+class _PostCardState extends State<PostCard>
+    with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
   bool _showFront = true;
@@ -151,7 +154,8 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     if (_showFront) {
       _flipController.forward();
       print('=== Flipping to back ===');
-      print('Track: ${widget.post.track.trackName} - ${widget.post.track.artistName}');
+      print(
+          'Track: ${widget.post.track.trackName} - ${widget.post.track.artistName}');
 
       // キャッシュまたは動的に取得したpreview URLを使用
       String? previewUrl = _cachedPreviewUrl;
@@ -196,11 +200,13 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     if (widget.onLike != null) {
       setState(() {
         final currentIsLiked = _isLikedOptimistic ??
-            (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!));
+            (widget.currentUserId != null &&
+                widget.post.isLikedBy(widget.currentUserId!));
         final currentLikeCount = _likeCountOptimistic ?? widget.post.likeCount;
 
         _isLikedOptimistic = !currentIsLiked;
-        _likeCountOptimistic = currentIsLiked ? currentLikeCount - 1 : currentLikeCount + 1;
+        _likeCountOptimistic =
+            currentIsLiked ? currentLikeCount - 1 : currentLikeCount + 1;
       });
 
       widget.onLike!();
@@ -265,9 +271,11 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
       final bool isDark = hsl.lightness < 0.5;
 
       // コメントボタンの色は10%明るくする
-      final Color commentButtonColor = hsl.withLightness(
-        (hsl.lightness * 1.1).clamp(0.0, 1.0),
-      ).toColor();
+      final Color commentButtonColor = hsl
+          .withLightness(
+            (hsl.lightness * 1.1).clamp(0.0, 1.0),
+          )
+          .toColor();
 
       return PostTheme(
         gradientStart: _extractedGradientStart!,
@@ -328,100 +336,104 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                 ),
               ),
 
-            // グラデーションオーバーレイ（下部3/7）
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: contentHeight,
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      theme.gradientStart.withOpacity(0.0), // 上端は透明（アルバムと重なる部分）
-                      theme.gradientEnd, // 13px以降は不透明
-                    ],
-                    stops: const [0.0, 0.0442], // 上部4.42% (13px/294px) でグラデーション完了
+              // グラデーションオーバーレイ（下部3/7）
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: contentHeight,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        theme.gradientStart
+                            .withOpacity(0.0), // 上端は透明（アルバムと重なる部分）
+                        theme.gradientEnd, // 13px以降は不透明
+                      ],
+                      stops: const [
+                        0.0,
+                        0.0442
+                      ], // 上部4.42% (13px/294px) でグラデーション完了
+                    ),
                   ),
                 ),
               ),
-            ),
 
-            // コンテンツ（下部）- Figmaに合わせて絶対配置
-            // Figmaは下から計測（Y軸反転）なので、294px基準で変換
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: contentHeight,
-              child: Stack(
-                children: [
-                  // ユーザー情報 - Figma: bottom: 238px → top: 56px (294-238), left: 12px
-                  Positioned(
-                    left: cardWidth * (12 / 363),
-                    top: contentHeight * (24 / 294),
-                    child: _buildUserInfo(theme),
-                  ),
+              // コンテンツ（下部）- Figmaに合わせて絶対配置
+              // Figmaは下から計測（Y軸反転）なので、294px基準で変換
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: contentHeight,
+                child: Stack(
+                  children: [
+                    // ユーザー情報 - Figma: bottom: 238px → top: 56px (294-238), left: 12px
+                    Positioned(
+                      left: cardWidth * (12 / 363),
+                      top: contentHeight * (24 / 294),
+                      child: _buildUserInfo(theme),
+                    ),
 
-                  // 曲名とアーティスト名 - Figma: bottom: 185px → top: 109px (294-185), left: 11px, right: 66px
-                  Positioned(
-                    left: cardWidth * (11 / 363),
-                    top: contentHeight * (63 / 294),
-                    right: cardWidth * (66 / 363),
-                    child: _buildTrackInfo(theme),
-                  ),
+                    // 曲名とアーティスト名 - Figma: bottom: 185px → top: 109px (294-185), left: 11px, right: 66px
+                    Positioned(
+                      left: cardWidth * (11 / 363),
+                      top: contentHeight * (63 / 294),
+                      right: cardWidth * (66 / 363),
+                      child: _buildTrackInfo(theme),
+                    ),
 
-                  // シェアボタン - Figma: bottom: 195px → top: 99px (294-195), left: 314px
-                  Positioned(
-                    left: cardWidth * (314 / 363),
-                    top: contentHeight * (63 / 294),
-                    child: _buildShareButton(),
-                  ),
+                    // シェアボタン - Figma: bottom: 195px → top: 99px (294-195), left: 314px
+                    Positioned(
+                      left: cardWidth * (314 / 363),
+                      top: contentHeight * (63 / 294),
+                      child: _buildShareButton(),
+                    ),
 
-                  // リアクション - Figma: bottom: 141px → top: 153px (294-141), left: 12px, right: 12px
-                  Positioned(
-                    left: cardWidth * (12 / 363),
-                    right: cardWidth * (12 / 363),
-                    top: contentHeight * (128 / 294),
-                    child: _buildReactions(theme),
-                  ),
+                    // リアクション - Figma: bottom: 141px → top: 153px (294-141), left: 12px, right: 12px
+                    Positioned(
+                      left: cardWidth * (12 / 363),
+                      right: cardWidth * (12 / 363),
+                      top: contentHeight * (128 / 294),
+                      child: _buildReactions(theme),
+                    ),
 
-                  // 音楽波形 - Figma: bottom: 96px → top: 198px (294-96), left: 4px, right: 5px
-                  Positioned(
-                    left: cardWidth * (12 / 363),
-                    top: contentHeight * (166 / 294),
-                    child: _buildWaveform(theme),
-                  ),
+                    // 音楽波形 - Figma: bottom: 96px → top: 198px (294-96), left: 4px, right: 5px
+                    Positioned(
+                      left: cardWidth * (12 / 363),
+                      top: contentHeight * (166 / 294),
+                      child: _buildWaveform(theme),
+                    ),
 
-                  // コメント入力欄 - Figma: bottom: 40px → top: 254px (294-40), left: 12px, right: 12px
-                  Positioned(
-                    left: cardWidth * (12 / 363),
-                    right: cardWidth * (12 / 363),
-                    top: contentHeight * (211 / 294),
-                    child: _buildCommentButton(theme),
-                  ),
+                    // コメント入力欄 - Figma: bottom: 40px → top: 254px (294-40), left: 12px, right: 12px
+                    Positioned(
+                      left: cardWidth * (12 / 363),
+                      right: cardWidth * (12 / 363),
+                      top: contentHeight * (211 / 294),
+                      child: _buildCommentButton(theme),
+                    ),
 
-                  // "Provided courtesy of Apple Music" - Figma: bottom: 12px → top: 282px (294-12), left: 17px
-                  Positioned(
-                    left: cardWidth * (17 / 363),
-                    top: contentHeight * (268 / 294),
-                    child: Text(
-                      'Provided courtesy of Apple Music',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: theme.secondaryTextColor.withOpacity(0.7),
+                    // "Provided courtesy of Apple Music" - Figma: bottom: 12px → top: 282px (294-12), left: 17px
+                    Positioned(
+                      left: cardWidth * (17 / 363),
+                      top: contentHeight * (268 / 294),
+                      child: Text(
+                        'Provided courtesy of Apple Music',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: theme.secondaryTextColor.withOpacity(0.7),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 
@@ -440,212 +452,215 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
       child: GestureDetector(
         onTap: _flipCard,
         child: Container(
-        width: cardWidth,
-        height: cardHeight,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          color: theme.gradientEnd,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Stack(
-            children: [
-              // 写真エリア（上部）
-              Positioned(
-                left: 0,
-                top: 0,
-                child: Container(
-                  width: cardWidth,
-                  height: photoHeight,
-                  child: widget.post.track.albumImageUrl.isNotEmpty
-                      ? Image.network(
-                          widget.post.track.albumImageUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return _buildPhotoPlaceholder();
-                          },
-                        )
-                      : _buildPhotoPlaceholder(),
+          width: cardWidth,
+          height: cardHeight,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            color: theme.gradientEnd,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Stack(
+              children: [
+                // 写真エリア（上部）
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: Container(
+                    width: cardWidth,
+                    height: photoHeight,
+                    child: widget.post.track.albumImageUrl.isNotEmpty
+                        ? Image.network(
+                            widget.post.track.albumImageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return _buildPhotoPlaceholder();
+                            },
+                          )
+                        : _buildPhotoPlaceholder(),
+                  ),
                 ),
-              ),
 
-              // ユーザー情報（左上）
-              Positioned(
-                left: 15,
-                top: 15,
-                child: _buildUserInfoTopLeft(theme),
-              ),
+                // ユーザー情報（左上）
+                Positioned(
+                  left: 15,
+                  top: 15,
+                  child: _buildUserInfoTopLeft(theme),
+                ),
 
-              // 小さなアルバムカード（写真の上部中央）
-              Positioned(
-                left: cardWidth * 0.25,
-                top: 20,
-                child: _buildMiniAlbumCard(),
-              ),
+                // 小さなアルバムカード（写真の上部中央）
+                Positioned(
+                  left: cardWidth * 0.25,
+                  top: 20,
+                  child: _buildMiniAlbumCard(),
+                ),
 
-              // 下部コンテンツセクション（グラデーション背景）
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: contentHeight,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        theme.gradientStart.withOpacity(0.0), // 上端は透明（写真と重なる部分）
-                        theme.gradientEnd, // 14px以降は不透明
-                      ],
-                      stops: const [0.0, 0.0805], // 上部8.05% (14px/174px) でグラデーション完了
+                // 下部コンテンツセクション（グラデーション背景）
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: contentHeight,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          theme.gradientStart
+                              .withOpacity(0.0), // 上端は透明（写真と重なる部分）
+                          theme.gradientEnd, // 14px以降は不透明
+                        ],
+                        stops: const [
+                          0.0,
+                          0.0805
+                        ], // 上部8.05% (14px/174px) でグラデーション完了
+                      ),
                     ),
                   ),
                 ),
-              ),
 
-              // 曲名とアーティスト名 - Figma: bottom area
-              Positioned(
-                left: cardWidth * (12 / 363),
-                right: cardWidth * (66 / 363),
-                bottom: cardHeight * (110 / 644), // 
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // タイトル（長い場合は自動スクロール）
-                    MarqueeText(
-                      text: widget.post.track.trackName,
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: theme.textColor,
+                // 曲名とアーティスト名 - Figma: bottom area
+                Positioned(
+                  left: cardWidth * (12 / 363),
+                  right: cardWidth * (66 / 363),
+                  bottom: cardHeight * (110 / 644), //
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // タイトル（長い場合は自動スクロール）
+                      MarqueeText(
+                        text: widget.post.track.trackName,
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: theme.textColor,
+                        ),
+                        width: cardWidth * (285 / 363), // 利用可能な幅
                       ),
-                      width: cardWidth * (285 / 363), // 利用可能な幅
-                    ),
-                    const SizedBox(height: 1.198),
-                    Text(
-                      widget.post.track.artistName,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: theme.secondaryTextColor,
+                      const SizedBox(height: 1.198),
+                      Text(
+                        widget.post.track.artistName,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: theme.secondaryTextColor,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-
-              // リアクション（いいね、コメント、追加）- Figma: bottom: 141px
-              Positioned(
-                left: cardWidth * (12 / 363),
-                bottom: cardHeight * (80 / 644),
-                child: Row(
-                  children: [
-                    // いいね
-                    _buildReactionButton(
-                      icon: _isLikedOptimistic ??
-                        (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!))
-                        ? Icons.favorite
-                        : Icons.favorite_border,
-                      color: _isLikedOptimistic ??
-                        (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!))
-                        ? Colors.red
-                        : theme.iconColor,
-                      count: _likeCountOptimistic ?? widget.post.likeCount,
-                      onTap: _handleLikeTap,
-                      textColor: theme.iconColor,
-                    ),
-                    SizedBox(width: cardWidth * (15 / 363)),
-                    // コメント
-                    _buildCommentReactionBack(
-                      count: widget.post.commentCount,
-                      onTap: widget.onComment,
-                      theme: theme,
-                    ),
-                    SizedBox(width: cardWidth * (15 / 363)),
-                    // 追加
-                    _buildReactionButton(
-                      icon: Icons.add_circle_outline,
-                      color: theme.iconColor,
-                      count: null,
-                      onTap: widget.onAdd,
-                      textColor: theme.iconColor,
-                    ),
-                  ],
-                ),
-              ),
-
-              // ユーザーアバター（右側）- Figma: right side
-              Positioned(
-                right: cardWidth * (12 / 363),
-                bottom: cardHeight * (80 / 644),
-                child: Row(
-                  children: [
-                    // いいねした人のアバター（3人分）
-                    Container(
-                      width: cardWidth * (25 / 363),
-                      height: cardHeight * (25 / 644),
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    SizedBox(width: cardWidth * (1 / 363)),
-                    Container(
-                      width: cardWidth * (25 / 363),
-                      height: cardHeight * (25 / 644),
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    SizedBox(width: cardWidth * (1 / 363)),
-                    Container(
-                      width: cardWidth * (25 / 363),
-                      height: cardHeight * (25 / 644),
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // コメントボタン - Figma: bottom: 40px
-              Positioned(
-                left: cardWidth * (12 / 363),
-                right: cardWidth * (12 / 363),
-                bottom: cardHeight * (28 / 644), // 底部から28px
-                child: _buildCommentButton(theme),
-              ),
-
-              // "Provided courtesy of Apple Music" - Figma: bottom: 12px
-              Positioned(
-                left: cardWidth * (17 / 363),
-                bottom: cardHeight * (9 / 644), // 底部から9px
-                child: Text(
-                  'Provided courtesy of Apple Music',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: theme.secondaryTextColor.withOpacity(0.7),
+                    ],
                   ),
                 ),
-              ),
 
-              // 共有ボタン（右下）- Figma: left: 314px, bottom area
-              // Stackの最後に配置して最前面に表示
-              Positioned(
-                right: cardWidth * (13 / 363), // 363 - 314 - 36 = 13px from right
-                bottom: cardHeight * (120 / 644), // 底部からの位置
-                child: _buildShareButtonBack(),
-              ),
-            ],
+                // リアクション（いいね、コメント、追加）- Figma: bottom: 141px
+                Positioned(
+                  left: cardWidth * (12 / 363),
+                  bottom: cardHeight * (80 / 644),
+                  child: Row(
+                    children: [
+                      // いいね
+                      _buildReactionButton(
+                        icon: _isLikedOptimistic ??
+                                (widget.currentUserId != null &&
+                                    widget.post
+                                        .isLikedBy(widget.currentUserId!))
+                            ? Icons.favorite
+                            : Icons.favorite_border,
+                        color: _isLikedOptimistic ??
+                                (widget.currentUserId != null &&
+                                    widget.post
+                                        .isLikedBy(widget.currentUserId!))
+                            ? Colors.red
+                            : theme.iconColor,
+                        count: _likeCountOptimistic ?? widget.post.likeCount,
+                        onTap: _handleLikeTap,
+                        textColor: theme.iconColor,
+                      ),
+                      SizedBox(width: cardWidth * (15 / 363)),
+                      // コメント
+                      _buildCommentReactionBack(
+                        count: widget.post.commentCount,
+                        onTap: widget.onComment,
+                        theme: theme,
+                      ),
+                      SizedBox(width: cardWidth * (15 / 363)),
+                      // 追加（保存ボタン）
+                      _buildSaveButton(theme: theme),
+                    ],
+                  ),
+                ),
+
+                // ユーザーアバター（右側）- Figma: right side
+                Positioned(
+                  right: cardWidth * (12 / 363),
+                  bottom: cardHeight * (80 / 644),
+                  child: Row(
+                    children: [
+                      // いいねした人のアバター（3人分）
+                      Container(
+                        width: cardWidth * (25 / 363),
+                        height: cardHeight * (25 / 644),
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      SizedBox(width: cardWidth * (1 / 363)),
+                      Container(
+                        width: cardWidth * (25 / 363),
+                        height: cardHeight * (25 / 644),
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      SizedBox(width: cardWidth * (1 / 363)),
+                      Container(
+                        width: cardWidth * (25 / 363),
+                        height: cardHeight * (25 / 644),
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // コメントボタン - Figma: bottom: 40px
+                Positioned(
+                  left: cardWidth * (12 / 363),
+                  right: cardWidth * (12 / 363),
+                  bottom: cardHeight * (28 / 644), // 底部から28px
+                  child: _buildCommentButton(theme),
+                ),
+
+                // "Provided courtesy of Apple Music" - Figma: bottom: 12px
+                Positioned(
+                  left: cardWidth * (17 / 363),
+                  bottom: cardHeight * (9 / 644), // 底部から9px
+                  child: Text(
+                    'Provided courtesy of Apple Music',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: theme.secondaryTextColor.withOpacity(0.7),
+                    ),
+                  ),
+                ),
+
+                // 共有ボタン（右下）- Figma: left: 314px, bottom area
+                // Stackの最後に配置して最前面に表示
+                Positioned(
+                  right: cardWidth *
+                      (13 / 363), // 363 - 314 - 36 = 13px from right
+                  bottom: cardHeight * (120 / 644), // 底部からの位置
+                  child: _buildShareButtonBack(),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -728,11 +743,13 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                             widget.post.track.albumImageUrl,
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) {
-                              return const Icon(Icons.album, color: Colors.white54, size: 30);
+                              return const Icon(Icons.album,
+                                  color: Colors.white54, size: 30);
                             },
                           ),
                         )
-                      : const Icon(Icons.album, color: Colors.white54, size: 30),
+                      : const Icon(Icons.album,
+                          color: Colors.white54, size: 30),
                 ),
                 const SizedBox(width: 7),
                 // トラック名とアーティスト名
@@ -856,7 +873,8 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                       widget.post.track.albumImageUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.album, color: Colors.white54, size: 30);
+                        return const Icon(Icons.album,
+                            color: Colors.white54, size: 30);
                       },
                     ),
                   )
@@ -900,12 +918,15 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
             builder: (context, snapshot) {
               // キャッシュされたpreview URLを使用
               final previewUrl = _cachedPreviewUrl;
-              final isThisTrackPlaying = previewUrl != null && widget.audioService.isPlayingUrl(previewUrl);
+              final isThisTrackPlaying = previewUrl != null &&
+                  widget.audioService.isPlayingUrl(previewUrl);
               final isPaused = widget.audioService.isPaused;
 
               return IconButton(
                 icon: Icon(
-                  isThisTrackPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                  isThisTrackPlaying
+                      ? Icons.pause_circle_filled
+                      : Icons.play_circle_filled,
                   color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
                   size: 32,
                 ),
@@ -1078,7 +1099,8 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
           // 大、小、大のパターン（-π/4〜5π/4の範囲）
           // 0〜(barCount-1)のインデックスを-π/4〜5π/4の範囲にマッピング
           final normalizedIndex = index / (barCount - 1).toDouble(); // 0〜1の範囲
-          final angle = -pi / 4 + normalizedIndex * 1.5 * pi; // -π/4〜5π/4の範囲（1.5π）
+          final angle =
+              -pi / 4 + normalizedIndex * 1.5 * pi; // -π/4〜5π/4の範囲（1.5π）
 
           // sin(angle)で波形を作成（-1〜1の範囲）
           // 絶対値を取って、0〜1の範囲にする
@@ -1174,7 +1196,8 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     const contentHeight = 294.0;
 
     final isLiked = _isLikedOptimistic ??
-        (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!));
+        (widget.currentUserId != null &&
+            widget.post.isLikedBy(widget.currentUserId!));
     final likeCount = _likeCountOptimistic ?? widget.post.likeCount;
 
     return Row(
@@ -1197,22 +1220,8 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
         ),
         SizedBox(width: cardWidth * (15 / 363)),
 
-        // 追加
-        GestureDetector(
-          onTap: widget.onAdd,
-          child: Container(
-            width: cardWidth * (25 / 363),
-            height: contentHeight * (25 / 294),
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.add_circle_outline,
-              size: 23,
-              color: theme.iconColor,
-            ),
-          ),
-        ),
+        // 追加（保存ボタン）
+        _buildSaveButtonBack(theme: theme),
 
         const Spacer(),
 
@@ -1333,13 +1342,15 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
               shape: BoxShape.circle,
               color: Colors.grey[400],
             ),
-            child: widget.post.userIconUrl != null && widget.post.userIconUrl!.isNotEmpty
+            child: widget.post.userIconUrl != null &&
+                    widget.post.userIconUrl!.isNotEmpty
                 ? ClipOval(
                     child: Image.network(
                       widget.post.userIconUrl!,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.person, size: 20, color: Colors.white);
+                        return const Icon(Icons.person,
+                            size: 20, color: Colors.white);
                       },
                     ),
                   )
@@ -1421,13 +1432,15 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
             shape: BoxShape.circle,
             color: Colors.grey,
           ),
-          child: widget.post.userIconUrl != null && widget.post.userIconUrl!.isNotEmpty
+          child: widget.post.userIconUrl != null &&
+                  widget.post.userIconUrl!.isNotEmpty
               ? ClipOval(
                   child: Image.network(
                     widget.post.userIconUrl!,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) {
-                      return const Icon(Icons.person, size: 20, color: Colors.white);
+                      return const Icon(Icons.person,
+                          size: 20, color: Colors.white);
                     },
                   ),
                 )
@@ -1458,6 +1471,65 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
               ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  /// 保存ボタン（表面用）
+  Widget _buildSaveButton({required PostTheme theme}) {
+    return GestureDetector(
+      onTap: widget.onAdd,
+      child: widget.isSaved
+          ? _buildSavedIcon()
+          : Icon(
+              Icons.add_circle_outline,
+              size: 24,
+              color: theme.iconColor,
+            ),
+    );
+  }
+
+  /// 保存ボタン（裏面用）
+  Widget _buildSaveButtonBack({required PostTheme theme}) {
+    final cardWidth = MediaQuery.of(context).size.width - 30;
+    final contentHeight = cardWidth * (294 / 363);
+
+    return GestureDetector(
+      onTap: widget.onAdd,
+      child: SizedBox(
+        width: cardWidth * (25 / 363),
+        height: contentHeight * (25 / 294),
+        child: widget.isSaved
+            ? _buildSavedIcon()
+            : Icon(
+                Icons.add_circle_outline,
+                size: 23,
+                color: theme.iconColor,
+              ),
+      ),
+    );
+  }
+
+  /// 保存済みアイコン（緑色の円 + 灰色のチェックマーク）
+  Widget _buildSavedIcon() {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // 背景：明るい緑色の塗りつぶし円
+        Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: Colors.lightGreen,
+            shape: BoxShape.circle,
+          ),
+        ),
+        // 前景：灰色のチェックマーク
+        Icon(
+          Icons.check,
+          size: 18,
+          color: Colors.grey[700],
         ),
       ],
     );

@@ -23,7 +23,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with AutomaticKeepAliveClientMixin {
   int _selectedIndex = 0;
   final PostService _postService = PostService();
   final UserService _userService = UserService();
@@ -46,6 +47,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   // ユーザーがいいねした投稿IDのセット（楽観的UI更新用）
   final Set<String> _likedPostIds = {};
 
+  // ユーザーが保存した投稿IDのセット（楽観的UI更新用）
+  final Set<String> _savedPostIds = {};
+
   // 投稿リストをキャッシュ（再構築を避けるため）
   List<PostModel>? _cachedPosts;
 
@@ -54,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     super.initState();
     _loadPosts();
     _loadLocalLikeStates();
+    _loadLocalSaveStates();
   }
 
   /// 投稿リストを読み込み（Firestoreから取得）
@@ -79,8 +84,10 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
         try {
           // 楽曲名とアーティスト名で検索
-          final searchQuery = '${post.track.trackName} ${post.track.artistName}';
-          final tracks = await _spotifyService.searchTracks(searchQuery, limit: 1);
+          final searchQuery =
+              '${post.track.trackName} ${post.track.artistName}';
+          final tracks =
+              await _spotifyService.searchTracks(searchQuery, limit: 1);
 
           if (tracks.isNotEmpty) {
             // 検索結果の最初のトラックのアルバムアートワークを使用
@@ -147,6 +154,20 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  /// ローカルストレージから保存状態を読み込み
+  Future<void> _loadLocalSaveStates() async {
+    final userId = _auth.currentUser?.uid ?? 'test_user_temp';
+
+    // TestDataから保存済み投稿IDリストを取得
+    final savedPostIds = await TestData.getSavedPosts(userId);
+
+    if (mounted) {
+      setState(() {
+        _savedPostIds.addAll(savedPostIds);
+      });
     }
   }
 
@@ -379,27 +400,33 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
             // コメント数のオーバーライド
             if (_commentCounts.containsKey(post.postId)) {
-              displayPost = displayPost.copyWith(commentCount: _commentCounts[post.postId]);
+              displayPost = displayPost.copyWith(
+                  commentCount: _commentCounts[post.postId]);
             }
 
             // いいね数のオーバーライド
             if (_likeCounts.containsKey(post.postId)) {
-              displayPost = displayPost.copyWith(likeCount: _likeCounts[post.postId]);
+              displayPost =
+                  displayPost.copyWith(likeCount: _likeCounts[post.postId]);
             }
 
             // いいね状態のオーバーライド
             if (_likedPostIds.contains(post.postId)) {
               // ユーザーがいいねしている場合、likedUserIdsにユーザーIDを追加
-              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
+              final updatedLikedUserIds =
+                  List<String>.from(displayPost.likedUserIds);
               if (!updatedLikedUserIds.contains(currentUserId)) {
                 updatedLikedUserIds.add(currentUserId);
-                displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+                displayPost =
+                    displayPost.copyWith(likedUserIds: updatedLikedUserIds);
               }
             } else if (_likeCounts.containsKey(post.postId)) {
               // いいね解除した場合、likedUserIdsからユーザーIDを削除
-              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
+              final updatedLikedUserIds =
+                  List<String>.from(displayPost.likedUserIds);
               updatedLikedUserIds.remove(currentUserId);
-              displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+              displayPost =
+                  displayPost.copyWith(likedUserIds: updatedLikedUserIds);
             }
 
             return Padding(
@@ -412,6 +439,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 onLike: () => _handleLike(post),
                 onComment: () => _handleComment(post),
                 onAdd: () => _handleAdd(post),
+                isSaved: _savedPostIds.contains(post.postId),
               ),
             );
           },
@@ -473,27 +501,33 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
               // コメント数のオーバーライド
               if (_commentCounts.containsKey(post.postId)) {
-                displayPost = displayPost.copyWith(commentCount: _commentCounts[post.postId]);
+                displayPost = displayPost.copyWith(
+                    commentCount: _commentCounts[post.postId]);
               }
 
               // いいね数のオーバーライド
               if (_likeCounts.containsKey(post.postId)) {
-                displayPost = displayPost.copyWith(likeCount: _likeCounts[post.postId]);
+                displayPost =
+                    displayPost.copyWith(likeCount: _likeCounts[post.postId]);
               }
 
               // いいね状態のオーバーライド
               if (_likedPostIds.contains(post.postId)) {
                 // ユーザーがいいねしている場合、likedUserIdsにユーザーIDを追加
-                final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
+                final updatedLikedUserIds =
+                    List<String>.from(displayPost.likedUserIds);
                 if (!updatedLikedUserIds.contains(currentUserId)) {
                   updatedLikedUserIds.add(currentUserId);
-                  displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+                  displayPost =
+                      displayPost.copyWith(likedUserIds: updatedLikedUserIds);
                 }
               } else if (_likeCounts.containsKey(post.postId)) {
                 // いいね解除した場合、likedUserIdsからユーザーIDを削除
-                final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
+                final updatedLikedUserIds =
+                    List<String>.from(displayPost.likedUserIds);
                 updatedLikedUserIds.remove(currentUserId);
-                displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+                displayPost =
+                    displayPost.copyWith(likedUserIds: updatedLikedUserIds);
               }
 
               return Padding(
@@ -558,7 +592,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     // 通常の投稿の場合は既存のロジック
     // 現在のいいね状態を取得
     final currentLikeCount = _likeCounts[post.postId] ?? post.likeCount;
-    final isCurrentlyLiked = _likedPostIds.contains(post.postId) || post.isLikedBy(userId);
+    final isCurrentlyLiked =
+        _likedPostIds.contains(post.postId) || post.isLikedBy(userId);
 
     // 楽観的UI更新: 先に状態を更新
     setState(() {
@@ -613,7 +648,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       MaterialPageRoute(
         builder: (context) => CommentScreen(
           post: post,
-          onCommentCountChanged: (count) => _updateCommentCount(post.postId, count),
+          onCommentCountChanged: (count) =>
+              _updateCommentCount(post.postId, count),
         ),
       ),
     );
@@ -634,6 +670,55 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
     final userId = currentUser?.uid ?? 'test_user_temp';
 
+    // ダミーユーザーの場合は常にTestDataを使用（Firestoreにユーザーが存在しないため）
+    if (currentUser == null) {
+      try {
+        print('💾 保存処理開始 - 投稿ID: ${post.postId}');
+
+        // 現在の保存状態を確認
+        final isSaved = await TestData.hasSavedPost(userId, post.postId);
+        print('📌 現在の保存状態: ${isSaved ? "保存済み" : "未保存"}');
+
+        // 楽観的UI更新: 先に状態を更新
+        setState(() {
+          if (isSaved) {
+            _savedPostIds.remove(post.postId);
+          } else {
+            _savedPostIds.add(post.postId);
+          }
+        });
+
+        // TestDataで保存をトグル（ローカルストレージに保存）
+        await TestData.toggleSavePost(userId, post.postId);
+
+        // 保存後の状態を確認
+        final savedPosts = await TestData.getSavedPosts(userId);
+        print('📁 保存済み投稿一覧: $savedPosts');
+
+        // 成功メッセージを表示
+        if (isSaved) {
+          _showMessage('投稿の保存を解除しました');
+        } else {
+          _showMessage('投稿を保存しました');
+        }
+      } catch (e) {
+        print('投稿の保存に失敗: $e');
+
+        // エラーが発生したら状態を元に戻す
+        setState(() {
+          if (_savedPostIds.contains(post.postId)) {
+            _savedPostIds.remove(post.postId);
+          } else {
+            _savedPostIds.add(post.postId);
+          }
+        });
+
+        _showMessage('投稿の保存に失敗しました');
+      }
+      return;
+    }
+
+    // 認証済みユーザーの場合はFirestoreを使用
     try {
       await _userService.toggleSavePost(
         userId: userId,

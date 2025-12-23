@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
 import '../services/spotify_service.dart';
+import '../services/post_service.dart';
+import '../utils/test_data.dart';
 import 'post_preview_screen.dart';
 
 /// 投稿用楽曲選択画面
@@ -15,11 +18,12 @@ class MusicSelectionScreen extends StatefulWidget {
 class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   final TextEditingController _searchController = TextEditingController();
   final SpotifyService _spotifyService = SpotifyService();
+  final PostService _postService = PostService();
 
   // 選択された楽曲
   TrackModel? _selectedTrack;
 
-  // タブ選択状態: 0 = My Playlist, 1 = 保存済み
+  // タブ選択状態: 0 = おすすめ, 1 = My Playlist, 2 = 保存済み
   int _selectedTab = 0;
 
   // 表示モード: true = グリッド, false = リスト
@@ -49,13 +53,68 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     super.dispose();
   }
 
-  /// 初期楽曲を読み込み（人気の楽曲を表示）
+  /// 初期楽曲を読み込み（おすすめ = 日本の人気曲）
   Future<void> _loadInitialTracks() async {
     setState(() => _isLoading = true);
 
     try {
-      // 人気のJ-POPアーティストをシードにしておすすめを取得
-      final tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 20);
+      // Spotify Recommendations APIを使用（ジャンルベースで取得）
+      // 歌詞一致の問題を回避し、純粋にJ-POPジャンルの楽曲を取得
+      final genreSeeds = [
+        'j-pop',
+        'japanese',
+        'pop',
+      ];
+
+      List<TrackModel> tracks = [];
+
+      // 各ジャンルシードを順番に試す
+      for (final genre in genreSeeds) {
+        try {
+          print('🎵 Recommendations API (ジャンル: "$genre") を試行中...');
+          tracks = await _spotifyService.getRecommendations(
+            seedGenres: genre,
+            limit: 50,
+          );
+
+          if (tracks.isNotEmpty) {
+            print('✅ 取得成功: ジャンル "$genre" (${tracks.length}曲取得)');
+            break;
+          }
+        } catch (e) {
+          print('❌ ジャンル "$genre" での取得に失敗: $e');
+          continue;
+        }
+      }
+
+      // Recommendations APIがすべて失敗した場合は、検索APIにフォールバック
+      if (tracks.isEmpty) {
+        print('⚠️ Recommendations APIが失敗。検索APIにフォールバック...');
+        final searchQueries = [
+          'TOP日本',
+        ];
+
+        for (final query in searchQueries) {
+          try {
+            print('🔍 検索クエリ: "$query" を試行中...');
+            tracks = await _spotifyService.searchTracks(query, limit: 50);
+
+            if (tracks.isNotEmpty) {
+              print('✅ 検索成功: "$query" (${tracks.length}曲取得)');
+              break;
+            }
+          } catch (e) {
+            print('❌ 検索 "$query" に失敗: $e');
+            continue;
+          }
+        }
+      }
+
+      // それでも失敗した場合は、デフォルトクエリを使用
+      if (tracks.isEmpty) {
+        print('⚠️ すべての方法が失敗。デフォルトクエリを使用...');
+        tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 50);
+      }
 
       if (mounted) {
         setState(() {
@@ -65,6 +124,31 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       }
     } catch (e) {
       print('Error loading initial tracks: $e');
+      if (mounted) {
+        setState(() {
+          _tracks = [];
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  /// My Playlistの楽曲を読み込み
+  Future<void> _loadMyPlaylistTracks() async {
+    setState(() => _isLoading = true);
+
+    try {
+      // My Playlistは人気のJ-POPを表示
+      final tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 20);
+
+      if (mounted) {
+        setState(() {
+          _tracks = tracks;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading my playlist tracks: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -93,6 +177,65 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       print('Error searching tracks: $e');
       if (mounted) {
         setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  /// 保存済み曲を読み込み
+  Future<void> _loadSavedTracks() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final userId = currentUser?.uid ?? 'test_user_temp';
+
+      // TestDataから保存済み投稿IDリストを取得
+      final savedPostIds = await TestData.getSavedPosts(userId);
+
+      if (savedPostIds.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _tracks = [];
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      // Firestoreから投稿を取得
+      final firestorePosts = await _postService.getPosts(limit: 50);
+
+      // TestDataの投稿も取得
+      final testPosts = TestData.generateTestPosts();
+
+      // すべての投稿を結合
+      final allPosts = [...firestorePosts, ...testPosts];
+
+      // 保存済み投稿のみをフィルタリング
+      final savedPosts =
+          allPosts.where((post) => savedPostIds.contains(post.postId)).toList();
+
+      // 投稿から曲を抽出（重複を除外）
+      final Map<String, TrackModel> uniqueTracks = {};
+      for (final post in savedPosts) {
+        uniqueTracks[post.track.trackId] = post.track;
+      }
+
+      final tracks = uniqueTracks.values.toList();
+
+      if (mounted) {
+        setState(() {
+          _tracks = tracks;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading saved tracks: $e');
+      if (mounted) {
+        setState(() {
+          _tracks = [];
+          _isLoading = false;
+        });
       }
     }
   }
@@ -331,7 +474,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         children: [
           Container(
             height: 70,
-            width:  210,
+            width: 210,
             decoration: BoxDecoration(
               color: const Color(0xFF202020),
               border: Border.all(
@@ -408,21 +551,23 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       padding: const EdgeInsets.only(left: 21, top: 11, bottom: 11, right: 21),
       child: Row(
         children: [
-          // My Playlistタブ
+          // おすすめタブ
           GestureDetector(
-            onTap: () => setState(() => _selectedTab = 0),
+            onTap: () {
+              setState(() => _selectedTab = 0);
+              _loadInitialTracks();
+            },
             child: Container(
               height: 30,
               padding: const EdgeInsets.symmetric(horizontal: 11),
               decoration: BoxDecoration(
-                color: _selectedTab == 0
-                    ? Colors.white
-                    : const Color(0xFF3A3A3A),
+                color:
+                    _selectedTab == 0 ? Colors.white : const Color(0xFF3A3A3A),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Center(
                 child: Text(
-                  'My Playlist',
+                  'おすすめ',
                   style: TextStyle(
                     fontSize: 8,
                     fontWeight: FontWeight.w500,
@@ -435,16 +580,47 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             ),
           ),
           const SizedBox(width: 6),
+          // My Playlistタブ
+          GestureDetector(
+            onTap: () {
+              setState(() => _selectedTab = 1);
+              _loadMyPlaylistTracks();
+            },
+            child: Container(
+              height: 30,
+              padding: const EdgeInsets.symmetric(horizontal: 11),
+              decoration: BoxDecoration(
+                color:
+                    _selectedTab == 1 ? Colors.white : const Color(0xFF3A3A3A),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Center(
+                child: Text(
+                  'My Playlist',
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w500,
+                    color: _selectedTab == 1
+                        ? const Color(0xFF101010)
+                        : Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
           // 保存済みタブ
           GestureDetector(
-            onTap: () => setState(() => _selectedTab = 1),
+            onTap: () {
+              setState(() => _selectedTab = 2);
+              _loadSavedTracks();
+            },
             child: Container(
               height: 30,
               padding: const EdgeInsets.symmetric(horizontal: 21),
               decoration: BoxDecoration(
-                color: _selectedTab == 1
-                    ? Colors.white
-                    : const Color(0xFF3A3A3A),
+                color:
+                    _selectedTab == 2 ? Colors.white : const Color(0xFF3A3A3A),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Center(
@@ -453,7 +629,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                   style: TextStyle(
                     fontSize: 8,
                     fontWeight: FontWeight.w500,
-                    color: _selectedTab == 1
+                    color: _selectedTab == 2
                         ? const Color(0xFF101010)
                         : Colors.white,
                   ),
@@ -574,9 +750,8 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
               width: 19,
               height: 19,
               decoration: BoxDecoration(
-                color: isSelected
-                    ? const Color(0xFF4CAF50)
-                    : Colors.transparent,
+                color:
+                    isSelected ? const Color(0xFF4CAF50) : Colors.transparent,
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: isSelected

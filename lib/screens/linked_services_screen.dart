@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import '../services/settings_service.dart';
+import '../services/music_service_manager.dart';
+import '../models/music_service_type.dart';
 
 /// 連携サービス画面
 class LinkedServicesScreen extends StatefulWidget {
@@ -10,15 +12,14 @@ class LinkedServicesScreen extends StatefulWidget {
 }
 
 class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
-  final SettingsService _settingsService = SettingsService();
+  final MusicServiceManager _manager = MusicServiceManager();
 
   // 連携状態
-  bool _spotifyConnected = false;
-  bool _appleMusicConnected = false;
+  MusicServiceType _selectedService = MusicServiceType.none;
+  bool _isAuthenticated = false;
 
   // ローディング状態
   bool _isLoading = true;
-  bool _isSaving = false;
 
   @override
   void initState() {
@@ -28,28 +29,15 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
 
   /// 設定を読み込む
   Future<void> _loadSettings() async {
-    final settings = await _settingsService.getAllLinkedServicesSettings();
+    final service = await _manager.getSelectedService();
+    final authenticated = await _manager.isAuthenticated();
+
     if (mounted) {
       setState(() {
-        _spotifyConnected = settings['spotifyConnected'] ?? false;
-        _appleMusicConnected = settings['appleMusicConnected'] ?? false;
+        _selectedService = service;
+        _isAuthenticated = authenticated;
         _isLoading = false;
       });
-    }
-  }
-
-  /// 設定を保存する
-  Future<void> _saveSettings() async {
-    setState(() => _isSaving = true);
-
-    await _settingsService.saveAllLinkedServicesSettings(
-      spotifyConnected: _spotifyConnected,
-      appleMusicConnected: _appleMusicConnected,
-    );
-
-    if (mounted) {
-      setState(() => _isSaving = false);
-      Navigator.pop(context);
     }
   }
 
@@ -106,7 +94,7 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
           // タイトル
           const Expanded(
             child: Text(
-              '連携サービス',
+              '音楽サービス連携',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white,
@@ -115,27 +103,8 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
               ),
             ),
           ),
-          // 保存ボタン
-          TextButton(
-            onPressed: _isSaving ? null : _saveSettings,
-            child: _isSaving
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFF5D8FFF),
-                    ),
-                  )
-                : const Text(
-                    '保存',
-                    style: TextStyle(
-                      color: Color(0xFF5D8FFF),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-          ),
+          // スペーサー（バランス用）
+          const SizedBox(width: 48),
         ],
       ),
     );
@@ -143,6 +112,11 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
 
   /// サービスカード
   Widget _buildServicesCard() {
+    final spotifyConnected =
+        _selectedService == MusicServiceType.spotify && _isAuthenticated;
+    final appleMusicConnected =
+        _selectedService == MusicServiceType.appleMusic && _isAuthenticated;
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.grey[800],
@@ -154,10 +128,9 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
           _buildServiceItem(
             icon: _buildSpotifyIcon(),
             title: 'Spotify',
-            isConnected: _spotifyConnected,
-            onTap: () => _handleServiceTap('Spotify', _spotifyConnected, (value) {
-              setState(() => _spotifyConnected = value);
-            }),
+            description: '世界最大の音楽ストリーミング',
+            isConnected: spotifyConnected,
+            onTap: () => _handleServiceTap(MusicServiceType.spotify),
             isFirst: true,
           ),
           _buildDivider(),
@@ -165,10 +138,9 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
           _buildServiceItem(
             icon: _buildAppleMusicIcon(),
             title: 'Apple Music',
-            isConnected: _appleMusicConnected,
-            onTap: () => _handleServiceTap('Apple Music', _appleMusicConnected, (value) {
-              setState(() => _appleMusicConnected = value);
-            }),
+            description: 'Appleの音楽サービス',
+            isConnected: appleMusicConnected,
+            onTap: () => _handleServiceTap(MusicServiceType.appleMusic),
             isLast: true,
           ),
         ],
@@ -246,28 +218,43 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
   Widget _buildServiceItem({
     required Widget icon,
     required String title,
+    required String description,
     required bool isConnected,
     required VoidCallback onTap,
     bool isFirst = false,
     bool isLast = false,
   }) {
     return Container(
-      height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 11),
+      height: 70,
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
       child: Row(
         children: [
           // アイコン
           icon,
           const SizedBox(width: 12),
-          // タイトル
+          // タイトルと説明
           Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: TextStyle(
+                    color: Colors.grey[400],
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
           ),
           // 接続ボタン
@@ -278,13 +265,13 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
                 color: isConnected
-                    ? const Color(0xFFBFB6F8)
-                    : const Color(0xFF624AF5),
+                    ? const Color(0xFF4CAF50)
+                    : const Color(0xFF5D8FFF),
                 borderRadius: BorderRadius.circular(23),
               ),
               child: Center(
                 child: Text(
-                  isConnected ? 'Connected' : 'Connect',
+                  isConnected ? '連携中' : '連携',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 12,
@@ -308,47 +295,131 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
   }
 
   /// サービスタップ処理
-  void _handleServiceTap(String serviceName, bool isConnected, Function(bool) onUpdate) {
+  Future<void> _handleServiceTap(MusicServiceType service) async {
+    final isConnected =
+        _selectedService == service && _isAuthenticated;
+
     if (isConnected) {
       // 接続済みの場合は解除確認ダイアログを表示
-      _showDisconnectDialog(serviceName, () {
-        onUpdate(false);
+      _showDisconnectDialog(service.displayName, () async {
+        await _disconnectService();
       });
     } else {
       // 未接続の場合
-      // 他のサービスが接続中かチェック
-      String? otherConnectedService = _getOtherConnectedService(serviceName);
-      if (otherConnectedService != null) {
+      if (_selectedService != MusicServiceType.none && _isAuthenticated) {
         // 他のサービスが接続中の場合は切り替え確認ダイアログを表示
-        _showSwitchConnectionDialog(serviceName, otherConnectedService, () {
-          // 他のサービスを解除して新しいサービスを接続
-          if (serviceName == 'Spotify') {
-            setState(() {
-              _appleMusicConnected = false;
-              _spotifyConnected = true;
-            });
-          } else {
-            setState(() {
-              _spotifyConnected = false;
-              _appleMusicConnected = true;
-            });
-          }
+        _showSwitchConnectionDialog(
+            service.displayName, _selectedService.displayName, () async {
+          await _connectService(service);
         });
       } else {
         // 他のサービスが接続されていない場合は直接接続
-        onUpdate(true);
+        await _connectService(service);
       }
     }
   }
 
-  /// 他の接続中のサービスを取得
-  String? _getOtherConnectedService(String currentService) {
-    if (currentService == 'Spotify' && _appleMusicConnected) {
-      return 'Apple Music';
-    } else if (currentService == 'Apple Music' && _spotifyConnected) {
-      return 'Spotify';
+  /// サービスに接続
+  Future<void> _connectService(MusicServiceType service) async {
+    // Web環境では認証機能を無効化
+    if (kIsWeb) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.grey[900],
+            title: const Text(
+              '音楽サービス連携',
+              style: TextStyle(color: Colors.white),
+            ),
+            content: const Text(
+              'Web環境では音楽サービス連携機能は利用できません。\n\niOS/Androidデバイスまたはエミュレータでアプリを実行してください。',
+              style: TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'OK',
+                  style: TextStyle(color: Color(0xFF5D8FFF)),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
     }
-    return null;
+
+    setState(() => _isLoading = true);
+
+    try {
+      // サービスを選択
+      await _manager.setSelectedService(service);
+
+      // ログイン実行
+      final success = await _manager.login();
+
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${service.displayName}に連携しました'),
+              backgroundColor: const Color(0xFF4CAF50),
+            ),
+          );
+          await _loadSettings();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${service.displayName}の連携に失敗しました'),
+              backgroundColor: const Color(0xFFE53935),
+            ),
+          );
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: const Color(0xFFE53935),
+          ),
+        );
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  /// サービスから切断
+  Future<void> _disconnectService() async {
+    setState(() => _isLoading = true);
+
+    try {
+      await _manager.logout();
+      await _manager.setSelectedService(MusicServiceType.none);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('音楽サービスとの連携を解除しました'),
+            backgroundColor: Color(0xFF9F9F9F),
+          ),
+        );
+        await _loadSettings();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: const Color(0xFFE53935),
+          ),
+        );
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   /// 接続切り替え確認ダイアログ

@@ -9,6 +9,7 @@ import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
+import '../utils/test_data.dart';
 import 'settings_screen.dart';
 
 /// プロフィール画面（自分）
@@ -103,7 +104,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final post = _posts[i];
       try {
         final searchQuery = '${post['trackName']} ${post['artistName']}';
-        final tracks = await _spotifyService.searchTracks(searchQuery, limit: 1);
+        final tracks =
+            await _spotifyService.searchTracks(searchQuery, limit: 1);
 
         if (tracks.isNotEmpty && mounted) {
           setState(() {
@@ -120,8 +122,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadSavedPosts() async {
     final currentUser = FirebaseAuth.instance.currentUser;
 
-    // Web開発用：Firebase認証がない場合は何もしない
+    // ダミーユーザーの場合はTestDataから保存済み投稿を読み込み
     if (currentUser == null) {
+      try {
+        const userId = 'test_user_temp';
+
+        // TestDataから保存済み投稿IDリストを取得
+        final savedPostIds = await TestData.getSavedPosts(userId);
+
+        print('🔍 保存済み投稿ID: $savedPostIds');
+
+        if (savedPostIds.isEmpty) {
+          print('⚠️ 保存済み投稿が0件です');
+          if (mounted) {
+            setState(() {
+              _savedPosts = [];
+            });
+          }
+          return;
+        }
+
+        // Firestoreから投稿を取得
+        final firestorePosts = await _postService.getPosts(limit: 50);
+
+        // TestDataの投稿も取得
+        final testPosts = TestData.generateTestPosts();
+
+        // すべての投稿を結合
+        final allPosts = [...firestorePosts, ...testPosts];
+
+        print('📦 全投稿数: ${allPosts.length}');
+        print('📋 投稿ID一覧: ${allPosts.map((p) => p.postId).toList()}');
+
+        // 保存済み投稿のみをフィルタリング
+        final savedPosts = allPosts
+            .where((post) => savedPostIds.contains(post.postId))
+            .toList();
+
+        print('✅ フィルタリング後の保存済み投稿数: ${savedPosts.length}');
+
+        if (mounted) {
+          setState(() {
+            _savedPosts = savedPosts;
+          });
+        }
+      } catch (e) {
+        print('保存済み投稿の読み込みエラー: $e');
+      }
       return;
     }
 
@@ -478,7 +525,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     StreamBuilder<PlayerState>(
                       stream: _audioService.playerStateStream,
                       builder: (context, snapshot) {
-                        final isThisTrackPlaying = _todaysTrackPreviewUrl != null &&
+                        final isThisTrackPlaying = _todaysTrackPreviewUrl !=
+                                null &&
                             _audioService.isPlayingUrl(_todaysTrackPreviewUrl!);
                         final isPaused = _audioService.isPaused;
 
@@ -487,7 +535,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             if (isThisTrackPlaying) {
                               // 再生中の場合は一時停止
                               _audioService.pause();
-                            } else if (isPaused && _todaysTrackPreviewUrl != null) {
+                            } else if (isPaused &&
+                                _todaysTrackPreviewUrl != null) {
                               // 一時停止中の場合は再開
                               _audioService.resume();
                             } else {
@@ -496,7 +545,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                               // preview URLがまだ取得されていない場合は取得
                               if (urlToPlay == null) {
-                                print('🍎 Fetching preview URL for today\'s track...');
+                                print(
+                                    '🍎 Fetching preview URL for today\'s track...');
                                 urlToPlay = await _itunesService.getPreviewUrl(
                                   trackName: 'いとしのエリー',
                                   artistName: 'サザンオールスターズ',
@@ -522,13 +572,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
+                                color: isThisTrackPlaying
+                                    ? Colors.greenAccent
+                                    : Colors.white,
                                 width: 2,
                               ),
                             ),
                             child: Icon(
-                              isThisTrackPlaying ? Icons.pause : Icons.play_arrow,
-                              color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
+                              isThisTrackPlaying
+                                  ? Icons.pause
+                                  : Icons.play_arrow,
+                              color: isThisTrackPlaying
+                                  ? Colors.greenAccent
+                                  : Colors.white,
                               size: 24,
                             ),
                           ),
@@ -543,7 +599,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           stream: _audioService.durationStream,
                           builder: (context, durationSnapshot) {
                             final duration = durationSnapshot.data;
-                            final position = positionSnapshot.data ?? Duration.zero;
+                            final position =
+                                positionSnapshot.data ?? Duration.zero;
 
                             // 残り時間を計算
                             // durationがnullの場合は、iTunesプレビューのデフォルト長さ（30秒）を表示
@@ -554,7 +611,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             // フォーマット
                             final minutes = remaining.inMinutes;
                             final seconds = remaining.inSeconds % 60;
-                            final timeText = '$minutes:${seconds.toString().padLeft(2, '0')}';
+                            final timeText =
+                                '$minutes:${seconds.toString().padLeft(2, '0')}';
 
                             return Text(
                               timeText,
@@ -592,7 +650,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
-                      color: _selectedTabIndex == 0 ? Colors.white : Colors.transparent,
+                      color: _selectedTabIndex == 0
+                          ? Colors.white
+                          : Colors.transparent,
                       width: 2,
                     ),
                   ),
@@ -608,12 +668,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
           // 保存タブ
           Expanded(
             child: GestureDetector(
-              onTap: () => setState(() => _selectedTabIndex = 1),
+              onTap: () {
+                setState(() => _selectedTabIndex = 1);
+                // 保存タブを選択したときに保存済み投稿を再読み込み
+                _loadSavedPosts();
+              },
               child: Container(
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
-                      color: _selectedTabIndex == 1 ? Colors.white : Colors.transparent,
+                      color: _selectedTabIndex == 1
+                          ? Colors.white
+                          : Colors.transparent,
                       width: 2,
                     ),
                   ),
@@ -624,7 +690,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: _selectedTabIndex == 1 ? Colors.white : Colors.grey,
+                      color:
+                          _selectedTabIndex == 1 ? Colors.white : Colors.grey,
                       width: 1.5,
                     ),
                   ),

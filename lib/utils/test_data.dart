@@ -9,6 +9,7 @@ import '../models/comment_model.dart';
 class TestData {
   static const String _localCommentsKey = 'local_comments';
   static const String _localLikesKey = 'local_likes';
+  static const String _localSavedPostsKey = 'local_saved_posts';
 
   // ローカルコメントを保持する静的マップ（メモリキャッシュ）
   static final Map<String, List<CommentModel>> _localComments = {};
@@ -18,6 +19,11 @@ class TestData {
   // Map<postId, Map<'likeCount': int, 'likedUserIds': List<String>>>
   static final Map<String, Map<String, dynamic>> _localLikes = {};
   static bool _isLikesLoaded = false;
+
+  // ローカル保存投稿を保持する静的マップ（メモリキャッシュ）
+  // Map<userId, List<postId>>
+  static final Map<String, List<String>> _localSavedPosts = {};
+  static bool _isSavedPostsLoaded = false;
 
   /// SharedPreferencesからローカルコメントを読み込み
   static Future<void> _loadLocalComments() async {
@@ -84,7 +90,8 @@ class TestData {
   }
 
   /// ローカルコメントを追加
-  static Future<void> addLocalComment(String postId, CommentModel comment) async {
+  static Future<void> addLocalComment(
+      String postId, CommentModel comment) async {
     await _loadLocalComments();
 
     if (!_localComments.containsKey(postId)) {
@@ -102,11 +109,13 @@ class TestData {
   }
 
   /// ローカルコメントを削除
-  static Future<void> removeLocalComment(String postId, String commentId) async {
+  static Future<void> removeLocalComment(
+      String postId, String commentId) async {
     await _loadLocalComments();
 
     if (_localComments.containsKey(postId)) {
-      _localComments[postId]!.removeWhere((comment) => comment.commentId == commentId);
+      _localComments[postId]!
+          .removeWhere((comment) => comment.commentId == commentId);
       await _saveLocalComments();
     }
   }
@@ -179,14 +188,16 @@ class TestData {
   }
 
   /// いいねをトグル（追加/削除）
-  static Future<void> toggleLike(String postId, String userId, int originalLikeCount) async {
+  static Future<void> toggleLike(
+      String postId, String userId, int originalLikeCount) async {
     await _loadLocalLikes();
 
     // 現在の状態を取得（初回の場合は元の投稿のいいね数を使用）
-    final likeData = _localLikes[postId] ?? {
-      'likeCount': originalLikeCount,
-      'likedUserIds': <String>[],
-    };
+    final likeData = _localLikes[postId] ??
+        {
+          'likeCount': originalLikeCount,
+          'likedUserIds': <String>[],
+        };
 
     final likedUserIds = List<String>.from(likeData['likedUserIds']);
     int likeCount = likeData['likeCount'] as int;
@@ -215,10 +226,11 @@ class TestData {
   static Future<Map<String, dynamic>> getLikeState(String postId) async {
     await _loadLocalLikes();
 
-    return _localLikes[postId] ?? {
-      'likeCount': 0,
-      'likedUserIds': <String>[],
-    };
+    return _localLikes[postId] ??
+        {
+          'likeCount': 0,
+          'likedUserIds': <String>[],
+        };
   }
 
   /// いいね数を取得
@@ -484,5 +496,97 @@ class TestData {
     final dummyComments = generateTestComments(postId);
     final localComments = await getLocalComments(postId);
     return dummyComments.length + localComments.length;
+  }
+
+  /// SharedPreferencesからローカル保存投稿を読み込み
+  static Future<void> _loadLocalSavedPosts() async {
+    if (_isSavedPostsLoaded) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = prefs.getString(_localSavedPostsKey);
+
+      if (jsonString != null) {
+        final Map<String, dynamic> data = json.decode(jsonString);
+
+        _localSavedPosts.clear();
+        data.forEach((userId, postIds) {
+          _localSavedPosts[userId] = List<String>.from(postIds as List);
+        });
+      }
+
+      _isSavedPostsLoaded = true;
+    } catch (e) {
+      print('ローカル保存投稿の読み込みに失敗: $e');
+      _localSavedPosts.clear();
+      _isSavedPostsLoaded = true;
+    }
+  }
+
+  /// SharedPreferencesにローカル保存投稿を保存
+  static Future<void> _saveLocalSavedPosts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      final Map<String, dynamic> data = {};
+      _localSavedPosts.forEach((userId, postIds) {
+        data[userId] = postIds;
+      });
+
+      await prefs.setString(_localSavedPostsKey, json.encode(data));
+    } catch (e) {
+      print('ローカル保存投稿の保存に失敗: $e');
+    }
+  }
+
+  /// 投稿の保存をトグル（追加/削除）
+  static Future<void> toggleSavePost(String userId, String postId) async {
+    await _loadLocalSavedPosts();
+
+    // 現在の保存投稿リストを取得
+    final savedPosts = _localSavedPosts[userId] ?? <String>[];
+
+    // 保存状態をトグル
+    if (savedPosts.contains(postId)) {
+      // 保存解除
+      savedPosts.remove(postId);
+    } else {
+      // 保存追加
+      savedPosts.add(postId);
+    }
+
+    // 状態を更新
+    if (savedPosts.isEmpty) {
+      _localSavedPosts.remove(userId);
+    } else {
+      _localSavedPosts[userId] = savedPosts;
+    }
+
+    await _saveLocalSavedPosts();
+  }
+
+  /// ユーザーの保存済み投稿IDリストを取得
+  static Future<List<String>> getSavedPosts(String userId) async {
+    await _loadLocalSavedPosts();
+    return _localSavedPosts[userId] ?? <String>[];
+  }
+
+  /// ユーザーが投稿を保存しているか確認
+  static Future<bool> hasSavedPost(String userId, String postId) async {
+    final savedPosts = await getSavedPosts(userId);
+    return savedPosts.contains(postId);
+  }
+
+  /// 全てのローカル保存投稿をクリア（テスト用）
+  static Future<void> clearAllLocalSavedPosts() async {
+    _localSavedPosts.clear();
+    _isSavedPostsLoaded = false;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_localSavedPostsKey);
+    } catch (e) {
+      print('ローカル保存投稿のクリアに失敗: $e');
+    }
   }
 }

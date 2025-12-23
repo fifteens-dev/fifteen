@@ -3,10 +3,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:just_audio/just_audio.dart';
 import '../constants/app_colors.dart';
 import '../services/user_service.dart';
+import '../services/post_service.dart';
 import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../models/user_model.dart';
+import '../models/post_model.dart';
 import 'settings_screen.dart';
 
 /// プロフィール画面（自分）
@@ -19,6 +21,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final UserService _userService = UserService();
+  final PostService _postService = PostService();
   final SpotifyService _spotifyService = SpotifyService();
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
@@ -27,6 +30,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ユーザーデータ
   UserModel? _userData;
   bool _isLoading = true;
+
+  // 保存済み投稿
+  List<PostModel> _savedPosts = [];
 
   final int _tracksCount = 18;
   final int _followersCount = 87;
@@ -43,6 +49,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.initState();
     _loadUserData();
     _loadAlbumArtworks();
+    _loadSavedPosts();
   }
 
   /// ユーザーデータを読み込み
@@ -106,6 +113,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
       } catch (e) {
         print('投稿 $i のアルバムアートワーク取得エラー: $e');
       }
+    }
+  }
+
+  /// 保存済み投稿を読み込み
+  Future<void> _loadSavedPosts() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    // Web開発用：Firebase認証がない場合は何もしない
+    if (currentUser == null) {
+      return;
+    }
+
+    try {
+      // ユーザーデータを取得して保存済み投稿IDリストを取得
+      final userData = await _userService.getUser(currentUser.uid);
+      if (userData == null || userData.savedPosts.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _savedPosts = [];
+          });
+        }
+        return;
+      }
+
+      // 保存済み投稿IDから投稿データを取得
+      final List<PostModel> posts = [];
+      for (final postId in userData.savedPosts) {
+        final post = await _postService.getPost(postId);
+        if (post != null) {
+          posts.add(post);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _savedPosts = posts;
+        });
+      }
+    } catch (e) {
+      print('保存済み投稿の読み込みエラー: $e');
     }
   }
 
@@ -178,8 +225,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     // タブ切り替え
                     _buildTabSelector(),
 
-                    // 投稿グリッド
-                    _buildPostsGrid(),
+                    // タブに応じたコンテンツ表示
+                    _selectedTabIndex == 0
+                        ? _buildPostsGrid()
+                        : _buildSavedPostsGrid(),
                   ],
                 ),
               ),
@@ -701,6 +750,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// 保存済み投稿グリッド（アルバムアートのみ表示）
+  Widget _buildSavedPostsGrid() {
+    if (_savedPosts.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Text(
+            '保存済みの投稿がありません',
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(0),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 1,
+        crossAxisSpacing: 1,
+        mainAxisSpacing: 1,
+      ),
+      itemCount: _savedPosts.length,
+      itemBuilder: (context, index) {
+        final post = _savedPosts[index];
+        return _buildSavedPostItem(post);
+      },
+    );
+  }
+
+  /// 保存済み投稿アイテム（アルバムアートのみ）
+  Widget _buildSavedPostItem(PostModel post) {
+    final albumArt = post.track.albumImageUrl;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[800],
+      ),
+      child: albumArt.isNotEmpty
+          ? Image.network(
+              albumArt,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(
+                  Icons.album,
+                  size: 50,
+                  color: Colors.white54,
+                );
+              },
+            )
+          : const Icon(
+              Icons.album,
+              size: 50,
+              color: Colors.white54,
+            ),
     );
   }
 }

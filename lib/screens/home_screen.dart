@@ -8,6 +8,7 @@ import '../widgets/post_card.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
+import '../services/user_service.dart';
 import '../utils/test_data.dart';
 import 'comment_screen.dart';
 import 'search_screen.dart';
@@ -25,6 +26,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
   int _selectedIndex = 0;
   final PostService _postService = PostService();
+  final UserService _userService = UserService();
   final SpotifyService _spotifyService = SpotifyService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
@@ -54,43 +56,64 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     _loadLocalLikeStates();
   }
 
-  /// 投稿リストを読み込み（Spotifyからアルバムアートワークを取得）
+  /// 投稿リストを読み込み（Firestoreから取得）
   Future<void> _loadPosts() async {
-    // テストデータを取得
-    final testPosts = TestData.generateTestPosts();
+    try {
+      // Firestoreから投稿を取得
+      final firestorePosts = await _postService.getPosts(limit: 50);
 
-    // 各投稿の楽曲名でSpotify検索し、アルバムアートワークを更新
-    final updatedPosts = <PostModel>[];
+      // Firestoreに投稿がない場合はテストデータを使用
+      final postsToUse = firestorePosts.isEmpty
+          ? TestData.generateTestPosts()
+          : firestorePosts;
 
-    for (final post in testPosts) {
-      try {
-        // 楽曲名とアーティスト名で検索
-        final searchQuery = '${post.track.trackName} ${post.track.artistName}';
-        final tracks = await _spotifyService.searchTracks(searchQuery, limit: 1);
+      // 各投稿の楽曲名でSpotify検索し、アルバムアートワークを更新（必要な場合のみ）
+      final updatedPosts = <PostModel>[];
 
-        if (tracks.isNotEmpty) {
-          // 検索結果の最初のトラックのアルバムアートワークを使用
-          final spotifyTrack = tracks.first;
-          final updatedTrack = post.track.copyWith(
-            albumImageUrl: spotifyTrack.albumImageUrl,
-          );
-          final updatedPost = post.copyWith(track: updatedTrack);
-          updatedPosts.add(updatedPost);
-        } else {
-          // 検索結果がない場合は元の投稿をそのまま使用
+      for (final post in postsToUse) {
+        // アルバムアートワークが既にある場合はSpotify検索をスキップ
+        if (post.track.albumImageUrl.isNotEmpty) {
+          updatedPosts.add(post);
+          continue;
+        }
+
+        try {
+          // 楽曲名とアーティスト名で検索
+          final searchQuery = '${post.track.trackName} ${post.track.artistName}';
+          final tracks = await _spotifyService.searchTracks(searchQuery, limit: 1);
+
+          if (tracks.isNotEmpty) {
+            // 検索結果の最初のトラックのアルバムアートワークを使用
+            final spotifyTrack = tracks.first;
+            final updatedTrack = post.track.copyWith(
+              albumImageUrl: spotifyTrack.albumImageUrl,
+            );
+            final updatedPost = post.copyWith(track: updatedTrack);
+            updatedPosts.add(updatedPost);
+          } else {
+            // 検索結果がない場合は元の投稿をそのまま使用
+            updatedPosts.add(post);
+          }
+        } catch (e) {
+          print('Spotifyアルバムアートワーク取得エラー: $e');
+          // エラーの場合は元の投稿をそのまま使用
           updatedPosts.add(post);
         }
-      } catch (e) {
-        print('Spotifyアルバムアートワーク取得エラー: $e');
-        // エラーの場合は元の投稿をそのまま使用
-        updatedPosts.add(post);
       }
-    }
 
-    if (mounted) {
-      setState(() {
-        _cachedPosts = updatedPosts;
-      });
+      if (mounted) {
+        setState(() {
+          _cachedPosts = updatedPosts;
+        });
+      }
+    } catch (e) {
+      print('投稿読み込みエラー: $e');
+      // エラー時はテストデータを使用
+      if (mounted) {
+        setState(() {
+          _cachedPosts = TestData.generateTestPosts();
+        });
+      }
     }
   }
 
@@ -604,10 +627,25 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     }
   }
 
-  /// 追加ボタンが押されたときの処理
-  void _handleAdd(PostModel post) {
-    // TODO: プレイリストへの追加機能を実装
-    _showMessage('プレイリストへの追加機能は今後実装予定です');
+  /// 追加ボタンが押されたときの処理（投稿を保存）
+  Future<void> _handleAdd(PostModel post) async {
+    final currentUser = _auth.currentUser;
+
+    // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
+    final userId = currentUser?.uid ?? 'test_user_temp';
+
+    try {
+      await _userService.toggleSavePost(
+        userId: userId,
+        postId: post.postId,
+      );
+
+      // 成功メッセージを表示
+      _showMessage('投稿を保存しました');
+    } catch (e) {
+      print('投稿の保存に失敗: $e');
+      _showMessage('投稿の保存に失敗しました');
+    }
   }
 
   /// メッセージを表示

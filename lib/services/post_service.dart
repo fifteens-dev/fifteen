@@ -96,7 +96,28 @@ class PostService {
     });
   }
 
-  /// 特定のユーザーの投稿を取得
+  /// 特定のユーザーの投稿を取得（Future版）
+  Future<List<PostModel>> getPostsByUserId(String userId, {int limit = 20}) async {
+    try {
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting posts by userId: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 特定のユーザーの投稿を取得（Stream版）
   Stream<List<PostModel>> getUserPostsStream(String userId, {int limit = 20}) {
     return _firestore
         .collection(_postsCollection)

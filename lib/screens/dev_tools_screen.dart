@@ -57,24 +57,103 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
     }
   }
 
-  Future<void> _handleCreateTestPosts() async {
+
+  Future<void> _handleCreateDummyUsers() async {
     setState(() {
       _isLoading = true;
-      _statusMessage = 'テスト用投稿データを作成中...';
+      _statusMessage = 'ダミーユーザーを作成中...';
     });
 
     try {
-      await _setupTestData.createTestPosts();
+      await _setupTestData.createDummyUsers();
 
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _statusMessage = '✅ テスト用投稿データの作成が完了しました！';
+          _statusMessage = '✅ ダミーユーザーの作成が完了しました！';
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('テスト用投稿データが作成されました'),
+            content: Text('ダミーユーザーが作成されました'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '❌ エラー: $e';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleCreateDummyUserPosts() async {
+    setState(() {
+      _isLoading = true;
+      _statusMessage = 'Spotifyから楽曲を検索中...';
+    });
+
+    try {
+      await _setupTestData.createDummyUserPosts();
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '✅ ダミーユーザーの投稿データが作成されました！';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ダミーユーザーの投稿データが作成されました'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '❌ エラー: $e';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleDeleteOldTestPosts() async {
+    setState(() {
+      _isLoading = true;
+      _statusMessage = '古いテスト投稿を削除中...';
+    });
+
+    try {
+      await _setupTestData.deleteOldTestPosts();
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '✅ 古いテスト投稿が削除されました！';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('古いテスト投稿が削除されました'),
             backgroundColor: AppColors.success,
           ),
         );
@@ -199,21 +278,87 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               const Divider(color: AppColors.border),
               const SizedBox(height: AppDimensions.paddingMedium),
 
-              // テスト用投稿データ作成セクション
+              // ダミーユーザー作成セクション
               const Text(
-                'テスト用投稿データの作成',
+                'ダミーユーザーの作成',
                 style: AppTextStyles.heading,
               ),
               const SizedBox(height: AppDimensions.paddingMedium),
               const Text(
-                'タイムラインに表示するテスト用の投稿データを作成します。',
+                'Figmaデザインに基づいたダミーユーザー（m.by__sanaなど）を作成します。',
                 style: AppTextStyles.body,
               ),
               const SizedBox(height: AppDimensions.paddingLarge),
               PrimaryButton(
-                text: 'テスト用投稿データを作成',
-                onPressed: _handleCreateTestPosts,
+                text: 'ダミーユーザーを作成',
+                onPressed: _handleCreateDummyUsers,
                 isLoading: _isLoading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              PrimaryButton(
+                text: 'ダミーユーザーの投稿を作成（Spotify連携）',
+                onPressed: _handleCreateDummyUserPosts,
+                isLoading: _isLoading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                'Spotifyから実際の楽曲データを取得して投稿を作成します。',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: AppDimensions.paddingXLarge),
+              const Divider(color: AppColors.border),
+              const SizedBox(height: AppDimensions.paddingMedium),
+
+              // 古いテスト投稿削除セクション
+              const Text(
+                '古いテスト投稿の削除',
+                style: AppTextStyles.heading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                'ユーザーが存在しない古いテスト投稿（いとしのエリー、Lemon、きらり等）を削除します。',
+                style: AppTextStyles.body,
+              ),
+              const SizedBox(height: AppDimensions.paddingLarge),
+              Container(
+                padding: const EdgeInsets.all(AppDimensions.paddingMedium),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.error.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: AppColors.error,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: const Text(
+                        'test_user_1/2/3 の投稿がすべて削除されます',
+                        style: TextStyle(
+                          color: AppColors.error,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppDimensions.paddingLarge),
+              OutlinedButton(
+                onPressed: _isLoading ? null : _handleDeleteOldTestPosts,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.error,
+                  side: const BorderSide(color: AppColors.error),
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                child: const Text('古いテスト投稿を削除'),
               ),
               const SizedBox(height: AppDimensions.paddingXLarge),
               const Divider(color: AppColors.border),

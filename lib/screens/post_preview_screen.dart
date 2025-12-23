@@ -5,6 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/track_model.dart';
+import '../models/post_model.dart';
+import '../models/post_theme.dart';
+import '../widgets/post_card.dart';
+import '../widgets/post_card_back_info.dart';
+import '../services/audio_player_service.dart';
+import '../utils/color_extractor.dart';
 import 'post_photo_selection_screen.dart';
 
 /// 投稿プレビュー画面
@@ -24,6 +30,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
 
+  // 音楽再生サービス
+  final AudioPlayerService _audioService = AudioPlayerService();
+
   // 歌詞カード関連
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
   Offset _cardPosition = Offset.zero; // 歌詞カードの位置
@@ -32,6 +41,11 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
   bool _showFront = true; // 初期状態は表面
+
+  // アルバムアートから抽出した色（裏面のテーマ用）
+  Color? _extractedGradientStart;
+  Color? _extractedGradientEnd;
+  bool _isColorExtracting = false;
 
   @override
   void initState() {
@@ -43,6 +57,41 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     _flipAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
     );
+
+    // アルバムアートから色を抽出
+    _extractColorsFromAlbumArt();
+  }
+
+  /// アルバムアートから色を抽出
+  Future<void> _extractColorsFromAlbumArt() async {
+    if (_isColorExtracting) return;
+
+    setState(() {
+      _isColorExtracting = true;
+    });
+
+    try {
+      final imageUrl = widget.track.albumImageUrl;
+      if (imageUrl.isNotEmpty) {
+        // ColorExtractor を使用して色を抽出
+        final extractedColors = await ColorExtractor.extractGradientColors(imageUrl);
+
+        if (mounted) {
+          setState(() {
+            _extractedGradientStart = extractedColors.$1;
+            _extractedGradientEnd = extractedColors.$2;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Color extraction error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isColorExtracting = false;
+        });
+      }
+    }
   }
 
   @override
@@ -61,6 +110,48 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     setState(() {
       _showFront = !_showFront;
     });
+  }
+
+  /// TrackModelからダミーのPostModelを作成（プレビュー用）
+  PostModel _createDummyPost() {
+    final now = DateTime.now();
+    return PostModel(
+      postId: 'preview_post',
+      userId: 'preview_user',
+      username: 'taroooooda',
+      userIconUrl: null,
+      track: widget.track,
+      likeCount: 3,
+      commentCount: 3,
+      likedUserIds: [],
+      createdAt: now,
+      updatedAt: now,
+      theme: PostTheme.defaultTheme, // デフォルトテーマを使用（色抽出は PostCard 内で実行される）
+    );
+  }
+
+  /// 裏面用の動的テーマを生成
+  PostTheme _getDynamicThemeForBack() {
+    if (_extractedGradientStart != null && _extractedGradientEnd != null) {
+      final HSLColor hsl = HSLColor.fromColor(_extractedGradientEnd!);
+      final bool isDark = hsl.lightness < 0.5;
+
+      final Color commentButtonColor = hsl.withLightness(
+        (hsl.lightness * 1.1).clamp(0.0, 1.0),
+      ).toColor();
+
+      return PostTheme(
+        gradientStart: _extractedGradientStart!,
+        gradientEnd: _extractedGradientEnd!,
+        commentButtonColor: commentButtonColor,
+        textColor: isDark ? Colors.white : Colors.black,
+        iconColor: isDark ? Colors.white : Colors.black,
+        secondaryTextColor: isDark
+            ? Colors.white.withOpacity(0.8)
+            : Colors.black.withOpacity(0.8),
+      );
+    }
+    return PostTheme.defaultTheme;
   }
 
   /// 写真を追加
@@ -117,7 +208,14 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                           transform: Matrix4.identity()
                             ..setEntry(3, 2, 0.001)
                             ..rotateY(angle),
-                          child: isFront ? _buildFrontCard() : _buildBackCard(),
+                          child: isFront
+                              ? PostCard(
+                                  post: _createDummyPost(),
+                                  audioService: _audioService,
+                                  showFrontOnly: true, // 表面のみ表示
+                                  onCardTap: _flipCard, // プレビュー画面の反転処理を実行
+                                )
+                              : _buildBackCard(),
                         );
                       },
                     ),
@@ -535,6 +633,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   /// 投稿カード（裏面） - Figmaデザインに基づく
   Widget _buildBackCard() {
+    const cardHeight = 644.0;
+    const photoHeight = 484.0; // 写真エリアの高さ
+
     return Transform(
       alignment: Alignment.center,
       transform: Matrix4.identity()..rotateY(pi), // 裏面なので反転
@@ -542,31 +643,33 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         onTap: _flipCard, // タップで表面に戻る
         child: Container(
           width: 363,
-          height: 644,
+          height: cardHeight,
           decoration: BoxDecoration(
             color: const Color(0xFF121212),
             borderRadius: BorderRadius.circular(18),
           ),
-          child: Stack(
-            children: [
-              // 上部エリア（写真選択部分）- 484px高さ
-              Positioned(
-                left: 0,
-                top: 0,
-                width: 363,
-                height: 484,
-                child: _buildPhotoSectionBack(),
-              ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Stack(
+              children: [
+                // 上部エリア（写真選択部分）
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  width: 363,
+                  height: photoHeight,
+                  child: _buildPhotoSectionBack(),
+                ),
 
-              // 下部エリア（楽曲情報）- 174px高さ
-              Positioned(
-                left: 0,
-                top: 470,
-                width: 363,
-                height: 174,
-                child: _buildInfoSectionBack(),
-              ),
-            ],
+                // 下部エリア（楽曲情報）- bottomから配置してグラデーションが写真エリアと重なるようにする
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _buildInfoSectionBack(),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -582,14 +685,17 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
           left: 0,
           top: 0,
           width: 363,
-          height: 474,
+          height: 484,
           child: Container(
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.white, width: 1),
+              border: Border.all(color: Colors.white, width: 0.5),
               borderRadius: BorderRadius.circular(18),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(18.0),
+                topRight: Radius.circular(18.0),
+              ),
               child: Stack(
                 children: [
                   // 選択された写真または写真追加ボタン
@@ -613,7 +719,10 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(18.0),
+                          topRight: Radius.circular(18.0),
+                        ),
                       ),
                     ),
 
@@ -734,227 +843,29 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     );
   }
 
-  /// 情報セクション（裏面）
+  /// 情報セクション（裏面）- ホーム画面のPostCardと同じデザインを引き継ぐ
   Widget _buildInfoSectionBack() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0x00030303),
-            Color(0xFF030303),
-          ],
-          stops: [0.0377, 1.0],
-        ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(18),
-          bottomRight: Radius.circular(18),
-        ),
-      ),
-      child: Stack(
-        children: [
-          // "Provided courtesy of Apple Music" (top: 9)
-          const Positioned(
-            left: 15,
-            top: 9,
-            child: Text(
-              'Provided courtesy of Apple Music',
-              style: TextStyle(
-                fontSize: 10,
-                color: Color(0xFFB0B0B0),
-                fontFamily: 'Noto Sans',
-              ),
-            ),
-          ),
+    final theme = _getDynamicThemeForBack();
 
-          // コメント入力欄 (top: 28, 338x43px)
-          Positioned(
-            left: 12,
-            top: 28,
-            child: _buildCommentInputBack(),
-          ),
-
-          // リアクション (top: 80)
-          Positioned(
-            left: 12,
-            top: 80,
-            child: _buildReactionsBack(),
-          ),
-
-          // いいねした人のアバター (left: 296, top: 80)
-          Positioned(
-            left: 296,
-            top: 80,
-            child: _buildLikedAvatarsBack(),
-          ),
-
-          // 楽曲名とアーティスト (top: 110, width: 194)
-          Positioned(
-            left: 12,
-            top: 110,
-            width: 194,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.track.trackName,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    height: 1.198,
-                    fontFamily: 'Noto Sans JP',
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.track.artistName,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Colors.white,
-                    height: 1.5,
-                    fontFamily: 'Noto Sans',
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return PostCardBackInfo(
+      track: widget.track,
+      theme: theme,
+      likeCount: 3,
+      commentCount: 3,
+      isLiked: false,
+      onLike: () {
+        // プレビュー画面ではアクションなし
+      },
+      onComment: () {
+        // プレビュー画面ではアクションなし
+      },
+      onAdd: () {
+        // プレビュー画面ではアクションなし
+      },
     );
   }
 
-  /// コメント入力欄（裏面）
-  Widget _buildCommentInputBack() {
-    return Container(
-      width: 338,
-      height: 43,
-      decoration: BoxDecoration(
-        color: const Color(0xFF313131),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 12),
-          const Text(
-            'コメントする',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Colors.white,
-              fontFamily: 'Noto Sans',
-            ),
-          ),
-          const Spacer(),
-          Icon(
-            Icons.send,
-            size: 20,
-            color: Colors.white.withOpacity(0.7),
-          ),
-          const SizedBox(width: 12),
-        ],
-      ),
-    );
-  }
 
-  /// リアクション（裏面）
-  Widget _buildReactionsBack() {
-    return Row(
-      children: [
-        // いいね
-        Row(
-          children: [
-            const Icon(
-              Icons.favorite_border,
-              size: 25,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              '3',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Colors.white,
-                fontFamily: 'Noto Sans',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(width: 12),
-        // コメント
-        Row(
-          children: [
-            SvgPicture.asset(
-              'assets/icons/message_circle.svg',
-              width: 25,
-              height: 25,
-              colorFilter: const ColorFilter.mode(
-                Colors.white,
-                BlendMode.srcIn,
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              '3',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Colors.white,
-                fontFamily: 'Noto Sans',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(width: 12),
-        // 追加ボタン
-        Container(
-          width: 23,
-          height: 23,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 1),
-          ),
-          child: const Icon(
-            Icons.add,
-            color: Colors.white,
-            size: 14,
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// いいねした人のアバター（裏面）
-  Widget _buildLikedAvatarsBack() {
-    return Row(
-      children: List.generate(3, (index) {
-        return Container(
-          width: 25,
-          height: 25,
-          margin: EdgeInsets.only(left: index == 0 ? 0 : 4),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: const Color(0xFF9F9F9F),
-            border: Border.all(
-              color: const Color(0xFF030303),
-              width: 1,
-            ),
-          ),
-          child: const Icon(
-            Icons.person,
-            size: 14,
-            color: Colors.white,
-          ),
-        );
-      }),
-    );
-  }
 
   /// 歌詞カードプレビュー（裏面）
   Widget _buildLyricsCardBack() {
@@ -1388,4 +1299,5 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       ),
     );
   }
+
 }

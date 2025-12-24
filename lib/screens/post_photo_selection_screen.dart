@@ -8,10 +8,14 @@ import 'lyrics_card_selection_screen.dart';
 /// 投稿用写真選択画面
 class PostPhotoSelectionScreen extends StatefulWidget {
   final TrackModel track;
+  final bool isVibe;
+  final String? vibeTopicId;
 
   const PostPhotoSelectionScreen({
     super.key,
     required this.track,
+    this.isVibe = false,
+    this.vibeTopicId,
   });
 
   @override
@@ -102,6 +106,8 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
         builder: (context) => LyricsCardSelectionScreen(
           track: widget.track,
           selectedImage: _selectedImage,
+          isVibe: widget.isVibe,
+          vibeTopicId: widget.vibeTopicId,
         ),
       ),
     );

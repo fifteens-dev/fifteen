@@ -4,6 +4,7 @@ import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/primary_button.dart';
 import '../utils/setup_test_data.dart';
+import '../utils/create_initial_vibe_topics.dart';
 
 /// 開発者ツール画面（デバッグビルドのみ）
 class DevToolsScreen extends StatefulWidget {
@@ -154,6 +155,84 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('古いテスト投稿が削除されました'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '❌ エラー: $e';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleCreateInitialVibeTopics() async {
+    setState(() {
+      _isLoading = true;
+      _statusMessage = '初期Vibeお題を作成中...';
+    });
+
+    try {
+      await createInitialVibeTopics();
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '✅ 今日のお題と投票用お題が作成されました！';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Vibeお題が作成されました'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '❌ エラー: $e';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleCreateAllVotingTopics() async {
+    setState(() {
+      _isLoading = true;
+      _statusMessage = '全てのお題候補を作成中...';
+    });
+
+    try {
+      await createAllVotingTopics();
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '✅ 全てのお題候補が作成されました！';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('全てのお題候補が作成されました'),
             backgroundColor: AppColors.success,
           ),
         );
@@ -359,6 +438,44 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
                   minimumSize: const Size(double.infinity, 50),
                 ),
                 child: const Text('古いテスト投稿を削除'),
+              ),
+              const SizedBox(height: AppDimensions.paddingXLarge),
+              const Divider(color: AppColors.border),
+              const SizedBox(height: AppDimensions.paddingMedium),
+
+              // Vibeお題作成セクション
+              const Text(
+                'Vibeお題の作成',
+                style: AppTextStyles.heading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                '今日のVibeお題と明日の投票用お題を作成します。',
+                style: AppTextStyles.body,
+              ),
+              const SizedBox(height: AppDimensions.paddingLarge),
+              PrimaryButton(
+                text: '初期Vibeお題を作成（今日+明日の4候補）',
+                onPressed: _handleCreateInitialVibeTopics,
+                isLoading: _isLoading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              OutlinedButton(
+                onPressed: _isLoading ? null : _handleCreateAllVotingTopics,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textPrimary,
+                  side: const BorderSide(color: AppColors.border),
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                child: const Text('全てのお題候補を作成（20個）'),
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                '※ 事前定義されたお題リストから自動的に選択されます',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
               ),
               const SizedBox(height: AppDimensions.paddingXLarge),
               const Divider(color: AppColors.border),

@@ -19,10 +19,14 @@ import 'post_photo_selection_screen.dart';
 /// 投稿プレビュー画面
 class PostPreviewScreen extends StatefulWidget {
   final TrackModel track;
+  final bool isVibe;
+  final String? vibeTopicId;
 
   const PostPreviewScreen({
     super.key,
     required this.track,
+    this.isVibe = false,
+    this.vibeTopicId,
   });
 
   @override
@@ -360,6 +364,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         selectedLayoutIndex: _selectedLayoutIndex,
         cardPositionX: _cardPosition.dx,
         cardPositionY: _cardPosition.dy,
+        isVibe: widget.isVibe,
+        vibeTopicId: widget.vibeTopicId,
       );
       print('✅ 投稿作成完了: postId=$postId');
 

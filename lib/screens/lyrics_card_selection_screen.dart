@@ -9,11 +9,15 @@ import 'package:image_picker/image_picker.dart';
 class LyricsCardSelectionScreen extends StatefulWidget {
   final TrackModel track;
   final XFile? selectedImage;
+  final bool isVibe;
+  final String? vibeTopicId;
 
   const LyricsCardSelectionScreen({
     super.key,
     required this.track,
     this.selectedImage,
+    this.isVibe = false,
+    this.vibeTopicId,
   });
 
   @override

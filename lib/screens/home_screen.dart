@@ -4,16 +4,20 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../models/track_model.dart';
+import '../models/vibe_topic_model.dart';
+import '../models/vibe_ranking_item.dart';
 import '../widgets/post_card.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/user_service.dart';
+import '../services/vibe_topic_service.dart';
 import '../utils/test_data.dart';
 import 'comment_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'activity_screen.dart';
+import 'vibe_topic_voting_screen.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -28,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen>
   int _selectedIndex = 0;
   final PostService _postService = PostService();
   final UserService _userService = UserService();
+  final VibeTopicService _vibeTopicService = VibeTopicService();
   final SpotifyService _spotifyService = SpotifyService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
@@ -306,32 +311,288 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  /// Vibeバー（横スクロールの音楽アルバムリスト）
+  /// Vibeバー（ランキング表示）
   Widget _buildVibeBar() {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _loadVibeData(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildVibeBarSkeleton();
+        }
+
+        if (!snapshot.hasData ||
+            snapshot.data!['topic'] == null) {
+          return _buildVibeBarEmpty();
+        }
+
+        final topic = snapshot.data!['topic'] as VibeTopicModel;
+        final ranking = snapshot.data!['ranking'] as List<VibeRankingItem>;
+
+        return Container(
+          height: 190,
+          color: AppColors.background,
+          child: Column(
+            children: [
+              // ヘッダー（お題タイトル + 投票ボタン）
+              _buildVibeBarHeader(topic),
+
+              // ランキング（横スクロール）
+              Expanded(
+                child: ranking.isEmpty
+                    ? _buildNoRankingMessage()
+                    : ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        itemCount: ranking.length,
+                        itemBuilder: (context, index) {
+                          return _buildRankingItem(ranking[index], index + 1);
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Vibeデータを読み込み（今日のお題とランキング）
+  Future<Map<String, dynamic>> _loadVibeData() async {
+    try {
+      final topic = await _vibeTopicService.getTodaysTopic();
+      if (topic == null) {
+        return {'topic': null, 'ranking': []};
+      }
+
+      final ranking = await _postService.calculateVibeRanking(
+        topic.topicId,
+        DateTime.now(),
+        limit: 10,
+      );
+
+      return {'topic': topic, 'ranking': ranking};
+    } catch (e) {
+      print('Error loading vibe data: $e');
+      return {'topic': null, 'ranking': []};
+    }
+  }
+
+  /// Vibeバーのヘッダー
+  Widget _buildVibeBarHeader(VibeTopicModel topic) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          // Vibeアイコン
+          Image.asset(
+            'assets/icons/Vibe.png',
+            width: 40,
+            height: 40,
+            errorBuilder: (context, error, stackTrace) {
+              return Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.purple,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.music_note, color: Colors.white),
+              );
+            },
+          ),
+          const SizedBox(width: 12),
+          // お題タイトル
+          Expanded(
+            child: Text(
+              'Vibe【${topic.title}】',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          // 投票ボタン
+          GestureDetector(
+            onTap: () => _navigateToVoting(),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF5D8FFF),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                '明日のVibeに投票',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ランキングアイテム
+  Widget _buildRankingItem(VibeRankingItem item, int rank) {
     return Container(
-      height: 130,
+      width: 80,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        children: [
+          // ランク番号（円形バッジ）
+          Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              color: _getRankColor(rank),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                '$rank',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+
+          // アルバムアートワーク
+          Container(
+            width: 70,
+            height: 70,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.network(
+                item.track.albumImageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: Colors.grey[800],
+                    child: const Icon(Icons.album, color: Colors.white54),
+                  );
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+
+          // 楽曲名
+          Text(
+            item.track.trackName,
+            style: const TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+          // アーティスト名
+          Text(
+            item.track.artistName,
+            style: TextStyle(
+              fontSize: 7,
+              color: Colors.white.withOpacity(0.7),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+
+          // 投稿数
+          Text(
+            '${item.postCount}投稿',
+            style: const TextStyle(
+              fontSize: 7,
+              color: Color(0xFF5D8FFF),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ランク別の色を取得
+  Color _getRankColor(int rank) {
+    switch (rank) {
+      case 1:
+        return const Color(0xFFFFD700); // ゴールド
+      case 2:
+        return const Color(0xFFC0C0C0); // シルバー
+      case 3:
+        return const Color(0xFFCD7F32); // ブロンズ
+      default:
+        return const Color(0xFF5D8FFF); // デフォルト
+    }
+  }
+
+  /// 投票画面へ遷移
+  void _navigateToVoting() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const VibeTopicVotingScreen(),
+      ),
+    );
+  }
+
+  /// Vibeバーのスケルトン（ローディング表示）
+  Widget _buildVibeBarSkeleton() {
+    return Container(
+      height: 190,
+      color: AppColors.background,
+      padding: const EdgeInsets.all(16),
+      child: const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+
+  /// Vibeバーの空状態（お題がない場合）
+  Widget _buildVibeBarEmpty() {
+    return Container(
+      height: 190,
       color: AppColors.background,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ヘッダー
+          // ヘッダー（アイコンと見出し）
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
-                // Vibeアイコン（仮）
-                Container(
+                // Vibeアイコン
+                Image.asset(
+                  'assets/icons/Vibe.png',
                   width: 40,
                   height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.purple,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.music_note, color: Colors.white),
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.purple,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.music_note, color: Colors.white),
+                    );
+                  },
                 ),
                 const SizedBox(width: 12),
+                // Vibe見出し
                 const Text(
-                  'Vibe【#ドライブで聴きたい曲】',
+                  'Vibe',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -341,18 +602,32 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
           ),
-          // 横スクロールアルバムリスト
+          // メッセージ
           Expanded(
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: 8, // ダミーデータ
-              itemBuilder: (context, index) {
-                return _buildAlbumItem();
-              },
+            child: Center(
+              child: Text(
+                '今日のVibeお題はありません',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.white.withOpacity(0.6),
+                ),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// ランキングがない場合のメッセージ
+  Widget _buildNoRankingMessage() {
+    return Center(
+      child: Text(
+        'まだ投稿がありません',
+        style: TextStyle(
+          fontSize: 12,
+          color: Colors.white.withOpacity(0.6),
+        ),
       ),
     );
   }

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
+import '../models/vibe_topic_model.dart';
 import '../services/spotify_service.dart';
 import '../services/music_service_manager.dart';
 import '../services/post_service.dart';
+import '../services/vibe_topic_service.dart';
 import '../utils/test_data.dart';
 import 'post_preview_screen.dart';
 
@@ -21,9 +23,13 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   final SpotifyService _spotifyService = SpotifyService();
   final MusicServiceManager _musicServiceManager = MusicServiceManager();
   final PostService _postService = PostService();
+  final VibeTopicService _vibeTopicService = VibeTopicService();
 
   // 選択された楽曲
   TrackModel? _selectedTrack;
+
+  // 今日のVibeお題
+  VibeTopicModel? _todaysTopic;
 
   // タブ選択状態: 0 = おすすめ, 1 = My Playlist, 2 = 保存済み
   int _selectedTab = 0;
@@ -47,6 +53,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   void initState() {
     super.initState();
     _loadInitialTracks();
+    _loadTodaysTopic();
   }
 
   @override
@@ -132,6 +139,20 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  /// 今日のVibeお題を読み込み
+  Future<void> _loadTodaysTopic() async {
+    try {
+      final topic = await _vibeTopicService.getTodaysTopic();
+      if (mounted) {
+        setState(() {
+          _todaysTopic = topic;
+        });
+      }
+    } catch (e) {
+      print('Error loading today\'s topic: $e');
     }
   }
 
@@ -289,7 +310,11 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => PostPreviewScreen(track: _selectedTrack!),
+        builder: (context) => PostPreviewScreen(
+          track: _selectedTrack!,
+          isVibe: _selectedCategoryType == 'vibe',
+          vibeTopicId: _todaysTopic?.topicId,
+        ),
       ),
     );
   }
@@ -474,12 +499,12 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             child: _buildCategoryButtonWithImage(
               imagePath: 'assets/icons/Vibe.png',
               label: 'Vibe',
-              subtitle: '【ドライブで聴きたい曲】',
+              subtitle: _todaysTopic != null ? '【${_todaysTopic!.title}】' : '【読み込み中...】',
               isSelected: _selectedCategoryType == 'vibe',
               onTap: () {
                 setState(() {
                   _selectedCategoryType = 'vibe';
-                  _selectedVibeCategory = 'ドライブで聴きたい曲';
+                  _selectedVibeCategory = _todaysTopic?.title;
                 });
               },
             ),

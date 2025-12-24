@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/post_model.dart';
+import '../models/vibe_ranking_item.dart';
+import '../models/track_model.dart';
 
 /// 投稿データを管理するサービス
 class PostService {
@@ -17,9 +19,17 @@ class PostService {
     int selectedLayoutIndex = 0,
     double cardPositionX = 0.0,
     double cardPositionY = 0.0,
+    bool isVibe = false,
+    String? vibeTopicId,
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
+
+      // Vibe投稿の日付（年月日のみ、時刻は00:00:00）
+      final now = DateTime.now();
+      final vibeDate = isVibe
+          ? DateTime(now.year, now.month, now.day)
+          : null;
 
       final postData = {
         'userId': userId,
@@ -35,6 +45,9 @@ class PostService {
         'selectedLayoutIndex': selectedLayoutIndex,
         'cardPositionX': cardPositionX,
         'cardPositionY': cardPositionY,
+        'isVibe': isVibe,
+        'vibeTopicId': vibeTopicId,
+        'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
       };
 
       await postRef.set(postData);
@@ -288,6 +301,126 @@ class PostService {
     } catch (e) {
       if (kDebugMode) {
         print('Error getting posts excluding today: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 特定のお題のVibe投稿を取得
+  Future<List<PostModel>> getVibePostsByTopic(
+    String topicId,
+    DateTime date,
+  ) async {
+    try {
+      // 日付を正規化（時刻を00:00:00に設定）
+      final normalizedDate = DateTime(date.year, date.month, date.day);
+      final nextDay = normalizedDate.add(const Duration(days: 1));
+
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('isVibe', isEqualTo: true)
+          .where('vibeTopicId', isEqualTo: topicId)
+          .where('vibeDate', isGreaterThanOrEqualTo: Timestamp.fromDate(normalizedDate))
+          .where('vibeDate', isLessThan: Timestamp.fromDate(nextDay))
+          .get();
+
+      return snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting vibe posts by topic: $e');
+      }
+      return [];
+    }
+  }
+
+  /// ランキング計算（投稿数でグループ化＆ソート）
+  Future<List<VibeRankingItem>> calculateVibeRanking(
+    String topicId,
+    DateTime date, {
+    int limit = 10,
+  }) async {
+    try {
+      // Vibe投稿を取得
+      final vibePosts = await getVibePostsByTopic(topicId, date);
+
+      if (vibePosts.isEmpty) {
+        return [];
+      }
+
+      // trackId（またはtrackName + artistName）でグループ化
+      final Map<String, List<PostModel>> groupedPosts = {};
+
+      for (final post in vibePosts) {
+        // trackIdがある場合はtrackIdを使用、ない場合はtrackName + artistNameを使用
+        final trackKey = post.track.trackId.isNotEmpty
+            ? post.track.trackId
+            : '${post.track.trackName}_${post.track.artistName}';
+
+        if (!groupedPosts.containsKey(trackKey)) {
+          groupedPosts[trackKey] = [];
+        }
+        groupedPosts[trackKey]!.add(post);
+      }
+
+      // 各グループの投稿数をカウント＆ソート
+      final List<Map<String, dynamic>> rankingData = [];
+
+      for (final entry in groupedPosts.entries) {
+        final posts = entry.value;
+        final postCount = posts.length;
+        final userIds = posts.map((p) => p.userId).toList();
+
+        // 代表的なトラック情報を使用（最初の投稿のトラック）
+        final representativeTrack = posts.first.track;
+
+        rankingData.add({
+          'track': representativeTrack,
+          'postCount': postCount,
+          'userIds': userIds,
+        });
+      }
+
+      // 投稿数の降順でソート
+      rankingData.sort((a, b) => (b['postCount'] as int).compareTo(a['postCount'] as int));
+
+      // 上位limit件をVibeRankingItemに変換
+      final List<VibeRankingItem> ranking = [];
+      for (int i = 0; i < rankingData.length && i < limit; i++) {
+        final data = rankingData[i];
+        ranking.add(VibeRankingItem(
+          rank: i + 1,
+          track: data['track'] as TrackModel,
+          postCount: data['postCount'] as int,
+          userIds: List<String>.from(data['userIds']),
+        ));
+      }
+
+      return ranking;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error calculating vibe ranking: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 今日のVibeランキングを取得
+  Future<List<VibeRankingItem>> getTodaysVibeRanking({int limit = 10}) async {
+    try {
+      // 今日の日付
+      final today = DateTime.now();
+
+      // 今日のアクティブなお題IDを取得する必要がある
+      // ここではダミーとして空のリストを返す
+      // 実際の実装では、VibeTopicServiceからtopicIdを取得してcalculateVibeRankingを呼び出す
+      // この処理はUI側（HomeScreen）で行う方が適切
+
+      return [];
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting today\'s vibe ranking: $e');
       }
       return [];
     }

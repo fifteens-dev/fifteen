@@ -19,6 +19,9 @@ class PostModel {
   final int selectedLayoutIndex; // 選択された歌詞カードレイアウト
   final double cardPositionX; // 歌詞カードのX位置
   final double cardPositionY; // 歌詞カードのY位置
+  final bool isVibe; // Vibe投稿かどうか
+  final String? vibeTopicId; // 参加しているお題のID
+  final DateTime? vibeDate; // Vibe投稿の日付（集計用）
 
   PostModel({
     required this.postId,
@@ -36,6 +39,9 @@ class PostModel {
     this.selectedLayoutIndex = 0,
     this.cardPositionX = 0.0,
     this.cardPositionY = 0.0,
+    this.isVibe = false,
+    this.vibeTopicId,
+    this.vibeDate,
   });
 
   // Firestoreドキュメントから作成
@@ -60,6 +66,9 @@ class PostModel {
       selectedLayoutIndex: data['selectedLayoutIndex'] ?? 0,
       cardPositionX: (data['cardPositionX'] ?? 0.0).toDouble(),
       cardPositionY: (data['cardPositionY'] ?? 0.0).toDouble(),
+      isVibe: data['isVibe'] ?? false,
+      vibeTopicId: data['vibeTopicId'],
+      vibeDate: (data['vibeDate'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -80,6 +89,9 @@ class PostModel {
       'selectedLayoutIndex': selectedLayoutIndex,
       'cardPositionX': cardPositionX,
       'cardPositionY': cardPositionY,
+      'isVibe': isVibe,
+      'vibeTopicId': vibeTopicId,
+      'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate!) : null,
     };
   }
 
@@ -100,6 +112,9 @@ class PostModel {
     int? selectedLayoutIndex,
     double? cardPositionX,
     double? cardPositionY,
+    bool? isVibe,
+    String? vibeTopicId,
+    DateTime? vibeDate,
   }) {
     return PostModel(
       postId: postId ?? this.postId,
@@ -117,6 +132,9 @@ class PostModel {
       selectedLayoutIndex: selectedLayoutIndex ?? this.selectedLayoutIndex,
       cardPositionX: cardPositionX ?? this.cardPositionX,
       cardPositionY: cardPositionY ?? this.cardPositionY,
+      isVibe: isVibe ?? this.isVibe,
+      vibeTopicId: vibeTopicId ?? this.vibeTopicId,
+      vibeDate: vibeDate ?? this.vibeDate,
     );
   }
 

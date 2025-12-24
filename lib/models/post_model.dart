@@ -15,6 +15,10 @@ class PostModel {
   final DateTime createdAt;
   final DateTime updatedAt;
   final PostTheme theme; // カラーテーマ
+  final String? photoUrl; // 投稿の写真URL
+  final int selectedLayoutIndex; // 選択された歌詞カードレイアウト
+  final double cardPositionX; // 歌詞カードのX位置
+  final double cardPositionY; // 歌詞カードのY位置
 
   PostModel({
     required this.postId,
@@ -28,6 +32,10 @@ class PostModel {
     required this.createdAt,
     required this.updatedAt,
     this.theme = PostTheme.defaultTheme,
+    this.photoUrl,
+    this.selectedLayoutIndex = 0,
+    this.cardPositionX = 0.0,
+    this.cardPositionY = 0.0,
   });
 
   // Firestoreドキュメントから作成
@@ -48,6 +56,10 @@ class PostModel {
       theme: data['theme'] != null
           ? PostTheme.fromMap(data['theme'] as Map<String, dynamic>)
           : PostTheme.defaultTheme,
+      photoUrl: data['photoUrl'],
+      selectedLayoutIndex: data['selectedLayoutIndex'] ?? 0,
+      cardPositionX: (data['cardPositionX'] ?? 0.0).toDouble(),
+      cardPositionY: (data['cardPositionY'] ?? 0.0).toDouble(),
     );
   }
 
@@ -64,6 +76,10 @@ class PostModel {
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
       'theme': theme.toMap(),
+      'photoUrl': photoUrl,
+      'selectedLayoutIndex': selectedLayoutIndex,
+      'cardPositionX': cardPositionX,
+      'cardPositionY': cardPositionY,
     };
   }
 
@@ -80,6 +96,10 @@ class PostModel {
     DateTime? createdAt,
     DateTime? updatedAt,
     PostTheme? theme,
+    String? photoUrl,
+    int? selectedLayoutIndex,
+    double? cardPositionX,
+    double? cardPositionY,
   }) {
     return PostModel(
       postId: postId ?? this.postId,
@@ -93,6 +113,10 @@ class PostModel {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       theme: theme ?? this.theme,
+      photoUrl: photoUrl ?? this.photoUrl,
+      selectedLayoutIndex: selectedLayoutIndex ?? this.selectedLayoutIndex,
+      cardPositionX: cardPositionX ?? this.cardPositionX,
+      cardPositionY: cardPositionY ?? this.cardPositionY,
     );
   }
 

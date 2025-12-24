@@ -4,12 +4,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../widgets/post_card.dart';
 import '../widgets/post_card_back_info.dart';
 import '../services/audio_player_service.dart';
+import '../services/post_service.dart';
+import '../services/storage_service.dart';
 import '../utils/color_extractor.dart';
 import 'post_photo_selection_screen.dart';
 
@@ -33,6 +36,12 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   // 音楽再生サービス
   final AudioPlayerService _audioService = AudioPlayerService();
 
+  // 投稿関連サービス
+  final PostService _postService = PostService();
+  final StorageService _storageService = StorageService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  bool _isPosting = false;
+
   // 歌詞カード関連
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
   Offset _cardPosition = Offset.zero; // 歌詞カードの位置
@@ -50,6 +59,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
+    print('🎬 PostPreviewScreen initState()');
+    print('  - track: ${widget.track.trackName} by ${widget.track.artistName}');
+
     _flipController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
@@ -156,6 +168,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   /// 写真を追加
   Future<void> _pickImage() async {
+    print('📷 写真選択画面へ遷移');
+
     // 写真選択画面へ遷移
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
@@ -164,25 +178,231 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       ),
     );
 
+    print('📷 写真選択画面から戻りました');
+    print('  - result: $result');
+
     // 選択された写真と歌詞カード情報を設定
     if (result != null) {
+      print('✅ 写真が選択されました');
       setState(() {
         _selectedImage = result['image'] as XFile?;
         _selectedLayoutIndex = result['layoutIndex'] as int? ?? 0;
         _cardPosition = result['cardPosition'] as Offset? ?? Offset.zero;
       });
+      print('  - layoutIndex: $_selectedLayoutIndex');
+      print('  - cardPosition: $_cardPosition');
+      print('  - image: ${_selectedImage != null ? "あり" : "なし"}');
+    } else {
+      print('❌ 写真の選択がキャンセルされました');
     }
   }
 
+  /// 投稿確認ダイアログを表示
+  Future<bool> _showPostConfirmDialog() async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        title: const Text(
+          '投稿しますか？',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: const Text(
+          'この内容で投稿します。よろしいですか？',
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 14,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(
+              'キャンセル',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              '投稿する',
+              style: TextStyle(
+                color: Color(0xFF5D8FFF),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
   /// 投稿を完了
-  void _onPost() {
-    // TODO: 投稿処理を実装
-    Navigator.pop(context);
-    Navigator.pop(context);
+  Future<void> _onPost() async {
+    print('🚀 _onPost()が呼ばれました');
+
+    // 確認ダイアログを表示
+    print('📋 確認ダイアログを表示中...');
+    final confirmed = await _showPostConfirmDialog();
+    print('✅ ダイアログ結果: $confirmed');
+
+    if (!confirmed) {
+      print('❌ ユーザーがキャンセルしました');
+      return;
+    }
+
+    if (_isPosting) {
+      print('⚠️ 既に投稿処理中です');
+      return;
+    }
+
+    print('📝 投稿処理を開始します');
+    setState(() {
+      _isPosting = true;
+    });
+
+    try {
+      final currentUser = _auth.currentUser;
+      final userId = currentUser?.uid ?? 'test_user_temp';
+      final username = currentUser?.displayName ?? 'taroooooda';
+      print('👤 ユーザー情報: userId=$userId, username=$username');
+
+      // 写真をアップロード
+      String? photoUrl;
+      if (_selectedImage != null) {
+        print('📸 写真をアップロード中... (isWeb: $kIsWeb)');
+
+        // 認証なしの場合の警告
+        if (currentUser == null) {
+          print('⚠️ 認証なしユーザーです。Firebase Storageへのアップロードに失敗する可能性があります。');
+        }
+
+        try {
+          if (kIsWeb) {
+            // Web環境の場合
+            print('🌐 Web環境: 写真のバイトデータを読み込み中...');
+            final bytes = await _selectedImage!.readAsBytes();
+            print('📦 バイトサイズ: ${bytes.length}');
+            print('☁️ Firebase Storageにアップロード中...');
+
+            // タイムアウトを30秒に設定
+            photoUrl = await _storageService.uploadPostImage(
+              userId: userId,
+              imageBytes: bytes,
+            ).timeout(
+              const Duration(seconds: 30),
+              onTimeout: () {
+                print('⏰ アップロードがタイムアウトしました（30秒）');
+                throw Exception('写真のアップロードがタイムアウトしました。ネットワーク接続またはFirebase Storageの権限を確認してください。');
+              },
+            );
+            print('✅ 写真アップロード完了: $photoUrl');
+          } else {
+            // モバイル環境の場合
+            print('📱 モバイル環境: ファイルを読み込み中...');
+            final file = File(_selectedImage!.path);
+            final bytes = await file.readAsBytes();
+            print('📦 バイトサイズ: ${bytes.length}');
+            print('☁️ Firebase Storageにアップロード中...');
+
+            // タイムアウトを30秒に設定
+            photoUrl = await _storageService.uploadPostImage(
+              userId: userId,
+              imageBytes: bytes,
+            ).timeout(
+              const Duration(seconds: 30),
+              onTimeout: () {
+                print('⏰ アップロードがタイムアウトしました（30秒）');
+                throw Exception('写真のアップロードがタイムアウトしました。ネットワーク接続またはFirebase Storageの権限を確認してください。');
+              },
+            );
+            print('✅ 写真アップロード完了: $photoUrl');
+          }
+        } catch (e) {
+          print('❌ 写真アップロードエラー: $e');
+          // 写真アップロードに失敗した場合は、写真なしで投稿を続行
+          print('⚠️ 写真なしで投稿を続行します');
+          photoUrl = null;
+        }
+      } else {
+        print('⚠️ 写真が選択されていません');
+      }
+
+      // TrackModelをMapに変換
+      print('🎵 楽曲データを変換中...');
+      final trackData = widget.track.toMap();
+      print('📋 楽曲データ: $trackData');
+
+      // 投稿を作成
+      print('💾 Firestoreに投稿を保存中...');
+      print('  - userId: $userId');
+      print('  - username: $username');
+      print('  - photoUrl: $photoUrl');
+      print('  - layoutIndex: $_selectedLayoutIndex');
+      print('  - cardPosition: $_cardPosition');
+
+      final postId = await _postService.createPost(
+        userId: userId,
+        username: username,
+        trackData: trackData,
+        photoUrl: photoUrl,
+        selectedLayoutIndex: _selectedLayoutIndex,
+        cardPositionX: _cardPosition.dx,
+        cardPositionY: _cardPosition.dy,
+      );
+      print('✅ 投稿作成完了: postId=$postId');
+
+      if (mounted) {
+        print('🎉 投稿成功！ホーム画面に戻ります');
+        setState(() {
+          _isPosting = false;
+        });
+
+        // ホーム画面に戻る
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/home',
+          (route) => false,
+        );
+      }
+    } catch (e, stackTrace) {
+      print('❌ 投稿エラー: $e');
+      print('📍 スタックトレース: $stackTrace');
+
+      if (mounted) {
+        setState(() {
+          _isPosting = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('投稿に失敗しました: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    print('🎨 PostPreviewScreen build()呼び出し');
+    print('  - _selectedImage: ${_selectedImage != null ? "選択済み" : "未選択"}');
+    print('  - _isPosting: $_isPosting');
+    print('  - _selectedLayoutIndex: $_selectedLayoutIndex');
+    print('  - _cardPosition: $_cardPosition');
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
@@ -231,18 +451,22 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   /// ヘッダー
   Widget _buildHeader() {
+    // 写真が選択されているかチェック
+    final bool isPhotoSelected = _selectedImage != null;
+    final bool canPost = isPhotoSelected && !_isPosting;
+
     return Container(
       height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 19),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 閉じるボタン
+          // 戻るボタン（矢印）- 投稿中は無効化
           GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: const Icon(
-              Icons.close,
-              color: Colors.white,
+            onTap: _isPosting ? null : () => Navigator.pop(context),
+            child: Icon(
+              Icons.arrow_back_ios,
+              color: _isPosting ? Colors.grey : Colors.white,
               size: 20,
             ),
           ),
@@ -257,18 +481,44 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
             ),
           ),
 
-          // 次へボタン
-          GestureDetector(
-            onTap: _onPost,
-            child: const Text(
-              '次へ',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF5D8FFF),
-              ),
-            ),
-          ),
+          // 投稿するボタン（写真が選択されている場合のみ有効、投稿中はローディング）
+          _isPosting
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFF5D8FFF),
+                    ),
+                  ),
+                )
+              : GestureDetector(
+                  onTap: canPost
+                      ? () {
+                          print('🔘 投稿するボタンがタップされました');
+                          print('  - isPhotoSelected: $isPhotoSelected');
+                          print('  - _isPosting: $_isPosting');
+                          print('  - canPost: $canPost');
+                          _onPost();
+                        }
+                      : () {
+                          print('⚠️ 投稿ボタンが無効です');
+                          print('  - isPhotoSelected: $isPhotoSelected');
+                          print('  - _isPosting: $_isPosting');
+                          print('  - canPost: $canPost');
+                        },
+                  child: Text(
+                    '投稿する',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: canPost
+                          ? const Color(0xFF5D8FFF)
+                          : Colors.grey,
+                    ),
+                  ),
+                ),
         ],
       ),
     );
@@ -713,18 +963,6 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                     )
                   else
                     _buildAddPhotoButtonBack(),
-
-                  // 選択した写真がある場合は暗いオーバーレイを表示
-                  if (_selectedImage != null)
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.3),
-                        borderRadius: BorderRadius.only(
-                          topLeft: Radius.circular(18.0),
-                          topRight: Radius.circular(18.0),
-                        ),
-                      ),
-                    ),
 
                   // 歌詞カードプレビュー（写真選択後）
                   if (_selectedImage != null) _buildLyricsCardBack(),

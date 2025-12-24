@@ -39,6 +39,14 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       return;
     }
 
+    // 開発用：特殊コードでFirestore検証をスキップしてUIテストモードへ
+    if (inviteCode == 'DEVMODE' || inviteCode == 'UITEST') {
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/name-input');
+      }
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });

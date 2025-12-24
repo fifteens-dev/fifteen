@@ -68,4 +68,43 @@ class StorageService {
       rethrow;
     }
   }
+
+  /// 投稿画像をアップロード
+  ///
+  /// [userId] ユーザーID
+  /// [imageBytes] 画像のバイトデータ
+  /// 戻り値: アップロードされた画像のダウンロードURL
+  Future<String> uploadPostImage({
+    required String userId,
+    required Uint8List imageBytes,
+  }) async {
+    try {
+      // タイムスタンプを使用してユニークなファイル名を生成
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final storageRef = _storage.ref().child('post_images/$userId/$timestamp.jpg');
+
+      // メタデータを設定
+      final metadata = SettableMetadata(
+        contentType: 'image/jpeg',
+        customMetadata: {'uploaded': DateTime.now().toIso8601String()},
+      );
+
+      // アップロード
+      final uploadTask = await storageRef.putData(imageBytes, metadata);
+
+      // ダウンロードURLを取得
+      final downloadUrl = await uploadTask.ref.getDownloadURL();
+
+      if (kDebugMode) {
+        print('Post image uploaded successfully: $downloadUrl');
+      }
+
+      return downloadUrl;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error uploading post image: $e');
+      }
+      rethrow;
+    }
+  }
 }

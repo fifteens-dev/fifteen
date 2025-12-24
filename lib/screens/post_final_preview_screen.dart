@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
+import '../services/post_service.dart';
 import 'home_screen.dart';
 
 /// 投稿カード最終プレビュー画面
@@ -27,14 +29,74 @@ class PostFinalPreviewScreen extends StatefulWidget {
 }
 
 class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
+  final PostService _postService = PostService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  bool _isPosting = false;
+
   /// 投稿を完了
-  void _onPost() {
-    // TODO: 投稿処理を実装
-    // ホーム画面に戻る（全てのスタックをクリア）
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => const HomeScreen()),
-      (route) => false,
-    );
+  Future<void> _onPost() async {
+    if (_isPosting) return;
+
+    setState(() => _isPosting = true);
+
+    try {
+      final currentUser = _auth.currentUser;
+      final userId = currentUser?.uid ?? 'test_user_temp';
+      final username = currentUser?.displayName ?? 'taroooooda';
+      final userIconUrl = currentUser?.photoURL;
+
+      print('📝 投稿作成開始...');
+      print('  ユーザーID: $userId');
+      print('  ユーザー名: $username');
+      print('  楽曲: ${widget.track.trackName} - ${widget.track.artistName}');
+
+      // 投稿を作成
+      final postId = await _postService.createPost(
+        userId: userId,
+        username: username,
+        userIconUrl: userIconUrl,
+        trackData: widget.track.toMap(),
+        photoUrl: null, // 写真アップロード機能は後で実装
+        selectedLayoutIndex: widget.selectedLayoutIndex,
+        cardPositionX: widget.cardPosition.dx,
+        cardPositionY: widget.cardPosition.dy,
+      );
+
+      print('✅ 投稿を作成しました: $postId');
+      print('📤 Firestoreに保存されました');
+
+      // ホーム画面に戻る（全てのスタックをクリア）
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+          (route) => false,
+        );
+
+        // 投稿成功メッセージを表示
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('投稿しました'),
+                backgroundColor: Color(0xFF4CAF50),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        });
+      }
+    } catch (e) {
+      print('投稿作成エラー: $e');
+      if (mounted) {
+        setState(() => _isPosting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('投稿の作成に失敗しました'),
+            backgroundColor: Color(0xFFE53935),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -94,15 +156,24 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
 
           // 投稿するボタン
           GestureDetector(
-            onTap: _onPost,
-            child: const Text(
-              '投稿する',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF5D8FFF),
-              ),
-            ),
+            onTap: _isPosting ? null : _onPost,
+            child: _isPosting
+                ? const SizedBox(
+                    width: 13,
+                    height: 13,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF5D8FFF),
+                    ),
+                  )
+                : const Text(
+                    '投稿する',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF5D8FFF),
+                    ),
+                  ),
           ),
         ],
       ),

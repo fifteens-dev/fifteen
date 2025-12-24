@@ -259,6 +259,11 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// 楽曲を選択
   void _toggleTrackSelection(TrackModel track) {
+    // カテゴリーが選択されていない場合は何もしない
+    if (_selectedCategoryType == null) {
+      return;
+    }
+
     setState(() {
       if (_selectedTrack?.trackId == track.trackId) {
         _selectedTrack = null;
@@ -316,25 +321,48 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
             // 楽曲リスト or グリッド
             Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFF5D8FFF),
-                      ),
-                    )
-                  : _tracks.isEmpty
+              child: Stack(
+                children: [
+                  // 楽曲リスト/グリッド
+                  _isLoading
                       ? const Center(
-                          child: Text(
-                            '楽曲が見つかりませんでした',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF9F9F9F),
-                            ),
+                          child: CircularProgressIndicator(
+                            color: Color(0xFF5D8FFF),
                           ),
                         )
-                      : _isGridView
-                          ? _buildTrackGrid()
-                          : _buildTrackList(),
+                      : _tracks.isEmpty
+                          ? const Center(
+                              child: Text(
+                                '楽曲が見つかりませんでした',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF9F9F9F),
+                                ),
+                              ),
+                            )
+                          : _isGridView
+                              ? _buildTrackGrid()
+                              : _buildTrackList(),
+
+                  // カテゴリー未選択時のオーバーレイ
+                  if (_selectedCategoryType == null)
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.black.withOpacity(0.7),
+                        child: const Center(
+                          child: Text(
+                            'VibeまたはEmotionを選択してください',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ],
         ),

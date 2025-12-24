@@ -56,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
+    print('🏠 ホーム画面: initState()が呼ばれました');
     _loadPosts();
     _loadLocalLikeStates();
     _loadLocalSaveStates();
@@ -63,14 +64,28 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// 投稿リストを読み込み（Firestoreから取得）
   Future<void> _loadPosts() async {
+    print('📥 _loadPosts()開始');
     try {
-      // Firestoreから投稿を取得
-      final firestorePosts = await _postService.getPosts(limit: 50);
+      final currentUser = _auth.currentUser;
+      print('👤 現在のユーザー: ${currentUser?.uid ?? "未認証"}');
+      List<PostModel> firestorePosts = [];
 
-      // Firestoreに投稿がない場合はテストデータを使用
-      final postsToUse = firestorePosts.isEmpty
-          ? TestData.generateTestPosts()
-          : firestorePosts;
+      // Firestoreから投稿を取得（認証の有無に関わらず試みる）
+      try {
+        firestorePosts = await _postService.getPosts(limit: 50);
+        print('📥 Firestoreから取得した投稿数: ${firestorePosts.length}');
+      } catch (e) {
+        print('⚠️ Firestore取得エラー（権限エラーの可能性）: $e');
+        // エラーの場合は空配列のまま（TestDataのみ表示）
+      }
+
+      // TestDataを取得
+      final testPosts = TestData.generateTestPosts();
+
+      // FirestoreとTestDataの両方を結合して表示
+      final postsToUse = [...firestorePosts, ...testPosts];
+
+      print('📊 表示する投稿数: ${postsToUse.length} (Firestore: ${firestorePosts.length}, TestData: ${testPosts.length})');
 
       // 各投稿の楽曲名でSpotify検索し、アルバムアートワークを更新（必要な場合のみ）
       final updatedPosts = <PostModel>[];
@@ -82,6 +97,7 @@ class _HomeScreenState extends State<HomeScreen>
           continue;
         }
 
+        // アルバムアートがない場合はSpotify検索を試みる
         try {
           // 楽曲名とアーティスト名で検索
           final searchQuery =
@@ -97,24 +113,31 @@ class _HomeScreenState extends State<HomeScreen>
             );
             final updatedPost = post.copyWith(track: updatedTrack);
             updatedPosts.add(updatedPost);
+            print('🎵 Spotify検索成功: ${post.track.trackName}');
           } else {
             // 検索結果がない場合は元の投稿をそのまま使用
             updatedPosts.add(post);
+            print('⚠️ Spotify検索結果なし: ${post.track.trackName}');
           }
         } catch (e) {
-          print('Spotifyアルバムアートワーク取得エラー: $e');
+          print('⚠️ Spotifyアルバムアートワーク取得エラー: $e');
           // エラーの場合は元の投稿をそのまま使用
           updatedPosts.add(post);
         }
       }
 
       if (mounted) {
+        print('✅ 投稿読み込み完了: ${updatedPosts.length}件の投稿をセット');
         setState(() {
           _cachedPosts = updatedPosts;
         });
+        print('🔄 setState()完了');
+      } else {
+        print('⚠️ mountedがfalseのため、setStateをスキップ');
       }
     } catch (e) {
-      print('投稿読み込みエラー: $e');
+      print('❌ 投稿読み込みエラー: $e');
+      print('📦 エラー発生のため、TestDataのみを表示します');
       // エラー時はテストデータを使用
       if (mounted) {
         setState(() {
@@ -373,8 +396,11 @@ class _HomeScreenState extends State<HomeScreen>
   ///
   /// キャッシュされた投稿リストを使用してスクロール位置を確実に保持します。
   Widget _buildTimelineSliver() {
+    print('🎨 _buildTimelineSliver()呼び出し: _cachedPosts = ${_cachedPosts?.length ?? "null"}');
+
     // キャッシュされた投稿リストがない場合はローディング表示
     if (_cachedPosts == null) {
+      print('⏳ ローディング表示中...');
       return const SliverToBoxAdapter(
         child: Center(
           child: Padding(
@@ -386,6 +412,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     final posts = _cachedPosts!;
+    print('📋 ${posts.length}件の投稿を表示します');
     final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
 
     return SliverPadding(

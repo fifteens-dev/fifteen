@@ -9,6 +9,7 @@ import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
+import '../models/track_model.dart';
 import '../utils/test_data.dart';
 import 'settings_screen.dart';
 
@@ -35,22 +36,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // 保存済み投稿
   List<PostModel> _savedPosts = [];
 
+  // 今日の投稿
+  List<PostModel> _todaysPosts = [];
+
+  // 今日以外の投稿
+  List<PostModel> _otherPosts = [];
+
+  // 各カードのプレビューURLキャッシュ
+  final Map<String, String> _previewUrlCache = {};
+
   final int _tracksCount = 18;
   final int _followersCount = 87;
   final int _followingCount = 89;
-
-  // 今日の楽曲のアルバムアートワーク
-  String? _todaysTrackAlbumArt;
-
-  // 今日の楽曲のプレビューURL（キャッシュ）
-  String? _todaysTrackPreviewUrl;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
-    _loadAlbumArtworks();
+    _loadUserPosts();
     _loadSavedPosts();
+    _loadDummyPostsAlbumArt();
   }
 
   /// ユーザーデータを読み込み
@@ -82,40 +87,96 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  /// アルバムアートワークを読み込み
-  Future<void> _loadAlbumArtworks() async {
-    // 今日の楽曲のアルバムアートワークを取得
+  /// ユーザーの投稿を読み込み（今日の投稿と今日以外の投稿）
+  Future<void> _loadUserPosts() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final userId = currentUser?.uid ?? 'test_user_temp';
+
     try {
-      final todaysTracks = await _spotifyService.searchTracks(
-        'いとしのエリー サザンオールスターズ',
-        limit: 1,
-      );
-      if (todaysTracks.isNotEmpty && mounted) {
+      // 今日の投稿を取得
+      var todaysPosts = await _postService.getTodaysPosts(userId);
+
+      // 今日の投稿がない場合はダミーデータを追加
+      if (todaysPosts.isEmpty) {
+        todaysPosts = _createDummyTodaysPost();
+
+        // ダミーデータのアルバムアートをSpotifyから取得
+        await _loadAlbumArtForDummyPost(todaysPosts);
+      }
+
+      // 今日以外の投稿を取得
+      final otherPosts = await _postService.getPostsExcludingToday(userId, limit: 50);
+
+      if (mounted) {
         setState(() {
-          _todaysTrackAlbumArt = todaysTracks.first.albumImageUrl;
+          _todaysPosts = todaysPosts;
+          _otherPosts = otherPosts;
         });
       }
     } catch (e) {
-      print('今日の楽曲のアルバムアートワーク取得エラー: $e');
+      print('ユーザー投稿の読み込みエラー: $e');
     }
+  }
 
-    // 投稿グリッドの各楽曲のアルバムアートワークを取得
+  /// ダミー投稿のアルバムアートを取得（今日の楽曲用）
+  Future<void> _loadAlbumArtForDummyPost(List<PostModel> posts) async {
+    for (int i = 0; i < posts.length; i++) {
+      final post = posts[i];
+      if (post.track.albumImageUrl.isEmpty) {
+        try {
+          final searchQuery = '${post.track.trackName} ${post.track.artistName}';
+          final tracks = await _spotifyService.searchTracks(searchQuery, limit: 1);
+
+          if (tracks.isNotEmpty && mounted) {
+            final updatedTrack = post.track.copyWith(
+              albumImageUrl: tracks.first.albumImageUrl,
+            );
+            posts[i] = post.copyWith(track: updatedTrack);
+          }
+        } catch (e) {
+          print('ダミー投稿のアルバムアート取得エラー: $e');
+        }
+      }
+    }
+  }
+
+  /// 投稿グリッドのダミーデータのアルバムアートを取得
+  Future<void> _loadDummyPostsAlbumArt() async {
     for (int i = 0; i < _posts.length; i++) {
       final post = _posts[i];
       try {
         final searchQuery = '${post['trackName']} ${post['artistName']}';
-        final tracks =
-            await _spotifyService.searchTracks(searchQuery, limit: 1);
+        final tracks = await _spotifyService.searchTracks(searchQuery, limit: 1);
 
         if (tracks.isNotEmpty && mounted) {
           setState(() {
-            _posts[i]['albumArt'] = tracks.first.albumImageUrl ?? '';
+            _posts[i]['albumArt'] = tracks.first.albumImageUrl;
           });
         }
       } catch (e) {
-        print('投稿 $i のアルバムアートワーク取得エラー: $e');
+        print('投稿グリッドのダミーデータのアルバムアート取得エラー: $e');
       }
     }
+  }
+
+  /// ダミーの今日の楽曲を作成
+  List<PostModel> _createDummyTodaysPost() {
+    return [
+      PostModel(
+        postId: 'dummy_today_post',
+        userId: 'test_user_temp',
+        username: 'taroooooda',
+        track: TrackModel(
+          trackId: 'dummy_track_1',
+          trackName: 'いとしのエリー',
+          artistName: 'サザンオールスターズ',
+          albumImageUrl: '', // Spotifyから取得される
+          previewUrl: null,
+        ),
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    ];
   }
 
   /// 保存済み投稿を読み込み
@@ -436,203 +497,236 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// 今日の楽曲カード
+  /// 今日の楽曲カード（スクロール可能なリスト表示）
   Widget _buildTodaysTrack() {
+    // 今日の投稿がない場合は何も表示しない
+    if (_todaysPosts.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // 最大5枚まで表示
+    final displayPosts = _todaysPosts.take(5).toList();
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 見出し
+          const Padding(
+            padding: EdgeInsets.only(left: 4, bottom: 12),
+            child: Text(
+              '今日の楽曲',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // スクロール可能な楽曲リスト
+          SizedBox(
+            height: 300,
+            child: ListView.builder(
+              itemCount: displayPosts.length,
+              itemBuilder: (context, index) {
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: index < displayPosts.length - 1 ? 8 : 0,
+                  ),
+                  child: _buildTodaysTrackCard(displayPosts[index], index == 0),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 今日の楽曲カード（1枚）
+  Widget _buildTodaysTrackCard(PostModel post, bool isTopCard) {
+    return Container(
       decoration: BoxDecoration(
         border: Border.all(color: const Color(0xFF3C3C3C)),
         borderRadius: BorderRadius.circular(4),
+        color: const Color(0xFF121212),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
           children: [
-            // ラベル
-            const Padding(
-              padding: EdgeInsets.only(left: 8, top: 2, bottom: 8),
-              child: Text(
-                '今日の楽曲',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                ),
+            // アルバムアート
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: Colors.grey[800],
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: post.track.albumImageUrl.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Image.network(
+                        post.track.albumImageUrl,
+                        width: 60,
+                        height: 60,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Icon(
+                            Icons.album,
+                            size: 30,
+                            color: Colors.white54,
+                          );
+                        },
+                      ),
+                    )
+                  : const Icon(
+                      Icons.album,
+                      size: 30,
+                      color: Colors.white54,
+                    ),
+            ),
+            const SizedBox(width: 12),
+            // 曲名とアーティスト
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    post.track.trackName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    post.track.artistName,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.7),
+                      fontSize: 14,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
             ),
-            // 楽曲情報
-            Row(
-              children: [
-                // アルバムアート
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[800],
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: _todaysTrackAlbumArt != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(3),
-                          child: Image.network(
-                            _todaysTrackAlbumArt!,
-                            width: 80,
-                            height: 80,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Icon(
-                                Icons.album,
-                                size: 40,
-                                color: Colors.white54,
-                              );
-                            },
-                          ),
-                        )
-                      : const Icon(
-                          Icons.album,
-                          size: 40,
-                          color: Colors.white54,
-                        ),
-                ),
-                const SizedBox(width: 14),
-                // 曲名とアーティスト
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'いとしのエリー',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'サザンオールスターズ',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // 再生ボタンと時間
-                Column(
-                  children: [
-                    StreamBuilder<PlayerState>(
-                      stream: _audioService.playerStateStream,
-                      builder: (context, snapshot) {
-                        final isThisTrackPlaying = _todaysTrackPreviewUrl !=
-                                null &&
-                            _audioService.isPlayingUrl(_todaysTrackPreviewUrl!);
-                        final isPaused = _audioService.isPaused;
-
-                        return GestureDetector(
-                          onTap: () async {
-                            if (isThisTrackPlaying) {
-                              // 再生中の場合は一時停止
-                              _audioService.pause();
-                            } else if (isPaused &&
-                                _todaysTrackPreviewUrl != null) {
-                              // 一時停止中の場合は再開
-                              _audioService.resume();
-                            } else {
-                              // 停止中の場合は再生開始
-                              String? urlToPlay = _todaysTrackPreviewUrl;
-
-                              // preview URLがまだ取得されていない場合は取得
-                              if (urlToPlay == null) {
-                                print(
-                                    '🍎 Fetching preview URL for today\'s track...');
-                                urlToPlay = await _itunesService.getPreviewUrl(
-                                  trackName: 'いとしのエリー',
-                                  artistName: 'サザンオールスターズ',
-                                );
-
-                                if (urlToPlay != null) {
-                                  setState(() {
-                                    _todaysTrackPreviewUrl = urlToPlay;
-                                  });
-                                  print('✅ Preview URL obtained and cached');
-                                } else {
-                                  print('❌ Failed to obtain preview URL');
-                                  return;
-                                }
-                              }
-
-                              _audioService.playPreview(urlToPlay);
-                            }
-                          },
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: isThisTrackPlaying
-                                    ? Colors.greenAccent
-                                    : Colors.white,
-                                width: 2,
-                              ),
-                            ),
-                            child: Icon(
-                              isThisTrackPlaying
-                                  ? Icons.pause
-                                  : Icons.play_arrow,
-                              color: isThisTrackPlaying
-                                  ? Colors.greenAccent
-                                  : Colors.white,
-                              size: 24,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    StreamBuilder<Duration>(
-                      stream: _audioService.positionStream,
-                      builder: (context, positionSnapshot) {
-                        return StreamBuilder<Duration?>(
-                          stream: _audioService.durationStream,
-                          builder: (context, durationSnapshot) {
-                            final duration = durationSnapshot.data;
-                            final position =
-                                positionSnapshot.data ?? Duration.zero;
-
-                            // 残り時間を計算
-                            // durationがnullの場合は、iTunesプレビューのデフォルト長さ（30秒）を表示
-                            final remaining = duration != null
-                                ? duration - position
-                                : const Duration(seconds: 30);
-
-                            // フォーマット
-                            final minutes = remaining.inMinutes;
-                            final seconds = remaining.inSeconds % 60;
-                            final timeText =
-                                '$minutes:${seconds.toString().padLeft(2, '0')}';
-
-                            return Text(
-                              timeText,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            const SizedBox(width: 12),
+            // 再生ボタンと時間（全てのカードに表示）
+            _buildPlayButton(post),
           ],
         ),
       ),
+    );
+  }
+
+  /// 再生ボタンと時間表示
+  Widget _buildPlayButton(PostModel post) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        StreamBuilder<PlayerState>(
+          stream: _audioService.playerStateStream,
+          builder: (context, snapshot) {
+            final previewUrl = _previewUrlCache[post.postId];
+            final isThisTrackPlaying =
+                previewUrl != null && _audioService.isPlayingUrl(previewUrl);
+            final isPaused = _audioService.isPaused;
+
+            return GestureDetector(
+              onTap: () async {
+                if (isThisTrackPlaying) {
+                  // 再生中の場合は一時停止
+                  _audioService.pause();
+                } else if (isPaused && previewUrl != null) {
+                  // 一時停止中の場合は再開
+                  _audioService.resume();
+                } else {
+                  // 停止中の場合は再生開始
+                  String? urlToPlay = previewUrl;
+
+                  // preview URLがまだ取得されていない場合は取得
+                  if (urlToPlay == null) {
+                    print('🍎 Fetching preview URL for ${post.track.trackName}...');
+                    urlToPlay = await _itunesService.getPreviewUrl(
+                      trackName: post.track.trackName,
+                      artistName: post.track.artistName,
+                    );
+
+                    if (urlToPlay != null) {
+                      setState(() {
+                        _previewUrlCache[post.postId] = urlToPlay!;
+                      });
+                      print('✅ Preview URL obtained and cached');
+                    } else {
+                      print('❌ Failed to obtain preview URL');
+                      return;
+                    }
+                  }
+
+                  // 再生開始（ループ再生は自動的に有効）
+                  await _audioService.playPreview(urlToPlay);
+                }
+              },
+              child: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
+                    width: 2,
+                  ),
+                ),
+                child: Icon(
+                  isThisTrackPlaying ? Icons.pause : Icons.play_arrow,
+                  color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
+                  size: 28,
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 4),
+        StreamBuilder<Duration>(
+          stream: _audioService.positionStream,
+          builder: (context, positionSnapshot) {
+            return StreamBuilder<Duration?>(
+              stream: _audioService.durationStream,
+              builder: (context, durationSnapshot) {
+                final duration = durationSnapshot.data;
+                final position = positionSnapshot.data ?? Duration.zero;
+
+                // 残り時間を計算
+                final remaining = duration != null
+                    ? duration - position
+                    : const Duration(seconds: 30);
+
+                // フォーマット
+                final minutes = remaining.inMinutes;
+                final seconds = remaining.inSeconds % 60;
+                final timeText =
+                    '$minutes:${seconds.toString().padLeft(2, '0')}';
+
+                return Text(
+                  timeText,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -711,25 +805,137 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// 投稿グリッド
   Widget _buildPostsGrid() {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
+    // 実際の投稿データがある場合はそれを使用、なければダミーデータを使用
+    final hasRealPosts = _otherPosts.isNotEmpty;
+
+    if (hasRealPosts) {
+      return GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(0),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          childAspectRatio: 131 / 185,
+          crossAxisSpacing: 0,
+          mainAxisSpacing: 5,
+        ),
+        itemCount: _otherPosts.length,
+        itemBuilder: (context, index) {
+          final post = _otherPosts[index];
+          return _buildPostItemFromModel(post);
+        },
+      );
+    } else {
+      // ダミーデータを使用
+      return GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(0),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          childAspectRatio: 131 / 185,
+          crossAxisSpacing: 0,
+          mainAxisSpacing: 5,
+        ),
+        itemCount: _posts.length,
+        itemBuilder: (context, index) {
+          final post = _posts[index];
+          return _buildPostItem(post);
+        },
+      );
+    }
+  }
+
+  /// 投稿アイテム（PostModelから）
+  Widget _buildPostItemFromModel(PostModel post) {
+    return Container(
       padding: const EdgeInsets.all(0),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 131 / 185,
-        crossAxisSpacing: 0,
-        mainAxisSpacing: 5,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // アルバムアート
+          AspectRatio(
+            aspectRatio: 1,
+            child: Container(
+              margin: const EdgeInsets.all(0.5),
+              decoration: BoxDecoration(
+                color: Colors.grey[800],
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: post.track.albumImageUrl.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: Image.network(
+                        post.track.albumImageUrl,
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Icon(
+                            Icons.album,
+                            size: 50,
+                            color: Colors.white54,
+                          );
+                        },
+                      ),
+                    )
+                  : const Icon(
+                      Icons.album,
+                      size: 50,
+                      color: Colors.white54,
+                    ),
+            ),
+          ),
+          // 曲名
+          Padding(
+            padding: const EdgeInsets.only(left: 6, top: 4),
+            child: Text(
+              post.track.trackName,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // アーティスト名
+          Padding(
+            padding: const EdgeInsets.only(left: 6),
+            child: Text(
+              post.track.artistName,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // 追加ボタン
+          Padding(
+            padding: const EdgeInsets.only(left: 6, top: 2),
+            child: Container(
+              width: 13,
+              height: 13,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1),
+              ),
+              child: const Icon(
+                Icons.add,
+                color: Colors.white,
+                size: 10,
+              ),
+            ),
+          ),
+        ],
       ),
-      itemCount: _posts.length,
-      itemBuilder: (context, index) {
-        final post = _posts[index];
-        return _buildPostItem(post);
-      },
     );
   }
 
-  /// 投稿アイテム
+  /// 投稿アイテム（ダミーデータから）
   Widget _buildPostItem(Map<String, String> post) {
     final albumArt = post['albumArt'];
 

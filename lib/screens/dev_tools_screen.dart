@@ -403,6 +403,45 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               const Divider(color: AppColors.border),
               const SizedBox(height: AppDimensions.paddingMedium),
 
+              // 開発者用招待コードセクション
+              const Text(
+                '開発者用招待コード',
+                style: AppTextStyles.heading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                '招待コード画面で以下の特殊なコードを入力すると、Firestore検証をスキップしてUIテストができます。',
+                style: AppTextStyles.body,
+              ),
+              const SizedBox(height: AppDimensions.paddingLarge),
+              Container(
+                padding: const EdgeInsets.all(AppDimensions.paddingMedium),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildPhoneNumberItem(
+                      'DEVMODE',
+                      'Firestore検証をスキップして名前入力画面へ移動',
+                      Icons.developer_mode,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildPhoneNumberItem(
+                      'UITEST',
+                      'Firestore検証をスキップして名前入力画面へ移動',
+                      Icons.phone_android,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppDimensions.paddingXLarge),
+              const Divider(color: AppColors.border),
+              const SizedBox(height: AppDimensions.paddingMedium),
+
               // ナビゲーションセクション
               const Text(
                 '画面遷移',

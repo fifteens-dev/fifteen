@@ -13,6 +13,10 @@ class PostService {
     required String username,
     String? userIconUrl,
     required Map<String, dynamic> trackData,
+    String? photoUrl,
+    int selectedLayoutIndex = 0,
+    double cardPositionX = 0.0,
+    double cardPositionY = 0.0,
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
@@ -27,6 +31,10 @@ class PostService {
         'likedUserIds': [],
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
+        'photoUrl': photoUrl,
+        'selectedLayoutIndex': selectedLayoutIndex,
+        'cardPositionX': cardPositionX,
+        'cardPositionY': cardPositionY,
       };
 
       await postRef.set(postData);
@@ -229,5 +237,59 @@ class PostService {
       }
       return null;
     });
+  }
+
+  /// 特定ユーザーの今日の投稿を取得
+  Future<List<PostModel>> getTodaysPosts(String userId) async {
+    try {
+      // 今日の0時0分0秒
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day);
+      // 今日の23時59分59秒
+      final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting today\'s posts: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 特定ユーザーの今日以外の投稿を取得
+  Future<List<PostModel>> getPostsExcludingToday(String userId, {int limit = 20}) async {
+    try {
+      // 今日の0時0分0秒
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day);
+
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .where('createdAt', isLessThan: Timestamp.fromDate(startOfDay))
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting posts excluding today: $e');
+      }
+      return [];
+    }
   }
 }

@@ -151,69 +151,82 @@ class _PostCardState extends State<PostCard>
       return;
     }
 
-    if (_showFront) {
+    // 状態を先に更新してUIを即座に反映
+    setState(() {
+      _showFront = !_showFront;
+    });
+
+    if (!_showFront) {
+      // 裏面に反転
       _flipController.forward();
       print('=== Flipping to back ===');
       print(
           'Track: ${widget.post.track.trackName} - ${widget.post.track.artistName}');
 
-      // キャッシュまたは動的に取得したpreview URLを使用
-      String? previewUrl = _cachedPreviewUrl;
+      // 音楽再生は非同期で実行（UIブロックしない）
+      _playAudioAsync();
+    } else {
+      // 表面に反転
+      _flipController.reverse();
+      print('=== Flipping to front - stopping playback ===');
+      widget.audioService.stop();
+    }
+  }
 
-      // キャッシュがない場合、iTunes APIから取得
-      if (previewUrl == null) {
-        print('🍎 Fetching preview URL from iTunes...');
-        previewUrl = await _itunesService.getPreviewUrl(
-          trackName: widget.post.track.trackName,
-          artistName: widget.post.track.artistName,
-        );
+  /// 音楽を非同期で再生（UIをブロックしない）
+  Future<void> _playAudioAsync() async {
+    // キャッシュまたは動的に取得したpreview URLを使用
+    String? previewUrl = _cachedPreviewUrl;
 
-        if (previewUrl != null) {
-          _cachedPreviewUrl = previewUrl; // キャッシュに保存
-          print('✅ iTunes preview URL obtained and cached');
-        } else {
-          print('❌ No preview URL found from iTunes');
-        }
+    // キャッシュがない場合、iTunes APIから取得
+    if (previewUrl == null) {
+      print('🍎 Fetching preview URL from iTunes...');
+      previewUrl = await _itunesService.getPreviewUrl(
+        trackName: widget.post.track.trackName,
+        artistName: widget.post.track.artistName,
+      );
+
+      if (previewUrl != null) {
+        _cachedPreviewUrl = previewUrl; // キャッシュに保存
+        print('✅ iTunes preview URL obtained and cached');
       } else {
-        print('📦 Using cached preview URL');
+        print('❌ No preview URL found from iTunes');
       }
+    } else {
+      print('📦 Using cached preview URL');
+    }
 
-      // プレビューURLがあれば再生
-      if (previewUrl != null && previewUrl.isNotEmpty) {
-        print('▶️  Starting playback...');
-        try {
-          await widget.audioService.playPreview(previewUrl);
-        } catch (e) {
-          print('❌ Playback error: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('音楽の再生に失敗しました: ${e.toString()}'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
-        }
-      } else {
-        print('⚠️  No preview URL available');
+    // プレビューURLがあれば再生
+    if (previewUrl != null && previewUrl.isNotEmpty) {
+      print('▶️  Starting playback...');
+      try {
+        await widget.audioService.playPreview(previewUrl);
+      } catch (e) {
+        print('❌ Playback error: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('この曲のプレビューURLが見つかりません'),
-              duration: Duration(seconds: 2),
+            SnackBar(
+              content: Text('音楽の再生に失敗しました: ${e.toString()}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
             ),
           );
         }
       }
     } else {
-      _flipController.reverse();
-      print('=== Flipping to front - stopping playback ===');
-      widget.audioService.stop();
+      print('⚠️  No preview URL available');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('この曲のプレビューURLが見つかりません'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     }
-    setState(() {
-      _showFront = !_showFront;
-    });
+  }
+
+  void _oldHandleCardFlipEnd() {
   }
 
   /// いいねボタンが押された時の処理（楽観的UI更新）

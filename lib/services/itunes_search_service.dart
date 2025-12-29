@@ -40,6 +40,8 @@ class ITunesSearchService {
           return null;
         }
 
+        print('🔍 Analyzing ${results.length} results for best version...');
+
         // メインバージョンを優先的に選択
         final bestResult = _selectBestVersion(results, trackName, artistName);
 
@@ -47,6 +49,8 @@ class ITunesSearchService {
           print('🍎 iTunes: No suitable result found');
           return null;
         }
+
+        print('✅ Best version selected from ${results.length} candidates');
 
         final previewUrl = bestResult['previewUrl'];
 
@@ -142,13 +146,31 @@ class ITunesSearchService {
     // スコアでソート（降順）
     scoredResults.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
 
+    if (scoredResults.isEmpty) {
+      print('⚠️ No scored results available');
+      return null;
+    }
+
     // スコアが0以上の最良の結果を返す
     final best = scoredResults.firstWhere(
       (item) => (item['score'] as int) > 0,
       orElse: () => scoredResults.first, // 見つからない場合は最初の結果
     );
 
-    print('🏆 Selected version with score ${best['score']}: ${best['result']['trackName']}');
+    final selectedTrack = best['result']['trackName'];
+    final selectedCollection = best['result']['collectionName'] ?? 'Unknown Album';
+    final selectedScore = best['score'];
+
+    print('🏆 Selected version with score $selectedScore:');
+    print('   Track: $selectedTrack');
+    print('   Album: $selectedCollection');
+
+    // トップ3のスコアも表示（デバッグ用）
+    print('📊 Top 3 candidates:');
+    for (int i = 0; i < 3 && i < scoredResults.length; i++) {
+      final item = scoredResults[i];
+      print('   ${i + 1}. ${item['result']['trackName']} (${item['result']['collectionName']}) - Score: ${item['score']}');
+    }
 
     return best['result'] as Map<String, dynamic>;
   }

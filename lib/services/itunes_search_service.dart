@@ -45,8 +45,11 @@ class ITunesSearchService {
         final previewUrl = firstResult['previewUrl'];
 
         if (previewUrl != null && previewUrl.toString().isNotEmpty) {
+          // HTTPをHTTPSに変換（Mixed Content対策 - モバイルWeb対応）
+          final secureUrl = previewUrl.toString().replaceFirst('http://', 'https://');
           print('🍎 iTunes: Found preview URL for "${firstResult['trackName']}"');
-          return previewUrl.toString();
+          print('🔒 Secured URL: $secureUrl');
+          return secureUrl;
         } else {
           print('🍎 iTunes: No preview URL in result');
           return null;
@@ -110,6 +113,10 @@ class ITunesSearchService {
           final artistName = result['artistName'] ?? '';
           final albumImageUrl = result['artworkUrl100'] ?? '';
           final previewUrl = result['previewUrl'] ?? '';
+          // HTTPをHTTPSに変換（Mixed Content対策 - モバイルWeb対応）
+          final securePreviewUrl = previewUrl.isNotEmpty
+              ? previewUrl.toString().replaceFirst('http://', 'https://')
+              : '';
           // trackIdとしてtrackIdを使用（iTunesのID）
           final trackId = result['trackId']?.toString() ?? '';
 
@@ -119,7 +126,7 @@ class ITunesSearchService {
               trackName: trackName,
               artistName: artistName,
               albumImageUrl: albumImageUrl,
-              previewUrl: previewUrl,
+              previewUrl: securePreviewUrl,
             ));
             print('🍎 iTunes: Added track "$trackName" by $artistName');
           }

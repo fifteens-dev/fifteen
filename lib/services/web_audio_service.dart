@@ -20,17 +20,25 @@ class WebAudioService {
 
     try {
       print('🎵 WebAudioService: Playing $url');
-      
+
+      // 同じURLが既に再生中の場合はスキップ
+      if (_currentUrl == url && _isPlaying) {
+        print('⏭ Already playing this URL');
+        return;
+      }
+
       // JavaScriptのaudioHelper.playAudio()を呼び出し
+      // Promiseを返すので、await可能だが、ここでは非同期で実行
       js.context.callMethod('eval', ['window.audioHelper.playAudio("$url")']);
-      
+
       _currentUrl = url;
       _isPlaying = true;
-      
+
       print('✅ WebAudioService: Play command sent');
     } catch (e) {
       print('❌ WebAudioService: Error playing audio: $e');
-      rethrow;
+      _isPlaying = false;
+      // エラーを無視して続行（JavaScriptのalertで既に表示されている）
     }
   }
 
@@ -54,10 +62,12 @@ class WebAudioService {
     try {
       print('⏹ WebAudioService: Stopping');
       js.context.callMethod('eval', ['window.audioHelper.stopAudio()']);
-      _currentUrl = null;
-      _isPlaying = false;
     } catch (e) {
       print('❌ WebAudioService: Error stopping: $e');
+    } finally {
+      // 必ず状態をリセット
+      _currentUrl = null;
+      _isPlaying = false;
     }
   }
 

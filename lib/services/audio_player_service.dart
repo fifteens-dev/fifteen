@@ -1,15 +1,9 @@
 import 'package:just_audio/just_audio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'web_audio_service.dart';
 
 /// 音楽再生を管理するサービス
 class AudioPlayerService {
   AudioPlayer? _audioPlayer;
   String? _currentUrl;
-  bool _audioContextUnlocked = false;
-
-  // Web専用のオーディオサービス
-  final WebAudioService _webAudioService = WebAudioService();
 
   /// AudioPlayerのインスタンスを取得（必要に応じて作成）
   AudioPlayer get _player {
@@ -17,58 +11,31 @@ class AudioPlayerService {
     return _audioPlayer!;
   }
 
-  /// Web版（特にモバイル）でオーディオコンテキストをアンロック
-  Future<void> _unlockAudioContext() async {
-    if (!kIsWeb || _audioContextUnlocked) return;
-
-    try {
-      // モバイルブラウザ用：無音のデータURLを使用してオーディオコンテキストをアンロック
-      // これはユーザーのタップ/クリックイベント内で実行される必要がある
-      const silentAudioDataUrl =
-          'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-
-      await _player.setVolume(0.0);
-      await _player.setUrl(silentAudioDataUrl);
-      await _player.play();
-      await Future.delayed(const Duration(milliseconds: 50));
-      await _player.stop();
-      await _player.setVolume(1.0);
-      _audioContextUnlocked = true;
-      print('Audio context unlocked for web/mobile');
-    } catch (e) {
-      print('Failed to unlock audio context: $e');
-      // 失敗してもアンロック済みとマークして、実際の音声再生を試みる
-      _audioContextUnlocked = true;
-    }
-  }
-
   /// プレビューURLから音楽を再生
   Future<void> playPreview(String url) async {
-    // Web版では専用のWebAudioServiceを使用
-    if (kIsWeb) {
-      try {
-        print('🌐 Using WebAudioService for web platform');
-        await _webAudioService.playAudio(url);
-        _currentUrl = url;
-      } catch (e) {
-        print('❌ WebAudioService error: $e');
-      }
-      return;
-    }
-
-    // モバイル/デスクトップアプリではjust_audioを使用
     try {
+      print('🎵 Attempting to play: $url');
+
+      // URLの妥当性チェック
+      if (url.isEmpty) {
+        print('❌ Empty URL provided');
+        return;
+      }
+
       // 既に同じURLが再生中の場合は何もしない
       if (_currentUrl == url && _player.playing) {
+        print('⏭️ Already playing this URL');
         return;
       }
 
       // 別のURLが再生中の場合は停止
       if (_currentUrl != url && _player.playing) {
+        print('⏹️ Stopping current playback');
         await stop();
       }
 
       // 新しいURLをセット
+      print('📥 Loading audio from URL...');
       _currentUrl = url;
       await _player.setUrl(url);
 
@@ -76,21 +43,22 @@ class AudioPlayerService {
       await _player.setLoopMode(LoopMode.one);
 
       // 再生開始
+      print('▶️ Starting playback...');
       await _player.play();
 
-      print('Playing preview: $url');
-    } catch (e) {
-      print('Error playing preview: $e');
+      print('✅ Successfully playing preview');
+    } catch (e, stackTrace) {
+      print('❌ Error playing preview: $e');
+      print('Stack trace: $stackTrace');
+      print('Failed URL: $url');
+
+      // ユーザーにもエラーを通知
+      rethrow;
     }
   }
 
   /// 再生を一時停止
   Future<void> pause() async {
-    if (kIsWeb) {
-      await _webAudioService.pause();
-      return;
-    }
-
     try {
       await _player.pause();
       print('Paused playback');
@@ -101,11 +69,6 @@ class AudioPlayerService {
 
   /// 再生を再開
   Future<void> resume() async {
-    if (kIsWeb) {
-      await _webAudioService.resume();
-      return;
-    }
-
     try {
       await _player.play();
       print('Resumed playback');
@@ -116,12 +79,6 @@ class AudioPlayerService {
 
   /// 再生を停止
   Future<void> stop() async {
-    if (kIsWeb) {
-      await _webAudioService.stop();
-      _currentUrl = null;
-      return;
-    }
-
     try {
       await _player.stop();
       _currentUrl = null;
@@ -132,22 +89,13 @@ class AudioPlayerService {
   }
 
   /// 現在再生中かどうか
-  bool get isPlaying {
-    if (kIsWeb) return _webAudioService.isPlaying;
-    return _player.playing;
-  }
+  bool get isPlaying => _player.playing;
 
   /// 現在一時停止中かどうか
-  bool get isPaused {
-    if (kIsWeb) return !_webAudioService.isPlaying;
-    return _player.processingState == ProcessingState.ready && !_player.playing;
-  }
+  bool get isPaused => _player.processingState == ProcessingState.ready && !_player.playing;
 
   /// 現在のURLが指定されたURLかどうか
-  bool isPlayingUrl(String url) {
-    if (kIsWeb) return _webAudioService.isPlayingUrl(url);
-    return _currentUrl == url && _player.playing;
-  }
+  bool isPlayingUrl(String url) => _currentUrl == url && _player.playing;
 
   /// プレイヤーの状態ストリーム
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;

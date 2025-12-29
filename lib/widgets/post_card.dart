@@ -181,9 +181,30 @@ class _PostCardState extends State<PostCard>
       // プレビューURLがあれば再生
       if (previewUrl != null && previewUrl.isNotEmpty) {
         print('▶️  Starting playback...');
-        widget.audioService.playPreview(previewUrl);
+        try {
+          await widget.audioService.playPreview(previewUrl);
+        } catch (e) {
+          print('❌ Playback error: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('音楽の再生に失敗しました: ${e.toString()}'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        }
       } else {
         print('⚠️  No preview URL available');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('この曲のプレビューURLが見つかりません'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       }
     } else {
       _flipController.reverse();
@@ -956,11 +977,32 @@ class _PostCardState extends State<PostCard>
                         print('✅ Preview URL obtained and cached');
                       } else {
                         print('❌ Failed to obtain preview URL');
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('プレビューURLの取得に失敗しました'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        }
                         return;
                       }
                     }
 
-                    widget.audioService.playPreview(urlToPlay);
+                    try {
+                      await widget.audioService.playPreview(urlToPlay);
+                    } catch (e) {
+                      print('❌ Playback error: $e');
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('音楽の再生に失敗しました: ${e.toString()}'),
+                            backgroundColor: Colors.red,
+                            duration: const Duration(seconds: 3),
+                          ),
+                        );
+                      }
+                    }
                   }
                 },
                 padding: EdgeInsets.zero,

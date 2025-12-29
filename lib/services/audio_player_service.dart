@@ -1,9 +1,11 @@
 import 'package:just_audio/just_audio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 /// 音楽再生を管理するサービス
 class AudioPlayerService {
   AudioPlayer? _audioPlayer;
   String? _currentUrl;
+  bool _audioContextUnlocked = false;
 
   /// AudioPlayerのインスタンスを取得（必要に応じて作成）
   AudioPlayer get _player {
@@ -11,9 +13,37 @@ class AudioPlayerService {
     return _audioPlayer!;
   }
 
+  /// Web版（特にモバイル）でオーディオコンテキストをアンロック
+  Future<void> _unlockAudioContext() async {
+    if (!kIsWeb || _audioContextUnlocked) return;
+
+    try {
+      // モバイルブラウザ用：無音のデータURLを使用してオーディオコンテキストをアンロック
+      // これはユーザーのタップ/クリックイベント内で実行される必要がある
+      const silentAudioDataUrl =
+          'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
+      await _player.setVolume(0.0);
+      await _player.setUrl(silentAudioDataUrl);
+      await _player.play();
+      await Future.delayed(const Duration(milliseconds: 50));
+      await _player.stop();
+      await _player.setVolume(1.0);
+      _audioContextUnlocked = true;
+      print('Audio context unlocked for web/mobile');
+    } catch (e) {
+      print('Failed to unlock audio context: $e');
+      // 失敗してもアンロック済みとマークして、実際の音声再生を試みる
+      _audioContextUnlocked = true;
+    }
+  }
+
   /// プレビューURLから音楽を再生
   Future<void> playPreview(String url) async {
     try {
+      // Web版（モバイル）のオーディオコンテキストをアンロック
+      await _unlockAudioContext();
+
       // 既に同じURLが再生中の場合は何もしない
       if (_currentUrl == url && _player.playing) {
         return;
@@ -37,6 +67,10 @@ class AudioPlayerService {
       print('Playing preview: $url');
     } catch (e) {
       print('Error playing preview: $e');
+      // Web版でのエラーの場合、より詳細な情報を出力
+      if (kIsWeb) {
+        print('Web audio error - この問題はモバイルブラウザの自動再生ポリシーが原因の可能性があります');
+      }
     }
   }
 

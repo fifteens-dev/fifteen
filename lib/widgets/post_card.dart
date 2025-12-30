@@ -1026,6 +1026,12 @@ class _PostCardState extends State<PostCard>
                       }
                     }
 
+                    // urlToPlayがnullでないことを確認してから再生
+                    if (urlToPlay == null) {
+                      print('❌ No preview URL available to play');
+                      return;
+                    }
+
                     try {
                       await widget.audioService.playPreview(urlToPlay);
                     } catch (e) {

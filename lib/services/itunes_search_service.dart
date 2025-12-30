@@ -45,12 +45,12 @@ class ITunesSearchService {
     return artistName;
   }
 
-  /// 楽曲のプレビューURLを取得
+  /// 楽曲のプレビューURLとアルバムアートを取得
   ///
   /// [trackName] 楽曲名
   /// [artistName] アーティスト名
-  /// 戻り値: プレビューURL（取得できない場合はnull）
-  Future<String?> getPreviewUrl({
+  /// 戻り値: {previewUrl: String?, albumArtUrl: String?} または null
+  Future<Map<String, String?>?> getPreviewUrlWithArt({
     required String trackName,
     required String artistName,
   }) async {
@@ -99,17 +99,34 @@ class ITunesSearchService {
         print('✅ Best version selected from ${results.length} candidates');
 
         final previewUrl = bestResult['previewUrl'];
+        final albumArtUrl = bestResult['artworkUrl100']; // 100x100のアルバムアート
+        final albumArtUrlLarge = bestResult['artworkUrl600']; // より高解像度
 
-        if (previewUrl != null && previewUrl.toString().isNotEmpty) {
-          // HTTPをHTTPSに変換（Mixed Content対策 - モバイルWeb対応）
-          final secureUrl = previewUrl.toString().replaceFirst('http://', 'https://');
-          print('🍎 iTunes: Found preview URL for "${bestResult['trackName']}" (Collection: ${bestResult['collectionName']})');
-          print('🔒 Secured URL: $secureUrl');
-          return secureUrl;
-        } else {
-          print('🍎 iTunes: No preview URL in result');
-          return null;
+        // HTTPをHTTPSに変換（Mixed Content対策 - モバイルWeb対応）
+        final securePreviewUrl = previewUrl != null && previewUrl.toString().isNotEmpty
+            ? previewUrl.toString().replaceFirst('http://', 'https://')
+            : null;
+
+        // アルバムアートもHTTPSに変換（高解像度を優先）
+        String? secureAlbumArtUrl;
+        if (albumArtUrlLarge != null && albumArtUrlLarge.toString().isNotEmpty) {
+          secureAlbumArtUrl = albumArtUrlLarge.toString().replaceFirst('http://', 'https://');
+        } else if (albumArtUrl != null && albumArtUrl.toString().isNotEmpty) {
+          secureAlbumArtUrl = albumArtUrl.toString().replaceFirst('http://', 'https://');
         }
+
+        print('🍎 iTunes: Found for "${bestResult['trackName']}" (Collection: ${bestResult['collectionName']})');
+        if (securePreviewUrl != null) {
+          print('🔒 Preview URL: $securePreviewUrl');
+        }
+        if (secureAlbumArtUrl != null) {
+          print('🖼️ Album Art: $secureAlbumArtUrl');
+        }
+
+        return {
+          'previewUrl': securePreviewUrl,
+          'albumArtUrl': secureAlbumArtUrl,
+        };
       } else {
         print('🍎 iTunes Search API error: ${response.statusCode}');
         return null;
@@ -118,6 +135,22 @@ class ITunesSearchService {
       print('🍎 iTunes Search API exception: $e');
       return null;
     }
+  }
+
+  /// 楽曲のプレビューURLのみを取得（後方互換性のため）
+  ///
+  /// [trackName] 楽曲名
+  /// [artistName] アーティスト名
+  /// 戻り値: プレビューURL（取得できない場合はnull）
+  Future<String?> getPreviewUrl({
+    required String trackName,
+    required String artistName,
+  }) async {
+    final result = await getPreviewUrlWithArt(
+      trackName: trackName,
+      artistName: artistName,
+    );
+    return result?['previewUrl'];
   }
 
   /// 検索結果から最適なバージョンを選択

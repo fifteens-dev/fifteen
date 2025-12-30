@@ -52,8 +52,13 @@ class _PostCardState extends State<PostCard>
   // iTunes検索サービス
   final ITunesSearchService _itunesService = ITunesSearchService();
 
-  // 動的に取得したpreview URLをキャッシュ
+  // 動的に取得したpreview URLとアルバムアートをキャッシュ
   String? _cachedPreviewUrl;
+  String? _cachedAlbumArtUrl;
+
+  /// 表示するアルバムアートURL（キャッシュ優先）
+  String get _displayAlbumArtUrl =>
+      _cachedAlbumArtUrl ?? widget.post.track.albumImageUrl;
 
   // アルバムアートから抽出した色
   Color? _extractedBackgroundColor;
@@ -89,7 +94,7 @@ class _PostCardState extends State<PostCard>
     });
 
     try {
-      final imageUrl = widget.post.track.albumImageUrl;
+      final imageUrl = _displayAlbumArtUrl;
       debugPrint('🎨 Extracting colors from: $imageUrl');
 
       if (imageUrl.isNotEmpty) {
@@ -177,23 +182,38 @@ class _PostCardState extends State<PostCard>
   Future<void> _playAudioAsync() async {
     // キャッシュまたは動的に取得したpreview URLを使用
     String? previewUrl = _cachedPreviewUrl;
+    String? albumArtUrl = _cachedAlbumArtUrl;
 
     // キャッシュがない場合、iTunes APIから取得
     if (previewUrl == null) {
-      print('🍎 Fetching preview URL from iTunes...');
-      previewUrl = await _itunesService.getPreviewUrl(
+      print('🍎 Fetching preview URL and album art from iTunes...');
+      final result = await _itunesService.getPreviewUrlWithArt(
         trackName: widget.post.track.trackName,
         artistName: widget.post.track.artistName,
       );
 
-      if (previewUrl != null) {
-        _cachedPreviewUrl = previewUrl; // キャッシュに保存
-        print('✅ iTunes preview URL obtained and cached');
+      if (result != null) {
+        previewUrl = result['previewUrl'];
+        albumArtUrl = result['albumArtUrl'];
+
+        // キャッシュに保存
+        _cachedPreviewUrl = previewUrl;
+        _cachedAlbumArtUrl = albumArtUrl;
+
+        // アルバムアートが取得できた場合、状態を更新して再描画
+        if (albumArtUrl != null && mounted) {
+          setState(() {});
+        }
+
+        print('✅ iTunes data obtained and cached');
+        if (albumArtUrl != null) {
+          print('🖼️ Album art updated');
+        }
       } else {
         print('❌ No preview URL found from iTunes');
       }
     } else {
-      print('📦 Using cached preview URL');
+      print('📦 Using cached preview URL and album art');
     }
 
     // プレビューURLがあれば再生
@@ -358,9 +378,9 @@ class _PostCardState extends State<PostCard>
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(3),
                   ),
-                  child: widget.post.track.albumImageUrl.isNotEmpty
+                  child: _displayAlbumArtUrl.isNotEmpty
                       ? Image.network(
-                          widget.post.track.albumImageUrl,
+                          _displayAlbumArtUrl,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) {
                             return _buildAlbumPlaceholder();
@@ -503,9 +523,9 @@ class _PostCardState extends State<PostCard>
                   child: Container(
                     width: cardWidth,
                     height: photoHeight,
-                    child: widget.post.track.albumImageUrl.isNotEmpty
+                    child: _displayAlbumArtUrl.isNotEmpty
                         ? Image.network(
-                            widget.post.track.albumImageUrl,
+                            _displayAlbumArtUrl,
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) {
                               return _buildPhotoPlaceholder();
@@ -977,17 +997,21 @@ class _PostCardState extends State<PostCard>
 
                     // preview URLがまだ取得されていない場合は取得
                     if (urlToPlay == null) {
-                      print('🍎 Fetching preview URL for playback...');
-                      urlToPlay = await _itunesService.getPreviewUrl(
+                      print('🍎 Fetching preview URL and album art for playback...');
+                      final result = await _itunesService.getPreviewUrlWithArt(
                         trackName: widget.post.track.trackName,
                         artistName: widget.post.track.artistName,
                       );
 
-                      if (urlToPlay != null) {
+                      if (result != null) {
+                        urlToPlay = result['previewUrl'];
+                        final albumArt = result['albumArtUrl'];
+
                         setState(() {
                           _cachedPreviewUrl = urlToPlay;
+                          _cachedAlbumArtUrl = albumArt;
                         });
-                        print('✅ Preview URL obtained and cached');
+                        print('✅ Preview URL and album art obtained and cached');
                       } else {
                         print('❌ Failed to obtain preview URL');
                         if (mounted) {

@@ -336,24 +336,27 @@ class _PostCardState extends State<PostCard>
   /// カード表面（アルバムカバー全表示）
   Widget _buildFront() {
     final theme = _getDynamicTheme();
-    // Figmaの基準サイズで固定（拡大縮小しない）
-    const cardWidth = 363.0;
-    const albumSize = 363.0; // アルバムカバーは正方形
-    const contentHeight = 294.0; // タイトルエリア
-    const cardHeight = 644.0; // 全体の高さ（13pxのオーバーラップ込み）
 
     return GestureDetector(
       onTap: _flipCard,
-      child: Container(
-        width: cardWidth,
-        height: cardHeight,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          color: theme.gradientEnd,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Stack(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 実際のレンダリングサイズを使用（制約を受けた場合でも正確）
+          final cardWidth = constraints.maxWidth > 0 ? constraints.maxWidth : 363.0;
+          final cardHeight = constraints.maxHeight > 0 ? constraints.maxHeight : 644.0;
+          final albumSize = cardWidth; // アルバムカバーは正方形（カード幅と同じ）
+          final contentHeight = cardHeight * (294.0 / 644.0); // タイトルエリア
+
+          return Container(
+            width: cardWidth,
+            height: cardHeight,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              color: theme.gradientEnd,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Stack(
             children: [
               // アルバムカバー（全表示）
               Positioned(
@@ -474,6 +477,8 @@ class _PostCardState extends State<PostCard>
             ],
           ),
         ),
+      );
+        },
       ),
     );
   }
@@ -481,27 +486,30 @@ class _PostCardState extends State<PostCard>
   /// カード裏面（写真+アルバムカード+下部セクション）
   Widget _buildBack() {
     final theme = _getDynamicTheme();
-    // Figmaの基準サイズで固定（拡大縮小しない）
-    const cardWidth = 363.0;
-    const photoHeight = 484.0; // 写真エリア
-    const contentHeight = 174.0; // タイトルエリア
-    const cardHeight = 644.0; // 全体の高さ（14pxのオーバーラップ込み）
 
     return Transform(
       alignment: Alignment.center,
       transform: Matrix4.identity()..rotateY(pi),
       child: GestureDetector(
         onTap: _flipCard,
-        child: Container(
-          width: cardWidth,
-          height: cardHeight,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            color: theme.gradientEnd,
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: Stack(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // 実際のレンダリングサイズを使用（制約を受けた場合でも正確）
+            final cardWidth = constraints.maxWidth > 0 ? constraints.maxWidth : 363.0;
+            final cardHeight = constraints.maxHeight > 0 ? constraints.maxHeight : 644.0;
+            final photoHeight = cardHeight * (484.0 / 644.0); // 写真エリア
+            final contentHeight = cardHeight * (174.0 / 644.0); // タイトルエリア
+
+            return Container(
+              width: cardWidth,
+              height: cardHeight,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                color: theme.gradientEnd,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Stack(
               children: [
                 // 写真エリア（上部）
                 Positioned(
@@ -701,6 +709,8 @@ class _PostCardState extends State<PostCard>
               ],
             ),
           ),
+        );
+          },
         ),
       ),
     );

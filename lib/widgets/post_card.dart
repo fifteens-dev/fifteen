@@ -1290,7 +1290,7 @@ class _PostCardState extends State<PostCard>
           isActive: isLiked,
           theme: theme,
         ),
-        SizedBox(width: cardWidth * (15 / 363)),
+        SizedBox(width: 15 ),
 
         // コメント
         _buildCommentReaction(
@@ -1298,10 +1298,10 @@ class _PostCardState extends State<PostCard>
           onTap: widget.onComment,
           theme: theme,
         ),
-        SizedBox(width: cardWidth * (15 / 363)),
+        SizedBox(width: 15 ),
 
         // 追加（保存ボタン）
-        _buildSaveButtonBack(theme: theme),
+        _buildSaveButton(theme: theme),
 
         const Spacer(),
 

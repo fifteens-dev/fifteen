@@ -8,6 +8,43 @@ class ITunesSearchService {
   factory ITunesSearchService() => _instance;
   ITunesSearchService._internal();
 
+  /// 楽曲名から不要な情報を除去して検索用にクリーンアップ
+  String _cleanTrackName(String trackName) {
+    String cleaned = trackName;
+
+    // 括弧内の情報を除去（アニメタイトル、カバー情報など）
+    cleaned = cleaned.replaceAll(RegExp(r'\[.*?\]'), ''); // [チェンソーマン]等
+    cleaned = cleaned.replaceAll(RegExp(r'\(.*?[原曲|カバー|Cover|CV|feat].*?\)', caseSensitive: false), ''); // (原曲:...)等
+    cleaned = cleaned.replaceAll(RegExp(r'\（.*?\）'), ''); // 全角括弧
+
+    // カバー/リミックス情報を除去
+    cleaned = cleaned.replaceAll(RegExp(r'\s*-?\s*(cover|remix|acoustic|live|instrumental|8bit|16bit).*$', caseSensitive: false), '');
+
+    // "より" "から" などの助詞を除去
+    cleaned = cleaned.replaceAll(RegExp(r'より$'), '');
+    cleaned = cleaned.replaceAll(RegExp(r'から$'), '');
+
+    // 複数のスペースを1つに
+    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    return cleaned;
+  }
+
+  /// アーティスト名をクリーンアップ（原曲情報から抽出を試みる）
+  String _extractOriginalArtist(String trackName, String artistName) {
+    // 「(原曲:米津玄師)」のようなパターンから元のアーティストを抽出
+    final originalArtistMatch = RegExp(r'\(原曲[：:]\s*([^)]+)\)').firstMatch(trackName);
+    if (originalArtistMatch != null) {
+      final extracted = originalArtistMatch.group(1)?.trim();
+      if (extracted != null && extracted.isNotEmpty) {
+        print('📝 Extracted original artist: $extracted');
+        return extracted;
+      }
+    }
+
+    return artistName;
+  }
+
   /// 楽曲のプレビューURLを取得
   ///
   /// [trackName] 楽曲名
@@ -18,8 +55,17 @@ class ITunesSearchService {
     required String artistName,
   }) async {
     try {
+      // 楽曲名とアーティスト名をクリーンアップ
+      final cleanedTrackName = _cleanTrackName(trackName);
+      final cleanedArtistName = _extractOriginalArtist(trackName, artistName);
+
+      print('🧹 Cleaned: "$trackName" → "$cleanedTrackName"');
+      if (cleanedArtistName != artistName) {
+        print('🧹 Artist: "$artistName" → "$cleanedArtistName"');
+      }
+
       // 検索クエリを構築（楽曲名 + アーティスト名）
-      final query = '$trackName $artistName'.trim();
+      final query = '$cleanedTrackName $cleanedArtistName'.trim();
       final encodedQuery = Uri.encodeComponent(query);
 
       // iTunes Search API エンドポイント（検索結果を増やして最適な版を選ぶ）

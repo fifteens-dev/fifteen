@@ -52,13 +52,11 @@ class _PostCardState extends State<PostCard>
   // iTunes検索サービス
   final ITunesSearchService _itunesService = ITunesSearchService();
 
-  // 動的に取得したpreview URLとアルバムアートをキャッシュ
+  // 動的に取得したpreview URLをキャッシュ
   String? _cachedPreviewUrl;
-  String? _cachedAlbumArtUrl;
 
-  /// 表示するアルバムアートURL（キャッシュ優先）
-  String get _displayAlbumArtUrl =>
-      _cachedAlbumArtUrl ?? widget.post.track.albumImageUrl;
+  /// 表示するアルバムアートURL（Spotifyから取得したものを使用）
+  String get _displayAlbumArtUrl => widget.post.track.albumImageUrl;
 
   // アルバムアートから抽出した色
   Color? _extractedBackgroundColor;
@@ -182,11 +180,10 @@ class _PostCardState extends State<PostCard>
   Future<void> _playAudioAsync() async {
     // キャッシュまたは動的に取得したpreview URLを使用
     String? previewUrl = _cachedPreviewUrl;
-    String? albumArtUrl = _cachedAlbumArtUrl;
 
     // キャッシュがない場合、iTunes APIから取得
     if (previewUrl == null) {
-      print('🍎 Fetching preview URL and album art from iTunes...');
+      print('🍎 Fetching preview URL from iTunes (keeping Spotify album art)...');
       final result = await _itunesService.getPreviewUrlWithArt(
         trackName: widget.post.track.trackName,
         artistName: widget.post.track.artistName,
@@ -194,26 +191,16 @@ class _PostCardState extends State<PostCard>
 
       if (result != null) {
         previewUrl = result['previewUrl'];
-        albumArtUrl = result['albumArtUrl'];
 
-        // キャッシュに保存
+        // キャッシュに保存（preview URLのみ、アルバムアートはSpotifyのものを維持）
         _cachedPreviewUrl = previewUrl;
-        _cachedAlbumArtUrl = albumArtUrl;
 
-        // アルバムアートが取得できた場合、状態を更新して再描画
-        if (albumArtUrl != null && mounted) {
-          setState(() {});
-        }
-
-        print('✅ iTunes data obtained and cached');
-        if (albumArtUrl != null) {
-          print('🖼️ Album art updated');
-        }
+        print('✅ iTunes preview URL obtained and cached');
       } else {
         print('❌ No preview URL found from iTunes');
       }
     } else {
-      print('📦 Using cached preview URL and album art');
+      print('📦 Using cached preview URL');
     }
 
     // プレビューURLがあれば再生
@@ -1005,13 +992,11 @@ class _PostCardState extends State<PostCard>
 
                       if (result != null) {
                         urlToPlay = result['previewUrl'];
-                        final albumArt = result['albumArtUrl'];
 
                         setState(() {
                           _cachedPreviewUrl = urlToPlay;
-                          _cachedAlbumArtUrl = albumArt;
                         });
-                        print('✅ Preview URL and album art obtained and cached');
+                        print('✅ Preview URL obtained and cached (keeping Spotify album art)');
                       } else {
                         print('❌ Failed to obtain preview URL');
                         if (mounted) {

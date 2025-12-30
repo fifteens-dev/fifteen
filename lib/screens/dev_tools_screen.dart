@@ -137,6 +137,45 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
     }
   }
 
+  Future<void> _handleDeleteNonDummyPosts() async {
+    setState(() {
+      _isLoading = true;
+      _statusMessage = 'ダミー以外の投稿を削除中...';
+    });
+
+    try {
+      await _setupTestData.deleteNonDummyPosts();
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '✅ ダミー以外の投稿を削除しました！';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ダミー以外の投稿を削除しました'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '❌ エラー: $e';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _handleDeleteOldTestPosts() async {
     setState(() {
       _isLoading = true;
@@ -382,6 +421,20 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               const SizedBox(height: AppDimensions.paddingMedium),
               const Text(
                 'Spotifyから実際の楽曲データを取得して投稿を作成します。',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              PrimaryButton(
+                text: 'ダミー以外の投稿を削除',
+                onPressed: _handleDeleteNonDummyPosts,
+                isLoading: _isLoading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                'ダミーユーザー以外の全投稿を削除します（knyaita、rockstar等）。',
                 style: TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 12,

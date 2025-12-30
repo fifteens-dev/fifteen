@@ -259,8 +259,12 @@ class TestData {
     }
   }
 
-  /// テスト用の投稿リストを生成
+  /// テスト用の投稿リストを生成（現在は無効化）
   static List<PostModel> generateTestPosts() {
+    // テストデータは無効化（Firestoreの投稿のみ使用）
+    return [];
+
+    /* 以下のテストデータは無効化されています
     return [
       // 投稿カード1（青緑系グラデーション - いとしのエリー）
       PostModel(
@@ -382,6 +386,7 @@ class TestData {
         theme: PostTheme.beige,
       ),
     ];
+    */ // テストデータのコメント終了
   }
 
   /// テスト用のコメントリストを生成

@@ -84,13 +84,10 @@ class _HomeScreenState extends State<HomeScreen>
         // エラーの場合は空配列のまま（TestDataのみ表示）
       }
 
-      // TestDataを取得
-      final testPosts = TestData.generateTestPosts();
+      // Firestoreの投稿のみを使用（テストデータは除外）
+      final postsToUse = firestorePosts;
 
-      // FirestoreとTestDataの両方を結合して表示
-      final postsToUse = [...firestorePosts, ...testPosts];
-
-      print('📊 表示する投稿数: ${postsToUse.length} (Firestore: ${firestorePosts.length}, TestData: ${testPosts.length})');
+      print('📊 表示する投稿数: ${postsToUse.length} (Firestore)');
 
       // 各投稿の楽曲名でSpotify検索し、アルバムアートワークを更新（必要な場合のみ）
       final updatedPosts = <PostModel>[];

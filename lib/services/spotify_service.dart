@@ -86,9 +86,11 @@ class SpotifyService {
 
     try {
       final encodedQuery = Uri.encodeComponent(query);
+      // より多くの結果を取得してフィルタリング
+      final searchLimit = limit * 3;
       final response = await http.get(
         Uri.parse(
-            'https://api.spotify.com/v1/search?q=$encodedQuery&type=track&limit=$limit'),
+            'https://api.spotify.com/v1/search?q=$encodedQuery&type=track&limit=$searchLimit'),
         headers: {
           'Authorization': 'Bearer $token',
         },
@@ -98,7 +100,20 @@ class SpotifyService {
         final data = json.decode(response.body);
         final tracks = data['tracks']['items'] as List;
 
-        return tracks.map((trackData) {
+        if (tracks.isEmpty) {
+          print('🎵 Spotify: No results found for "$query"');
+          return [];
+        }
+
+        print('🎵 Spotify: Found ${tracks.length} results, filtering for original versions...');
+
+        // スコアリングしてオリジナル版を優先
+        final scoredTracks = _scoreAndFilterTracks(tracks, query);
+
+        // 上位limit件を返す
+        final results = scoredTracks.take(limit).map((scoredTrack) {
+          final trackData = scoredTrack['track'];
+
           // アルバムアートワークを取得
           final images = trackData['album']['images'] as List;
           String albumImageUrl = '';
@@ -121,6 +136,9 @@ class SpotifyService {
             previewUrl: '', // previewUrlは空にして、カード裏返し時にiTunesから取得
           );
         }).toList();
+
+        print('✅ Spotify: Returning ${results.length} filtered tracks');
+        return results;
       } else {
         print('Spotify search error: ${response.statusCode} ${response.body}');
         // エラー時はiTunesにフォールバック
@@ -131,6 +149,173 @@ class SpotifyService {
       // エラー時はiTunesにフォールバック
       return await _itunesService.searchTracks(query, limit: limit);
     }
+  }
+
+  /// 楽曲名を正規化（括弧や特別版の情報を除去）
+  String _normalizeTrackName(String trackName) {
+    String normalized = trackName.toLowerCase();
+
+    // 括弧内の情報を除去
+    normalized = normalized.replaceAll(RegExp(r'\[.*?\]'), '');
+    normalized = normalized.replaceAll(RegExp(r'\(.*?\)'), '');
+    normalized = normalized.replaceAll(RegExp(r'【.*?】'), '');
+    normalized = normalized.replaceAll(RegExp(r'（.*?）'), '');
+
+    // ハイフン以降を除去（"Song - Remix" → "Song"）
+    normalized = normalized.split('-').first;
+
+    // 余分な空白を除去
+    normalized = normalized.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+    return normalized;
+  }
+
+  /// 検索結果をスコアリングしてオリジナル版を優先
+  List<Map<String, dynamic>> _scoreAndFilterTracks(List<dynamic> tracks, String query) {
+    // 除外するキーワード（カバー版や特別版）
+    final excludeKeywords = [
+      'cover',
+      'remix',
+      'acoustic',
+      'live',
+      'instrumental',
+      'karaoke',
+      'tribute',
+      'remaster',
+      'demo',
+      'session',
+      'edit',
+      'mix',
+      'deluxe',
+      'special',
+      'limited',
+      'bonus',
+      '8bit',
+      '16bit',
+      'カバー',
+      '限定',
+      'ライブ',
+      'リミックス',
+      'アコースティック',
+      '原曲',
+      'より',
+      'メドレー',  // メドレーを除外
+      '詰め合わせ',
+      '～',  // メドレーでよく使われる記号
+    ];
+
+    // 1. 各トラックをスコアリング
+    final scoredTracks = tracks.map((trackData) {
+      final trackName = (trackData['name'] ?? '').toString();
+      final trackNameLower = trackName.toLowerCase();
+      final albumName = (trackData['album']['name'] ?? '').toString().toLowerCase();
+      final artists = trackData['artists'] as List;
+      final artistName = artists.isNotEmpty
+          ? artists.map((a) => a['name']).join(', ')
+          : '';
+
+      int score = 100; // 基本スコア
+
+      // 除外キーワードが含まれている場合は大幅減点
+      for (final keyword in excludeKeywords) {
+        if (trackNameLower.contains(keyword) || albumName.contains(keyword)) {
+          score -= 50;
+        }
+      }
+
+      // 括弧が含まれている場合は減点（特別版の可能性）
+      if (trackNameLower.contains('(') || trackNameLower.contains('[') ||
+          trackNameLower.contains('（') || trackNameLower.contains('【')) {
+        score -= 20;
+      }
+
+      // トラック名が短いほうが良い（余計な情報が少ない）
+      if (trackName.length > 50) {
+        score -= 10;
+      }
+
+      // トラック名の長さに応じたペナルティ（検索クエリより大幅に長い場合）
+      final queryLength = query.length;
+      final trackNameLength = trackName.length;
+      if (trackNameLength > queryLength * 2) {
+        // 検索クエリの2倍以上の長さの場合、大幅減点
+        score -= 30;
+      } else if (trackNameLength > queryLength * 1.5) {
+        // 1.5倍以上の場合、中程度の減点
+        score -= 15;
+      }
+
+      // 人気度（popularity）が高いものを優先
+      final popularity = (trackData['popularity'] ?? 0) as int;
+      score += (popularity / 10).round().toInt(); // 0-10点の範囲で加点
+
+      // 検索クエリとの関連性スコア（重要！）
+      final queryLower = query.toLowerCase();
+      final queryWords = queryLower.split(' ');
+
+      // 楽曲名が検索クエリの単語を含んでいるか
+      int relevanceScore = 0;
+      for (final word in queryWords) {
+        if (word.length > 2) { // 短すぎる単語は無視
+          if (trackNameLower.contains(word)) {
+            relevanceScore += 30; // 楽曲名に含まれる場合は大幅加点
+          }
+          if (artistName.toLowerCase().contains(word)) {
+            relevanceScore += 20; // アーティスト名に含まれる場合も加点
+          }
+        }
+      }
+
+      score += relevanceScore;
+
+      // 正規化された楽曲名
+      final normalizedName = _normalizeTrackName(trackName);
+
+      return {
+        'track': trackData,
+        'score': score,
+        'normalizedName': normalizedName,
+        'trackName': trackName,
+        'artistName': artistName,
+        'popularity': popularity,
+        'relevanceScore': relevanceScore,
+      };
+    }).toList();
+
+    // 2. 正規化された楽曲名でグループ化
+    final Map<String, List<Map<String, dynamic>>> groupedTracks = {};
+    for (final scoredTrack in scoredTracks) {
+      final normalizedName = scoredTrack['normalizedName'] as String;
+      groupedTracks.putIfAbsent(normalizedName, () => []);
+      groupedTracks[normalizedName]!.add(scoredTrack);
+    }
+
+    // 3. 各グループから最高スコアの版を選択
+    final bestVersions = <Map<String, dynamic>>[];
+    for (final entry in groupedTracks.entries) {
+      final groupName = entry.key;
+      final versions = entry.value;
+
+      // グループ内でスコアでソート
+      versions.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
+
+      final bestVersion = versions.first;
+
+      print('📊 Group "$groupName" has ${versions.length} version(s):');
+      for (int i = 0; i < versions.length && i < 3; i++) {
+        final v = versions[i];
+        final marker = i == 0 ? '✅' : '  ';
+        print('   $marker "${v['trackName']}" by ${v['artistName']} - Score: ${v['score']} (Pop: ${v['popularity']}, Rel: ${v['relevanceScore']})');
+      }
+
+      bestVersions.add(bestVersion);
+    }
+
+    // 4. 各グループの代表をスコアでソート
+    bestVersions.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
+
+    // スコアが0以上のものだけ返す
+    return bestVersions.where((item) => (item['score'] as int) > 0).toList();
   }
 
   /// トラックIDから楽曲情報を取得

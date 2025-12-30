@@ -82,6 +82,52 @@ class SetupTestData {
     }
   }
 
+  /// ダミーユーザー以外の全投稿を削除
+  Future<void> deleteNonDummyPosts() async {
+    try {
+      if (kDebugMode) {
+        print('🗑️  Deleting all non-dummy user posts...');
+      }
+
+      // ダミーユーザーのID
+      final dummyUserIds = ['dummy_user_sana', 'dummy_user_mina', 'dummy_user_momo'];
+
+      // 全投稿を取得
+      final allPosts = await _firestore.collection('posts').get();
+
+      int deletedCount = 0;
+
+      for (final doc in allPosts.docs) {
+        final data = doc.data();
+        final userId = data['userId'] as String?;
+
+        // ダミーユーザーでない場合は削除
+        if (userId != null && !dummyUserIds.contains(userId)) {
+          await doc.reference.delete();
+
+          final track = data['track'] as Map<String, dynamic>?;
+          final trackName = track?['trackName'] ?? 'Unknown';
+          final username = data['username'] ?? userId;
+
+          if (kDebugMode) {
+            print('🗑️  Deleted: "$trackName" by @$username (userId: $userId)');
+          }
+
+          deletedCount++;
+        }
+      }
+
+      if (kDebugMode) {
+        print('✅ Deleted $deletedCount non-dummy posts!');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error deleting non-dummy posts: $e');
+      }
+      rethrow;
+    }
+  }
+
   /// ダミーユーザーを作成
   Future<void> createDummyUsers() async {
     try {
@@ -187,7 +233,7 @@ class SetupTestData {
           'queries': [
             'アイドル YOASOBI',
             '残酷な天使のテーゼ 高橋洋子',
-            'チェンソーマン 米津玄師',
+            'IRIS OUT 米津玄師',  // チェンソーマンOP（より具体的に）
             'たぶん YOASOBI',
           ],
         },

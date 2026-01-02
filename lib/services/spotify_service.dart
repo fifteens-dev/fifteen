@@ -86,8 +86,8 @@ class SpotifyService {
 
     try {
       final encodedQuery = Uri.encodeComponent(query);
-      // より多くの結果を取得してフィルタリング
-      final searchLimit = limit * 3;
+      // より多くの結果を取得してフィルタリング（Spotify APIの最大値は50）
+      final searchLimit = (limit * 3).clamp(1, 50);
       final response = await http.get(
         Uri.parse(
             'https://api.spotify.com/v1/search?q=$encodedQuery&type=track&limit=$searchLimit'),

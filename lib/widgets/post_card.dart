@@ -21,6 +21,9 @@ class PostCard extends StatefulWidget {
   final bool showFrontOnly; // trueの場合、表面のみ表示（反転なし）
   final VoidCallback? onCardTap; // showFrontOnly時の外部タップハンドラ
   final bool isSaved; // 保存済みかどうか
+  final bool hideReactionCounts; // trueの場合、リアクション数を非表示（プレビュー用）
+  final Color? preExtractedGradientStart; // 事前抽出されたグラデーション開始色
+  final Color? preExtractedGradientEnd; // 事前抽出されたグラデーション終了色
 
   const PostCard({
     super.key,
@@ -33,6 +36,9 @@ class PostCard extends StatefulWidget {
     this.showFrontOnly = false, // デフォルトは両面表示
     this.onCardTap, // 外部タップハンドラ（オプション）
     this.isSaved = false, // デフォルトは未保存
+    this.hideReactionCounts = false, // デフォルトはカウント表示
+    this.preExtractedGradientStart, // 事前抽出された色（オプション）
+    this.preExtractedGradientEnd, // 事前抽出された色（オプション）
   });
 
   @override
@@ -79,8 +85,16 @@ class _PostCardState extends State<PostCard>
       CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
     );
 
-    // アルバムアートから色を抽出
-    _extractColorsFromAlbumArt();
+    // 事前抽出された色があれば使用、なければ色抽出を実行
+    if (widget.preExtractedGradientStart != null && widget.preExtractedGradientEnd != null) {
+      debugPrint('✅ PostCard: 事前抽出された色を使用します');
+      _extractedGradientStart = widget.preExtractedGradientStart;
+      _extractedGradientEnd = widget.preExtractedGradientEnd;
+      _extractedBackgroundColor = widget.preExtractedGradientEnd;
+    } else {
+      debugPrint('⚠️ PostCard: 色が未抽出のため、抽出を開始します');
+      _extractColorsFromAlbumArt();
+    }
   }
 
   /// アルバムアートから色を抽出
@@ -622,7 +636,7 @@ class _PostCardState extends State<PostCard>
                                         .isLikedBy(widget.currentUserId!))
                             ? Colors.red
                             : theme.iconColor,
-                        count: _likeCountOptimistic ?? widget.post.likeCount,
+                        count: widget.hideReactionCounts ? null : (_likeCountOptimistic ?? widget.post.likeCount),
                         onTap: _handleLikeTap,
                         textColor: theme.iconColor,
                       ),
@@ -1106,14 +1120,16 @@ class _PostCardState extends State<PostCard>
               BlendMode.srcIn,
             ),
           ),
-          const SizedBox(width: 4),
-          Text(
-            count.toString(),
-            style: TextStyle(
-              fontSize: 14,
-              color: theme.iconColor,
+          if (!widget.hideReactionCounts) ...[
+            const SizedBox(width: 4),
+            Text(
+              count.toString(),
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.iconColor,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1328,15 +1344,17 @@ class _PostCardState extends State<PostCard>
             size: 25,
             color: isActive ? Colors.red : theme.iconColor,
           ),
-          const SizedBox(width: 6),
-          Text(
-            '$count',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: isActive ? Colors.red : theme.textColor,
+          if (!widget.hideReactionCounts) ...[
+            const SizedBox(width: 6),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: isActive ? Colors.red : theme.textColor,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1361,15 +1379,17 @@ class _PostCardState extends State<PostCard>
               BlendMode.srcIn,
             ),
           ),
-          const SizedBox(width: 6),
-          Text(
-            '$count',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: theme.textColor,
+          if (!widget.hideReactionCounts) ...[
+            const SizedBox(width: 6),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: theme.textColor,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );

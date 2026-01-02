@@ -16,18 +16,20 @@ class PostCardBackInfo extends StatelessWidget {
   final VoidCallback? onComment;
   final VoidCallback? onAdd;
   final VoidCallback? onShare;
+  final bool showCounts; // プレビューモードではfalseにしてカウントを非表示
 
   const PostCardBackInfo({
     super.key,
     required this.track,
     required this.theme,
-    this.likeCount = 3,
-    this.commentCount = 3,
+    this.likeCount = 0, // デフォルトは0（新規投稿）
+    this.commentCount = 0, // デフォルトは0（新規投稿）
     this.isLiked = false,
     this.onLike,
     this.onComment,
     this.onAdd,
     this.onShare,
+    this.showCounts = true, // デフォルトは表示
   });
 
   @override
@@ -101,14 +103,14 @@ class PostCardBackInfo extends StatelessWidget {
                 _buildReactionButton(
                   icon: isLiked ? Icons.favorite : Icons.favorite_border,
                   color: isLiked ? Colors.red : theme.iconColor,
-                  count: likeCount,
+                  count: showCounts ? likeCount : null,
                   onTap: onLike,
                   textColor: isLiked ? Colors.red : theme.textColor,
                 ),
                 SizedBox(width: cardWidth * (15 / 363)),
                 // コメント
                 _buildCommentReaction(
-                  count: commentCount,
+                  count: showCounts ? commentCount : null,
                   onTap: onComment,
                   theme: theme,
                 ),
@@ -209,7 +211,7 @@ class PostCardBackInfo extends StatelessWidget {
 
   /// コメントリアクション（SVGアイコン使用）
   Widget _buildCommentReaction({
-    required int count,
+    required int? count,
     VoidCallback? onTap,
     required PostTheme theme,
   }) {
@@ -226,15 +228,17 @@ class PostCardBackInfo extends StatelessWidget {
               BlendMode.srcIn,
             ),
           ),
-          const SizedBox(width: 6),
-          Text(
-            '$count',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: theme.textColor,
+          if (count != null) ...[
+            const SizedBox(width: 6),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: theme.textColor,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );

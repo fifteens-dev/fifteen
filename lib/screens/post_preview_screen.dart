@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter_box_transform/flutter_box_transform.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
@@ -10,6 +12,7 @@ import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../widgets/post_card.dart';
 import '../widgets/post_card_back_info.dart';
+import '../widgets/post_creation/lyrics_card_layouts.dart';
 import '../services/audio_player_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
@@ -21,12 +24,16 @@ class PostPreviewScreen extends StatefulWidget {
   final TrackModel track;
   final bool isVibe;
   final String? vibeTopicId;
+  final Color? preExtractedGradientStart;
+  final Color? preExtractedGradientEnd;
 
   const PostPreviewScreen({
     super.key,
     required this.track,
     this.isVibe = false,
     this.vibeTopicId,
+    this.preExtractedGradientStart,
+    this.preExtractedGradientEnd,
   });
 
   @override
@@ -48,12 +55,15 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   // 歌詞カード関連
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
-  Offset _cardPosition = Offset.zero; // 歌詞カードの位置
+  Rect _rect = const Rect.fromLTWH(0, 0, 196, 126); // 歌詞カードの位置とサイズ
+  Flip _flip = Flip.none; // 反転情報
+  double _cardRotation = 0.0; // 回転角度（ラジアン）
 
   // 反転アニメーション用
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
   bool _showFront = true; // 初期状態は表面
+  Timer? _autoFlipTimer; // 自動反転用タイマー
 
   // アルバムアートから抽出した色（裏面のテーマ用）
   Color? _extractedGradientStart;
@@ -67,15 +77,30 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     print('  - track: ${widget.track.trackName} by ${widget.track.artistName}');
 
     _flipController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 300),
       vsync: this,
     );
     _flipAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
     );
 
-    // アルバムアートから色を抽出
-    _extractColorsFromAlbumArt();
+    // 事前抽出された色があれば使用、なければ色抽出を実行
+    if (widget.preExtractedGradientStart != null && widget.preExtractedGradientEnd != null) {
+      print('✅ 事前抽出された色を使用します');
+      _extractedGradientStart = widget.preExtractedGradientStart;
+      _extractedGradientEnd = widget.preExtractedGradientEnd;
+    } else {
+      print('⚠️ 色が未抽出のため、バックグラウンドで抽出を開始します');
+      _extractColorsFromAlbumArt();
+    }
+
+    // 2秒後に自動的にカードを裏返す
+    _autoFlipTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted && _showFront) {
+        print('⏰ 2秒経過：カードを自動的に裏返します');
+        _flipCard();
+      }
+    });
   }
 
   /// アルバムアートから色を抽出
@@ -112,6 +137,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   @override
   void dispose() {
+    _autoFlipTimer?.cancel();
     _flipController.dispose();
     super.dispose();
   }
@@ -191,10 +217,22 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       setState(() {
         _selectedImage = result['image'] as XFile?;
         _selectedLayoutIndex = result['layoutIndex'] as int? ?? 0;
-        _cardPosition = result['cardPosition'] as Offset? ?? Offset.zero;
+        final cardPosition = result['cardPosition'] as Offset? ?? Offset.zero;
+        final cardScale = result['cardScale'] as double? ?? 1.0;
+        _cardRotation = result['cardRotation'] as double? ?? 0.0;
+
+        // rectを更新（位置とスケールから計算）
+        final baseSize = _getCardSizeBack();
+        _rect = Rect.fromLTWH(
+          cardPosition.dx,
+          cardPosition.dy,
+          baseSize.width * cardScale,
+          baseSize.height * cardScale,
+        );
       });
       print('  - layoutIndex: $_selectedLayoutIndex');
-      print('  - cardPosition: $_cardPosition');
+      print('  - rect: $_rect');
+      print('  - cardRotation: $_cardRotation');
       print('  - image: ${_selectedImage != null ? "あり" : "なし"}');
     } else {
       print('❌ 写真の選択がキャンセルされました');
@@ -354,7 +392,11 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       print('  - username: $username');
       print('  - photoUrl: $photoUrl');
       print('  - layoutIndex: $_selectedLayoutIndex');
-      print('  - cardPosition: $_cardPosition');
+      print('  - rect: $_rect');
+
+      // rectからスケールを計算
+      final baseSize = _getCardSizeBack();
+      final cardScale = _rect.width / baseSize.width;
 
       final postId = await _postService.createPost(
         userId: userId,
@@ -362,8 +404,10 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         trackData: trackData,
         photoUrl: photoUrl,
         selectedLayoutIndex: _selectedLayoutIndex,
-        cardPositionX: _cardPosition.dx,
-        cardPositionY: _cardPosition.dy,
+        cardPositionX: _rect.left,
+        cardPositionY: _rect.top,
+        cardScale: cardScale,
+        cardRotation: _cardRotation,
         isVibe: widget.isVibe,
         vibeTopicId: widget.vibeTopicId,
       );
@@ -407,7 +451,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     print('  - _selectedImage: ${_selectedImage != null ? "選択済み" : "未選択"}');
     print('  - _isPosting: $_isPosting');
     print('  - _selectedLayoutIndex: $_selectedLayoutIndex');
-    print('  - _cardPosition: $_cardPosition');
+    print('  - _rect: $_rect');
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
@@ -439,7 +483,10 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                                   post: _createDummyPost(),
                                   audioService: _audioService,
                                   showFrontOnly: true, // 表面のみ表示
+                                  hideReactionCounts: true, // プレビューではカウント非表示
                                   onCardTap: _flipCard, // プレビュー画面の反転処理を実行
+                                  preExtractedGradientStart: _extractedGradientStart, // 事前抽出した色を渡す
+                                  preExtractedGradientEnd: _extractedGradientEnd, // 事前抽出した色を渡す
                                 )
                               : _buildBackCard(),
                         );
@@ -783,54 +830,26 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     );
   }
 
-  /// リアクション (表面用)
+  /// リアクション (表面用) - プレビューではカウント非表示
   Widget _buildReactionsFront() {
     return Row(
       children: [
-        // いいね
-        Row(
-          children: [
-            Icon(
-              Icons.favorite_border,
-              size: 25,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              '3',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Colors.white,
-                fontFamily: 'Noto Sans',
-              ),
-            ),
-          ],
+        // いいね（カウント非表示）
+        Icon(
+          Icons.favorite_border,
+          size: 25,
+          color: Colors.white,
         ),
         const SizedBox(width: 12),
-        // コメント
-        Row(
-          children: [
-            SvgPicture.asset(
-              'assets/icons/message_circle.svg',
-              width: 25,
-              height: 25,
-              colorFilter: const ColorFilter.mode(
-                Colors.white,
-                BlendMode.srcIn,
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              '3',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Colors.white,
-                fontFamily: 'Noto Sans',
-              ),
-            ),
-          ],
+        // コメント（カウント非表示）
+        SvgPicture.asset(
+          'assets/icons/message_circle.svg',
+          width: 25,
+          height: 25,
+          colorFilter: const ColorFilter.mode(
+            Colors.white,
+            BlendMode.srcIn,
+          ),
         ),
         const SizedBox(width: 12),
         // 追加ボタン
@@ -1097,6 +1116,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       likeCount: 3,
       commentCount: 3,
       isLiked: false,
+      showCounts: false, // プレビュー画面ではカウント非表示
       onLike: () {
         // プレビュー画面ではアクションなし
       },
@@ -1112,436 +1132,54 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
 
   /// 歌詞カードプレビュー（裏面）
+  /// 歌詞カード（裏面・固定表示）
   Widget _buildLyricsCardBack() {
-    Widget lyricsCard;
+    // 共通ウィジェットを使用してレイアウトを表示
+    final layoutType = LyricsCardLayout.getLayoutType(_selectedLayoutIndex);
 
-    // レイアウトに応じて異なるプレビューを表示
+    // rectから位置とスケールを取得
+    final baseSize = _getCardSizeBack();
+    final cardScale = _rect.width / baseSize.width;
+
+    // 固定表示（操作不可）
+    return Positioned(
+      left: _rect.left,
+      top: _rect.top,
+      child: Transform.scale(
+        scale: cardScale,
+        alignment: Alignment.topLeft,
+        child: Transform.rotate(
+          angle: _cardRotation,
+          alignment: Alignment.center,
+          child: LyricsCardLayout(
+            layoutType: layoutType,
+            track: widget.track,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// カードサイズを取得（裏面用）
+  Size _getCardSizeBack() {
     switch (_selectedLayoutIndex) {
       case 0:
-        lyricsCard = _buildLayout1Back();
-        break;
+        return const Size(196, 126); // レイアウト1
       case 1:
-        lyricsCard = _buildLayout2Back();
-        break;
+        return const Size(105, 147); // レイアウト2
       case 2:
-        lyricsCard = _buildLayout3Back();
-        break;
+        return const Size(172, 42); // レイアウト3
       case 3:
-        lyricsCard = _buildLayout4Back();
-        break;
+        return const Size(140, 152); // レイアウト4
       case 4:
-        lyricsCard = _buildLayout5Back();
-        break;
+        return const Size(130, 61); // レイアウト5
       default:
-        lyricsCard = _buildLayout1Back();
+        return const Size(196, 126);
     }
-
-    return Positioned(
-      left: _cardPosition.dx,
-      top: _cardPosition.dy,
-      child: lyricsCard,
-    );
   }
 
-  /// レイアウト1：標準（歌詞 + トラック情報）
-  Widget _buildLayout1Back() {
-    return Container(
-      width: 196,
-      height: 126,
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.52),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        children: [
-          // 上部：歌詞エリア
-          Expanded(
-            flex: 60,
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Color.fromRGBO(0, 0, 0, 0.29),
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(10),
-                  topRight: Radius.circular(10),
-                ),
-              ),
-              padding: const EdgeInsets.all(11),
-              child: const Center(
-                child: Text(
-                  '今宵涙こらえて奏でる愛のSerenade\n今も忘れない恋の歌',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    height: 1.2,
-                  ),
-                  textAlign: TextAlign.left,
-                ),
-              ),
-            ),
-          ),
 
-          // 下部：トラック情報エリア
-          Expanded(
-            flex: 40,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.52),
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(10),
-                  bottomRight: Radius.circular(10),
-                ),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              child: Row(
-                children: [
-                  // アルバムアートワーク
-                  Container(
-                    width: 36,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF9F9F9F),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    child: widget.track.albumImageUrl.isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(3),
-                            child: Image.network(
-                              widget.track.albumImageUrl,
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        : null,
-                  ),
-                  const SizedBox(width: 10),
-                  // 楽曲情報
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          widget.track.trackName,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.track.artistName,
-                          style: const TextStyle(
-                            fontSize: 7,
-                            color: Colors.white,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// レイアウト2：アルバムアートワーク大
-  Widget _buildLayout2Back() {
-    return SizedBox(
-      width: 105,
-      height: 147,
-      child: Column(
-        children: [
-          // アルバムアートワーク
-          Container(
-            width: 105,
-            height: 115,
-            decoration: BoxDecoration(
-              color: const Color(0xFF9F9F9F),
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: widget.track.albumImageUrl.isNotEmpty
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: Image.network(
-                      widget.track.albumImageUrl,
-                      fit: BoxFit.cover,
-                    ),
-                  )
-                : null,
-          ),
-          const SizedBox(height: 7),
-          // トラック情報
-          Column(
-            children: [
-              Text(
-                widget.track.trackName,
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  height: 1.388,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-              ),
-              Text(
-                widget.track.artistName,
-                style: const TextStyle(
-                  fontSize: 7,
-                  color: Colors.white,
-                  height: 1.5,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// レイアウト3：横長トラック情報バー
-  Widget _buildLayout3Back() {
-    return Container(
-      width: 172,
-      height: 42,
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.52),
-        borderRadius: BorderRadius.circular(7),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      child: Row(
-        children: [
-          // アルバムアートワーク
-          Container(
-            width: 33,
-            height: 35,
-            decoration: BoxDecoration(
-              color: const Color(0xFF9F9F9F),
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: widget.track.albumImageUrl.isNotEmpty
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: Image.network(
-                      widget.track.albumImageUrl,
-                      fit: BoxFit.cover,
-                    ),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 9),
-          // トラック情報
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  widget.track.trackName,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.track.artistName,
-                  style: const TextStyle(
-                    fontSize: 7,
-                    color: Colors.white,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// レイアウト4：アルバムアートワークのみ
-  Widget _buildLayout4Back() {
-    return Container(
-      width: 140,
-      height: 152,
-      decoration: BoxDecoration(
-        color: const Color(0xFF9F9F9F),
-        borderRadius: BorderRadius.circular(2),
-      ),
-      child: widget.track.albumImageUrl.isNotEmpty
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: Image.network(
-                widget.track.albumImageUrl,
-                fit: BoxFit.cover,
-              ),
-            )
-          : null,
-    );
-  }
-
-  /// レイアウト5：音楽プレイヤーUI
-  Widget _buildLayout5Back() {
-    return Container(
-      width: 130,
-      height: 61,
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Stack(
-        children: [
-          // アルバムアートワーク
-          Positioned(
-            left: 11,
-            top: 8,
-            child: Container(
-              width: 41,
-              height: 45,
-              decoration: BoxDecoration(
-                color: const Color(0xFF9F9F9F),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: widget.track.albumImageUrl.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: Image.network(
-                        widget.track.albumImageUrl,
-                        fit: BoxFit.cover,
-                      ),
-                    )
-                  : null,
-            ),
-          ),
-          // トラック情報
-          Positioned(
-            left: 60,
-            top: 6,
-            right: 6,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.track.trackName,
-                  style: const TextStyle(
-                    fontSize: 6,
-                    color: Colors.white,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.track.artistName,
-                  style: const TextStyle(
-                    fontSize: 5,
-                    color: Color(0xFF999999),
-                    height: 0.957,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          // 再生コントロール
-          Positioned(
-            left: 66,
-            top: 28,
-            child: Row(
-              children: [
-                // スキップバック
-                Transform.rotate(
-                  angle: 3.14159, // 180度回転
-                  child: const Icon(
-                    Icons.skip_next,
-                    color: Colors.white,
-                    size: 10,
-                  ),
-                ),
-                const SizedBox(width: 7),
-                // 一時停止ボタン
-                Row(
-                  children: [
-                    Container(
-                      width: 2.948,
-                      height: 9.579,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(0.4),
-                      ),
-                    ),
-                    const SizedBox(width: 1),
-                    Container(
-                      width: 2.948,
-                      height: 9.579,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(0.4),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(width: 13),
-                // スキップフォワード
-                const Icon(
-                  Icons.skip_next,
-                  color: Colors.white,
-                  size: 10,
-                ),
-              ],
-            ),
-          ),
-          // 再生バー
-          Positioned(
-            left: 61,
-            bottom: 14,
-            child: Stack(
-              children: [
-                // 背景バー
-                Container(
-                  width: 63,
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF474747).withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                ),
-                // 進行バー
-                Container(
-                  width: 42.195,
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.8),
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(3),
-                      bottomLeft: Radius.circular(3),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
+  // === 以下のレイアウトメソッド（_buildLayout1Back ~ _buildLayout5Back）は ===
+  // === LyricsCardLayout 共通ウィジェットに移行済み ===
+  // === lib/widgets/post_creation/lyrics_card_layouts.dart を参照 ===
 }

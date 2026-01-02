@@ -8,6 +8,7 @@ import '../services/music_service_manager.dart';
 import '../services/post_service.dart';
 import '../services/vibe_topic_service.dart';
 import '../utils/test_data.dart';
+import '../utils/color_extractor.dart';
 import 'post_preview_screen.dart';
 
 /// 投稿用楽曲選択画面
@@ -295,7 +296,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   }
 
   /// 次へ進む
-  void _onNext() {
+  Future<void> _onNext() async {
     if (_selectedTrack == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -306,17 +307,39 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       return;
     }
 
+    // アルバムアートから色を事前抽出
+    Color? gradientStart;
+    Color? gradientEnd;
+
+    try {
+      print('🎨 楽曲選択時に色抽出を開始...');
+      final imageUrl = _selectedTrack!.albumImageUrl;
+      if (imageUrl.isNotEmpty) {
+        final extractedColors = await ColorExtractor.extractGradientColors(imageUrl);
+        gradientStart = extractedColors.$1;
+        gradientEnd = extractedColors.$2;
+        print('✅ 色抽出完了！投稿プレビュー画面に渡します');
+      }
+    } catch (e) {
+      print('⚠️ 色抽出エラー: $e');
+      // エラーが発生しても続行（PostPreviewScreenで再抽出）
+    }
+
     // 投稿プレビュー画面へ遷移
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PostPreviewScreen(
-          track: _selectedTrack!,
-          isVibe: _selectedCategoryType == 'vibe',
-          vibeTopicId: _todaysTopic?.topicId,
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PostPreviewScreen(
+            track: _selectedTrack!,
+            isVibe: _selectedCategoryType == 'vibe',
+            vibeTopicId: _todaysTopic?.topicId,
+            preExtractedGradientStart: gradientStart,
+            preExtractedGradientEnd: gradientEnd,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   @override

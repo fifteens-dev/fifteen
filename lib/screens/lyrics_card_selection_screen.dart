@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter_box_transform/flutter_box_transform.dart';
 import '../models/track_model.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -28,7 +29,9 @@ class LyricsCardSelectionScreen extends StatefulWidget {
 class _LyricsCardSelectionScreenState
     extends State<LyricsCardSelectionScreen> {
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
-  Offset _cardPosition = Offset.zero; // 歌詞カードの位置
+  Rect _rect = const Rect.fromLTWH(0, 0, 196, 126); // 歌詞カードの位置とサイズ
+  Flip _flip = Flip.none; // 反転情報
+  double _cardRotation = 0.0; // 回転角度（ラジアン）
 
   @override
   Widget build(BuildContext context) {
@@ -213,7 +216,7 @@ class _LyricsCardSelectionScreenState
     );
   }
 
-  /// 歌詞カードプレビュー
+  /// 歌詞カードプレビュー（移動・拡大縮小可能）
   Widget _buildLyricsCard() {
     Widget lyricsCard;
 
@@ -238,19 +241,47 @@ class _LyricsCardSelectionScreenState
         lyricsCard = _buildLayout1();
     }
 
-    // 歌詞カードをドラッグ可能にする
-    return Positioned(
-      left: _cardPosition.dx,
-      top: _cardPosition.dy,
-      child: GestureDetector(
-        onPanUpdate: (details) {
-          setState(() {
-            _cardPosition += details.delta;
-          });
-        },
-        child: lyricsCard,
-      ),
+    // TransformableBoxでドラッグ・拡大縮小可能にする
+    return TransformableBox(
+      rect: _rect,
+      flip: _flip,
+      onChanged: (result, event) {
+        setState(() {
+          _rect = result.rect;
+          _flip = result.flip;
+        });
+      },
+      contentBuilder: (context, rect, flip) {
+        return Transform.rotate(
+          angle: _cardRotation,
+          alignment: Alignment.center,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: lyricsCard,
+          ),
+        );
+      },
     );
+  }
+
+  /// カードサイズを取得（レイアウトごとに異なる）
+  Size _getCardSize() {
+    switch (_selectedLayoutIndex) {
+      case 0:
+        return const Size(196, 126); // レイアウト1
+      case 1:
+        return const Size(105, 147); // レイアウト2
+      case 2:
+        return const Size(172, 42); // レイアウト3
+      case 3:
+        return const Size(140, 152); // レイアウト4
+      case 4:
+        return const Size(130, 61); // レイアウト5
+      default:
+        return const Size(196, 126);
+    }
   }
 
   /// レイアウト1：標準（歌詞 + トラック情報）
@@ -658,6 +689,58 @@ class _LyricsCardSelectionScreenState
   Widget _buildLayoutSelector() {
     return Column(
       children: [
+        // 回転ボタン
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // 左回転ボタン
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _cardRotation -= 0.261799; // -15度（ラジアン）
+                });
+              },
+              child: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.rotate_left,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              ),
+            ),
+            const SizedBox(width: 20),
+            // 右回転ボタン
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _cardRotation += 0.261799; // +15度（ラジアン）
+                });
+              },
+              child: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.rotate_right,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 20),
+
         // レイアウトオプション
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -669,6 +752,14 @@ class _LyricsCardSelectionScreenState
                 onTap: () {
                   setState(() {
                     _selectedLayoutIndex = index;
+                    // レイアウト変更時にrectのサイズを更新
+                    final newSize = _getCardSize();
+                    _rect = Rect.fromLTWH(
+                      _rect.left,
+                      _rect.top,
+                      newSize.width,
+                      newSize.height,
+                    );
                   });
                 },
                 child: SizedBox(
@@ -690,11 +781,18 @@ class _LyricsCardSelectionScreenState
         // 確認ボタン
         GestureDetector(
           onTap: () {
-            // 選択した写真、レイアウト、カード位置をPostPreviewScreenに返す
+            // 選択した写真、レイアウト、カード位置、スケール、回転をPostPreviewScreenに返す
+            // rectから位置とスケールを抽出
+            final cardPosition = Offset(_rect.left, _rect.top);
+            final baseSize = _getCardSize();
+            final cardScale = _rect.width / baseSize.width;
+
             Navigator.pop(context, {
               'image': widget.selectedImage,
               'layoutIndex': _selectedLayoutIndex,
-              'cardPosition': _cardPosition,
+              'cardPosition': cardPosition,
+              'cardScale': cardScale,
+              'cardRotation': _cardRotation,
             });
           },
           child: Container(

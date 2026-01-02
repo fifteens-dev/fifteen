@@ -19,6 +19,8 @@ class PostService {
     int selectedLayoutIndex = 0,
     double cardPositionX = 0.0,
     double cardPositionY = 0.0,
+    double cardScale = 1.0,
+    double cardRotation = 0.0,
     bool isVibe = false,
     String? vibeTopicId,
   }) async {
@@ -45,6 +47,8 @@ class PostService {
         'selectedLayoutIndex': selectedLayoutIndex,
         'cardPositionX': cardPositionX,
         'cardPositionY': cardPositionY,
+        'cardScale': cardScale,
+        'cardRotation': cardRotation,
         'isVibe': isVibe,
         'vibeTopicId': vibeTopicId,
         'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,

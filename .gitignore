@@ -101,6 +101,7 @@ firebase_options.dart
 # Environment variables
 .env
 .env.*
+!.env.example
 
 # Coverage
 coverage/

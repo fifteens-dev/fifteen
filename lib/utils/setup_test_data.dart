@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../models/track_model.dart';
 import '../models/post_theme.dart';
 import '../services/spotify_service.dart';
+import '../utils/color_extractor.dart';
 
 /// テスト用データをFirestoreにセットアップするユーティリティ
 class SetupTestData {
@@ -213,7 +215,7 @@ class SetupTestData {
         print('🗑️  Deleted ${existingPosts.docs.length} existing dummy posts');
       }
 
-      // 3人のダミーユーザーの投稿データ
+      // 3人のダミーユーザーの投稿データ（各ユーザーに画像を割り当て）
       final userPosts = [
         // m.by__sana の投稿（J-POP / K-POP）
         {
@@ -224,6 +226,12 @@ class SetupTestData {
             'Candy Pop TWICE',
             'Pretender Official髭男dism',
             'KICK BACK 米津玄師',
+          ],
+          'photoUrls': [
+            'assets/images/dummy_photo_1.jpg',
+            'assets/images/dummy_photo_2.jpg',
+            'assets/images/dummy_photo_3.jpg',
+            'assets/images/dummy_photo_4.jpg',
           ],
         },
         // mina.myoi の投稿（アニメソング / J-POP）
@@ -236,6 +244,12 @@ class SetupTestData {
             'IRIS OUT 米津玄師',  // チェンソーマンOP（より具体的に）
             'たぶん YOASOBI',
           ],
+          'photoUrls': [
+            'assets/images/dummy_photo_5.jpg',
+            'assets/images/dummy_photo_6.jpg',
+            'assets/images/dummy_photo_7.jpg',
+            'assets/images/dummy_photo_8.jpg',
+          ],
         },
         // momo.hirai の投稿（人気J-POP）
         {
@@ -247,14 +261,13 @@ class SetupTestData {
             '水平線 back number',
             'ドライフラワー 優里',
           ],
+          'photoUrls': [
+            'assets/images/dummy_photo_9.jpg',
+            'assets/images/dummy_photo_10.jpg',
+            'assets/images/dummy_photo_11.jpg',
+            'assets/images/dummy_photo_12.jpg',
+          ],
         },
-      ];
-
-      final themes = [
-        PostTheme.blueGreen,
-        PostTheme.purple,
-        PostTheme.beige,
-        PostTheme.defaultTheme,
       ];
 
       int totalCreated = 0;
@@ -263,6 +276,7 @@ class SetupTestData {
         final userId = userData['userId'] as String;
         final username = userData['username'] as String;
         final queries = userData['queries'] as List<String>;
+        final photoUrls = userData['photoUrls'] as List<String>;
 
         int userPostCount = 0;
 
@@ -272,6 +286,25 @@ class SetupTestData {
 
             if (tracks.isNotEmpty) {
               final track = tracks.first;
+
+              // アルバムアートから色を抽出してテーマを生成
+              PostTheme? extractedTheme;
+              try {
+                if (kDebugMode) {
+                  print('🎨 Extracting colors from album art...');
+                }
+                final albumArtUrl = track.albumImageUrl;
+                extractedTheme = await ColorExtractor.extractThemeFromAlbumArt(albumArtUrl);
+
+                if (kDebugMode && extractedTheme != null) {
+                  print('✅ Color extraction complete: ${extractedTheme.gradientStart} → ${extractedTheme.gradientEnd}');
+                }
+              } catch (e) {
+                if (kDebugMode) {
+                  print('⚠️  Color extraction error (using default theme): $e');
+                }
+                extractedTheme = null;
+              }
 
               await _firestore.collection('posts').add({
                 'userId': userId,
@@ -283,14 +316,15 @@ class SetupTestData {
                 'likedUserIds': <String>[],
                 'createdAt': FieldValue.serverTimestamp(),
                 'updatedAt': FieldValue.serverTimestamp(),
-                'theme': themes[i % themes.length].toMap(),
+                'theme': extractedTheme?.toMap() ?? PostTheme.defaultTheme.toMap(),
+                'photoUrl': photoUrls[i], // 画像パスを追加
               });
 
               userPostCount++;
               totalCreated++;
 
               if (kDebugMode) {
-                print('✅ [$username] ${track.trackName} by ${track.artistName}');
+                print('✅ [$username] ${track.trackName} by ${track.artistName} (photo: ${photoUrls[i]})');
               }
             }
           } catch (e) {

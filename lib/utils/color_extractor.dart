@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:palette_generator/palette_generator.dart';
+import '../models/post_theme.dart';
 
 /// アルバムアート画像から色を抽出するユーティリティクラス
 class ColorExtractor {
@@ -160,6 +161,51 @@ class ColorExtractor {
         const Color(0xFF1A1A1A).withOpacity(0.0),
         const Color(0xFF1A1A1A)
       );
+    }
+  }
+
+  /// グラデーション色からPostThemeを生成
+  ///
+  /// [gradientStart] グラデーションの開始色
+  /// [gradientEnd] グラデーションの終了色
+  /// 戻り値: 生成されたPostTheme
+  static PostTheme createThemeFromColors(Color gradientStart, Color gradientEnd) {
+    // 背景色の明度に応じてアイコンとテキストの色を決定
+    final HSLColor hsl = HSLColor.fromColor(gradientEnd);
+    final bool isDark = hsl.lightness < 0.5;
+
+    // コメントボタンの色は10%明るくする
+    final Color commentButtonColor = hsl
+        .withLightness(
+          (hsl.lightness * 1.1).clamp(0.0, 1.0),
+        )
+        .toColor();
+
+    return PostTheme(
+      gradientStart: gradientStart,
+      gradientEnd: gradientEnd,
+      commentButtonColor: commentButtonColor,
+      textColor: isDark ? Colors.white : Colors.black,
+      iconColor: isDark ? Colors.white : Colors.black,
+      secondaryTextColor: isDark
+          ? Colors.white.withOpacity(0.8)
+          : Colors.black.withOpacity(0.8),
+    );
+  }
+
+  /// アルバムアートURLからPostThemeを抽出
+  ///
+  /// [albumArtUrl] アルバムアート画像のURL
+  /// 戻り値: 抽出されたPostTheme、失敗した場合はnull
+  static Future<PostTheme?> extractThemeFromAlbumArt(String albumArtUrl) async {
+    if (albumArtUrl.isEmpty) return null;
+
+    try {
+      final (gradientStart, gradientEnd) = await extractGradientColors(albumArtUrl);
+      return createThemeFromColors(gradientStart, gradientEnd);
+    } catch (e) {
+      debugPrint('Theme extraction error: $e');
+      return null;
     }
   }
 }

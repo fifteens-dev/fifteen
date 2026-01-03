@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'package:flutter_web_auth/flutter_web_auth.dart';
+import 'package:flutter/foundation.dart';
+// import 'package:flutter_web_auth/flutter_web_auth.dart';  // 一時的に無効化
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -23,7 +24,28 @@ class SpotifyAuthService {
   /// Client IDとRedirect URIを取得
   String get _clientId => dotenv.env['SPOTIFY_CLIENT_ID'] ?? '';
   String get _clientSecret => dotenv.env['SPOTIFY_CLIENT_SECRET'] ?? '';
-  String get _redirectUri => 'fifteenapp://callback'; // カスタムURLスキーム
+
+  /// プラットフォーム別のリダイレクトURI
+  /// Web版: テスト用にlocalhostとFirebase Hostingの両方をサポート
+  /// モバイル版: カスタムURLスキーム（iOS/Android本番用）
+  String get _redirectUri {
+    if (kIsWeb) {
+      // Web版はlocalhost（開発用）またはFirebase Hosting（テスト用）
+      // Spotify Developer Dashboardには両方を登録する必要があります
+      return 'http://localhost:8080/auth/callback';
+    } else {
+      // iOS/Android版はカスタムURLスキーム
+      return 'fifteenapp://callback';
+    }
+  }
+
+  String get _callbackUrlScheme {
+    if (kIsWeb) {
+      return 'http';
+    } else {
+      return 'fifteenapp';
+    }
+  }
 
   /// 認証状態を確認
   Future<bool> isAuthenticated() async {
@@ -94,20 +116,24 @@ class SpotifyAuthService {
       });
 
       // ブラウザで認証ページを開く
-      final result = await FlutterWebAuth.authenticate(
-        url: authUrl.toString(),
-        callbackUrlScheme: 'fifteenapp',
-      );
+      // 一時的に無効化（写真表示テストのため）
+      print('Spotify authentication temporarily disabled for testing');
+      return false;
 
-      // 認証コードを抽出
-      final code = Uri.parse(result).queryParameters['code'];
-      if (code == null) {
-        print('認証コードが取得できませんでした');
-        return false;
-      }
-
-      // アクセストークンを取得
-      return await _getAccessTokenFromCode(code);
+      // final result = await FlutterWebAuth.authenticate(
+      //   url: authUrl.toString(),
+      //   callbackUrlScheme: _callbackUrlScheme,
+      // );
+      //
+      // // 認証コードを抽出
+      // final code = Uri.parse(result).queryParameters['code'];
+      // if (code == null) {
+      //   print('認証コードが取得できませんでした');
+      //   return false;
+      // }
+      //
+      // // アクセストークンを取得
+      // return await _getAccessTokenFromCode(code);
     } catch (e) {
       print('Spotify login error: $e');
       return false;

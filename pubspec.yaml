@@ -41,13 +41,14 @@ dependencies:
   firebase_storage: ^13.0.3
   shared_preferences: ^2.3.4
   image_picker: ^1.1.2
+  image: ^4.0.0  # 画像圧縮用
   flutter_svg: ^2.1.0
   http: ^1.2.2
   flutter_dotenv: ^5.2.1
   just_audio: ^0.9.40
   url_launcher: ^6.3.1
   palette_generator: ^0.3.3+4
-  flutter_web_auth: ^0.5.0
+  # flutter_web_auth: ^0.5.0  # 一時的に無効化（Spotify認証用）
   flutter_secure_storage: ^9.0.0
   flutter_box_transform: ^0.4.7
 
@@ -93,6 +94,18 @@ flutter:
     - assets/icons/lyrics/layout_4_unselected.svg
     - assets/icons/lyrics/layout_5_selected.svg
     - assets/icons/lyrics/layout_5_unselected.svg
+    - assets/images/dummy_photo_1.jpg
+    - assets/images/dummy_photo_2.jpg
+    - assets/images/dummy_photo_3.jpg
+    - assets/images/dummy_photo_4.jpg
+    - assets/images/dummy_photo_5.jpg
+    - assets/images/dummy_photo_6.jpg
+    - assets/images/dummy_photo_7.jpg
+    - assets/images/dummy_photo_8.jpg
+    - assets/images/dummy_photo_9.jpg
+    - assets/images/dummy_photo_10.jpg
+    - assets/images/dummy_photo_11.jpg
+    - assets/images/dummy_photo_12.jpg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

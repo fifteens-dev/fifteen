@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -6,6 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
 import '../services/post_service.dart';
+import '../services/storage_service.dart';
+import '../utils/photo_helper.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
 import 'home_screen.dart';
 
@@ -35,6 +38,7 @@ class PostFinalPreviewScreen extends StatefulWidget {
 
 class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
   final PostService _postService = PostService();
+  final StorageService _storageService = StorageService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   bool _isPosting = false;
 
@@ -54,14 +58,36 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
       print('  ユーザーID: $userId');
       print('  ユーザー名: $username');
       print('  楽曲: ${widget.track.trackName} - ${widget.track.artistName}');
+      print('  選択された写真: ${widget.selectedImage != null ? "あり" : "なし"}');
+      if (widget.selectedImage != null) {
+        print('  写真パス: ${widget.selectedImage!.path}');
+      }
+
+      // 写真を処理（PhotoHelperを使用）
+      String? photoUrl;
+      if (widget.selectedImage != null) {
+        try {
+          photoUrl = await PhotoHelper.processPhoto(
+            image: widget.selectedImage!,
+            userId: userId,
+            storageService: _storageService,
+          );
+        } catch (e) {
+          print('⚠️  写真の処理に失敗: $e');
+          // 写真の処理に失敗してもエラーにせず、photoUrl無しで投稿
+          photoUrl = null;
+        }
+      }
 
       // 投稿を作成
+      print('📤 投稿データを保存中...');
+      print('  photoUrl: ${PhotoHelper.formatPhotoUrlForLog(photoUrl)}');
       final postId = await _postService.createPost(
         userId: userId,
         username: username,
         userIconUrl: userIconUrl,
         trackData: widget.track.toMap(),
-        photoUrl: null, // 写真アップロード機能は後で実装
+        photoUrl: photoUrl,
         selectedLayoutIndex: widget.selectedLayoutIndex,
         cardPositionX: widget.cardPosition.dx,
         cardPositionY: widget.cardPosition.dy,

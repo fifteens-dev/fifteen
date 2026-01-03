@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:just_audio/just_audio.dart';
@@ -9,6 +12,7 @@ import '../screens/other_user_profile_screen.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../utils/color_extractor.dart';
+import '../utils/photo_helper.dart';
 
 /// 投稿カードウィジェット（表裏反転アニメーション付き）
 class PostCard extends StatefulWidget {
@@ -64,6 +68,23 @@ class _PostCardState extends State<PostCard>
   /// 表示するアルバムアートURL（Spotifyから取得したものを使用）
   String get _displayAlbumArtUrl => widget.post.track.albumImageUrl;
 
+  /// 裏面に写真が設定されているかチェック
+  bool get _hasBackPhoto {
+    return widget.post.photoUrl != null && widget.post.photoUrl!.isNotEmpty;
+  }
+
+  /// photoUrlがネットワークURL（https://）かどうかをチェック
+  bool get _isPhotoUrlNetwork {
+    if (!_hasBackPhoto) return false;
+    return PhotoHelper.isNetworkUrl(widget.post.photoUrl!);
+  }
+
+  /// photoUrlがData URL（Base64）かどうかをチェック
+  bool get _isPhotoUrlDataUrl {
+    if (!_hasBackPhoto) return false;
+    return PhotoHelper.isDataUrl(widget.post.photoUrl!);
+  }
+
   // アルバムアートから抽出した色
   Color? _extractedBackgroundColor;
   Color? _extractedGradientStart;
@@ -85,12 +106,21 @@ class _PostCardState extends State<PostCard>
       CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
     );
 
-    // 事前抽出された色があれば使用、なければ色抽出を実行
+    // 色の優先順位:
+    // 1. 事前抽出パラメータ
+    // 2. Firestoreに保存されたテーマ（デフォルトテーマでない場合）
+    // 3. リアルタイム抽出
     if (widget.preExtractedGradientStart != null && widget.preExtractedGradientEnd != null) {
       debugPrint('✅ PostCard: 事前抽出された色を使用します');
       _extractedGradientStart = widget.preExtractedGradientStart;
       _extractedGradientEnd = widget.preExtractedGradientEnd;
       _extractedBackgroundColor = widget.preExtractedGradientEnd;
+    } else if (widget.post.theme != PostTheme.defaultTheme) {
+      // Firestoreに保存されたテーマを使用（デフォルトでない場合）
+      debugPrint('✅ PostCard: Firestoreのテーマを使用します');
+      _extractedGradientStart = widget.post.theme.gradientStart;
+      _extractedGradientEnd = widget.post.theme.gradientEnd;
+      _extractedBackgroundColor = widget.post.theme.gradientEnd;
     } else {
       debugPrint('⚠️ PostCard: 色が未抽出のため、抽出を開始します');
       _extractColorsFromAlbumArt();
@@ -321,26 +351,9 @@ class _PostCardState extends State<PostCard>
   PostTheme _getDynamicTheme() {
     // 抽出された色がある場合は動的にテーマを生成
     if (_extractedGradientStart != null && _extractedGradientEnd != null) {
-      // 背景色の明度に応じてアイコンとテキストの色を決定
-      final HSLColor hsl = HSLColor.fromColor(_extractedGradientEnd!);
-      final bool isDark = hsl.lightness < 0.5;
-
-      // コメントボタンの色は10%明るくする
-      final Color commentButtonColor = hsl
-          .withLightness(
-            (hsl.lightness * 1.1).clamp(0.0, 1.0),
-          )
-          .toColor();
-
-      return PostTheme(
-        gradientStart: _extractedGradientStart!,
-        gradientEnd: _extractedGradientEnd!,
-        commentButtonColor: commentButtonColor,
-        textColor: isDark ? Colors.white : Colors.black,
-        iconColor: isDark ? Colors.white : Colors.black,
-        secondaryTextColor: isDark
-            ? Colors.white.withOpacity(0.8)
-            : Colors.black.withOpacity(0.8),
+      return ColorExtractor.createThemeFromColors(
+        _extractedGradientStart!,
+        _extractedGradientEnd!,
       );
     }
     // デフォルトのテーマを使用
@@ -525,22 +538,113 @@ class _PostCardState extends State<PostCard>
                 borderRadius: BorderRadius.circular(18),
                 child: Stack(
               children: [
-                // 写真エリア（上部）
+                // 写真エリア（上部）- 投稿の写真またはアルバムアート
                 Positioned(
                   left: 0,
                   top: 0,
                   child: Container(
                     width: cardWidth,
                     height: photoHeight,
-                    child: _displayAlbumArtUrl.isNotEmpty
-                        ? Image.network(
-                            _displayAlbumArtUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return _buildPhotoPlaceholder();
-                            },
-                          )
-                        : _buildPhotoPlaceholder(),
+                    child: _hasBackPhoto
+                        ? (_isPhotoUrlDataUrl
+                            // Web版: Base64 Data URL
+                            ? Builder(
+                                builder: (context) {
+                                  try {
+                                    // data:image/jpeg;base64,... の形式から base64 部分を抽出
+                                    final String base64String = widget.post.photoUrl!.split(',')[1];
+                                    final Uint8List bytes = base64Decode(base64String);
+                                    return Image.memory(
+                                      bytes,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        if (kDebugMode) {
+                                          print('❌ Failed to decode Base64 photo: $error');
+                                        }
+                                        // デコード失敗時はアルバムアートにフォールバック
+                                        return _displayAlbumArtUrl.isNotEmpty
+                                            ? Image.network(
+                                                _displayAlbumArtUrl,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (context, error, stackTrace) {
+                                                  return _buildPhotoPlaceholder();
+                                                },
+                                              )
+                                            : _buildPhotoPlaceholder();
+                                      },
+                                    );
+                                  } catch (e) {
+                                    if (kDebugMode) {
+                                      print('❌ Error parsing Base64: $e');
+                                    }
+                                    return _buildPhotoPlaceholder();
+                                  }
+                                },
+                              )
+                            : _isPhotoUrlNetwork
+                                // モバイル版: Firebase StorageなどのネットワークURL
+                                ? Builder(
+                                    builder: (context) {
+                                      return Image.network(
+                                        widget.post.photoUrl!,
+                                        fit: BoxFit.cover,
+                                        loadingBuilder: (context, child, loadingProgress) {
+                                          if (loadingProgress == null) return child;
+                                          return Center(
+                                            child: CircularProgressIndicator(
+                                              value: loadingProgress.expectedTotalBytes != null
+                                                  ? loadingProgress.cumulativeBytesLoaded /
+                                                      loadingProgress.expectedTotalBytes!
+                                                  : null,
+                                              color: Colors.white,
+                                            ),
+                                          );
+                                        },
+                                        errorBuilder: (context, error, stackTrace) {
+                                          if (kDebugMode) {
+                                            print('❌ Failed to load photo: $error');
+                                            print('   URL: ${PhotoHelper.formatPhotoUrlForLog(widget.post.photoUrl)}');
+                                          }
+                                          // ネットワーク読み込み失敗時はアルバムアートにフォールバック
+                                          return _displayAlbumArtUrl.isNotEmpty
+                                              ? Image.network(
+                                                  _displayAlbumArtUrl,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (context, error, stackTrace) {
+                                                    return _buildPhotoPlaceholder();
+                                                  },
+                                                )
+                                              : _buildPhotoPlaceholder();
+                                        },
+                                      );
+                                    },
+                                  )
+                                // ローカルアセット（ダミー写真など）
+                                : Image.asset(
+                                    widget.post.photoUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      // アセット読み込み失敗時はアルバムアートにフォールバック
+                                      return _displayAlbumArtUrl.isNotEmpty
+                                          ? Image.network(
+                                              _displayAlbumArtUrl,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (context, error, stackTrace) {
+                                                return _buildPhotoPlaceholder();
+                                              },
+                                            )
+                                          : _buildPhotoPlaceholder();
+                                    },
+                                  ))
+                        : _displayAlbumArtUrl.isNotEmpty
+                            ? Image.network(
+                                _displayAlbumArtUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return _buildPhotoPlaceholder();
+                                },
+                              )
+                            : _buildPhotoPlaceholder(),
                   ),
                 ),
 

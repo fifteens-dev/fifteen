@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/post_model.dart';
+import '../models/post_theme.dart';
 import '../models/vibe_ranking_item.dart';
 import '../models/track_model.dart';
 
@@ -23,6 +24,7 @@ class PostService {
     double cardRotation = 0.0,
     bool isVibe = false,
     String? vibeTopicId,
+    PostTheme? theme, // アルバムアートから抽出した色テーマ
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
@@ -52,6 +54,7 @@ class PostService {
         'isVibe': isVibe,
         'vibeTopicId': vibeTopicId,
         'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
+        'theme': theme != null ? theme.toMap() : null, // 抽出した色テーマを保存
       };
 
       await postRef.set(postData);

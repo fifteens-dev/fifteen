@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +18,7 @@ import '../services/audio_player_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../utils/color_extractor.dart';
+import '../utils/photo_helper.dart';
 import 'post_photo_selection_screen.dart';
 
 /// 投稿プレビュー画面
@@ -175,22 +177,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   /// 裏面用の動的テーマを生成
   PostTheme _getDynamicThemeForBack() {
     if (_extractedGradientStart != null && _extractedGradientEnd != null) {
-      final HSLColor hsl = HSLColor.fromColor(_extractedGradientEnd!);
-      final bool isDark = hsl.lightness < 0.5;
-
-      final Color commentButtonColor = hsl.withLightness(
-        (hsl.lightness * 1.1).clamp(0.0, 1.0),
-      ).toColor();
-
-      return PostTheme(
-        gradientStart: _extractedGradientStart!,
-        gradientEnd: _extractedGradientEnd!,
-        commentButtonColor: commentButtonColor,
-        textColor: isDark ? Colors.white : Colors.black,
-        iconColor: isDark ? Colors.white : Colors.black,
-        secondaryTextColor: isDark
-            ? Colors.white.withOpacity(0.8)
-            : Colors.black.withOpacity(0.8),
+      return ColorExtractor.createThemeFromColors(
+        _extractedGradientStart!,
+        _extractedGradientEnd!,
       );
     }
     return PostTheme.defaultTheme;
@@ -320,60 +309,17 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       final username = currentUser?.displayName ?? 'taroooooda';
       print('👤 ユーザー情報: userId=$userId, username=$username');
 
-      // 写真をアップロード
+      // 写真を処理（PhotoHelperを使用）
       String? photoUrl;
       if (_selectedImage != null) {
-        print('📸 写真をアップロード中... (isWeb: $kIsWeb)');
-
-        // 認証なしの場合の警告
-        if (currentUser == null) {
-          print('⚠️ 認証なしユーザーです。Firebase Storageへのアップロードに失敗する可能性があります。');
-        }
-
         try {
-          if (kIsWeb) {
-            // Web環境の場合
-            print('🌐 Web環境: 写真のバイトデータを読み込み中...');
-            final bytes = await _selectedImage!.readAsBytes();
-            print('📦 バイトサイズ: ${bytes.length}');
-            print('☁️ Firebase Storageにアップロード中...');
-
-            // タイムアウトを30秒に設定
-            photoUrl = await _storageService.uploadPostImage(
-              userId: userId,
-              imageBytes: bytes,
-            ).timeout(
-              const Duration(seconds: 30),
-              onTimeout: () {
-                print('⏰ アップロードがタイムアウトしました（30秒）');
-                throw Exception('写真のアップロードがタイムアウトしました。ネットワーク接続またはFirebase Storageの権限を確認してください。');
-              },
-            );
-            print('✅ 写真アップロード完了: $photoUrl');
-          } else {
-            // モバイル環境の場合
-            print('📱 モバイル環境: ファイルを読み込み中...');
-            final file = File(_selectedImage!.path);
-            final bytes = await file.readAsBytes();
-            print('📦 バイトサイズ: ${bytes.length}');
-            print('☁️ Firebase Storageにアップロード中...');
-
-            // タイムアウトを30秒に設定
-            photoUrl = await _storageService.uploadPostImage(
-              userId: userId,
-              imageBytes: bytes,
-            ).timeout(
-              const Duration(seconds: 30),
-              onTimeout: () {
-                print('⏰ アップロードがタイムアウトしました（30秒）');
-                throw Exception('写真のアップロードがタイムアウトしました。ネットワーク接続またはFirebase Storageの権限を確認してください。');
-              },
-            );
-            print('✅ 写真アップロード完了: $photoUrl');
-          }
+          photoUrl = await PhotoHelper.processPhoto(
+            image: _selectedImage!,
+            userId: userId,
+            storageService: _storageService,
+          );
         } catch (e) {
-          print('❌ 写真アップロードエラー: $e');
-          // 写真アップロードに失敗した場合は、写真なしで投稿を続行
+          print('❌ 写真処理エラー: $e');
           print('⚠️ 写真なしで投稿を続行します');
           photoUrl = null;
         }
@@ -386,11 +332,27 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       final trackData = widget.track.toMap();
       print('📋 楽曲データ: $trackData');
 
+      // アルバムアートから色を抽出してテーマを生成
+      PostTheme? extractedTheme;
+      try {
+        print('🎨 アルバムアートから色を抽出中...');
+        final albumArtUrl = widget.track.albumImageUrl;
+        extractedTheme = await ColorExtractor.extractThemeFromAlbumArt(albumArtUrl);
+
+        if (extractedTheme != null) {
+          print('✅ 色抽出完了: ${extractedTheme.gradientStart} → ${extractedTheme.gradientEnd}');
+          print('   textColor: ${extractedTheme.textColor}, iconColor: ${extractedTheme.iconColor}');
+        }
+      } catch (e) {
+        print('⚠️  色抽出エラー（デフォルトテーマを使用）: $e');
+        extractedTheme = null; // エラー時はnull（Firestoreでデフォルトテーマが使われる）
+      }
+
       // 投稿を作成
       print('💾 Firestoreに投稿を保存中...');
       print('  - userId: $userId');
       print('  - username: $username');
-      print('  - photoUrl: $photoUrl');
+      print('  - photoUrl: ${PhotoHelper.formatPhotoUrlForLog(photoUrl)}');
       print('  - layoutIndex: $_selectedLayoutIndex');
       print('  - rect: $_rect');
 
@@ -410,6 +372,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         cardRotation: _cardRotation,
         isVibe: widget.isVibe,
         vibeTopicId: widget.vibeTopicId,
+        theme: extractedTheme, // 抽出した色テーマを保存
       );
       print('✅ 投稿作成完了: postId=$postId');
 

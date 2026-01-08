@@ -33,7 +33,7 @@ jobs:
           echo "APPLE_MUSIC_DEVELOPER_TOKEN=${{ secrets.APPLE_MUSIC_DEVELOPER_TOKEN }}" >> .env
 
       - name: Build web
-        run: flutter build web --release
+        run: flutter build web --release --base-href /fifteen/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3

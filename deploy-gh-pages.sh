@@ -5,7 +5,7 @@
 set -e
 
 echo "📦 Flutter Webをビルド中..."
-flutter build web --release
+flutter build web --release --base-href /fifteen/
 
 echo "🚀 GitHub Pagesにデプロイ中..."
 

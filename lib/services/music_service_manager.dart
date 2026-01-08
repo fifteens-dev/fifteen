@@ -173,4 +173,23 @@ class MusicServiceManager {
         return [];
     }
   }
+
+  /// 楽曲の歌詞を取得
+  /// trackId: トラックID（サービスによって形式が異なる）
+  Future<String?> getLyrics(String trackId) async {
+    final service = await getSelectedService();
+
+    switch (service) {
+      case MusicServiceType.spotify:
+        // Spotify APIは公式に歌詞APIを提供していない
+        // サードパーティAPIやスクレイピングが必要
+        print('Spotify歌詞取得は未実装です');
+        return null;
+      case MusicServiceType.appleMusic:
+        return await _appleMusicService.getLyrics(trackId);
+      case MusicServiceType.none:
+        // デフォルトでApple Musicを試す
+        return await _appleMusicService.getLyrics(trackId);
+    }
+  }
 }

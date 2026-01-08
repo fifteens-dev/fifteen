@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/track_model.dart';
+import 'musickit_service.dart';
 
 /// Apple Music API サービス
 class AppleMusicService {
@@ -11,6 +12,7 @@ class AppleMusicService {
   AppleMusicService._internal();
 
   final _storage = const FlutterSecureStorage();
+  final _musicKit = MusicKitService();
 
   static const String _developerTokenKey = 'apple_music_developer_token';
   static const String _userTokenKey = 'apple_music_user_token';
@@ -23,6 +25,17 @@ class AppleMusicService {
 
   /// 認証状態を確認
   Future<bool> isAuthenticated() async {
+    // User Token認証をチェック（個人データアクセス用）
+    if (_userToken != null) {
+      return true;
+    }
+
+    // ストレージからUser Tokenを読み込み
+    _userToken = await _storage.read(key: _userTokenKey);
+    if (_userToken != null) {
+      return true;
+    }
+
     // Developer Tokenがあれば基本的な検索は可能
     if (_developerToken != null) {
       return true;
@@ -39,12 +52,33 @@ class AppleMusicService {
     return _developerToken != null;
   }
 
-  /// User Token認証（将来の実装用）
+  /// User Token認証（MusicKit使用）
   Future<bool> login() async {
-    // MusicKitを使用したUser Token認証
-    // TODO: Platform Channelを使用してiOS/AndroidのMusicKitと統合
-    print('Apple Music User Token認証は未実装です');
-    return false;
+    try {
+      // MusicKit認証をリクエスト
+      final status = await _musicKit.requestAuthorization();
+
+      if (status == 'authorized') {
+        // User Tokenを取得
+        final userToken = await _musicKit.getUserToken();
+
+        if (userToken != null) {
+          _userToken = userToken;
+          await _storage.write(key: _userTokenKey, value: userToken);
+          print('✅ Apple Music User Token取得成功');
+          return true;
+        } else {
+          print('❌ User Token取得失敗');
+          return false;
+        }
+      } else {
+        print('❌ MusicKit認証が拒否されました: $status');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Apple Music login error: $e');
+      return false;
+    }
   }
 
   /// ログアウト
@@ -248,5 +282,89 @@ class AppleMusicService {
     // GET /v1/me/library/songs
     print('Apple Music User Token認証が未実装のため、お気に入り楽曲の取得ができません');
     return [];
+  }
+
+  /// 楽曲の歌詞を取得
+  /// trackId: Apple MusicのトラックID（例: "1234567890"）
+  /// storefront: ストアフロント（デフォルト: "jp"）
+  Future<String?> getLyrics(String trackId, {String storefront = 'jp'}) async {
+    if (trackId.isEmpty) {
+      print('Track ID is empty');
+      return null;
+    }
+
+    if (!await isAuthenticated()) {
+      print('Apple Music Developer Tokenが設定されていません');
+      return null;
+    }
+
+    try {
+      // 歌詞APIエンドポイント
+      final response = await http.get(
+        Uri.parse(
+            'https://api.music.apple.com/v1/catalog/$storefront/songs/$trackId/lyrics'),
+        headers: {
+          'Authorization': 'Bearer $_developerToken',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        // レスポンス構造: data[0].attributes.ttml
+        if (data['data'] != null && data['data'].isNotEmpty) {
+          final attributes = data['data'][0]['attributes'];
+
+          // TTMLフォーマットの歌詞テキストを取得
+          if (attributes['ttml'] != null) {
+            final ttmlText = attributes['ttml'] as String;
+            // TTMLタグを除去してプレーンテキストを抽出
+            final lyrics = _parseTTML(ttmlText);
+            return lyrics;
+          }
+        }
+
+        print('歌詞が見つかりませんでした（Track ID: $trackId）');
+        return null;
+      } else if (response.statusCode == 404) {
+        print('この楽曲には歌詞がありません（Track ID: $trackId）');
+        return null;
+      } else {
+        print('Apple Music lyrics error: ${response.statusCode} ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Error fetching Apple Music lyrics: $e');
+      return null;
+    }
+  }
+
+  /// TTMLフォーマットの歌詞からプレーンテキストを抽出
+  String _parseTTML(String ttml) {
+    // TTMLはXML形式なので、<p>タグ内のテキストを抽出
+    final RegExp pTagPattern = RegExp(r'<p[^>]*>(.*?)</p>', dotAll: true);
+    final matches = pTagPattern.allMatches(ttml);
+
+    final lyrics = matches.map((match) {
+      String line = match.group(1) ?? '';
+      // <span>タグなどの子要素を除去
+      line = line.replaceAll(RegExp(r'<[^>]+>'), '');
+      // HTMLエンティティをデコード
+      line = _decodeHtmlEntities(line);
+      return line.trim();
+    }).where((line) => line.isNotEmpty).join('\n');
+
+    return lyrics;
+  }
+
+  /// HTMLエンティティをデコード
+  String _decodeHtmlEntities(String text) {
+    return text
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'");
   }
 }

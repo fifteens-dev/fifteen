@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:just_audio/just_audio.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
 import '../services/user_service.dart';
 import '../services/post_service.dart';
 import '../services/audio_player_service.dart';
-import '../services/itunes_search_service.dart';
+import '../widgets/profile_widgets.dart';
 
 /// プロフィール画面（他人）
 /// Figmaデザインに基づいた他のユーザーのプロフィール画面
@@ -26,7 +25,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   final UserService _userService = UserService();
   final PostService _postService = PostService();
   final AudioPlayerService _audioService = AudioPlayerService();
-  final ITunesSearchService _itunesService = ITunesSearchService();
 
   UserModel? _userData;
   UserModel? _currentUser;
@@ -390,14 +388,20 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
           // 統計情報
           Row(
             children: [
-              _buildStatItem('${_userData?.postsCount ?? 0}', 'Tracks'),
-              const SizedBox(width: 32),
-              _buildStatItem(
-                '${_followerCountOverride ?? _userData?.followersCount ?? 0}',
-                'Followers',
+              ProfileStatItem(
+                count: '${_userData?.postsCount ?? 0}',
+                label: 'Tracks',
               ),
               const SizedBox(width: 32),
-              _buildStatItem('${_userData?.followingCount ?? 0}', 'Following'),
+              ProfileStatItem(
+                count: '${_followerCountOverride ?? _userData?.followersCount ?? 0}',
+                label: 'Followers',
+              ),
+              const SizedBox(width: 32),
+              ProfileStatItem(
+                count: '${_userData?.followingCount ?? 0}',
+                label: 'Following',
+              ),
             ],
           ),
         ],
@@ -405,28 +409,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-  /// 統計アイテム
-  Widget _buildStatItem(String count, String label) {
-    return Column(
-      children: [
-        Text(
-          count,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Color(0xFF919191),
-            fontSize: 12,
-          ),
-        ),
-      ],
-    );
-  }
 
   /// アクションボタン（フォロー）
   Widget _buildActionButtons() {
@@ -495,7 +477,11 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                   padding: EdgeInsets.only(
                     bottom: index < displayPosts.length - 1 ? 8 : 0,
                   ),
-                  child: _buildTodaysTrackCard(displayPosts[index]),
+                  child: TodaysTrackCard(
+                    post: displayPosts[index],
+                    audioService: _audioService,
+                    previewUrlCache: _previewUrlCache,
+                  ),
                 );
               },
             ),
@@ -505,191 +491,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-  /// 今日の楽曲カード（1枚）
-  Widget _buildTodaysTrackCard(PostModel post) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: const Color(0xFF3C3C3C)),
-        borderRadius: BorderRadius.circular(4),
-        color: const Color(0xFF121212),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            // アルバムアート
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: Colors.grey[800],
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: post.track.albumImageUrl.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        post.track.albumImageUrl,
-                        width: 60,
-                        height: 60,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Icon(
-                            Icons.album,
-                            size: 30,
-                            color: Colors.white54,
-                          );
-                        },
-                      ),
-                    )
-                  : const Icon(
-                      Icons.album,
-                      size: 30,
-                      color: Colors.white54,
-                    ),
-            ),
-            const SizedBox(width: 12),
-            // 曲名とアーティスト
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    post.track.trackName,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    post.track.artistName,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.7),
-                      fontSize: 14,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            // 再生ボタンと時間（全てのカードに表示）
-            _buildPlayButton(post),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 再生ボタンと時間表示
-  Widget _buildPlayButton(PostModel post) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        StreamBuilder<PlayerState>(
-          stream: _audioService.playerStateStream,
-          builder: (context, snapshot) {
-            final previewUrl = _previewUrlCache[post.postId];
-            final isThisTrackPlaying =
-                previewUrl != null && _audioService.isPlayingUrl(previewUrl);
-            final isPaused = _audioService.isPaused;
-
-            return GestureDetector(
-              onTap: () async {
-                if (isThisTrackPlaying) {
-                  // 再生中の場合は一時停止
-                  _audioService.pause();
-                } else if (isPaused && previewUrl != null) {
-                  // 一時停止中の場合は再開
-                  _audioService.resume();
-                } else {
-                  // 停止中の場合は再生開始
-                  String? urlToPlay = previewUrl;
-
-                  // preview URLがまだ取得されていない場合は取得
-                  if (urlToPlay == null) {
-                    print('🍎 Fetching preview URL for ${post.track.trackName}...');
-                    urlToPlay = await _itunesService.getPreviewUrl(
-                      trackName: post.track.trackName,
-                      artistName: post.track.artistName,
-                    );
-
-                    if (urlToPlay != null) {
-                      setState(() {
-                        _previewUrlCache[post.postId] = urlToPlay!;
-                      });
-                      print('✅ Preview URL obtained and cached');
-                    } else {
-                      print('❌ Failed to obtain preview URL');
-                      return;
-                    }
-                  }
-
-                  // 再生開始（ループ再生は自動的に有効）
-                  await _audioService.playPreview(urlToPlay);
-                }
-              },
-              child: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
-                    width: 2,
-                  ),
-                ),
-                child: Icon(
-                  isThisTrackPlaying ? Icons.pause : Icons.play_arrow,
-                  color: isThisTrackPlaying ? Colors.greenAccent : Colors.white,
-                  size: 28,
-                ),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 4),
-        StreamBuilder<Duration>(
-          stream: _audioService.positionStream,
-          builder: (context, positionSnapshot) {
-            return StreamBuilder<Duration?>(
-              stream: _audioService.durationStream,
-              builder: (context, durationSnapshot) {
-                final duration = durationSnapshot.data;
-                final position = positionSnapshot.data ?? Duration.zero;
-
-                // 残り時間を計算
-                final remaining = duration != null
-                    ? duration - position
-                    : const Duration(seconds: 30);
-
-                // フォーマット
-                final minutes = remaining.inMinutes;
-                final seconds = remaining.inSeconds % 60;
-                final timeText =
-                    '$minutes:${seconds.toString().padLeft(2, '0')}';
-
-                return Text(
-                  timeText,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                );
-              },
-            );
-          },
-        ),
-      ],
-    );
-  }
 
   /// タブ切り替え
   Widget _buildTabSelector() {
@@ -764,95 +565,9 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       itemCount: _userPosts.length,
       itemBuilder: (context, index) {
         final post = _userPosts[index];
-        return _buildPostItem(post);
+        return ProfilePostGridItem(post: post);
       },
     );
   }
 
-  /// 投稿アイテム
-  Widget _buildPostItem(PostModel post) {
-    return Container(
-      padding: const EdgeInsets.all(0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // アルバムアート
-          AspectRatio(
-            aspectRatio: 1,
-            child: Container(
-              margin: const EdgeInsets.all(0.5),
-              decoration: BoxDecoration(
-                color: Colors.grey[800],
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: post.track.albumImageUrl.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: Image.network(
-                        post.track.albumImageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Icon(
-                            Icons.album,
-                            size: 50,
-                            color: Colors.white54,
-                          );
-                        },
-                      ),
-                    )
-                  : const Icon(
-                      Icons.album,
-                      size: 50,
-                      color: Colors.white54,
-                    ),
-            ),
-          ),
-          // 曲名
-          Padding(
-            padding: const EdgeInsets.only(left: 6, top: 4),
-            child: Text(
-              post.track.trackName,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          // アーティスト名
-          Padding(
-            padding: const EdgeInsets.only(left: 6),
-            child: Text(
-              post.track.artistName,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          // 追加ボタン
-          Padding(
-            padding: const EdgeInsets.only(left: 6, top: 2),
-            child: Container(
-              width: 13,
-              height: 13,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 1),
-              ),
-              child: const Icon(
-                Icons.add,
-                color: Colors.white,
-                size: 10,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

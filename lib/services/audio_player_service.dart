@@ -1,7 +1,18 @@
 import 'package:just_audio/just_audio.dart';
 
-/// 音楽再生を管理するサービス
+/// 音楽再生を管理するサービス（Singleton）
 class AudioPlayerService {
+  // Singleton instance
+  static final AudioPlayerService _instance = AudioPlayerService._internal();
+
+  // Factory constructor
+  factory AudioPlayerService() {
+    return _instance;
+  }
+
+  // Private constructor
+  AudioPlayerService._internal();
+
   AudioPlayer? _audioPlayer;
   String? _currentUrl;
 

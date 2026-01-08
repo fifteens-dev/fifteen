@@ -2,6 +2,12 @@
 
 FlutterとFirebaseを使用したクロスプラットフォーム（iOS/Android）SNSアプリケーション
 
+## 🌐 ライブデモ
+
+**Web版**: https://fifteens-dev.github.io/fifteen/
+
+GitHub Pagesで公開中のWeb版をブラウザで試すことができます。
+
 ## 必要な環境
 
 ### Flutter
@@ -161,6 +167,28 @@ flutter run -d <device_id>
   - LRCLIB API（歌詞取得）
   - Apple Music API（歌詞スニペット取得）
 - **状態管理**: Provider / Riverpod（検討中）
+
+## 🚀 デプロイ
+
+### 自動デプロイ（GitHub Actions）
+
+mainブランチにpushすると、自動的にGitHub Pagesにデプロイされます。
+
+```bash
+git add .
+git commit -m "Update"
+git push origin main
+```
+
+デプロイ状況: https://github.com/fifteens-dev/fifteen/actions
+
+### 手動デプロイ
+
+```bash
+./deploy-gh-pages.sh
+```
+
+詳細は [DEPLOY.md](./DEPLOY.md) を参照してください。
 
 ## ライセンス
 

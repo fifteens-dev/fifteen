@@ -953,12 +953,27 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
 
-    // 戻ってきた後、念のためコメント数を更新
-    if (post.postId.startsWith('test_post_') && mounted) {
-      final commentCount = await TestData.getCommentCount(post.postId);
-      setState(() {
-        _commentCounts[post.postId] = commentCount;
-      });
+    // 戻ってきた後、投稿データを更新
+    if (mounted) {
+      if (post.postId.startsWith('test_post_')) {
+        // テスト投稿の場合
+        final commentCount = await TestData.getCommentCount(post.postId);
+        setState(() {
+          _commentCounts[post.postId] = commentCount;
+        });
+      } else {
+        // 通常の投稿の場合、Firestoreから最新のデータを取得
+        final updatedPost = await _postService.getPost(post.postId);
+        if (updatedPost != null && _cachedPosts != null) {
+          setState(() {
+            // キャッシュ内の投稿を更新
+            final index = _cachedPosts!.indexWhere((p) => p.postId == post.postId);
+            if (index != -1) {
+              _cachedPosts![index] = updatedPost;
+            }
+          });
+        }
+      }
     }
   }
 

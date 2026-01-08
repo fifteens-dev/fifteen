@@ -80,6 +80,12 @@ class _CommentScreenState extends State<CommentScreen> {
           userIconUrl: currentUser?.photoURL,
           content: content,
         );
+
+        // コメント数を更新（親画面に通知）
+        if (widget.onCommentCountChanged != null) {
+          final newCommentCount = widget.post.commentCount + 1;
+          widget.onCommentCountChanged!(newCommentCount);
+        }
       }
 
       _commentController.clear();
@@ -492,9 +498,22 @@ class _CommentScreenState extends State<CommentScreen> {
         // ローカルコメントかFirestoreコメントかを判定
         if (comment.commentId.startsWith('local_comment_')) {
           await TestData.removeLocalComment(comment.postId, comment.commentId);
+
+          // コメント数を更新（親画面に通知）
+          if (widget.onCommentCountChanged != null) {
+            final newCommentCount = await TestData.getCommentCount(comment.postId);
+            widget.onCommentCountChanged!(newCommentCount);
+          }
+
           setState(() {}); // 画面を更新
         } else {
           await _commentService.deleteComment(comment.commentId, comment.postId);
+
+          // コメント数を更新（親画面に通知）
+          if (widget.onCommentCountChanged != null) {
+            final newCommentCount = widget.post.commentCount - 1;
+            widget.onCommentCountChanged!(newCommentCount);
+          }
         }
       } catch (e) {
         if (mounted) {

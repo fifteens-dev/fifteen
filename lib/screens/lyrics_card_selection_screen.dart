@@ -3,12 +3,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/track_model.dart';
+import '../services/lyrics_service.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// 歌詞カード選択画面
 class LyricsCardSelectionScreen extends StatefulWidget {
   final TrackModel track;
+  final LyricsData? lyricsData;
   final XFile? selectedImage;
   final bool isVibe;
   final String? vibeTopicId;
@@ -16,6 +19,7 @@ class LyricsCardSelectionScreen extends StatefulWidget {
   const LyricsCardSelectionScreen({
     super.key,
     required this.track,
+    this.lyricsData,
     this.selectedImage,
     this.isVibe = false,
     this.vibeTopicId,
@@ -32,6 +36,83 @@ class _LyricsCardSelectionScreenState
   Rect _rect = const Rect.fromLTWH(0, 0, 196, 126); // 歌詞カードの位置とサイズ
   Flip _flip = Flip.none; // 反転情報
   double _cardRotation = 0.0; // 回転角度（ラジアン）
+
+  LyricsData? _lyricsData; // 取得した歌詞データ
+  bool _isLoadingLyrics = false; // 歌詞取得中フラグ
+
+  @override
+  void initState() {
+    super.initState();
+    _lyricsData = widget.lyricsData;
+
+    // 歌詞がまだ取得されていない場合はバックグラウンドで取得
+    if (_lyricsData == null) {
+      print('⚠️ 歌詞が未取得のため、歌詞カード画面で取得を開始します');
+      _fetchLyrics();
+    } else {
+      print('✅ 既に取得済みの歌詞を使用します (${_lyricsData!.source})');
+    }
+  }
+
+  /// 歌詞を取得（バックグラウンド）
+  Future<void> _fetchLyrics() async {
+    setState(() {
+      _isLoadingLyrics = true;
+    });
+
+    try {
+      print('🎵 歌詞カード画面で歌詞取得を開始...');
+      final lyricsService = LyricsService();
+      final appleDevToken = dotenv.env['APPLE_MUSIC_DEVELOPER_TOKEN'] ?? '';
+
+      final lyricsData = await lyricsService.getLyrics(
+        trackName: widget.track.trackName,
+        artistName: widget.track.artistName,
+        durationSeconds: null,
+        appleDevToken: appleDevToken,
+      );
+
+      if (mounted) {
+        setState(() {
+          _lyricsData = lyricsData;
+          _isLoadingLyrics = false;
+        });
+
+        if (lyricsData != null) {
+          print('✅ 歌詞取得完了: ${lyricsData.source}');
+        } else {
+          print('⚠️ 歌詞が見つかりませんでした');
+        }
+      }
+    } catch (e) {
+      print('⚠️ 歌詞取得エラー: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingLyrics = false;
+        });
+      }
+    }
+  }
+
+  /// 歌詞カードに表示する歌詞テキストを取得
+  String get _displayLyrics {
+    if (_isLoadingLyrics) {
+      // 歌詞取得中
+      return '歌詞を取得中...';
+    }
+
+    if (_lyricsData != null) {
+      // 取得した歌詞を4行に短縮
+      final lyricsService = LyricsService();
+      return lyricsService.truncateLyrics(
+        _lyricsData!.plainLyrics,
+        maxLines: 4,
+      );
+    }
+
+    // デフォルト歌詞
+    return '今宵涙こらえて奏でる愛のSerenade\n今も忘れない恋の歌';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -307,10 +388,10 @@ class _LyricsCardSelectionScreenState
                   ),
                 ),
                 padding: const EdgeInsets.all(11),
-                child: const Center(
+                child: Center(
                   child: Text(
-                    '今宵涙こらえて奏でる愛のSerenade\n今も忘れない恋の歌',
-                    style: TextStyle(
+                    _displayLyrics,
+                    style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -781,7 +862,7 @@ class _LyricsCardSelectionScreenState
         // 確認ボタン
         GestureDetector(
           onTap: () {
-            // 選択した写真、レイアウト、カード位置、スケール、回転をPostPreviewScreenに返す
+            // 選択した写真、レイアウト、カード位置、スケール、回転、歌詞データをPostPreviewScreenに返す
             // rectから位置とスケールを抽出
             final cardPosition = Offset(_rect.left, _rect.top);
             final baseSize = _getCardSize();
@@ -793,6 +874,7 @@ class _LyricsCardSelectionScreenState
               'cardPosition': cardPosition,
               'cardScale': cardScale,
               'cardRotation': _cardRotation,
+              'lyricsData': _lyricsData, // 取得した歌詞データを渡す
             });
           },
           child: Container(

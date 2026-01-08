@@ -17,6 +17,7 @@ import '../widgets/post_creation/lyrics_card_layouts.dart';
 import '../services/audio_player_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
+import '../services/lyrics_service.dart';
 import '../utils/color_extractor.dart';
 import '../utils/photo_helper.dart';
 import 'post_photo_selection_screen.dart';
@@ -24,6 +25,8 @@ import 'post_photo_selection_screen.dart';
 /// 投稿プレビュー画面
 class PostPreviewScreen extends StatefulWidget {
   final TrackModel track;
+  final LyricsData? lyricsData;
+  final Future<LyricsData?>? lyricsFuture; // バックグラウンド取得用
   final bool isVibe;
   final String? vibeTopicId;
   final Color? preExtractedGradientStart;
@@ -32,6 +35,8 @@ class PostPreviewScreen extends StatefulWidget {
   const PostPreviewScreen({
     super.key,
     required this.track,
+    this.lyricsData,
+    this.lyricsFuture,
     this.isVibe = false,
     this.vibeTopicId,
     this.preExtractedGradientStart,
@@ -60,6 +65,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   Rect _rect = const Rect.fromLTWH(0, 0, 196, 126); // 歌詞カードの位置とサイズ
   Flip _flip = Flip.none; // 反転情報
   double _cardRotation = 0.0; // 回転角度（ラジアン）
+  LyricsData? _lyricsData; // 取得した歌詞データ
+  Future<LyricsData?>? _lyricsFuture; // バックグラウンド取得用Future
 
   // 反転アニメーション用
   late AnimationController _flipController;
@@ -77,6 +84,25 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     super.initState();
     print('🎬 PostPreviewScreen initState()');
     print('  - track: ${widget.track.trackName} by ${widget.track.artistName}');
+
+    // 歌詞データの初期化
+    _lyricsData = widget.lyricsData;
+    _lyricsFuture = widget.lyricsFuture;
+
+    // バックグラウンドで取得中の歌詞があれば、それを待つ
+    if (_lyricsFuture != null) {
+      print('🎵 バックグラウンドで歌詞取得中... 完了を待機します');
+      _lyricsFuture!.then((lyricsData) {
+        if (mounted) {
+          setState(() {
+            _lyricsData = lyricsData;
+          });
+          if (lyricsData != null) {
+            print('✅ バックグラウンド歌詞取得完了: ${lyricsData.source}');
+          }
+        }
+      });
+    }
 
     _flipController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -193,7 +219,11 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
-        builder: (context) => PostPhotoSelectionScreen(track: widget.track),
+        builder: (context) => PostPhotoSelectionScreen(
+          track: widget.track,
+          lyricsData: _lyricsData, // 現在保持している歌詞データを渡す
+          lyricsFuture: _lyricsFuture, // バックグラウンド取得Futureを渡す
+        ),
       ),
     );
 
@@ -209,6 +239,12 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         final cardPosition = result['cardPosition'] as Offset? ?? Offset.zero;
         final cardScale = result['cardScale'] as double? ?? 1.0;
         _cardRotation = result['cardRotation'] as double? ?? 0.0;
+
+        // 歌詞データを保存
+        if (result.containsKey('lyricsData')) {
+          _lyricsData = result['lyricsData'] as LyricsData?;
+          print('  - lyricsData: ${_lyricsData != null ? "取得済み (${_lyricsData!.source})" : "なし"}');
+        }
 
         // rectを更新（位置とスケールから計算）
         final baseSize = _getCardSizeBack();
@@ -1104,6 +1140,16 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     final baseSize = _getCardSizeBack();
     final cardScale = _rect.width / baseSize.width;
 
+    // 歌詞テキストを取得
+    String? lyricsText;
+    if (_lyricsData != null) {
+      final lyricsService = LyricsService();
+      lyricsText = lyricsService.truncateLyrics(
+        _lyricsData!.plainLyrics,
+        maxLines: 4,
+      );
+    }
+
     // 固定表示（操作不可）
     return Positioned(
       left: _rect.left,
@@ -1117,6 +1163,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
           child: LyricsCardLayout(
             layoutType: layoutType,
             track: widget.track,
+            lyricsText: lyricsText,
           ),
         ),
       ),

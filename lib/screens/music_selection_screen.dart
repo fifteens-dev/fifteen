@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/track_model.dart';
 import '../models/vibe_topic_model.dart';
 import '../services/spotify_service.dart';
 import '../services/music_service_manager.dart';
 import '../services/post_service.dart';
 import '../services/vibe_topic_service.dart';
+import '../services/lyrics_service.dart';
 import '../utils/test_data.dart';
 import '../utils/color_extractor.dart';
 import 'post_preview_screen.dart';
@@ -325,13 +327,37 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       // エラーが発生しても続行（PostPreviewScreenで再抽出）
     }
 
-    // 投稿プレビュー画面へ遷移
+    // 歌詞を取得（バックグラウンドで開始、完了を待たない）
+    print('🎵 楽曲選択時に歌詞取得をバックグラウンドで開始...');
+    final lyricsService = LyricsService();
+    final appleDevToken = dotenv.env['APPLE_MUSIC_DEVELOPER_TOKEN'] ?? '';
+
+    final Future<LyricsData?> lyricsFuture = lyricsService.getLyrics(
+      trackName: _selectedTrack!.trackName,
+      artistName: _selectedTrack!.artistName,
+      durationSeconds: null,
+      appleDevToken: appleDevToken,
+    ).then((lyricsData) {
+      if (lyricsData != null) {
+        print('✅ 歌詞取得完了: ${lyricsData.source}');
+      } else {
+        print('⚠️ 歌詞が見つかりませんでした');
+      }
+      return lyricsData;
+    }).catchError((e) {
+      print('⚠️ 歌詞取得エラー: $e');
+      return null;
+    });
+
+    // 投稿プレビュー画面へ遷移（歌詞取得を待たない）
     if (mounted) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => PostPreviewScreen(
             track: _selectedTrack!,
+            lyricsData: null, // nullを渡す
+            lyricsFuture: lyricsFuture, // Futureを渡す
             isVibe: _selectedCategoryType == 'vibe',
             vibeTopicId: _todaysTopic?.topicId,
             preExtractedGradientStart: gradientStart,

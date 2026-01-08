@@ -2,18 +2,24 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/track_model.dart';
+import '../services/lyrics_service.dart';
 import 'lyrics_card_selection_screen.dart';
 
 /// 投稿用写真選択画面
 class PostPhotoSelectionScreen extends StatefulWidget {
   final TrackModel track;
+  final LyricsData? lyricsData;
+  final Future<LyricsData?>? lyricsFuture; // バックグラウンド取得用
   final bool isVibe;
   final String? vibeTopicId;
 
   const PostPhotoSelectionScreen({
     super.key,
     required this.track,
+    this.lyricsData,
+    this.lyricsFuture,
     this.isVibe = false,
     this.vibeTopicId,
   });
@@ -27,11 +33,67 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
   final List<XFile> _galleryImages = [];
+  LyricsData? _lyricsData; // 取得した歌詞データ（状態として保持）
 
   @override
   void initState() {
     super.initState();
     _loadGalleryImages();
+
+    // 親から受け取った歌詞データを保存
+    _lyricsData = widget.lyricsData;
+
+    // バックグラウンドで取得中の歌詞があれば、それを待つ
+    if (widget.lyricsFuture != null) {
+      print('🎵 写真選択画面: バックグラウンド歌詞取得の完了を待機中...');
+      widget.lyricsFuture!.then((lyricsData) {
+        if (mounted) {
+          setState(() {
+            _lyricsData = lyricsData;
+          });
+          if (lyricsData != null) {
+            print('✅ 写真選択画面: バックグラウンド歌詞取得完了 (${lyricsData.source})');
+          } else {
+            print('⚠️ 写真選択画面: 歌詞が見つかりませんでした');
+          }
+        }
+      });
+    } else if (_lyricsData == null) {
+      // Future もなく、歌詞も未取得の場合のみ、新規で取得
+      print('🎵 写真選択画面: 歌詞が未取得のため、新規で取得を開始');
+      _fetchLyricsInBackground();
+    } else {
+      print('✅ 写真選択画面: 既に取得済みの歌詞を使用 (${_lyricsData!.source})');
+    }
+  }
+
+  /// 歌詞をバックグラウンドで取得
+  Future<void> _fetchLyricsInBackground() async {
+    try {
+      final lyricsService = LyricsService();
+      final appleDevToken = dotenv.env['APPLE_MUSIC_DEVELOPER_TOKEN'] ?? '';
+
+      final lyricsData = await lyricsService.getLyrics(
+        trackName: widget.track.trackName,
+        artistName: widget.track.artistName,
+        durationSeconds: null,
+        appleDevToken: appleDevToken,
+      );
+
+      if (mounted) {
+        setState(() {
+          _lyricsData = lyricsData;
+        });
+
+        if (lyricsData != null) {
+          print('✅ 写真選択画面: 歌詞取得完了 (${lyricsData.source})');
+        } else {
+          print('⚠️ 写真選択画面: 歌詞が見つかりませんでした');
+        }
+      }
+    } catch (e) {
+      print('⚠️ 写真選択画面: 歌詞取得エラー - $e');
+    }
   }
 
   /// ギャラリーから画像リストを読み込む（Web対応のためダミー実装）
@@ -99,12 +161,16 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       return;
     }
 
-    // 歌詞カード選択画面へ遷移
+    print('📸 写真選択完了: 歌詞カード選択画面へ遷移');
+    print('  - 歌詞データ: ${_lyricsData != null ? "あり (${_lyricsData!.source})" : "なし"}');
+
+    // 歌詞カード選択画面へ遷移（現在保持している歌詞データを渡す）
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
         builder: (context) => LyricsCardSelectionScreen(
           track: widget.track,
+          lyricsData: _lyricsData, // 状態変数から渡す
           selectedImage: _selectedImage,
           isVibe: widget.isVibe,
           vibeTopicId: widget.vibeTopicId,

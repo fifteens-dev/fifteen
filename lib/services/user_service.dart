@@ -1,10 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
+import '../models/notification_model.dart';
+import 'notification_service.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _usersCollection = 'users';
+  final NotificationService _notificationService = NotificationService();
 
   // ユーザーデータを作成
   Future<void> createUser({
@@ -98,6 +101,66 @@ class UserService {
     }
   }
 
+  /// ユーザーを検索（usernameとnameの両方で検索）
+  ///
+  /// [query] 検索クエリ文字列
+  /// [limit] 取得する最大件数（デフォルト: 20）
+  ///
+  /// Returns: 検索結果のUserModelリスト
+  Future<List<UserModel>> searchUsers({
+    required String query,
+    int limit = 20,
+  }) async {
+    try {
+      // 空のクエリは早期リターン
+      if (query.trim().isEmpty) {
+        return [];
+      }
+
+      final searchTerm = query.toLowerCase().trim();
+      final endTerm = '$searchTerm\uf8ff'; // Unicode最大文字（前方一致用）
+
+      if (kDebugMode) {
+        print('🔍 Searching users with query: "$searchTerm"');
+      }
+
+      // usernameフィールドで前方一致検索
+      final snapshot = await _firestore
+          .collection(_usersCollection)
+          .where('username', isGreaterThanOrEqualTo: searchTerm)
+          .where('username', isLessThanOrEqualTo: endTerm)
+          .limit(limit * 2) // クライアント側フィルタ前に多めに取得
+          .get();
+
+      if (kDebugMode) {
+        print('📥 Fetched ${snapshot.docs.length} users from Firestore');
+      }
+
+      // UserModelに変換してクライアント側でフィルタリング
+      final users = snapshot.docs
+          .map((doc) => UserModel.fromFirestore(doc))
+          .where((user) {
+        final username = (user.username ?? '').toLowerCase();
+        final name = (user.name ?? '').toLowerCase();
+
+        // usernameまたはnameに検索語が含まれているか
+        return username.contains(searchTerm) || name.contains(searchTerm);
+      }).take(limit) // 最終的にlimit件に制限
+          .toList();
+
+      if (kDebugMode) {
+        print('✅ Filtered to ${users.length} matching users');
+      }
+
+      return users;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error searching users: $e');
+      }
+      return [];
+    }
+  }
+
   // ユーザーデータのストリームを取得
   Stream<UserModel?> getUserStream(String uid) {
     return _firestore
@@ -139,6 +202,22 @@ class UserService {
       });
 
       await batch.commit();
+
+      // フォロー通知を作成
+      final currentUser = await getUser(currentUserId);
+      if (currentUser != null) {
+        await _notificationService.createNotification(
+          type: NotificationType.follow,
+          recipientId: targetUserId,
+          senderId: currentUserId,
+          senderUsername: currentUser.username ?? 'unknown',
+          senderIconUrl: currentUser.profileImageUrl,
+        );
+
+        if (kDebugMode) {
+          print('✅ フォロー通知作成: follower=$currentUserId, followee=$targetUserId');
+        }
+      }
     } catch (e) {
       if (kDebugMode) {
         print('Error following user: $e');

@@ -6,10 +6,12 @@ import '../services/audio_player_service.dart';
 /// 投稿カード単体表示画面
 class PostDetailScreen extends StatefulWidget {
   final PostModel post;
+  final bool autoFlipAfterDelay; // trueの場合、0.5秒後に自動で裏返す
 
   const PostDetailScreen({
     super.key,
     required this.post,
+    this.autoFlipAfterDelay = false, // デフォルトは自動反転なし
   });
 
   @override
@@ -38,6 +40,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               child: PostCard(
                 post: widget.post,
                 audioService: _audioService,
+                autoFlipAfterDelay: widget.autoFlipAfterDelay,
               ),
             ),
             // 閉じるボタン（左上）

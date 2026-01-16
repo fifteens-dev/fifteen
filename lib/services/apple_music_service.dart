@@ -53,27 +53,51 @@ class AppleMusicService {
   }
 
   /// User Token認証（MusicKit使用）
+  /// iOS: User Token認証を試みる
+  /// Android/Web: Developer Tokenのみで動作（User Token認証はスキップ）
   Future<bool> login() async {
     try {
-      // MusicKit認証をリクエスト
-      final status = await _musicKit.requestAuthorization();
+      // iOSでのみUser Token認証を試みる
+      if (_musicKit.isSupported) {
+        print('📱 iOS環境: MusicKit User Token認証を試みます');
+        // MusicKit認証をリクエスト
+        final status = await _musicKit.requestAuthorization();
 
-      if (status == 'authorized') {
-        // User Tokenを取得
-        final userToken = await _musicKit.getUserToken();
+        if (status == 'authorized') {
+          // User Tokenを取得
+          final userToken = await _musicKit.getUserToken();
 
-        if (userToken != null) {
-          _userToken = userToken;
-          await _storage.write(key: _userTokenKey, value: userToken);
-          print('✅ Apple Music User Token取得成功');
-          return true;
+          if (userToken != null) {
+            _userToken = userToken;
+            await _storage.write(key: _userTokenKey, value: userToken);
+            print('✅ Apple Music User Token取得成功');
+            return true;
+          } else {
+            print('❌ User Token取得失敗');
+            return false;
+          }
         } else {
-          print('❌ User Token取得失敗');
+          print('❌ MusicKit認証が拒否されました: $status');
           return false;
         }
       } else {
-        print('❌ MusicKit認証が拒否されました: $status');
-        return false;
+        // Android/WebではDeveloper Tokenのみで動作
+        print('🌐 Android/Web環境: Developer Tokenのみで動作します');
+
+        // Developer Tokenの確認
+        if (_developerToken == null) {
+          _developerToken = _envDeveloperToken.isNotEmpty
+              ? _envDeveloperToken
+              : await _storage.read(key: _developerTokenKey);
+        }
+
+        if (_developerToken != null && _developerToken!.isNotEmpty) {
+          print('✅ Apple Music Developer Token確認成功');
+          return true;
+        } else {
+          print('❌ Apple Music Developer Tokenが設定されていません');
+          return false;
+        }
       }
     } catch (e) {
       print('❌ Apple Music login error: $e');
@@ -276,12 +300,90 @@ class AppleMusicService {
   }
 
   /// ユーザーのお気に入り楽曲を取得
-  /// User Token認証が必要（未実装のため現在は空を返す）
+  /// User Token認証が必要
   Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {
-    // TODO: User Token認証を実装後、Library APIを使用
-    // GET /v1/me/library/songs
-    print('Apple Music User Token認証が未実装のため、お気に入り楽曲の取得ができません');
-    return [];
+    // User Tokenがない場合は取得できない
+    if (_userToken == null) {
+      _userToken = await _storage.read(key: _userTokenKey);
+    }
+
+    if (_userToken == null) {
+      print('❌ User Token not found. Please login first.');
+      return [];
+    }
+
+    // Developer Tokenも必要
+    if (_developerToken == null) {
+      _developerToken = _envDeveloperToken.isNotEmpty
+          ? _envDeveloperToken
+          : await _storage.read(key: _developerTokenKey);
+    }
+
+    if (_developerToken == null || _developerToken!.isEmpty) {
+      print('❌ Developer Token not found.');
+      return [];
+    }
+
+    try {
+      // Library API: ユーザーのライブラリから楽曲を取得
+      final response = await http.get(
+        Uri.parse('https://api.music.apple.com/v1/me/library/songs?limit=$limit'),
+        headers: {
+          'Authorization': 'Bearer $_developerToken',
+          'Music-User-Token': _userToken!,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['data'] == null || (data['data'] as List).isEmpty) {
+          print('⚠️ No saved tracks found in user library');
+          return [];
+        }
+
+        final songs = data['data'] as List;
+
+        return songs.map((songData) {
+          final attributes = songData['attributes'];
+
+          // アルバムアートワークURL
+          String albumImageUrl = '';
+          if (attributes['artwork'] != null) {
+            final artworkUrl = attributes['artwork']['url'] as String;
+            albumImageUrl =
+                artworkUrl.replaceAll('{w}', '640').replaceAll('{h}', '640');
+          }
+
+          // プレビューURL
+          String previewUrl = '';
+          if (attributes['previews'] != null &&
+              attributes['previews'].isNotEmpty) {
+            previewUrl = attributes['previews'][0]['url'] ?? '';
+          }
+
+          return TrackModel(
+            trackId: songData['id'],
+            trackName: attributes['name'] ?? 'Unknown',
+            artistName: attributes['artistName'] ?? 'Unknown Artist',
+            albumImageUrl: albumImageUrl,
+            previewUrl: previewUrl,
+          );
+        }).toList();
+      } else if (response.statusCode == 401) {
+        print('❌ Authentication failed. User Token may be expired.');
+        // User Tokenをクリア
+        _userToken = null;
+        await _storage.delete(key: _userTokenKey);
+        return [];
+      } else {
+        print('❌ Apple Music library error: ${response.statusCode} ${response.body}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Error getting Apple Music saved tracks: $e');
+      return [];
+    }
   }
 
   /// 楽曲の歌詞を取得

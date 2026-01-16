@@ -30,6 +30,7 @@ class SpotifyService {
     if (await _authService.isAuthenticated()) {
       final oauthToken = await _authService.getAccessToken();
       if (oauthToken != null) {
+        print('✅ Spotify OAuth トークンを使用');
         return oauthToken;
       }
     }
@@ -39,10 +40,17 @@ class SpotifyService {
     if (_clientCredentialsToken != null &&
         _tokenExpiry != null &&
         DateTime.now().isBefore(_tokenExpiry!)) {
+      print('✅ Spotify キャッシュされたトークンを使用');
       return _clientCredentialsToken;
     }
 
+    print('🔑 Spotify Client Credentials トークンを取得中...');
     try {
+      if (_clientId.isEmpty || _clientSecret.isEmpty) {
+        print('❌ Spotify認証情報が.envファイルに設定されていません');
+        return null;
+      }
+
       final credentials =
           base64.encode(utf8.encode('$_clientId:$_clientSecret'));
 
@@ -63,13 +71,14 @@ class SpotifyService {
         // トークンは通常3600秒（1時間）有効
         final expiresIn = data['expires_in'] as int;
         _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn - 60));
+        print('✅ Spotify トークン取得成功（有効期限: ${expiresIn}秒）');
         return _clientCredentialsToken;
       } else {
-        print('Spotify token error: ${response.statusCode} ${response.body}');
+        print('❌ Spotify token error: ${response.statusCode} ${response.body}');
         return null;
       }
     } catch (e) {
-      print('Error getting Spotify access token: $e');
+      print('❌ Error getting Spotify access token: $e');
       return null;
     }
   }
@@ -80,7 +89,9 @@ class SpotifyService {
 
     final token = await _getAccessToken();
     if (token == null) {
-      // トークン取得失敗時はiTunesにフォールバック
+      print('⚠️  Spotifyトークン取得失敗 - iTunes APIにフォールバック');
+      print('💡 Spotify認証情報を.envファイルで確認してください');
+      // Spotify認証失敗時はiTunes APIにフォールバック
       return await _itunesService.searchTracks(query, limit: limit);
     }
 
@@ -140,13 +151,13 @@ class SpotifyService {
         print('✅ Spotify: Returning ${results.length} filtered tracks');
         return results;
       } else {
-        print('Spotify search error: ${response.statusCode} ${response.body}');
-        // エラー時はiTunesにフォールバック
+        print('❌ Spotify search error: ${response.statusCode} ${response.body}');
+        print('⚠️  iTunes APIにフォールバック');
         return await _itunesService.searchTracks(query, limit: limit);
       }
     } catch (e) {
-      print('Error searching tracks: $e');
-      // エラー時はiTunesにフォールバック
+      print('❌ Error searching tracks: $e');
+      print('⚠️  iTunes APIにフォールバック');
       return await _itunesService.searchTracks(query, limit: limit);
     }
   }
@@ -373,8 +384,17 @@ class SpotifyService {
     String? seedTracks,
     int limit = 20,
   }) async {
+    // フォールバック用の検索クエリを準備
+    final searchQuery = seedGenres ?? seedArtists ?? 'popular music';
+
     final token = await _getAccessToken();
-    if (token == null) return [];
+    if (token == null) {
+      print('⚠️  Spotifyトークン取得失敗 - iTunes APIにフォールバック');
+      print('💡 Spotify認証情報を.envファイルで確認してください');
+      // Spotify認証失敗時はiTunes APIにフォールバック
+      print('🎵 iTunes APIで検索: "$searchQuery"');
+      return await _itunesService.searchTracks(searchQuery, limit: limit);
+    }
 
     try {
       String url = 'https://api.spotify.com/v1/recommendations?limit=$limit';
@@ -416,13 +436,14 @@ class SpotifyService {
           );
         }).toList();
       } else {
-        print(
-            'Spotify recommendations error: ${response.statusCode} ${response.body}');
-        return [];
+        print('❌ Spotify recommendations error: ${response.statusCode} ${response.body}');
+        print('⚠️  iTunes APIにフォールバック');
+        return await _itunesService.searchTracks(searchQuery, limit: limit);
       }
     } catch (e) {
-      print('Error getting recommendations: $e');
-      return [];
+      print('❌ Error getting recommendations: $e');
+      print('⚠️  iTunes APIにフォールバック');
+      return await _itunesService.searchTracks(searchQuery, limit: limit);
     }
   }
 

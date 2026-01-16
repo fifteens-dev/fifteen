@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-// import 'package:flutter_web_auth/flutter_web_auth.dart';  // 一時的に無効化
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -116,24 +116,31 @@ class SpotifyAuthService {
       });
 
       // ブラウザで認証ページを開く
-      // 一時的に無効化（写真表示テストのため）
-      print('Spotify authentication temporarily disabled for testing');
-      return false;
+      print('🎵 Starting Spotify OAuth authentication...');
+      print('🔗 Auth URL: ${authUrl.toString()}');
+      print('🔑 Callback scheme: $_callbackUrlScheme');
+      print('🔙 Redirect URI: $_redirectUri');
 
-      // final result = await FlutterWebAuth.authenticate(
-      //   url: authUrl.toString(),
-      //   callbackUrlScheme: _callbackUrlScheme,
-      // );
-      //
-      // // 認証コードを抽出
-      // final code = Uri.parse(result).queryParameters['code'];
-      // if (code == null) {
-      //   print('認証コードが取得できませんでした');
-      //   return false;
-      // }
-      //
-      // // アクセストークンを取得
-      // return await _getAccessTokenFromCode(code);
+      final result = await FlutterWebAuth2.authenticate(
+        url: authUrl.toString(),
+        callbackUrlScheme: _callbackUrlScheme,
+        options: const FlutterWebAuth2Options(
+          preferEphemeral: false,
+        ),
+      );
+
+      print('✅ Got callback result: $result');
+
+      // 認証コードを抽出
+      final code = Uri.parse(result).queryParameters['code'];
+      if (code == null) {
+        print('❌ 認証コードが取得できませんでした');
+        return false;
+      }
+
+      print('✅ 認証コード取得成功');
+      // アクセストークンを取得
+      return await _getAccessTokenFromCode(code);
     } catch (e) {
       print('Spotify login error: $e');
       return false;

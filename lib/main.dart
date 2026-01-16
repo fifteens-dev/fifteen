@@ -19,6 +19,8 @@ import 'screens/create_post_screen.dart';
 import 'screens/photo_picker_screen.dart';
 import 'screens/music_selection_screen.dart';
 import 'constants/app_colors.dart';
+import 'services/fcm_handler_service.dart';
+import 'services/auth_service.dart';
 
 void main() async {
   // Flutter バインディングの初期化
@@ -42,6 +44,27 @@ void main() async {
     );
   } else {
     await Firebase.initializeApp();
+  }
+
+  // FCM初期化（ログイン済みユーザーがいる場合）
+  try {
+    final authService = AuthService();
+    final currentUser = authService.currentUser;
+    if (currentUser != null) {
+      final fcmHandler = FCMHandlerService();
+      await fcmHandler.initialize(currentUser.uid);
+      if (kDebugMode) {
+        print('✅ FCM初期化完了: userId=${currentUser.uid}');
+      }
+    } else {
+      if (kDebugMode) {
+        print('⏭️ FCM初期化スキップ: ユーザー未ログイン');
+      }
+    }
+  } catch (e) {
+    if (kDebugMode) {
+      print('⚠️ FCM初期化エラー: $e');
+    }
   }
 
   // ステータスバーの設定

@@ -55,10 +55,14 @@ class ProfilePostGridItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
+        // アルバムアートをタップした時は表面から表示して0.5秒後に自動反転
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => PostDetailScreen(post: post),
+            builder: (context) => PostDetailScreen(
+              post: post,
+              autoFlipAfterDelay: true,
+            ),
           ),
         );
       },
@@ -301,36 +305,49 @@ class TodaysTrackCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           children: [
-            // アルバムアート
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: Colors.grey[800],
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: post.track.albumImageUrl.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        post.track.albumImageUrl,
-                        width: 60,
-                        height: 60,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Icon(
-                            Icons.album,
-                            size: 30,
-                            color: Colors.white54,
-                          );
-                        },
-                      ),
-                    )
-                  : const Icon(
-                      Icons.album,
-                      size: 30,
-                      color: Colors.white54,
+            // アルバムアート（タップで投稿詳細を表面から表示して0.5秒後に自動反転）
+            GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PostDetailScreen(
+                      post: post,
+                      autoFlipAfterDelay: true,
                     ),
+                  ),
+                );
+              },
+              child: Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: Colors.grey[800],
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: post.track.albumImageUrl.isNotEmpty
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: Image.network(
+                          post.track.albumImageUrl,
+                          width: 60,
+                          height: 60,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Icon(
+                              Icons.album,
+                              size: 30,
+                              color: Colors.white54,
+                            );
+                          },
+                        ),
+                      )
+                    : const Icon(
+                        Icons.album,
+                        size: 30,
+                        color: Colors.white54,
+                      ),
+              ),
             ),
             const SizedBox(width: 12),
             // 曲名とアーティスト

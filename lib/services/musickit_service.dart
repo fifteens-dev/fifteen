@@ -13,10 +13,11 @@ class MusicKitService {
   /// プラットフォームがMusicKitをサポートしているかチェック
   bool get isSupported {
     if (kIsWeb) {
-      // WebではMusicKit JSを使用（別途実装）
-      return true;
+      // WebではMusicKit JSを使用（別途実装が必要）
+      print('⚠️ MusicKit JS support is not yet implemented for Web');
+      return false; // Web版は未実装のためfalseに変更
     }
-    // iOSのみサポート（Android用は将来実装可能）
+    // iOSのみサポート（iOS 15+が必要）
     return Platform.isIOS;
   }
 
@@ -24,12 +25,16 @@ class MusicKitService {
   ///
   /// Returns:
   /// - "authorized": 認証成功
-  /// - "denied": ユーザーが拒否
+  /// - "denied": ユーザーが拒否またはサポートされていない
   /// - "notDetermined": まだ決定されていない
   /// - "restricted": 制限されている（ペアレンタルコントロールなど）
   Future<String> requestAuthorization() async {
     if (!isSupported) {
-      print('⚠️ MusicKit is not supported on this platform');
+      if (kIsWeb) {
+        print('⚠️ MusicKit is not supported on Web (MusicKit JS not implemented)');
+      } else {
+        print('⚠️ MusicKit is only supported on iOS');
+      }
       return 'denied';
     }
 
@@ -43,7 +48,14 @@ class MusicKitService {
       print('✅ MusicKit authorization result: $result');
       return result;
     } on PlatformException catch (e) {
-      print('❌ MusicKit authorization error: ${e.message}');
+      if (e.code == 'UNAVAILABLE') {
+        print('❌ ${e.message ?? "MusicKit requires iOS 15.0 or later"}');
+      } else {
+        print('❌ MusicKit authorization error: ${e.message}');
+      }
+      return 'denied';
+    } catch (e) {
+      print('❌ Unexpected error during MusicKit authorization: $e');
       return 'denied';
     }
   }
@@ -78,7 +90,11 @@ class MusicKitService {
   /// User TokenはApple Music APIで個人データにアクセスするために必要
   Future<String?> getUserToken() async {
     if (!isSupported) {
-      print('⚠️ MusicKit is not supported on this platform');
+      if (kIsWeb) {
+        print('⚠️ MusicKit is not supported on Web (MusicKit JS not implemented)');
+      } else {
+        print('⚠️ MusicKit is only supported on iOS');
+      }
       return null;
     }
 
@@ -88,10 +104,20 @@ class MusicKitService {
 
     try {
       final String token = await _channel.invokeMethod('getUserToken');
-      print('✅ Got user token');
+      print('✅ Got user token (length: ${token.length})');
       return token;
     } on PlatformException catch (e) {
-      print('❌ Failed to get user token: ${e.message}');
+      if (e.code == 'UNAVAILABLE') {
+        print('❌ ${e.message ?? "MusicKit requires iOS 15.0 or later"}');
+      } else if (e.code == 'TOKEN_ERROR') {
+        print('❌ Failed to get user token: ${e.message}');
+        print('💡 Hint: Make sure you have called requestAuthorization() first');
+      } else {
+        print('❌ Failed to get user token: ${e.message}');
+      }
+      return null;
+    } catch (e) {
+      print('❌ Unexpected error getting user token: $e');
       return null;
     }
   }

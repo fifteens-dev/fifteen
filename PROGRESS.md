@@ -1,6 +1,6 @@
 # 開発進捗レポート
 
-最終更新: 2025-10-29
+最終更新: 2026-01-10
 
 ## 📋 現在の状態
 
@@ -31,6 +31,16 @@
    - テスト用招待コード作成機能
    - 招待コード: `TEST123`, `WELCOME`, `HELLO15S`
    - デバッグモードで自動的に開発者ツール画面を表示
+
+5. **通知機能実装（NEW! 2026-01-10）** ✨
+   - **データモデル**: NotificationModel（いいね、コメント、フォロー、公式通知）
+   - **サービス層**: NotificationService（CRUD、FCMトークン管理）、FCMHandlerService（FCM初期化、メッセージ処理）
+   - **UI実装**: NotificationBadge（未読バッジ）、NotificationListScreen（通知一覧）、HomeScreenに通知アイコン
+   - **プラットフォーム設定**: iOS（AppDelegate.swift、Info.plist）、Android（AndroidManifest.xml、colors.xml）、Web（firebase-messaging-sw.js）
+   - **Cloud Functions**: sendPushNotification（通知送信）、sendOfficialNotification（公式通知）
+   - **Firestore**: インデックス、セキュリティルール
+   - **公式通知**: 管理者→全ユーザー通知機能、送信スクリプト
+   - **詳細**: `NOTIFICATION_SETUP.md` を参照
 
 ### ⏸️ 保留中の作業
 

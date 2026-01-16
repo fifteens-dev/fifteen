@@ -39,6 +39,8 @@ dependencies:
   firebase_auth: ^6.1.1
   cloud_firestore: ^6.0.3
   firebase_storage: ^13.0.3
+  firebase_messaging: ^16.0.3
+  cloud_functions: ^6.0.0
   shared_preferences: ^2.3.4
   image_picker: ^1.1.2
   image: ^4.0.0  # 画像圧縮用
@@ -48,7 +50,7 @@ dependencies:
   just_audio: ^0.9.40
   url_launcher: ^6.3.1
   palette_generator: ^0.3.3+4
-  # flutter_web_auth: ^0.5.0  # 一時的に無効化（Spotify認証用）
+  flutter_web_auth_2: ^4.0.0
   flutter_secure_storage: ^9.0.0
   flutter_box_transform: ^0.4.7
 

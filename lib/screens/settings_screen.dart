@@ -9,6 +9,7 @@ import 'help_screen.dart';
 import 'login_info_screen.dart';
 import 'invitation_screen.dart';
 import 'basic_info_screen.dart';
+import 'cloud_functions_test_screen.dart';
 
 /// 設定画面
 class SettingsScreen extends StatefulWidget {
@@ -177,6 +178,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             );
                           },
                           showDivider: true,
+                        ),
+                      ]),
+
+                      const SizedBox(height: 24),
+
+                      // 開発者向け
+                      _buildSectionLabel('開発者向け'),
+                      const SizedBox(height: 8),
+                      _buildSettingsCard([
+                        _SettingsItem(
+                          icon: Icons.code_outlined,
+                          title: 'Cloud Functions テスト',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) =>
+                                      const CloudFunctionsTestScreen()),
+                            );
+                          },
                         ),
                       ]),
 

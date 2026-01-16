@@ -28,6 +28,7 @@ class PostCard extends StatefulWidget {
   final bool hideReactionCounts; // trueの場合、リアクション数を非表示（プレビュー用）
   final Color? preExtractedGradientStart; // 事前抽出されたグラデーション開始色
   final Color? preExtractedGradientEnd; // 事前抽出されたグラデーション終了色
+  final bool autoFlipAfterDelay; // trueの場合、0.5秒後に自動で裏返す
 
   const PostCard({
     super.key,
@@ -43,6 +44,7 @@ class PostCard extends StatefulWidget {
     this.hideReactionCounts = false, // デフォルトはカウント表示
     this.preExtractedGradientStart, // 事前抽出された色（オプション）
     this.preExtractedGradientEnd, // 事前抽出された色（オプション）
+    this.autoFlipAfterDelay = false, // デフォルトは自動反転なし
   });
 
   @override
@@ -98,6 +100,7 @@ class _PostCardState extends State<PostCard>
   @override
   void initState() {
     super.initState();
+
     _flipController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
@@ -105,6 +108,15 @@ class _PostCardState extends State<PostCard>
     _flipAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
     );
+
+    // 自動反転が有効な場合、0.5秒後に裏返す
+    if (widget.autoFlipAfterDelay) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && _showFront) {
+          _flipCard();
+        }
+      });
+    }
 
     // 色の優先順位:
     // 1. 事前抽出パラメータ

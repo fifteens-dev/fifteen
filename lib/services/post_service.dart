@@ -4,11 +4,16 @@ import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../models/vibe_ranking_item.dart';
 import '../models/track_model.dart';
+import '../models/notification_model.dart';
+import 'notification_service.dart';
+import 'user_service.dart';
 
 /// 投稿データを管理するサービス
 class PostService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _postsCollection = 'posts';
+  final NotificationService _notificationService = NotificationService();
+  final UserService _userService = UserService();
 
   /// 投稿を作成
   Future<String> createPost({
@@ -168,6 +173,12 @@ class PostService {
     try {
       final postRef = _firestore.collection(_postsCollection).doc(postId);
 
+      String? postOwnerId;
+      String? postOwnerUsername;
+      String? albumArtUrl;
+      String? trackName;
+      bool wasLiked = false;
+
       await _firestore.runTransaction((transaction) async {
         final postDoc = await transaction.get(postRef);
 
@@ -178,6 +189,17 @@ class PostService {
         final data = postDoc.data()!;
         final likedUserIds = List<String>.from(data['likedUserIds'] ?? []);
         final isLiked = likedUserIds.contains(userId);
+
+        // いいね追加時のみ投稿者情報を保存（通知用）
+        if (!isLiked) {
+          postOwnerId = data['userId'];
+          postOwnerUsername = data['username'];
+          final trackData = data['track'] as Map<String, dynamic>?;
+          albumArtUrl = trackData?['albumArtUrl'];
+          trackName = trackData?['trackName'];
+        }
+
+        wasLiked = isLiked;
 
         if (isLiked) {
           // いいねを削除
@@ -193,6 +215,27 @@ class PostService {
           'updatedAt': FieldValue.serverTimestamp(),
         });
       });
+
+      // トランザクション外で通知を作成（いいね追加時のみ）
+      if (!wasLiked && postOwnerId != null) {
+        // 現在のユーザー情報を取得
+        final currentUser = await _userService.getUser(userId);
+
+        await _notificationService.createNotification(
+          type: NotificationType.like,
+          recipientId: postOwnerId!,
+          senderId: userId,
+          senderUsername: currentUser?.username ?? 'Unknown',
+          senderIconUrl: currentUser?.profileImageUrl,
+          postId: postId,
+          albumArtUrl: albumArtUrl,
+          trackName: trackName,
+        );
+
+        if (kDebugMode) {
+          print('✅ いいね通知作成: postId=$postId, recipient=$postOwnerId');
+        }
+      }
     } catch (e) {
       if (kDebugMode) {
         print('Error toggling like: $e');

@@ -7,6 +7,7 @@ import '../models/track_model.dart';
 import '../models/vibe_topic_model.dart';
 import '../models/vibe_ranking_item.dart';
 import '../widgets/post_card.dart';
+import '../widgets/notification_badge.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
@@ -17,6 +18,7 @@ import 'comment_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'activity_screen.dart';
+import 'notification_list_screen.dart';
 import 'vibe_topic_voting_screen.dart';
 
 /// ホーム画面（タイムライン）
@@ -290,18 +292,20 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
           const Spacer(),
-          // 通知アイコン
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-            onPressed: () {
-              // ホーム画面の音楽を停止
-              _homeAudioService.stop();
-              // アクティビティ画面へ遷移
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ActivityScreen()),
-              );
-            },
+          // 通知アイコン（バッジ付き）
+          NotificationBadge(
+            child: IconButton(
+              icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+              onPressed: () {
+                // ホーム画面の音楽を停止
+                _homeAudioService.stop();
+                // 通知一覧画面へ遷移
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const NotificationListScreen()),
+                );
+              },
+            ),
           ),
         ],
       ),

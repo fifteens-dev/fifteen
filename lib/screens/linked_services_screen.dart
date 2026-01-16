@@ -305,17 +305,19 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
         await _disconnectService();
       });
     } else {
-      // 未接続の場合
-      if (_selectedService != MusicServiceType.none && _isAuthenticated) {
+      // 未接続の場合は説明ダイアログを表示
+      _showServiceInfoDialog(service, () async {
         // 他のサービスが接続中の場合は切り替え確認ダイアログを表示
-        _showSwitchConnectionDialog(
-            service.displayName, _selectedService.displayName, () async {
+        if (_selectedService != MusicServiceType.none && _isAuthenticated) {
+          _showSwitchConnectionDialog(
+              service.displayName, _selectedService.displayName, () async {
+            await _connectService(service);
+          });
+        } else {
+          // 他のサービスが接続されていない場合は直接接続
           await _connectService(service);
-        });
-      } else {
-        // 他のサービスが接続されていない場合は直接接続
-        await _connectService(service);
-      }
+        }
+      });
     }
   }
 
@@ -420,6 +422,180 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  /// サービス情報ダイアログ
+  void _showServiceInfoDialog(MusicServiceType service, VoidCallback onConnect) {
+    // サービスごとの説明
+    String title;
+    List<String> features;
+    String icon;
+
+    switch (service) {
+      case MusicServiceType.spotify:
+        title = 'Spotifyと連携';
+        icon = '🎵';
+        features = [
+          '世界最大級の音楽ライブラリにアクセス',
+          '楽曲の検索・プレビュー再生',
+          'お気に入り楽曲の取得',
+          'プレイリストの閲覧',
+          'トップチャートの閲覧',
+          '投稿に音楽を添付',
+        ];
+        break;
+      case MusicServiceType.appleMusic:
+        title = 'Apple Musicと連携';
+        icon = '🎧';
+        features = [
+          '1億曲以上の楽曲にアクセス',
+          '楽曲の検索・プレビュー再生',
+          'トップチャートの閲覧',
+          'プレイリストの閲覧',
+          '投稿に音楽を添付',
+          if (!kIsWeb) 'お気に入り楽曲の取得 (iOSのみ)',
+        ];
+        break;
+      default:
+        return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey[800],
+          borderRadius: BorderRadius.circular(36),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // アイコンとタイトル
+              Row(
+                children: [
+                  Text(
+                    icon,
+                    style: const TextStyle(fontSize: 32),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              // できること
+              Text(
+                'できること',
+                style: TextStyle(
+                  color: Colors.grey[400],
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // 機能リスト
+              ...features.map((feature) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '✓',
+                          style: TextStyle(
+                            color: Color(0xFF4CAF50),
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            feature,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+              const SizedBox(height: 24),
+              // ボタン
+              Row(
+                children: [
+                  // キャンセルボタン
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        height: 45,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[700],
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'キャンセル',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // 接続ボタン
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        onConnect();
+                      },
+                      child: Container(
+                        height: 45,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF5D8FFF),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            '接続する',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// 接続切り替え確認ダイアログ

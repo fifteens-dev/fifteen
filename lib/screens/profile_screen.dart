@@ -514,10 +514,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(0),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        childAspectRatio: 131 / 185,
+        childAspectRatio: 131 / 200, // 185 → 200に変更してオーバーフロー解消
         crossAxisSpacing: 0,
         mainAxisSpacing: 5,
       ),

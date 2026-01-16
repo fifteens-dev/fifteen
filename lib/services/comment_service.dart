@@ -1,9 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/comment_model.dart';
+import '../models/notification_model.dart';
+import 'notification_service.dart';
+import 'post_service.dart';
 
 /// コメント管理サービス
 class CommentService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final NotificationService _notificationService = NotificationService();
+  final PostService _postService = PostService();
 
   /// コメントを作成
   Future<void> createComment({
@@ -30,6 +36,31 @@ class CommentService {
 
       // 投稿のコメント数を更新
       await _incrementCommentCount(postId);
+
+      // 投稿情報を取得して通知を作成
+      final post = await _postService.getPost(postId);
+      if (post != null) {
+        // コメントテキストを50文字に制限
+        final truncatedComment = content.length > 50
+            ? '${content.substring(0, 50)}...'
+            : content;
+
+        await _notificationService.createNotification(
+          type: NotificationType.comment,
+          recipientId: post.userId,
+          senderId: userId,
+          senderUsername: username,
+          senderIconUrl: userIconUrl,
+          postId: postId,
+          albumArtUrl: post.track.albumImageUrl,
+          trackName: post.track.trackName,
+          commentText: truncatedComment,
+        );
+
+        if (kDebugMode) {
+          print('✅ コメント通知作成: postId=$postId, recipient=${post.userId}');
+        }
+      }
     } catch (e) {
       throw Exception('コメントの作成に失敗しました: $e');
     }

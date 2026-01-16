@@ -60,5 +60,10 @@
 	</array>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Apple Musicの楽曲を検索・再生するために使用します</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>

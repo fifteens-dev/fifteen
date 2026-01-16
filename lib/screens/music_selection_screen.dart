@@ -70,55 +70,30 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Spotify Recommendations APIを使用（ジャンルベースで取得）
-      // 歌詞一致の問題を回避し、純粋にJ-POPジャンルの楽曲を取得
-      final genreSeeds = [
-        'j-pop',
-        'japanese',
-        'pop',
+      // Spotify検索APIを使用（Recommendations APIの404エラーを回避）
+      // 日本の人気曲を検索クエリで取得
+      final searchQueries = [
+        '日本TOP',
+        'J-POP',
+        '日本 音楽',
+        'Japanese pop',
       ];
 
       List<TrackModel> tracks = [];
 
-      // 各ジャンルシードを順番に試す
-      for (final genre in genreSeeds) {
+      // 各検索クエリを順番に試す
+      for (final query in searchQueries) {
         try {
-          print('🎵 Recommendations API (ジャンル: "$genre") を試行中...');
-          tracks = await _spotifyService.getRecommendations(
-            seedGenres: genre,
-            limit: 50,
-          );
+          print('🔍 Spotify検索API (クエリ: "$query") を試行中...');
+          tracks = await _spotifyService.searchTracks(query, limit: 50);
 
           if (tracks.isNotEmpty) {
-            print('✅ 取得成功: ジャンル "$genre" (${tracks.length}曲取得)');
+            print('✅ 取得成功: クエリ "$query" (${tracks.length}曲取得)');
             break;
           }
         } catch (e) {
-          print('❌ ジャンル "$genre" での取得に失敗: $e');
+          print('❌ クエリ "$query" での取得に失敗: $e');
           continue;
-        }
-      }
-
-      // Recommendations APIがすべて失敗した場合は、検索APIにフォールバック
-      if (tracks.isEmpty) {
-        print('⚠️ Recommendations APIが失敗。検索APIにフォールバック...');
-        final searchQueries = [
-          'TOP日本',
-        ];
-
-        for (final query in searchQueries) {
-          try {
-            print('🔍 検索クエリ: "$query" を試行中...');
-            tracks = await _spotifyService.searchTracks(query, limit: 50);
-
-            if (tracks.isNotEmpty) {
-              print('✅ 検索成功: "$query" (${tracks.length}曲取得)');
-              break;
-            }
-          } catch (e) {
-            print('❌ 検索 "$query" に失敗: $e');
-            continue;
-          }
         }
       }
 

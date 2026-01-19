@@ -436,24 +436,15 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
         title = 'Spotifyと連携';
         icon = '🎵';
         features = [
-          '世界最大級の音楽ライブラリにアクセス',
-          '楽曲の検索・プレビュー再生',
-          'お気に入り楽曲の取得',
-          'プレイリストの閲覧',
-          'トップチャートの閲覧',
-          '投稿に音楽を添付',
+          '自身のプレイリストを取得',
         ];
         break;
       case MusicServiceType.appleMusic:
         title = 'Apple Musicと連携';
         icon = '🎧';
         features = [
-          '1億曲以上の楽曲にアクセス',
-          '楽曲の検索・プレビュー再生',
-          'トップチャートの閲覧',
-          'プレイリストの閲覧',
-          '投稿に音楽を添付',
-          if (!kIsWeb) 'お気に入り楽曲の取得 (iOSのみ)',
+          '自身のプレイリストを取得',
+          '全ての歌詞データ取得可能',
         ];
         break;
       default:

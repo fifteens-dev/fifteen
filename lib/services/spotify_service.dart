@@ -139,12 +139,15 @@ class SpotifyService {
             artistName = artists.map((a) => a['name']).join(', ');
           }
 
+          // プレビューURLを取得（nullの場合は空文字列）
+          final previewUrl = trackData['preview_url'] as String? ?? '';
+
           return TrackModel(
             trackId: trackData['id'],
             trackName: trackData['name'],
             artistName: artistName,
             albumImageUrl: albumImageUrl,
-            previewUrl: '', // previewUrlは空にして、カード裏返し時にiTunesから取得
+            previewUrl: previewUrl,
           );
         }).toList();
 
@@ -486,12 +489,15 @@ class SpotifyService {
             artistName = artists.map((a) => a['name']).join(', ');
           }
 
+          // プレビューURLを取得（nullの場合は空文字列）
+          final previewUrl = trackData['preview_url'] as String? ?? '';
+
           return TrackModel(
             trackId: trackData['id'],
             trackName: trackData['name'],
             artistName: artistName,
             albumImageUrl: albumImageUrl,
-            previewUrl: '', // プレビューURLは後でiTunesから取得
+            previewUrl: previewUrl,
           );
         }).toList();
       } else {
@@ -549,12 +555,15 @@ class SpotifyService {
             artistName = artists.map((a) => a['name']).join(', ');
           }
 
+          // プレビューURLを取得（nullの場合は空文字列）
+          final previewUrl = trackData['preview_url'] as String? ?? '';
+
           return TrackModel(
             trackId: trackData['id'],
             trackName: trackData['name'],
             artistName: artistName,
             albumImageUrl: albumImageUrl,
-            previewUrl: '', // プレビューURLは後でiTunesから取得
+            previewUrl: previewUrl,
           );
         }).toList();
       } else {

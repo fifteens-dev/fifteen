@@ -18,6 +18,7 @@ import '../services/audio_player_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../services/lyrics_service.dart';
+import '../services/itunes_search_service.dart';
 import '../utils/color_extractor.dart';
 import '../utils/photo_helper.dart';
 import 'post_photo_selection_screen.dart';
@@ -122,6 +123,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       _extractColorsFromAlbumArt();
     }
 
+    // 音楽のプレビューを自動再生
+    _playMusicPreview();
+
     // 2秒後に自動的にカードを裏返す
     _autoFlipTimer = Timer(const Duration(seconds: 2), () {
       if (mounted && _showFront) {
@@ -129,6 +133,55 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         _flipCard();
       }
     });
+  }
+
+  /// 音楽のプレビューを再生
+  Future<void> _playMusicPreview() async {
+    var previewUrl = widget.track.previewUrl;
+
+    // previewURLが空の場合、iTunesから取得
+    if (previewUrl == null || previewUrl.isEmpty) {
+      print('⚠️ Spotify previewURLが空のため、iTunesから取得します');
+      previewUrl = await _getPreviewUrlFromItunes();
+    }
+
+    if (previewUrl != null && previewUrl.isNotEmpty) {
+      try {
+        print('🎵 音楽プレビューを再生開始: ${widget.track.trackName}');
+        await _audioService.playPreview(previewUrl);
+      } catch (e) {
+        print('❌ 音楽プレビュー再生エラー: $e');
+      }
+    } else {
+      print('⚠️ プレビューURLが取得できませんでした');
+    }
+  }
+
+  /// iTunesからプレビューURLを取得
+  Future<String?> _getPreviewUrlFromItunes() async {
+    try {
+      final itunesService = ITunesSearchService();
+      final trackName = widget.track.trackName;
+      final artistName = widget.track.artistName;
+
+      print('🍎 iTunes APIからプレビューURL取得: $trackName - $artistName');
+
+      final tracks = await itunesService.searchTracks(
+        '$trackName $artistName',
+        limit: 1,
+      );
+
+      if (tracks.isNotEmpty && tracks.first.previewUrl != null) {
+        print('✅ iTunes APIからプレビューURL取得成功');
+        return tracks.first.previewUrl;
+      } else {
+        print('❌ iTunes APIでプレビューURLが見つかりませんでした');
+        return null;
+      }
+    } catch (e) {
+      print('❌ iTunes API取得エラー: $e');
+      return null;
+    }
   }
 
   /// アルバムアートから色を抽出
@@ -167,6 +220,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   void dispose() {
     _autoFlipTimer?.cancel();
     _flipController.dispose();
+    // 音楽再生を停止
+    _audioService.stop();
     super.dispose();
   }
 

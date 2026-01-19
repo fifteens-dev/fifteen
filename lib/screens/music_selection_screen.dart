@@ -268,6 +268,10 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         _selectedTrack = null;
       } else {
         _selectedTrack = track;
+        // デバッグ: 選択した楽曲のpreviewURLを確認
+        print('🎵 選択した楽曲: ${track.trackName} by ${track.artistName}');
+        print('   previewUrl: "${track.previewUrl ?? "null"}"');
+        print('   previewUrl.isEmpty: ${track.previewUrl?.isEmpty ?? true}');
       }
     });
   }

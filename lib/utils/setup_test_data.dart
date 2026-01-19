@@ -306,6 +306,23 @@ class SetupTestData {
                 extractedTheme = null;
               }
 
+              // 投稿日時を設定（最初の1曲は昨日、残り3曲は今日）
+              Timestamp createdAt;
+              if (i == 0) {
+                // 最初の投稿は昨日の同じ時刻
+                final yesterday = DateTime.now().subtract(const Duration(days: 1));
+                createdAt = Timestamp.fromDate(yesterday);
+                if (kDebugMode) {
+                  print('📅 Post date: Yesterday (${yesterday.toString().split(' ')[0]})');
+                }
+              } else {
+                // 残りの投稿は今日（サーバー時刻）
+                createdAt = Timestamp.now();
+                if (kDebugMode) {
+                  print('📅 Post date: Today');
+                }
+              }
+
               await _firestore.collection('posts').add({
                 'userId': userId,
                 'username': username,
@@ -314,8 +331,8 @@ class SetupTestData {
                 'likeCount': (i + 1) * 7 + (userPostCount * 3),
                 'commentCount': (i + 1) + userPostCount,
                 'likedUserIds': <String>[],
-                'createdAt': FieldValue.serverTimestamp(),
-                'updatedAt': FieldValue.serverTimestamp(),
+                'createdAt': createdAt,
+                'updatedAt': createdAt,
                 'theme': extractedTheme?.toMap() ?? PostTheme.defaultTheme.toMap(),
                 'photoUrl': photoUrls[i], // 画像パスを追加
               });

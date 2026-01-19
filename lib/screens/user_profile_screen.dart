@@ -624,9 +624,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  /// 投稿グリッド
+  /// 投稿グリッド（今日の楽曲を除外）
   Widget _buildPostsGrid() {
     // 実際の投稿データがある場合はそれを使用、なければダミーデータを使用
+    // _otherPosts は既にFirestoreレベルで今日以外の投稿のみを取得済み
     final hasRealPosts = _otherPosts.isNotEmpty;
 
     if (hasRealPosts) {
@@ -647,7 +648,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         },
       );
     } else {
-      // ダミーデータを使用
+      // ダミーデータを使用（ダミーデータの場合は除外不要）
       return GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),

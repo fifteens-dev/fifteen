@@ -493,9 +493,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// 投稿グリッド
+  /// 投稿グリッド（今日の楽曲を除外）
   Widget _buildPostsGrid() {
     // 投稿がない場合は空のメッセージを表示
+    // _otherPosts は既にFirestoreレベルで今日以外の投稿のみを取得済み
     if (_otherPosts.isEmpty) {
       return const Center(
         child: Padding(

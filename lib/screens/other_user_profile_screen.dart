@@ -28,7 +28,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
   UserModel? _userData;
   UserModel? _currentUser;
-  List<PostModel> _userPosts = [];
+  List<PostModel> _todaysPosts = [];  // 今日の投稿
+  List<PostModel> _otherPosts = [];   // 今日以外の投稿
   bool _isLoading = true;
   bool _isFollowing = false;
 
@@ -57,8 +58,9 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         currentUser = await _userService.getUser(currentUserId);
       }
 
-      // ユーザーの投稿を取得
-      final userPosts = await _postService.getPostsByUserId(widget.userId);
+      // ユーザーの投稿を取得（今日と今日以外を分けて取得）
+      final todaysPosts = await _postService.getTodaysPosts(widget.userId);
+      final otherPosts = await _postService.getPostsExcludingToday(widget.userId, limit: 50);
 
       if (mounted) {
         // ダミーユーザーかどうかを判定
@@ -68,7 +70,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         setState(() {
           _userData = userData;
           _currentUser = currentUser;
-          _userPosts = userPosts;
+          _todaysPosts = todaysPosts;
+          _otherPosts = otherPosts;
           _isFollowing = currentUser?.isFollowing(widget.userId) ?? false;
           _isLoading = false;
 
@@ -442,13 +445,13 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
   /// 今日の楽曲カード（スクロール可能なリスト表示）
   Widget _buildTodaysTrack() {
-    // 投稿がない場合は何も表示しない
-    if (_userPosts.isEmpty) {
+    // 今日の投稿がない場合は何も表示しない
+    if (_todaysPosts.isEmpty) {
       return const SizedBox.shrink();
     }
 
     // 最大5枚まで表示
-    final displayPosts = _userPosts.take(5).toList();
+    final displayPosts = _todaysPosts.take(5).toList();
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 22),
@@ -550,8 +553,14 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-  /// 投稿グリッド
+  /// 投稿グリッド（今日の楽曲を除外）
   Widget _buildPostsGrid() {
+    // 投稿がない場合は空のメッセージ
+    // _otherPosts は既にFirestoreレベルで今日以外の投稿のみを取得済み
+    if (_otherPosts.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -562,9 +571,9 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         crossAxisSpacing: 0,
         mainAxisSpacing: 5,
       ),
-      itemCount: _userPosts.length,
+      itemCount: _otherPosts.length,
       itemBuilder: (context, index) {
-        final post = _userPosts[index];
+        final post = _otherPosts[index];
         return ProfilePostGridItem(post: post);
       },
     );

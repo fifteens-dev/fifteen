@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_model.dart';
@@ -26,12 +27,20 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   final PostService _postService = PostService();
   final AudioPlayerService _audioService = AudioPlayerService();
 
+  // ダミーユーザーの定数
+  static const List<String> _dummyUsernames = [
+    'momo.hirai',
+    'mina.myoi',
+    'm.by__sana',
+  ];
+
   UserModel? _userData;
-  UserModel? _currentUser;
   List<PostModel> _todaysPosts = [];  // 今日の投稿
   List<PostModel> _otherPosts = [];   // 今日以外の投稿
+  List<PostModel> _savedPosts = [];   // 保存済み投稿
   bool _isLoading = true;
   bool _isFollowing = false;
+  int _selectedTabIndex = 0; // 0: グリッド（自分の投稿）, 1: 保存した投稿
 
   // プレビューURLキャッシュ（投稿IDをキーとする）
   final Map<String, String> _previewUrlCache = {};
@@ -43,6 +52,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _loadSavedPosts();
   }
 
   /// データを読み込み
@@ -64,12 +74,10 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
       if (mounted) {
         // ダミーユーザーかどうかを判定
-        const dummyUsernames = ['momo.hirai', 'mina.myoi', 'm.by__sana'];
-        final isDummyUser = dummyUsernames.contains(userData?.username ?? '');
+        final isDummyUser = _dummyUsernames.contains(userData?.username ?? '');
 
         setState(() {
           _userData = userData;
-          _currentUser = currentUser;
           _todaysPosts = todaysPosts;
           _otherPosts = otherPosts;
           _isFollowing = currentUser?.isFollowing(widget.userId) ?? false;
@@ -90,16 +98,31 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     }
   }
 
+  /// 保存済み投稿を読み込み
+  Future<void> _loadSavedPosts() async {
+    try {
+      final savedPosts = await _postService.getPostsSavedByUser(widget.userId);
+
+      if (mounted) {
+        setState(() {
+          _savedPosts = savedPosts;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('保存済み投稿の読み込みエラー: $e');
+      }
+    }
+  }
+
   /// フォロー/アンフォローを切り替え
   Future<void> _toggleFollow() async {
     print('🔄 toggleFollow called, current state: $_isFollowing');
 
-    // ダミーユーザーのリスト（テスト用）
-    const dummyUsernames = ['momo.hirai', 'mina.myoi', 'm.by__sana'];
     final currentUsername = _userData?.username ?? '';
 
     // ダミーユーザーの場合は、UIだけ変更（Firebase操作なし）
-    if (dummyUsernames.contains(currentUsername)) {
+    if (_dummyUsernames.contains(currentUsername)) {
       print('🎭 Dummy user detected: $currentUsername - UI only mode');
       setState(() {
         _isFollowing = !_isFollowing;
@@ -265,8 +288,10 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                     // タブ切り替え
                     _buildTabSelector(),
 
-                    // 投稿グリッド（ダミーデータ）
-                    _buildPostsGrid(),
+                    // 投稿グリッド or 保存済み投稿
+                    _selectedTabIndex == 0
+                        ? _buildPostsGrid()
+                        : _buildSavedPostsGrid(),
                   ],
                 ),
               ),
@@ -362,25 +387,10 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                   color: Colors.grey[800],
                 ),
                 child: ClipOval(
-                  child: profileImageUrl != null && profileImageUrl.isNotEmpty
-                      ? Image.network(
-                          profileImageUrl,
-                          width: 65,
-                          height: 65,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Icon(
-                              Icons.person,
-                              size: 40,
-                              color: Colors.grey[600],
-                            );
-                          },
-                        )
-                      : Icon(
-                          Icons.person,
-                          size: 40,
-                          color: Colors.grey[600],
-                        ),
+                  child: ProfileImage(
+                    imageUrl: profileImageUrl,
+                    size: 65,
+                  ),
                 ),
               ),
             ],
@@ -501,49 +511,64 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       height: 40,
       child: Row(
         children: [
-          // グリッドタブ
+          // グリッドタブ（投稿）
           Expanded(
-            child: Container(
-              decoration: const BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: Colors.white,
-                    width: 2,
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedTabIndex = 0),
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: _selectedTabIndex == 0
+                          ? Colors.white
+                          : Colors.transparent,
+                      width: 2,
+                    ),
                   ),
                 ),
-              ),
-              child: const Icon(
-                Icons.grid_view,
-                color: Colors.white,
-                size: 24,
+                child: Icon(
+                  Icons.grid_view,
+                  color: _selectedTabIndex == 0 ? Colors.white : Colors.grey,
+                  size: 24,
+                ),
               ),
             ),
           ),
           // 保存タブ
           Expanded(
-            child: Container(
-              decoration: const BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: Colors.transparent,
-                    width: 2,
-                  ),
-                ),
-              ),
+            child: GestureDetector(
+              onTap: () {
+                setState(() => _selectedTabIndex = 1);
+                // 保存タブを選択したときに保存済み投稿を再読み込み
+                _loadSavedPosts();
+              },
               child: Container(
-                width: 25,
-                height: 25,
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.grey,
-                    width: 1.5,
+                  border: Border(
+                    bottom: BorderSide(
+                      color: _selectedTabIndex == 1
+                          ? Colors.white
+                          : Colors.transparent,
+                      width: 2,
+                    ),
                   ),
                 ),
-                child: const Icon(
-                  Icons.add,
-                  color: Colors.grey,
-                  size: 16,
+                child: Container(
+                  width: 25,
+                  height: 25,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color:
+                          _selectedTabIndex == 1 ? Colors.white : Colors.grey,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.add,
+                    color: _selectedTabIndex == 1 ? Colors.white : Colors.grey,
+                    size: 16,
+                  ),
                 ),
               ),
             ),
@@ -576,6 +601,76 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         final post = _otherPosts[index];
         return ProfilePostGridItem(post: post);
       },
+    );
+  }
+
+  /// 保存済み投稿のグリッド
+  Widget _buildSavedPostsGrid() {
+    if (_savedPosts.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Text(
+            '保存済みの投稿がありません',
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 1.0,
+        crossAxisSpacing: 2,
+        mainAxisSpacing: 2,
+      ),
+      itemCount: _savedPosts.length,
+      itemBuilder: (context, index) {
+        final post = _savedPosts[index];
+        return _buildSavedPostItem(post);
+      },
+    );
+  }
+
+  /// 保存済み投稿アイテム（アルバムアートのみ）
+  Widget _buildSavedPostItem(PostModel post) {
+    final albumArt = post.track.albumImageUrl;
+
+    return GestureDetector(
+      onTap: () {
+        // 投稿詳細画面に遷移
+        Navigator.pushNamed(
+          context,
+          '/post-detail',
+          arguments: post,
+        );
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+        ),
+        child: Image.network(
+          albumArt,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              color: Colors.grey[800],
+              child: const Icon(
+                Icons.music_note,
+                color: Colors.white54,
+                size: 40,
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 

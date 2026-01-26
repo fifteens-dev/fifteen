@@ -17,6 +17,7 @@ import '../widgets/post_creation/lyrics_card_layouts.dart';
 import '../services/audio_player_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
+import '../services/user_service.dart';
 import '../services/lyrics_service.dart';
 import '../services/itunes_search_service.dart';
 import '../utils/color_extractor.dart';
@@ -58,6 +59,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   // 投稿関連サービス
   final PostService _postService = PostService();
   final StorageService _storageService = StorageService();
+  final UserService _userService = UserService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   bool _isPosting = false;
 
@@ -398,7 +400,17 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       final currentUser = _auth.currentUser;
       final userId = currentUser?.uid ?? 'test_user_temp';
       final username = currentUser?.displayName ?? 'taroooooda';
-      print('👤 ユーザー情報: userId=$userId, username=$username');
+
+      // ユーザーのプロフィール画像URLを取得
+      String? userIconUrl;
+      try {
+        final userData = await _userService.getUser(userId);
+        userIconUrl = userData?.profileImageUrl;
+        print('👤 ユーザー情報: userId=$userId, username=$username, userIconUrl=$userIconUrl');
+      } catch (e) {
+        print('⚠️ ユーザー情報取得エラー: $e');
+        print('👤 ユーザー情報: userId=$userId, username=$username');
+      }
 
       // 写真を処理（PhotoHelperを使用）
       String? photoUrl;
@@ -454,6 +466,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       final postId = await _postService.createPost(
         userId: userId,
         username: username,
+        userIconUrl: userIconUrl,
         trackData: trackData,
         photoUrl: photoUrl,
         selectedLayoutIndex: _selectedLayoutIndex,

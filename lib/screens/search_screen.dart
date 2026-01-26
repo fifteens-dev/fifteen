@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_service.dart';
 import '../models/user_model.dart';
+import '../widgets/profile_widgets.dart';
 import 'other_user_profile_screen.dart';
 
 /// 検索画面
@@ -296,26 +297,10 @@ class _SearchScreenState extends State<SearchScreen> {
                 color: Colors.grey[800],
               ),
               child: ClipOval(
-                child: user.profileImageUrl != null &&
-                        user.profileImageUrl!.isNotEmpty
-                    ? Image.network(
-                        user.profileImageUrl!,
-                        width: 48,
-                        height: 48,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Icon(
-                            Icons.person,
-                            size: 24,
-                            color: Colors.grey[600],
-                          );
-                        },
-                      )
-                    : Icon(
-                        Icons.person,
-                        size: 24,
-                        color: Colors.grey[600],
-                      ),
+                child: ProfileImage(
+                  imageUrl: user.profileImageUrl,
+                  size: 48,
+                ),
               ),
             ),
             const SizedBox(width: 12),

@@ -1,15 +1,28 @@
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import '../models/track_model.dart';
 import '../models/post_theme.dart';
 import '../services/spotify_service.dart';
 import '../utils/color_extractor.dart';
+import '../constants/emotion_tags.dart';
 
 /// テスト用データをFirestoreにセットアップするユーティリティ
 class SetupTestData {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final SpotifyService _spotifyService = SpotifyService();
+
+  // ダミーユーザーの定数
+  static const List<String> dummyUserIds = [
+    'dummy_user_sana',
+    'dummy_user_mina',
+    'dummy_user_momo',
+  ];
+
+  static const Map<String, String> dummyUserProfileImages = {
+    'dummy_user_sana': 'assets/profile_images/sana.png',
+    'dummy_user_mina': 'assets/profile_images/mina.png',
+    'dummy_user_momo': 'assets/profile_images/momo.png',
+  };
 
   /// テスト用招待コードを作成
   Future<void> createTestInviteCodes() async {
@@ -141,7 +154,7 @@ class SetupTestData {
           'username': 'm.by__sana',
           'name': '사나 Sana',
           'bio': '🩶',
-          'profileImageUrl': null,
+          'profileImageUrl': 'assets/profile_images/sana.png',
           'followers': <String>[],
           'following': <String>[],
           'postsCount': 0,
@@ -154,7 +167,7 @@ class SetupTestData {
           'username': 'mina.myoi',
           'name': 'Mina Myoui',
           'bio': '🐧 TWICE',
-          'profileImageUrl': null,
+          'profileImageUrl': 'assets/profile_images/mina.png',
           'followers': <String>[],
           'following': <String>[],
           'postsCount': 0,
@@ -167,7 +180,7 @@ class SetupTestData {
           'username': 'momo.hirai',
           'name': 'Momo Hirai',
           'bio': '🍑 ダンス大好き',
-          'profileImageUrl': null,
+          'profileImageUrl': 'assets/profile_images/momo.png',
           'followers': <String>[],
           'following': <String>[],
           'postsCount': 0,
@@ -194,6 +207,69 @@ class SetupTestData {
     }
   }
 
+  /// 今日のVibeトピックを取得または作成
+  Future<Map<String, String>> getOrCreateTodayVibeTopic() async {
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final tomorrow = today.add(const Duration(days: 1));
+
+      // 既存のアクティブなトピックを検索（dateフィルタはクライアント側で実行）
+      final existingTopics = await _firestore
+          .collection('vibeTopics')
+          .where('status', isEqualTo: 'active')
+          .get();
+
+      // クライアント側で今日の日付にフィルタリング
+      final todayTopics = existingTopics.docs.where((doc) {
+        final data = doc.data();
+        final date = (data['date'] as Timestamp?)?.toDate();
+        if (date == null) return false;
+
+        final normalizedDate = DateTime(date.year, date.month, date.day);
+        return normalizedDate.isAtSameMomentAs(today);
+      }).toList();
+
+      if (todayTopics.isNotEmpty) {
+        // 既存のトピックを使用
+        final doc = todayTopics.first;
+        final data = doc.data();
+        final topicId = doc.id;
+        final title = data['title'] as String? ?? 'ドライブで聴きたい曲';
+
+        if (kDebugMode) {
+          print('✅ Using existing Vibe topic: $title (ID: $topicId)');
+        }
+
+        return {'id': topicId, 'title': title};
+      }
+
+      // 既存のトピックがない場合は新規作成
+      const topicId = 'test_vibe_drive';
+      const title = 'ドライブで聴きたい曲';
+
+      await _firestore.collection('vibeTopics').doc(topicId).set({
+        'title': title,
+        'date': Timestamp.fromDate(today),
+        'status': 'active',
+        'voteCount': 0,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (kDebugMode) {
+        print('✅ Created new Vibe topic: $title (ID: $topicId)');
+      }
+
+      return {'id': topicId, 'title': title};
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error getting or creating Vibe topic: $e');
+      }
+      rethrow;
+    }
+  }
+
   /// Spotifyから楽曲を検索してダミーユーザーの投稿を作成
   Future<void> createDummyUserPosts() async {
     try {
@@ -201,10 +277,15 @@ class SetupTestData {
         print('🎵 Searching for tracks on Spotify...');
       }
 
+      // 今日のVibeトピックを取得または作成
+      final vibeTopicData = await getOrCreateTodayVibeTopic();
+      final vibeTopicId = vibeTopicData['id']!;
+      final vibeTopicTitle = vibeTopicData['title']!;
+
       // 既存のダミーユーザーの投稿を削除（重複を防ぐ）
       final existingPosts = await _firestore
           .collection('posts')
-          .where('userId', whereIn: ['dummy_user_sana', 'dummy_user_mina', 'dummy_user_momo'])
+          .where('userId', whereIn: dummyUserIds)
           .get();
 
       for (final doc in existingPosts.docs) {
@@ -221,6 +302,7 @@ class SetupTestData {
         {
           'userId': 'dummy_user_sana',
           'username': 'm.by__sana',
+          'userIconUrl': 'assets/profile_images/sana.png',
           'queries': [
             'Lemon 米津玄師',
             'Candy Pop TWICE',
@@ -238,6 +320,7 @@ class SetupTestData {
         {
           'userId': 'dummy_user_mina',
           'username': 'mina.myoi',
+          'userIconUrl': 'assets/profile_images/mina.png',
           'queries': [
             'アイドル YOASOBI',
             '残酷な天使のテーゼ 高橋洋子',
@@ -255,6 +338,7 @@ class SetupTestData {
         {
           'userId': 'dummy_user_momo',
           'username': 'momo.hirai',
+          'userIconUrl': 'assets/profile_images/momo.png',
           'queries': [
             'きらり 藤井風',
             'Subtitle Official髭男dism',
@@ -275,8 +359,17 @@ class SetupTestData {
       for (final userData in userPosts) {
         final userId = userData['userId'] as String;
         final username = userData['username'] as String;
+        final userIconUrl = userData['userIconUrl'] as String;
         final queries = userData['queries'] as List<String>;
         final photoUrls = userData['photoUrls'] as List<String>;
+
+        // この投稿者以外のユーザーIDを取得（保存したユーザーとして設定）
+        final savedByUserIds = dummyUserIds.where((id) => id != userId).toList();
+
+        // 保存したユーザーのアイコンURLを取得
+        final savedByUserIconUrls = savedByUserIds
+            .map((id) => dummyUserProfileImages[id]!)
+            .toList();
 
         int userPostCount = 0;
 
@@ -323,25 +416,68 @@ class SetupTestData {
                 }
               }
 
+              // 歌詞カードのレイアウトと位置をランダムに設定
+              final selectedLayoutIndex = i % 5; // 0-4のレイアウトを順番に
+              final cardPositionX = 50.0 + (i * 20.0); // 位置を少しずつずらす
+              final cardPositionY = 100.0 + (i * 15.0);
+              final cardScale = 1.0;
+              final cardRotation = 0.0;
+
+              // ランダムにVibeまたは感情を割り当て（50%の確率で各カテゴリー）
+              final random = Random();
+              final isVibe = random.nextBool();
+              final String? postVibeTopicTitle;
+              final String? emotionTag;
+              final DateTime? vibeDate;
+
+              if (isVibe) {
+                // テスト用のVibeは全て今日のVibeトピックを使用
+                postVibeTopicTitle = vibeTopicTitle;
+                emotionTag = null;
+                vibeDate = DateTime(
+                  createdAt.toDate().year,
+                  createdAt.toDate().month,
+                  createdAt.toDate().day,
+                );
+              } else {
+                // 感情タグをランダムに選択
+                postVibeTopicTitle = null;
+                emotionTag = EmotionTags.tags[random.nextInt(EmotionTags.tags.length)];
+                vibeDate = null;
+              }
+
               await _firestore.collection('posts').add({
                 'userId': userId,
                 'username': username,
-                'userIconUrl': null,
+                'userIconUrl': userIconUrl,
                 'track': track.toMap(),
                 'likeCount': (i + 1) * 7 + (userPostCount * 3),
                 'commentCount': (i + 1) + userPostCount,
                 'likedUserIds': <String>[],
+                'savedByUserIds': savedByUserIds, // 他の2人のダミーユーザーが保存
+                'savedByUserIconUrls': savedByUserIconUrls, // 保存したユーザーのアイコンURL
                 'createdAt': createdAt,
                 'updatedAt': createdAt,
                 'theme': extractedTheme?.toMap() ?? PostTheme.defaultTheme.toMap(),
                 'photoUrl': photoUrls[i], // 画像パスを追加
+                'selectedLayoutIndex': selectedLayoutIndex,
+                'cardPositionX': cardPositionX,
+                'cardPositionY': cardPositionY,
+                'cardScale': cardScale,
+                'cardRotation': cardRotation,
+                'isVibe': isVibe,
+                'vibeTopicId': isVibe ? vibeTopicId : null,
+                'vibeTopicTitle': postVibeTopicTitle,
+                'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
+                'emotionTag': emotionTag,
               });
 
               userPostCount++;
               totalCreated++;
 
               if (kDebugMode) {
-                print('✅ [$username] ${track.trackName} by ${track.artistName} (photo: ${photoUrls[i]})');
+                final categoryInfo = isVibe ? 'Vibe: $postVibeTopicTitle' : 'Emotion: $emotionTag';
+                print('✅ [$username] ${track.trackName} by ${track.artistName} ($categoryInfo)');
               }
             }
           } catch (e) {

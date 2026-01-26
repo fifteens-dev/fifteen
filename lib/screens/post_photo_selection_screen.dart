@@ -266,17 +266,23 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
   Widget _buildPreviewImage() {
     return Container(
       width: 363,
-      height: 485,
+      height: 484,
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         border: Border.all(
           color: Colors.white,
-          width: 1.5,
+          width: 0.5,
         ),
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(18),
+          topRight: Radius.circular(18),
+        ),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(18),
+          topRight: Radius.circular(18),
+        ),
         child: _selectedImage != null
             ? kIsWeb
                 ? Image.network(

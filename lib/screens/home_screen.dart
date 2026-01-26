@@ -20,6 +20,7 @@ import 'profile_screen.dart';
 import 'activity_screen.dart';
 import 'notification_list_screen.dart';
 import 'vibe_topic_voting_screen.dart';
+import 'vibe_track_posts_screen.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -439,88 +440,91 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// ランキングアイテム
   Widget _buildRankingItem(VibeRankingItem item, int rank) {
-    return Container(
-      width: 80,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      child: Column(
-        children: [
-          // ランク番号（円形バッジ）
-          Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: _getRankColor(rank),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                '$rank',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+    return GestureDetector(
+      onTap: () => _handleRankingItemTap(item),
+      child: Container(
+        width: 80,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        child: Column(
+          children: [
+            // ランク番号（円形バッジ）
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: _getRankColor(rank),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  '$rank',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 4),
+            const SizedBox(height: 4),
 
-          // アルバムアートワーク
-          Container(
-            width: 70,
-            height: 70,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: Image.network(
-                item.track.albumImageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.grey[800],
-                    child: const Icon(Icons.album, color: Colors.white54),
-                  );
-                },
+            // アルバムアートワーク
+            Container(
+              width: 70,
+              height: 70,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Image.network(
+                  item.track.albumImageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[800],
+                      child: const Icon(Icons.album, color: Colors.white54),
+                    );
+                  },
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 4),
+            const SizedBox(height: 4),
 
-          // 楽曲名
-          Text(
-            item.track.trackName,
-            style: const TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
+            // 楽曲名
+            Text(
+              item.track.trackName,
+              style: const TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-          // アーティスト名
-          Text(
-            item.track.artistName,
-            style: TextStyle(
-              fontSize: 7,
-              color: Colors.white.withOpacity(0.7),
+            // アーティスト名
+            Text(
+              item.track.artistName,
+              style: TextStyle(
+                fontSize: 7,
+                color: Colors.white.withOpacity(0.7),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
 
-          // 投稿数
-          Text(
-            '${item.postCount}投稿',
-            style: const TextStyle(
-              fontSize: 7,
-              color: Color(0xFF5D8FFF),
+            // 投稿数
+            Text(
+              '${item.postCount}投稿',
+              style: const TextStyle(
+                fontSize: 7,
+                color: Color(0xFF5D8FFF),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -536,6 +540,59 @@ class _HomeScreenState extends State<HomeScreen>
         return const Color(0xFFCD7F32); // ブロンズ
       default:
         return const Color(0xFF5D8FFF); // デフォルト
+    }
+  }
+
+  /// ランキングアイテムがタップされたときの処理
+  Future<void> _handleRankingItemTap(VibeRankingItem item) async {
+    try {
+      // 今日のお題を取得
+      final topic = await _vibeTopicService.getTodaysTopic();
+      if (topic == null) {
+        _showMessage('お題が見つかりませんでした');
+        return;
+      }
+
+      // そのお題の全投稿を取得
+      final allPosts = await _postService.getVibePostsByTopic(
+        topic.topicId,
+        DateTime.now(),
+      );
+
+      // タップされたトラックに一致する投稿のみをフィルタ
+      final trackKey = item.track.trackId.isNotEmpty
+          ? item.track.trackId
+          : '${item.track.trackName}_${item.track.artistName}';
+
+      final matchingPosts = allPosts.where((post) {
+        final postTrackKey = post.track.trackId.isNotEmpty
+            ? post.track.trackId
+            : '${post.track.trackName}_${post.track.artistName}';
+        return postTrackKey == trackKey;
+      }).toList();
+
+      if (matchingPosts.isEmpty) {
+        _showMessage('投稿が見つかりませんでした');
+        return;
+      }
+
+      // ホーム画面の音楽を停止
+      _homeAudioService.stop();
+
+      // 投稿一覧画面に遷移
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => VibeTrackPostsScreen(
+            track: item.track,
+            posts: matchingPosts,
+            currentUserId: _auth.currentUser?.uid ?? 'test_user_temp',
+          ),
+        ),
+      );
+    } catch (e) {
+      print('Error handling ranking item tap: $e');
+      _showMessage('投稿の読み込みに失敗しました');
     }
   }
 

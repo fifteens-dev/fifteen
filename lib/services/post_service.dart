@@ -29,6 +29,8 @@ class PostService {
     double cardRotation = 0.0,
     bool isVibe = false,
     String? vibeTopicId,
+    String? vibeTopicTitle,
+    String? emotionTag,
     PostTheme? theme, // アルバムアートから抽出した色テーマ
   }) async {
     try {
@@ -58,7 +60,9 @@ class PostService {
         'cardRotation': cardRotation,
         'isVibe': isVibe,
         'vibeTopicId': vibeTopicId,
+        'vibeTopicTitle': vibeTopicTitle,
         'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
+        'emotionTag': emotionTag,
         'theme': theme != null ? theme.toMap() : null, // 抽出した色テーマを保存
       };
 
@@ -145,6 +149,33 @@ class PostService {
     } catch (e) {
       if (kDebugMode) {
         print('Error getting posts by userId: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 特定のユーザーが保存した投稿を取得
+  Future<List<PostModel>> getPostsSavedByUser(String userId, {int limit = 50}) async {
+    try {
+      // arrayContainsとorderByの組み合わせは複合インデックスが必要なため
+      // クライアント側でソートする
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('savedByUserIds', arrayContains: userId)
+          .limit(limit)
+          .get();
+
+      // クライアント側でソート
+      final posts = snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+
+      posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      return posts;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting saved posts by userId: $e');
       }
       return [];
     }

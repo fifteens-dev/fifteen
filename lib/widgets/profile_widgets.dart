@@ -7,6 +7,61 @@ import '../screens/post_detail_screen.dart';
 
 /// プロフィール画面で使用する共通ウィジェット
 
+/// プロフィール画像を表示（アセット画像とネットワーク画像の両方に対応）
+class ProfileImage extends StatelessWidget {
+  final String? imageUrl;
+  final double size;
+
+  const ProfileImage({
+    super.key,
+    this.imageUrl,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (imageUrl == null || imageUrl!.isEmpty) {
+      // 画像URLがない場合はデフォルトアイコン
+      return Icon(
+        Icons.person,
+        size: size * 0.6,
+        color: Colors.grey[600],
+      );
+    }
+
+    // アセット画像かネットワーク画像かを判定
+    if (imageUrl!.startsWith('assets/')) {
+      return Image.asset(
+        imageUrl!,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Icon(
+            Icons.person,
+            size: size * 0.6,
+            color: Colors.grey[600],
+          );
+        },
+      );
+    } else {
+      return Image.network(
+        imageUrl!,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Icon(
+            Icons.person,
+            size: size * 0.6,
+            color: Colors.grey[600],
+          );
+        },
+      );
+    }
+  }
+}
+
 /// 統計アイテム（Tracks, Followers, Following）
 class ProfileStatItem extends StatelessWidget {
   final String count;

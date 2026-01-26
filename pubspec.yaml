@@ -108,6 +108,9 @@ flutter:
     - assets/images/dummy_photo_10.jpg
     - assets/images/dummy_photo_11.jpg
     - assets/images/dummy_photo_12.jpg
+    - assets/profile_images/sana.png
+    - assets/profile_images/mina.png
+    - assets/profile_images/momo.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

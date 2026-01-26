@@ -124,6 +124,13 @@ class _LyricsCardSelectionScreenState
             // ヘッダー
             _buildHeader(),
 
+            const SizedBox(height: 10),
+
+            // 回転ボタン（写真の上）
+            _buildRotationButtons(),
+
+            const SizedBox(height: 10),
+
             // メインコンテンツ
             Expanded(
               child: Stack(
@@ -134,8 +141,10 @@ class _LyricsCardSelectionScreenState
               ),
             ),
 
+            const SizedBox(height: 10),
+
             // 下部のレイアウト選択ツールバー
-            _buildLayoutSelector(),
+            _buildLayoutOptions(),
 
             const SizedBox(height: 20),
           ],
@@ -181,76 +190,50 @@ class _LyricsCardSelectionScreenState
 
   /// 背景の投稿カードプレビュー
   Widget _buildBackgroundPreview() {
+    const photoHeight = 484.0;
+
     return Center(
       child: Container(
         width: 363,
-        height: 644,
-        margin: const EdgeInsets.symmetric(vertical: 40),
-        child: Container(
-          height: 484,
-          decoration: const BoxDecoration(
-            color: Color(0xFF121212),
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(18),
-              topRight: Radius.circular(18),
-            ),
+        height: photoHeight,
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212),
+          border: Border.all(color: Colors.white, width: 0.5),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(18),
+            topRight: Radius.circular(18),
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(18),
+            topRight: Radius.circular(18),
           ),
           child: Stack(
             children: [
-              // 白い枠
-              Positioned(
-                left: 7,
-                top: 9,
-                right: 7,
-                bottom: 17,
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Colors.white,
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: Stack(
-                      children: [
-                        // 選択された写真を表示
-                        if (widget.selectedImage != null)
-                          Positioned.fill(
-                            child: kIsWeb
-                                ? Image.network(
-                                    widget.selectedImage!.path,
-                                    fit: BoxFit.cover,
-                                  )
-                                : Image.file(
-                                    File(widget.selectedImage!.path),
-                                    fit: BoxFit.cover,
-                                  ),
-                          )
-                        else
-                          // 写真が選択されていない場合
-                          Container(
-                            color: const Color(0xFF121212),
-                          ),
-
-                        // 暗いオーバーレイ
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.3),
-                            borderRadius: BorderRadius.circular(18),
-                          ),
+              // 選択された写真を表示
+              if (widget.selectedImage != null)
+                Positioned.fill(
+                  child: kIsWeb
+                      ? Image.network(
+                          widget.selectedImage!.path,
+                          fit: BoxFit.cover,
+                        )
+                      : Image.file(
+                          File(widget.selectedImage!.path),
+                          fit: BoxFit.cover,
                         ),
-
-                        // 歌詞カードプレビュー
-                        _buildLyricsCard(),
-                      ],
-                    ),
-                  ),
+                )
+              else
+                // 写真が選択されていない場合
+                Container(
+                  color: const Color(0xFF121212),
                 ),
-              ),
 
-              // ユーザー情報
+              // 歌詞カードプレビュー
+              _buildLyricsCard(),
+
+              // ユーザー情報（左上）
               Positioned(
                 left: 15,
                 top: 15,
@@ -766,62 +749,62 @@ class _LyricsCardSelectionScreenState
       );
   }
 
-  /// レイアウト選択ツールバー
-  Widget _buildLayoutSelector() {
+  /// 回転ボタン
+  Widget _buildRotationButtons() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // 左回転ボタン
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _cardRotation -= 0.261799; // -15度（ラジアン）
+            });
+          },
+          child: Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.rotate_left,
+              color: Colors.white,
+              size: 30,
+            ),
+          ),
+        ),
+        const SizedBox(width: 20),
+        // 右回転ボタン
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _cardRotation += 0.261799; // +15度（ラジアン）
+            });
+          },
+          child: Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.rotate_right,
+              color: Colors.white,
+              size: 30,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// レイアウト選択オプション
+  Widget _buildLayoutOptions() {
     return Column(
       children: [
-        // 回転ボタン
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 左回転ボタン
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _cardRotation -= 0.261799; // -15度（ラジアン）
-                });
-              },
-              child: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.rotate_left,
-                  color: Colors.white,
-                  size: 30,
-                ),
-              ),
-            ),
-            const SizedBox(width: 20),
-            // 右回転ボタン
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _cardRotation += 0.261799; // +15度（ラジアン）
-                });
-              },
-              child: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.rotate_right,
-                  color: Colors.white,
-                  size: 30,
-                ),
-              ),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 20),
-
         // レイアウトオプション
         Row(
           mainAxisAlignment: MainAxisAlignment.center,

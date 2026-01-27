@@ -89,8 +89,8 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen> {
           });
 
           if (existingUser != null) {
-            // 既存ユーザー - メイン画面へ（今は招待コード画面へ）
-            Navigator.pushReplacementNamed(context, '/invite-code');
+            // 既存ユーザー - ホーム画面へ直接遷移
+            Navigator.pushReplacementNamed(context, '/home');
           } else {
             // 新規ユーザー - 基本情報をFirestoreに作成
             await _userService.createUser(

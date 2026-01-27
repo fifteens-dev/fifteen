@@ -127,21 +127,22 @@ class PostCardBackInfo extends StatelessWidget {
             ),
           ),
 
-          // ユーザーアバター（右側）
-          Positioned(
-            right: cardWidth * (12 / 363),
-            bottom: cardHeight * (80 / 644),
-            child: Row(
-              children: [
-                // いいねした人のアバター（3人分）
-                _buildAvatar(),
-                SizedBox(width: cardWidth * (1 / 363)),
-                _buildAvatar(),
-                SizedBox(width: cardWidth * (1 / 363)),
-                _buildAvatar(),
-              ],
+          // ユーザーアバター（右側）- プレビューモードでは非表示
+          if (showCounts)
+            Positioned(
+              right: cardWidth * (12 / 363),
+              bottom: cardHeight * (80 / 644),
+              child: Row(
+                children: [
+                  // いいねした人のアバター（3人分）
+                  _buildAvatar(),
+                  SizedBox(width: cardWidth * (1 / 363)),
+                  _buildAvatar(),
+                  SizedBox(width: cardWidth * (1 / 363)),
+                  _buildAvatar(),
+                ],
+              ),
             ),
-          ),
 
           // コメントボタン
           Positioned(

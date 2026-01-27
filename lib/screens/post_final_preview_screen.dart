@@ -517,43 +517,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
           ),
 
           const Spacer(),
-
-          // いいねした人のアバター
-          _buildLikeAvatars(),
         ],
-      ),
-    );
-  }
-
-  /// いいねした人のアバター
-  Widget _buildLikeAvatars() {
-    return Row(
-      children: [
-        _buildAvatar(0),
-        Transform.translate(
-          offset: const Offset(-5, 0),
-          child: _buildAvatar(1),
-        ),
-        Transform.translate(
-          offset: const Offset(-10, 0),
-          child: _buildAvatar(2),
-        ),
-      ],
-    );
-  }
-
-  /// アバター
-  Widget _buildAvatar(int index) {
-    return Container(
-      width: 25,
-      height: 25,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: const Color(0xFF9F9F9F),
-        border: Border.all(
-          color: const Color(0xFF030303),
-          width: 1,
-        ),
       ),
     );
   }

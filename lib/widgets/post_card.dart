@@ -950,8 +950,8 @@ class _PostCardState extends State<PostCard>
           children: [
             // プロフィールアイコン
             Container(
-              width: 40,
-              height: 40,
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.grey[400],
@@ -959,7 +959,7 @@ class _PostCardState extends State<PostCard>
               child: ClipOval(
                 child: ProfileImage(
                   imageUrl: widget.post.userIconUrl,
-                  size: 40,
+                  size: 32,
                 ),
               ),
             ),
@@ -975,7 +975,7 @@ class _PostCardState extends State<PostCard>
                   Text(
                     widget.post.username,
                     style: const TextStyle(
-                      fontSize: 15,
+                      fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
                     ),
@@ -987,7 +987,7 @@ class _PostCardState extends State<PostCard>
                     Text(
                       displayText,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 8,
                         color: Colors.white,
                       ),
                       maxLines: 2,

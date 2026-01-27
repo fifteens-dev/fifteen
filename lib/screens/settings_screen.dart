@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_service.dart';
+import '../services/admin_service.dart';
 import '../models/user_model.dart';
 import 'account_edit_screen.dart';
 import 'notification_settings_screen.dart';
@@ -9,7 +10,7 @@ import 'help_screen.dart';
 import 'login_info_screen.dart';
 import 'invitation_screen.dart';
 import 'basic_info_screen.dart';
-import 'cloud_functions_test_screen.dart';
+import 'admin/admin_screen.dart';
 
 /// 設定画面
 class SettingsScreen extends StatefulWidget {
@@ -21,8 +22,10 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final UserService _userService = UserService();
+  final AdminService _adminService = AdminService();
   UserModel? _userData;
   bool _isLoading = true;
+  bool _isAdmin = false;
 
   @override
   void initState() {
@@ -43,9 +46,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       final userData = await _userService.getUser(currentUser.uid);
+      final isAdmin = await _adminService.isCurrentUserAdmin();
       if (mounted) {
         setState(() {
           _userData = userData;
+          _isAdmin = isAdmin;
           _isLoading = false;
         });
       }
@@ -181,25 +186,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ]),
 
-                      const SizedBox(height: 24),
-
-                      // 開発者向け
-                      _buildSectionLabel('開発者向け'),
-                      const SizedBox(height: 8),
-                      _buildSettingsCard([
-                        _SettingsItem(
-                          icon: Icons.code_outlined,
-                          title: 'Cloud Functions テスト',
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (context) =>
-                                      const CloudFunctionsTestScreen()),
-                            );
-                          },
-                        ),
-                      ]),
+                      // 管理者向け（管理者のみ表示）
+                      if (_isAdmin) ...[
+                        const SizedBox(height: 24),
+                        _buildSectionLabel('管理者'),
+                        const SizedBox(height: 8),
+                        _buildSettingsCard([
+                          _SettingsItem(
+                            icon: Icons.admin_panel_settings,
+                            title: '管理者パネル',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (context) =>
+                                        const AdminScreen()),
+                              );
+                            },
+                          ),
+                        ]),
+                      ],
 
                       const SizedBox(height: 24),
 

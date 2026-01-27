@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/phone_input_field.dart';
 import '../widgets/primary_button.dart';
 import '../services/auth_service.dart';
+import '../services/user_service.dart';
 
 /// 電話番号認証画面
 class PhoneAuthScreen extends StatefulWidget {
@@ -17,6 +19,7 @@ class PhoneAuthScreen extends StatefulWidget {
 class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
   final TextEditingController _phoneController = TextEditingController();
   final AuthService _authService = AuthService();
+  final UserService _userService = UserService();
   bool _isLoading = false;
   String _countryCode = '+81';
 
@@ -101,11 +104,33 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
         onAutoVerify: (credential) async {
           // 自動認証成功（Android）
           if (mounted) {
-            setState(() {
-              _isLoading = false;
-            });
-            // 招待コード画面へ遷移
-            Navigator.pushReplacementNamed(context, '/invite-code');
+            // 現在のユーザーを取得
+            final currentUser = FirebaseAuth.instance.currentUser;
+            if (currentUser != null) {
+              // 既存ユーザーかチェック
+              final existingUser = await _userService.getUser(currentUser.uid);
+
+              setState(() {
+                _isLoading = false;
+              });
+
+              if (existingUser != null) {
+                // 既存ユーザー - ホーム画面へ直接遷移
+                Navigator.pushReplacementNamed(context, '/home');
+              } else {
+                // 新規ユーザー - ユーザー情報を作成して招待コード画面へ
+                await _userService.createUser(
+                  uid: currentUser.uid,
+                  phoneNumber: fullPhoneNumber,
+                );
+                Navigator.pushReplacementNamed(context, '/invite-code');
+              }
+            } else {
+              setState(() {
+                _isLoading = false;
+              });
+              Navigator.pushReplacementNamed(context, '/invite-code');
+            }
           }
         },
       );

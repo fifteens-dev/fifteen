@@ -13,6 +13,7 @@ class UserModel {
   final int postsCount;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final bool isAdmin; // 管理者フラグ
 
   UserModel({
     required this.uid,
@@ -27,6 +28,7 @@ class UserModel {
     this.postsCount = 0,
     this.createdAt,
     this.updatedAt,
+    this.isAdmin = false,
   });
 
   // Firestoreドキュメントから作成
@@ -46,6 +48,7 @@ class UserModel {
       postsCount: data['postsCount'] ?? 0,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+      isAdmin: data['isAdmin'] ?? false,
     );
   }
 
@@ -64,6 +67,7 @@ class UserModel {
       'postsCount': postsCount,
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : null,
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'isAdmin': isAdmin,
     };
   }
 

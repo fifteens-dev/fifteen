@@ -339,6 +339,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             lyricsFuture: lyricsFuture, // Futureを渡す
             isVibe: _selectedCategoryType == 'vibe',
             vibeTopicId: _todaysTopic?.topicId,
+            vibeTopicTitle: _todaysTopic?.title,
             preExtractedGradientStart: gradientStart,
             preExtractedGradientEnd: gradientEnd,
           ),

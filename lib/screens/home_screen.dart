@@ -19,7 +19,6 @@ import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'activity_screen.dart';
 import 'notification_list_screen.dart';
-import 'vibe_topic_voting_screen.dart';
 import 'vibe_track_posts_screen.dart';
 
 /// ホーム画面（タイムライン）
@@ -414,25 +413,6 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
           ),
-          // 投票ボタン
-          GestureDetector(
-            onTap: () => _navigateToVoting(),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF5D8FFF),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                '明日のVibeに投票',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -594,16 +574,6 @@ class _HomeScreenState extends State<HomeScreen>
       print('Error handling ranking item tap: $e');
       _showMessage('投稿の読み込みに失敗しました');
     }
-  }
-
-  /// 投票画面へ遷移
-  void _navigateToVoting() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const VibeTopicVotingScreen(),
-      ),
-    );
   }
 
   /// Vibeバーのスケルトン（ローディング表示）

@@ -31,6 +31,7 @@ class PostPreviewScreen extends StatefulWidget {
   final Future<LyricsData?>? lyricsFuture; // バックグラウンド取得用
   final bool isVibe;
   final String? vibeTopicId;
+  final String? vibeTopicTitle; // Vibeお題のタイトル
   final Color? preExtractedGradientStart;
   final Color? preExtractedGradientEnd;
 
@@ -41,6 +42,7 @@ class PostPreviewScreen extends StatefulWidget {
     this.lyricsFuture,
     this.isVibe = false,
     this.vibeTopicId,
+    this.vibeTopicTitle,
     this.preExtractedGradientStart,
     this.preExtractedGradientEnd,
   });
@@ -82,11 +84,18 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   Color? _extractedGradientEnd;
   bool _isColorExtracting = false;
 
+  // 現在のユーザー情報
+  String _currentUsername = '';
+  String? _currentUserIconUrl;
+
   @override
   void initState() {
     super.initState();
     print('🎬 PostPreviewScreen initState()');
     print('  - track: ${widget.track.trackName} by ${widget.track.artistName}');
+
+    // 現在のユーザー情報を取得
+    _loadCurrentUserInfo();
 
     // 歌詞データの初期化
     _lyricsData = widget.lyricsData;
@@ -135,6 +144,24 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         _flipCard();
       }
     });
+  }
+
+  /// 現在のユーザー情報を取得
+  Future<void> _loadCurrentUserInfo() async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser != null) {
+        final userData = await _userService.getUser(currentUser.uid);
+        if (mounted) {
+          setState(() {
+            _currentUsername = userData?.username ?? currentUser.displayName ?? 'ユーザー';
+            _currentUserIconUrl = userData?.profileImageUrl;
+          });
+        }
+      }
+    } catch (e) {
+      print('❌ ユーザー情報取得エラー: $e');
+    }
   }
 
   /// 音楽のプレビューを再生
@@ -644,335 +671,6 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     );
   }
 
-  /// 投稿カード（表面）- Figmaデザインに基づく
-  Widget _buildFrontCard() {
-    return GestureDetector(
-      onTap: _flipCard, // カード全体をタップで反転
-      child: Container(
-        width: 363,
-        height: 644,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          color: const Color(0xFF030303),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Stack(
-            children: [
-              // アルバムカバー (333x363px, left: 15px, top: 0)
-              Positioned(
-                left: 15,
-                top: 0,
-                child: Container(
-                  width: 333,
-                  height: 363,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: widget.track.albumImageUrl.isNotEmpty
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(3),
-                          child: Image.network(
-                            widget.track.albumImageUrl,
-                            width: 333,
-                            height: 363,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return _buildAlbumPlaceholder();
-                            },
-                          ),
-                        )
-                      : _buildAlbumPlaceholder(),
-                ),
-              ),
-
-              // グラデーションオーバーレイ (top: 350px, height: 294px)
-              Positioned(
-                left: 0,
-                top: 350,
-                width: 363,
-                height: 294,
-                child: Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Color(0x00030303),
-                        Color(0xFF030303),
-                      ],
-                      stops: [0.0377, 1.0],
-                    ),
-                  ),
-                ),
-              ),
-
-              // コンテンツ (グラデーション内)
-              // "Provided courtesy of Apple Music" (top: 362px = 350 + 12)
-              const Positioned(
-                left: 17,
-                top: 362,
-                child: Text(
-                  'Provided courtesy of Apple Music',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Color(0xFFB0B0B0),
-                    fontFamily: 'Noto Sans',
-                  ),
-                ),
-              ),
-
-              // コメント入力欄 (top: 390px = 350 + 40)
-              Positioned(
-                left: 12,
-                top: 390,
-                child: _buildCommentInputFront(),
-              ),
-
-              // 波形 (top: 446px = 350 + 96)
-              Positioned(
-                left: 20,
-                top: 446,
-                child: _buildWaveformFront(),
-              ),
-
-              // リアクション (top: 491px = 350 + 141)
-              Positioned(
-                left: 11,
-                top: 491,
-                child: _buildReactionsFront(),
-              ),
-
-              // いいねした人のアバター (top: 491px = 350 + 141)
-              Positioned(
-                left: 296,
-                top: 491,
-                child: _buildLikedAvatarsFront(),
-              ),
-
-              // 曲名とアーティスト (top: 526px = 350 + 176)
-              Positioned(
-                left: 11,
-                top: 526,
-                width: 194,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.track.trackName,
-                      style: const TextStyle(
-                        fontSize: 25,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        height: 1.198,
-                        fontFamily: 'Noto Sans JP',
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.track.artistName,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.white,
-                        height: 2.0,
-                        fontFamily: 'Noto Sans',
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-
-              // ユーザー情報 (top: 588px = 350 + 238)
-              Positioned(
-                left: 12,
-                top: 588,
-                child: Row(
-                  children: [
-                    // アイコン
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xFF9F9F9F),
-                      ),
-                      child: const Icon(
-                        Icons.person,
-                        size: 20,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 9),
-                    // ユーザー名
-                    const Text(
-                      'taroooooda',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                        fontFamily: 'Noto Sans',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// コメント入力欄 (表面用)
-  Widget _buildCommentInputFront() {
-    return Container(
-      width: 338,
-      height: 43,
-      decoration: BoxDecoration(
-        color: const Color(0xFF313131),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 12),
-          const Text(
-            'コメントする',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Colors.white,
-              fontFamily: 'Noto Sans',
-            ),
-          ),
-          const Spacer(),
-          Icon(
-            Icons.send,
-            size: 20,
-            color: Colors.white.withOpacity(0.7),
-          ),
-          const SizedBox(width: 12),
-        ],
-      ),
-    );
-  }
-
-  /// 波形 (表面用) - PostCardの実装を再利用
-  Widget _buildWaveformFront() {
-    // ダミーのpostIdを使用して波形を生成
-    final seed = widget.track.trackId.hashCode;
-    final random = Random(seed);
-    const barWidth = 2.5;
-    const barMargin = 1.2 * 2;
-    const totalBarWidth = barWidth + barMargin;
-    const availableWidth = 327.0;
-    final barCount = (availableWidth / totalBarWidth).floor();
-
-    return SizedBox(
-      width: 327,
-      height: 32,
-      child: Row(
-        children: List.generate(barCount, (index) {
-          final normalizedIndex = index / (barCount - 1).toDouble();
-          final angle = -pi / 4 + normalizedIndex * 1.5 * pi;
-          final waveValue = sin(angle).abs();
-          final baseHeight = 0.3 + waveValue * 0.7;
-          final randomVariation = (random.nextDouble() - 0.5) * 6;
-          final height = 15.0 + (baseHeight * 17.0) + randomVariation;
-
-          return Container(
-            width: barWidth,
-            height: height.clamp(10.0, 32.0),
-            margin: const EdgeInsets.symmetric(horizontal: 1.2),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-
-  /// リアクション (表面用) - プレビューではカウント非表示
-  Widget _buildReactionsFront() {
-    return Row(
-      children: [
-        // いいね（カウント非表示）
-        Icon(
-          Icons.favorite_border,
-          size: 25,
-          color: Colors.white,
-        ),
-        const SizedBox(width: 12),
-        // コメント（カウント非表示）
-        SvgPicture.asset(
-          'assets/icons/message_circle.svg',
-          width: 25,
-          height: 25,
-          colorFilter: const ColorFilter.mode(
-            Colors.white,
-            BlendMode.srcIn,
-          ),
-        ),
-        const SizedBox(width: 12),
-        // 追加ボタン
-        Container(
-          width: 23,
-          height: 23,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 1),
-          ),
-          child: const Icon(
-            Icons.add,
-            color: Colors.white,
-            size: 14,
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// いいねした人のアバター (表面用)
-  Widget _buildLikedAvatarsFront() {
-    return Row(
-      children: List.generate(3, (index) {
-        return Container(
-          width: 25,
-          height: 25,
-          margin: EdgeInsets.only(left: index > 0 ? 4 : 0),
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: Color(0xFF9F9F9F),
-          ),
-          child: const Icon(
-            Icons.person,
-            size: 14,
-            color: Colors.white,
-          ),
-        );
-      }),
-    );
-  }
-
-  /// アルバムプレースホルダー
-  Widget _buildAlbumPlaceholder() {
-    return Container(
-      color: Colors.grey[800],
-      child: const Center(
-        child: Icon(
-          Icons.album,
-          size: 120,
-          color: Colors.white54,
-        ),
-      ),
-    );
-  }
-
   /// 投稿カード（裏面） - Figmaデザインに基づく
   Widget _buildBackCard() {
     const cardHeight = 644.0;
@@ -1126,6 +824,11 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   /// ユーザー情報（裏面）
   Widget _buildUserInfoBack() {
+    // Vibeお題のタイトルを取得（Vibeでなければnull）
+    final hashtagText = widget.isVibe && widget.vibeTopicTitle != null
+        ? '#${widget.vibeTopicTitle}'
+        : null;
+
     return Row(
       children: [
         // アバター
@@ -1136,20 +839,32 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
             shape: BoxShape.circle,
             color: Color(0xFF9F9F9F),
           ),
-          child: const Icon(
-            Icons.person,
-            size: 18,
-            color: Colors.white,
-          ),
+          child: _currentUserIconUrl != null
+              ? ClipOval(
+                  child: Image.network(
+                    _currentUserIconUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => const Icon(
+                      Icons.person,
+                      size: 18,
+                      color: Colors.white,
+                    ),
+                  ),
+                )
+              : const Icon(
+                  Icons.person,
+                  size: 18,
+                  color: Colors.white,
+                ),
         ),
         const SizedBox(width: 9),
         // ユーザー名とハッシュタグ
-        const Column(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'taroooooda',
-              style: TextStyle(
+              _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
+              style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: Colors.white,
@@ -1157,16 +872,19 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                 letterSpacing: -0.12,
               ),
             ),
-            SizedBox(height: 2),
-            Text(
-              '#盛り上がる一曲は？',
-              style: TextStyle(
-                fontSize: 8,
-                color: Colors.white,
-                fontFamily: 'Noto Sans',
-                letterSpacing: -0.08,
+            // Vibeの場合のみハッシュタグを表示
+            if (hashtagText != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                hashtagText,
+                style: const TextStyle(
+                  fontSize: 8,
+                  color: Colors.white,
+                  fontFamily: 'Noto Sans',
+                  letterSpacing: -0.08,
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ],

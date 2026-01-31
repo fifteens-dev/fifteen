@@ -18,6 +18,7 @@ import 'comment_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'activity_screen.dart';
+import 'music_selection_screen.dart';
 import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
 
@@ -200,37 +201,60 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ボトムナビゲーションのタップ処理
   void _onItemTapped(int index) {
+    if (index == 0) {
+      // ホーム（現在の画面）- 選択状態を更新するだけ
+      setState(() {
+        _selectedIndex = 0;
+      });
+      return;
+    }
+
     setState(() {
       _selectedIndex = index;
     });
 
     switch (index) {
-      case 0:
-        // ホーム（現在の画面）
-        break;
       case 1:
         // 検索画面へ遷移
-        // ホーム画面の音楽を停止
         _homeAudioService.stop();
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const SearchScreen()),
-        );
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const SearchScreen(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        ).then((_) {
+          if (mounted) setState(() => _selectedIndex = 0);
+        });
         break;
       case 2:
         // 楽曲選択画面へ遷移
-        // ホーム画面の音楽を停止
-        _homeAudioService.stop();
-        Navigator.pushNamed(context, '/music-selection');
-        break;
-      case 3:
-        // プロフィール画面へ遷移
-        // ホーム画面の音楽を停止
         _homeAudioService.stop();
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const ProfileScreen()),
-        );
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const MusicSelectionScreen(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        ).then((_) {
+          if (mounted) setState(() => _selectedIndex = 0);
+        });
+        break;
+      case 3:
+        // プロフィール画面へ遷移
+        _homeAudioService.stop();
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const ProfileScreen(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        ).then((_) {
+          if (mounted) setState(() => _selectedIndex = 0);
+        });
         break;
     }
   }
@@ -241,35 +265,51 @@ class _HomeScreenState extends State<HomeScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            // ヘッダー
-            _buildHeader(),
+            // メインコンテンツ
+            Column(
+              children: [
+                // ヘッダー
+                _buildHeader(),
 
-            // メインコンテンツ（スクロール可能）
-            Expanded(
-              child: CustomScrollView(
-                controller: _scrollController,
-                slivers: [
-                  // Vibeバー
-                  SliverToBoxAdapter(
-                    child: _buildVibeBar(),
+                // メインコンテンツ（スクロール可能）
+                Expanded(
+                  child: CustomScrollView(
+                    controller: _scrollController,
+                    slivers: [
+                      // Vibeバー
+                      SliverToBoxAdapter(
+                        child: _buildVibeBar(),
+                      ),
+
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: 16),
+                      ),
+
+                      // 投稿カード束（タイムライン）
+                      _buildTimelineSliver(),
+
+                      // ボトムナビゲーション分の余白
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: 80),
+                      ),
+                    ],
                   ),
+                ),
+              ],
+            ),
 
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: 16),
-                  ),
-
-                  // 投稿カード束（タイムライン）
-                  _buildTimelineSliver(),
-                ],
-              ),
+            // フローティングボトムナビゲーション（投稿カードの上に重ねる）
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _buildBottomNavigation(),
             ),
           ],
         ),
       ),
-      // ボトムナビゲーション
-      bottomNavigationBar: _buildBottomNavigation(),
     );
   }
 
@@ -972,16 +1012,12 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// コメントボタンが押されたときの処理
   Future<void> _handleComment(PostModel post) async {
-    // コメント画面では音楽を継続するため、停止しない
-    await Navigator.push(
+    // コメント画面をボトムシートで表示（音楽は継続）
+    await CommentScreen.show(
       context,
-      MaterialPageRoute(
-        builder: (context) => CommentScreen(
-          post: post,
-          onCommentCountChanged: (count) =>
-              _updateCommentCount(post.postId, count),
-        ),
-      ),
+      post: post,
+      onCommentCountChanged: (count) =>
+          _updateCommentCount(post.postId, count),
     );
 
     // 戻ってきた後、投稿データを更新
@@ -1090,81 +1126,99 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// ボトムナビゲーション
+  /// ボトムナビゲーション（Figma準拠）
   Widget _buildBottomNavigation() {
-    return Container(
-      height: 80,
-      padding: const EdgeInsets.symmetric(horizontal: 46, vertical: 10),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF191919).withOpacity(0.77),
-          borderRadius: BorderRadius.circular(30),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            // ホームボタン
-            _buildNavItem(
-              icon: Icons.home_outlined,
-              selectedIcon: Icons.home,
-              index: 0,
-            ),
-            // 検索ボタン
-            _buildNavItem(
-              icon: Icons.search,
-              index: 1,
-            ),
-            // 投稿ボタン
-            _buildNavItemSvg(
-              svgPath: 'assets/icons/post_icon.svg',
-              index: 2,
-            ),
-            // アカウントボタン
-            _buildNavItem(
-              icon: Icons.account_circle_outlined,
-              selectedIcon: Icons.account_circle,
-              index: 3,
-            ),
-          ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFF191919).withOpacity(0.77),
+            borderRadius: BorderRadius.circular(30),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ホームボタン
+              _buildNavItem(
+                icon: Icons.home_outlined,
+                selectedIcon: Icons.home,
+                index: 0,
+              ),
+              const SizedBox(width: 28),
+              // 検索ボタン
+              _buildNavItem(
+                icon: Icons.search,
+                index: 1,
+              ),
+              const SizedBox(width: 28),
+              // 投稿ボタン
+              _buildNavItemSvg(
+                svgPath: 'assets/icons/post_icon.svg',
+                index: 2,
+              ),
+              const SizedBox(width: 28),
+              // アカウントボタン
+              _buildNavItem(
+                icon: Icons.account_circle_outlined,
+                selectedIcon: Icons.account_circle,
+                index: 3,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  /// ナビゲーションアイテム
+  /// ナビゲーションアイテム（Figma: 40x40）
   Widget _buildNavItem({
     required IconData icon,
     IconData? selectedIcon,
     required int index,
   }) {
     final isSelected = _selectedIndex == index;
-    return IconButton(
-      icon: Icon(
-        isSelected ? (selectedIcon ?? icon) : icon,
-        color: Colors.white,
-        size: 28,
+    return GestureDetector(
+      onTap: () => _onItemTapped(index),
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Center(
+          child: Icon(
+            isSelected ? (selectedIcon ?? icon) : icon,
+            color: Colors.white,
+            size: 24,
+          ),
+        ),
       ),
-      onPressed: () => _onItemTapped(index),
     );
   }
 
-  /// ナビゲーションアイテム（SVG版）
+  /// ナビゲーションアイテムSVG版（Figma: 40x40）
   Widget _buildNavItemSvg({
     required String svgPath,
     required int index,
   }) {
-    final isSelected = _selectedIndex == index;
-    return IconButton(
-      icon: SvgPicture.asset(
-        svgPath,
-        width: 28,
-        height: 28,
-        colorFilter: const ColorFilter.mode(
-          Colors.white,
-          BlendMode.srcIn,
+    return GestureDetector(
+      onTap: () => _onItemTapped(index),
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Center(
+          child: SvgPicture.asset(
+            svgPath,
+            width: 24,
+            height: 24,
+            colorFilter: const ColorFilter.mode(
+              Colors.white,
+              BlendMode.srcIn,
+            ),
+          ),
         ),
       ),
-      onPressed: () => _onItemTapped(index),
     );
   }
 }

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/post_model.dart';
+import '../models/post_theme.dart';
 import '../models/comment_model.dart';
 import '../services/comment_service.dart';
 import '../constants/app_colors.dart';
 import '../utils/test_data.dart';
 
-/// コメント画面
+/// コメント画面（ボトムシート）
 class CommentScreen extends StatefulWidget {
   final PostModel post;
   final Function(int)? onCommentCountChanged;
@@ -17,6 +18,28 @@ class CommentScreen extends StatefulWidget {
     this.onCommentCountChanged,
   });
 
+  /// ボトムシートとして表示するヘルパーメソッド
+  static Future<void> show(
+    BuildContext context, {
+    required PostModel post,
+    Function(int)? onCommentCountChanged,
+  }) {
+    return showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        builder: (context, scrollController) => CommentScreen(
+          post: post,
+          onCommentCountChanged: onCommentCountChanged,
+        ),
+      ),
+    );
+  }
+
   @override
   State<CommentScreen> createState() => _CommentScreenState();
 }
@@ -26,6 +49,8 @@ class _CommentScreenState extends State<CommentScreen> {
   final CommentService _commentService = CommentService();
   final ScrollController _scrollController = ScrollController();
   bool _isPosting = false;
+
+  PostTheme get _theme => widget.post.theme;
 
   @override
   void dispose() {
@@ -48,7 +73,6 @@ class _CommentScreenState extends State<CommentScreen> {
       final userId = currentUser?.uid ?? 'test_user_temp';
       final username = currentUser?.displayName ?? 'test_user';
 
-      // 新しいコメントを作成
       final newComment = CommentModel(
         commentId: 'local_comment_${DateTime.now().millisecondsSinceEpoch}',
         postId: widget.post.postId,
@@ -60,19 +84,17 @@ class _CommentScreenState extends State<CommentScreen> {
         updatedAt: DateTime.now(),
       );
 
-      // テスト投稿の場合はローカルストレージに追加
       if (widget.post.postId.startsWith('test_post_')) {
         await TestData.addLocalComment(widget.post.postId, newComment);
 
-        // コメント数を更新（親画面に通知）
         if (widget.onCommentCountChanged != null) {
-          final newCommentCount = await TestData.getCommentCount(widget.post.postId);
+          final newCommentCount =
+              await TestData.getCommentCount(widget.post.postId);
           widget.onCommentCountChanged!(newCommentCount);
         }
 
-        setState(() {}); // 画面を更新
+        setState(() {});
       } else {
-        // 通常の投稿の場合はFirestoreに保存
         await _commentService.createComment(
           postId: widget.post.postId,
           userId: userId,
@@ -81,7 +103,6 @@ class _CommentScreenState extends State<CommentScreen> {
           content: content,
         );
 
-        // コメント数を更新（親画面に通知）
         if (widget.onCommentCountChanged != null) {
           final newCommentCount = widget.post.commentCount + 1;
           widget.onCommentCountChanged!(newCommentCount);
@@ -90,7 +111,6 @@ class _CommentScreenState extends State<CommentScreen> {
 
       _commentController.clear();
 
-      // スクロールを最下部に移動
       Future.delayed(const Duration(milliseconds: 100), () {
         if (_scrollController.hasClients && mounted) {
           _scrollController.animateTo(
@@ -118,53 +138,55 @@ class _CommentScreenState extends State<CommentScreen> {
     }
   }
 
-  /// コメント数を取得
-  Future<int> _getTotalCommentCount() async {
-    if (widget.post.postId.startsWith('test_post_')) {
-      return await TestData.getCommentCount(widget.post.postId);
-    }
-    return widget.post.commentCount;
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => Navigator.pop(context),
+    return Container(
+      decoration: BoxDecoration(
+        color: _theme.gradientEnd,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
         ),
-        title: FutureBuilder<int>(
-          future: _getTotalCommentCount(),
-          builder: (context, snapshot) {
-            final count = snapshot.data ?? widget.post.commentCount;
-            return Text(
-              'コメント ($count)',
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            );
-          },
-        ),
-        centerTitle: true,
       ),
-      body: Column(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // 投稿情報
-          _buildPostHeader(),
-          const Divider(color: AppColors.border, height: 1),
+          // ドラッグハンドル
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Container(
+              width: 50,
+              height: 3,
+              decoration: BoxDecoration(
+                color: const Color(0xFF404040),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+
+          // タイトル「コメント」
+          Padding(
+            padding: const EdgeInsets.only(top: 14, bottom: 16),
+            child: Text(
+              'コメント',
+              style: TextStyle(
+                color: _theme.textColor,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+
+          // 区切り線
+          Divider(
+            color: _theme.textColor.withOpacity(0.15),
+            height: 1,
+          ),
 
           // コメント一覧
           Expanded(
             child: _buildCommentList(),
           ),
-
-          const Divider(color: AppColors.border, height: 1),
 
           // コメント入力欄
           _buildCommentInput(),
@@ -175,12 +197,12 @@ class _CommentScreenState extends State<CommentScreen> {
 
   /// コメント一覧
   Widget _buildCommentList() {
-    // テスト投稿の場合はダミーコメント + ローカルコメントを表示
     if (widget.post.postId.startsWith('test_post_')) {
       return FutureBuilder<List<CommentModel>>(
         future: TestData.getLocalComments(widget.post.postId),
         builder: (context, snapshot) {
-          final dummyComments = TestData.generateTestComments(widget.post.postId);
+          final dummyComments =
+              TestData.generateTestComments(widget.post.postId);
           final localComments = snapshot.data ?? [];
           final allComments = [...dummyComments, ...localComments];
 
@@ -190,7 +212,7 @@ class _CommentScreenState extends State<CommentScreen> {
                 'まだコメントがありません\n最初のコメントを投稿しましょう',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: AppColors.textSecondary,
+                  color: _theme.secondaryTextColor,
                   fontSize: 14,
                 ),
               ),
@@ -199,7 +221,7 @@ class _CommentScreenState extends State<CommentScreen> {
 
           return ListView.builder(
             controller: _scrollController,
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.only(top: 16),
             itemCount: allComments.length,
             itemBuilder: (context, index) {
               return _buildCommentItem(allComments[index]);
@@ -209,14 +231,13 @@ class _CommentScreenState extends State<CommentScreen> {
       );
     }
 
-    // 通常の投稿の場合はFirestoreからコメントを取得
     return StreamBuilder<List<CommentModel>>(
       stream: _commentService.getCommentsStream(widget.post.postId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
+          return Center(
             child: CircularProgressIndicator(
-              color: AppColors.textPrimary,
+              color: _theme.textColor,
             ),
           );
         }
@@ -225,7 +246,7 @@ class _CommentScreenState extends State<CommentScreen> {
           return Center(
             child: Text(
               'エラーが発生しました',
-              style: TextStyle(color: AppColors.textSecondary),
+              style: TextStyle(color: _theme.secondaryTextColor),
             ),
           );
         }
@@ -238,7 +259,7 @@ class _CommentScreenState extends State<CommentScreen> {
               'まだコメントがありません\n最初のコメントを投稿しましょう',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: AppColors.textSecondary,
+                color: _theme.secondaryTextColor,
                 fontSize: 14,
               ),
             ),
@@ -247,7 +268,7 @@ class _CommentScreenState extends State<CommentScreen> {
 
         return ListView.builder(
           controller: _scrollController,
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.only(top: 16),
           itemCount: comments.length,
           itemBuilder: (context, index) {
             return _buildCommentItem(comments[index]);
@@ -257,79 +278,18 @@ class _CommentScreenState extends State<CommentScreen> {
     );
   }
 
-  /// 投稿ヘッダー
-  Widget _buildPostHeader() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ユーザーアイコン
-          Container(
-            width: 40,
-            height: 40,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.grey,
-            ),
-            child: widget.post.userIconUrl != null &&
-                    widget.post.userIconUrl!.isNotEmpty
-                ? ClipOval(
-                    child: Image.network(
-                      widget.post.userIconUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.person,
-                            size: 24, color: Colors.white);
-                      },
-                    ),
-                  )
-                : const Icon(Icons.person, size: 24, color: Colors.white),
-          ),
-          const SizedBox(width: 12),
-
-          // 投稿情報
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.post.username,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${widget.post.track.trackName} - ${widget.post.track.artistName}',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 14,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// コメントアイテム
+  /// コメントアイテム（Figma準拠）
   Widget _buildCommentItem(CommentModel comment) {
     final currentUser = FirebaseAuth.instance.currentUser;
-    final isMyComment = currentUser != null && comment.userId == currentUser.uid;
+    final isMyComment =
+        currentUser != null && comment.userId == currentUser.uid;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ユーザーアイコン
+          // ユーザーアイコン（32x32）
           Container(
             width: 32,
             height: 32,
@@ -337,33 +297,37 @@ class _CommentScreenState extends State<CommentScreen> {
               shape: BoxShape.circle,
               color: Colors.grey,
             ),
-            child: comment.userIconUrl != null && comment.userIconUrl!.isNotEmpty
-                ? ClipOval(
-                    child: Image.network(
-                      comment.userIconUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.person,
-                            size: 20, color: Colors.white);
-                      },
-                    ),
-                  )
-                : const Icon(Icons.person, size: 20, color: Colors.white),
+            child:
+                comment.userIconUrl != null && comment.userIconUrl!.isNotEmpty
+                    ? ClipOval(
+                        child: Image.network(
+                          comment.userIconUrl!,
+                          width: 32,
+                          height: 32,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Icon(Icons.person,
+                                size: 20, color: _theme.textColor);
+                          },
+                        ),
+                      )
+                    : Icon(Icons.person, size: 20, color: _theme.textColor),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
 
           // コメント内容
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ユーザー名 + タイムスタンプ
                 Row(
                   children: [
                     Text(
                       comment.username,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 14,
+                      style: TextStyle(
+                        color: _theme.textColor,
+                        fontSize: 10,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -371,18 +335,19 @@ class _CommentScreenState extends State<CommentScreen> {
                     Text(
                       _formatTimestamp(comment.createdAt),
                       style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 12,
+                        color: Color(0xFF68717B),
+                        fontSize: 9,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
+                // コメント本文
                 Text(
                   comment.content,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 14,
+                  style: TextStyle(
+                    color: _theme.textColor,
+                    fontSize: 11,
                   ),
                 ),
               ],
@@ -391,70 +356,123 @@ class _CommentScreenState extends State<CommentScreen> {
 
           // 削除ボタン（自分のコメントの場合のみ）
           if (isMyComment)
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: AppColors.textSecondary, size: 20),
-              onPressed: () => _deleteComment(comment),
+            GestureDetector(
+              onTap: () => _deleteComment(comment),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Icon(Icons.delete_outline,
+                    color: _theme.secondaryTextColor, size: 16),
+              ),
             ),
         ],
       ),
     );
   }
 
-  /// コメント入力欄
+  /// コメント入力欄（Figma準拠）
   Widget _buildCommentInput() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
     return Container(
       padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 8,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 8,
+        left: 19,
+        right: 19,
+        top: 10,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
       ),
-      color: AppColors.background,
       child: Row(
         children: [
-          Expanded(
-            child: TextField(
-              controller: _commentController,
-              style: const TextStyle(color: AppColors.textPrimary),
-              decoration: InputDecoration(
-                hintText: 'コメントを入力...',
-                hintStyle: const TextStyle(color: AppColors.textSecondary),
-                filled: true,
-                fillColor: AppColors.surface,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-              ),
-              maxLines: null,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _postComment(),
+          // 現在のユーザーアイコン（40x40）
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.grey,
             ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: _isPosting ? null : _postComment,
-            icon: _isPosting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.textPrimary,
+            child: currentUser?.photoURL != null &&
+                    currentUser!.photoURL!.isNotEmpty
+                ? ClipOval(
+                    child: Image.network(
+                      currentUser.photoURL!,
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Icon(Icons.person,
+                            size: 24, color: _theme.textColor);
+                      },
                     ),
                   )
-                : const Icon(Icons.send, color: AppColors.textPrimary),
+                : Icon(Icons.person, size: 24, color: _theme.textColor),
+          ),
+          const SizedBox(width: 10),
+
+          // 入力フィールド（commentButtonColor背景、角丸12px）
+          Expanded(
+            child: Container(
+              height: 40,
+              decoration: BoxDecoration(
+                color: _theme.commentButtonColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _commentController,
+                      style: TextStyle(
+                        color: _theme.textColor,
+                        fontSize: 13,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'コメントする',
+                        hintStyle: TextStyle(
+                          color: _theme.textColor.withOpacity(0.6),
+                          fontSize: 13,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.only(
+                          left: 13,
+                          bottom: 10,
+                        ),
+                        isCollapsed: true,
+                      ),
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _postComment(),
+                    ),
+                  ),
+                  // 送信ボタン
+                  GestureDetector(
+                    onTap: _isPosting ? null : _postComment,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _isPosting
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: _theme.textColor,
+                              ),
+                            )
+                          : Icon(
+                              Icons.send,
+                              color: _theme.textColor.withOpacity(0.7),
+                              size: 24,
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// タイムスタンプをフォーマット
+  /// タイムスタンプをフォーマット（Figma準拠: 短縮表記）
   String _formatTimestamp(DateTime timestamp) {
     final now = DateTime.now();
     final difference = now.difference(timestamp);
@@ -462,11 +480,11 @@ class _CommentScreenState extends State<CommentScreen> {
     if (difference.inMinutes < 1) {
       return '今';
     } else if (difference.inHours < 1) {
-      return '${difference.inMinutes}分前';
+      return '${difference.inMinutes}分';
     } else if (difference.inDays < 1) {
-      return '${difference.inHours}時間前';
+      return '${difference.inHours}時間';
     } else if (difference.inDays < 7) {
-      return '${difference.inDays}日前';
+      return '${difference.inDays}日';
     } else {
       return '${timestamp.year}/${timestamp.month}/${timestamp.day}';
     }
@@ -478,16 +496,20 @@ class _CommentScreenState extends State<CommentScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('コメントを削除', style: TextStyle(color: AppColors.textPrimary)),
-        content: const Text('このコメントを削除しますか？', style: TextStyle(color: AppColors.textSecondary)),
+        title: const Text('コメントを削除',
+            style: TextStyle(color: AppColors.textPrimary)),
+        content: const Text('このコメントを削除しますか？',
+            style: TextStyle(color: AppColors.textSecondary)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル', style: TextStyle(color: AppColors.textSecondary)),
+            child: const Text('キャンセル',
+                style: TextStyle(color: AppColors.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除', style: TextStyle(color: AppColors.error)),
+            child:
+                const Text('削除', style: TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -495,21 +517,21 @@ class _CommentScreenState extends State<CommentScreen> {
 
     if (confirmed == true) {
       try {
-        // ローカルコメントかFirestoreコメントかを判定
         if (comment.commentId.startsWith('local_comment_')) {
-          await TestData.removeLocalComment(comment.postId, comment.commentId);
+          await TestData.removeLocalComment(
+              comment.postId, comment.commentId);
 
-          // コメント数を更新（親画面に通知）
           if (widget.onCommentCountChanged != null) {
-            final newCommentCount = await TestData.getCommentCount(comment.postId);
+            final newCommentCount =
+                await TestData.getCommentCount(comment.postId);
             widget.onCommentCountChanged!(newCommentCount);
           }
 
-          setState(() {}); // 画面を更新
+          setState(() {});
         } else {
-          await _commentService.deleteComment(comment.commentId, comment.postId);
+          await _commentService.deleteComment(
+              comment.commentId, comment.postId);
 
-          // コメント数を更新（親画面に通知）
           if (widget.onCommentCountChanged != null) {
             final newCommentCount = widget.post.commentCount - 1;
             widget.onCommentCountChanged!(newCommentCount);

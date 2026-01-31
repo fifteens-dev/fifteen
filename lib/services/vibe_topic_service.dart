@@ -5,29 +5,45 @@ import '../models/vibe_topic_model.dart';
 /// Vibeお題データを管理するサービス
 class VibeTopicService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final String _topicsCollection = 'vibeTopics';
+  final String _topicsCollection = 'vibe_topics';
   final String _votesCollection = 'vibeVotes';
 
-  /// 今日のアクティブなお題を取得
+  /// 今日のお題を取得（activeまたはvotingステータス）
   Future<VibeTopicModel?> getTodaysTopic() async {
     try {
       final today = DateTime.now();
       final startOfDay = DateTime(today.year, today.month, today.day);
       final endOfDay = startOfDay.add(const Duration(days: 1));
 
+      // 今日の日付でお題を取得（インデックス不要のクエリ）
       final snapshot = await _firestore
           .collection(_topicsCollection)
-          .where('status', isEqualTo: 'active')
           .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
           .where('date', isLessThan: Timestamp.fromDate(endOfDay))
-          .limit(1)
           .get();
 
       if (snapshot.docs.isEmpty) {
         return null;
       }
 
-      return VibeTopicModel.fromFirestore(snapshot.docs.first);
+      // コード側でステータスをフィルタリング（activeを優先）
+      final topics = snapshot.docs
+          .map((doc) => VibeTopicModel.fromFirestore(doc))
+          .toList();
+
+      // activeなお題を探す
+      final activeTopic = topics.where((t) => t.status == VibeTopicStatus.active).firstOrNull;
+      if (activeTopic != null) {
+        return activeTopic;
+      }
+
+      // votingなお題を探す
+      final votingTopic = topics.where((t) => t.status == VibeTopicStatus.voting).firstOrNull;
+      if (votingTopic != null) {
+        return votingTopic;
+      }
+
+      return null;
     } catch (e) {
       if (kDebugMode) {
         print('Error getting today\'s topic: $e');

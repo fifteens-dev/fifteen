@@ -490,6 +490,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       final baseSize = _getCardSizeBack();
       final cardScale = _rect.width / baseSize.width;
 
+      print('📝 投稿データ: isVibe=${widget.isVibe}, vibeTopicId=${widget.vibeTopicId}, vibeTopicTitle=${widget.vibeTopicTitle}');
       final postId = await _postService.createPost(
         userId: userId,
         username: username,
@@ -503,6 +504,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         cardRotation: _cardRotation,
         isVibe: widget.isVibe,
         vibeTopicId: widget.vibeTopicId,
+        vibeTopicTitle: widget.vibeTopicTitle,
         theme: extractedTheme, // 抽出した色テーマを保存
       );
       print('✅ 投稿作成完了: postId=$postId');

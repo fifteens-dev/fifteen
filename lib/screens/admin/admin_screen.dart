@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/admin_service.dart';
 import 'broadcast_notification_tab.dart';
 import 'vibe_topic_management_tab.dart';
+import 'vibe_posts_viewer_tab.dart';
 
 /// 管理者画面
 /// 一斉通知とVibeお題管理のタブを持つ
@@ -22,7 +23,7 @@ class _AdminScreenState extends State<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _checkAdminStatus();
   }
 
@@ -102,6 +103,10 @@ class _AdminScreenState extends State<AdminScreen>
               icon: Icon(Icons.topic),
               text: 'Vibeお題',
             ),
+            Tab(
+              icon: Icon(Icons.list_alt),
+              text: 'Vibe投稿',
+            ),
           ],
         ),
       ),
@@ -110,6 +115,7 @@ class _AdminScreenState extends State<AdminScreen>
         children: const [
           BroadcastNotificationTab(),
           VibeTopicManagementTab(),
+          VibePostsViewerTab(),
         ],
       ),
     );

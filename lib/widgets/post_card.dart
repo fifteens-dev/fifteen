@@ -912,19 +912,21 @@ class _PostCardState extends State<PostCard>
 
   /// ユーザー情報（裏面の左上）
   Widget _buildUserInfoTopLeft(PostTheme theme) {
-    // Vibeタイトルまたは感情タグを取得
+    // Vibeの場合は「Vibe【お題名】」または「Vibe」、それ以外は感情タグを表示
     String? displayText;
-    bool isEmotion = false;
 
-    if (widget.post.isVibe && widget.post.vibeTopicTitle != null) {
-      displayText = '#${widget.post.vibeTopicTitle!}';
+    if (widget.post.isVibe) {
+      // Vibe投稿の場合
+      if (widget.post.vibeTopicTitle != null && widget.post.vibeTopicTitle!.isNotEmpty) {
+        displayText = 'Vibe【${widget.post.vibeTopicTitle!}】';
+      } else {
+        // vibeTopicTitleがない古い投稿の場合はVibeのみ表示
+        displayText = 'Vibe';
+      }
     } else if (widget.post.emotionTag != null) {
-      // 感情タグの場合は2行目を表示しない
-      isEmotion = true;
-      displayText = null;
-    } else {
-      displayText = '#音楽'; // デフォルト
+      displayText = widget.post.emotionTag;
     }
+    // Vibeでも感情タグでもない場合は2行目を表示しない
 
     return GestureDetector(
       onTap: () {

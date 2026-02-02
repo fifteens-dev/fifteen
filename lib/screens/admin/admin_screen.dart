@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../constants/app_colors.dart';
 import '../../services/admin_service.dart';
 import 'broadcast_notification_tab.dart';
 import 'vibe_topic_management_tab.dart';
@@ -58,7 +59,7 @@ class _AdminScreenState extends State<AdminScreen>
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Color(0xFF121212),
+        backgroundColor: AppColors.backgroundElevated,
         body: Center(
           child: CircularProgressIndicator(color: Colors.white),
         ),
@@ -67,7 +68,7 @@ class _AdminScreenState extends State<AdminScreen>
 
     if (!_isAdmin) {
       return const Scaffold(
-        backgroundColor: Color(0xFF121212),
+        backgroundColor: AppColors.backgroundElevated,
         body: Center(
           child: Text(
             '管理者権限がありません',
@@ -78,9 +79,9 @@ class _AdminScreenState extends State<AdminScreen>
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: AppColors.backgroundElevated,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF121212),
+        backgroundColor: AppColors.backgroundElevated,
         title: const Text(
           '管理者パネル',
           style: TextStyle(
@@ -91,7 +92,7 @@ class _AdminScreenState extends State<AdminScreen>
         iconTheme: const IconThemeData(color: Colors.white),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: const Color(0xFF5D8FFF),
+          indicatorColor: AppColors.accentBlue,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.grey,
           tabs: const [

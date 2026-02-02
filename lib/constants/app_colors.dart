@@ -19,8 +19,14 @@ class AppColors {
   static const Color border = Color(0xFF333333); // ダークグレー
   static const Color divider = Color(0xFF2A2A2A);
 
-  // アクセントカラー（必要に応じて）
+  // 管理者画面・カード背景
+  static const Color backgroundElevated = Color(0xFF121212);
+  static const Color surfaceLight = Color(0xFF1E1E1E);
+  static const Color surfaceLighter = Color(0xFF2A2A2A);
+
+  // アクセントカラー
   static const Color accent = Color(0xFF4A90E2);
+  static const Color accentBlue = Color(0xFF5D8FFF);
   static const Color error = Color(0xFFE74C3C);
   static const Color success = Color(0xFF2ECC71);
 }

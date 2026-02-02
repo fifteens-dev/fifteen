@@ -56,9 +56,9 @@ class _PostCardState extends State<PostCard>
     with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   // カードサイズの定数
   static const double _cardBaseWidth = 363.0;
-  static const double _savedUserIconSize = 25.0;
-  static const double _savedUserIconMargin = 4.0;
-  static const int _maxSavedUsersToShow = 2;
+  static const double _likedUserIconSize = 25.0;
+  static const double _likedUserIconMargin = 4.0;
+  static const int _maxLikedUsersToShow = 2;
 
   // 再生ボタンの定数
   static const double _playButtonSize = 56.0;
@@ -840,7 +840,7 @@ class _PostCardState extends State<PostCard>
                 Positioned(
                   right: cardWidth * (12 / 363),
                   bottom: cardHeight * (80 / 644),
-                  child: _buildSavedUsersIconsFront(cardWidth, cardHeight),
+                  child: _buildLikedUsersIconsFront(cardWidth, cardHeight),
                 ),
 
                 // コメントボタン - Figma: bottom: 40px
@@ -1351,8 +1351,8 @@ class _PostCardState extends State<PostCard>
 
         const Spacer(),
 
-        // 保存したユーザーのアイコン（最大2人）
-        _buildSavedUsersIcons(),
+        // いいねしたユーザーのアイコン（最大2人）
+        _buildLikedUsersIcons(),
       ],
     );
   }
@@ -1425,31 +1425,30 @@ class _PostCardState extends State<PostCard>
     );
   }
 
-  /// 保存したユーザーのアイコン（最大2人表示）
-  /// 保存したユーザーのアイコン（裏面用 - 固定サイズ）
-  Widget _buildSavedUsersIcons() {
-    return _buildSavedUsersIconsCommon(
-      iconSize: _savedUserIconSize,
-      margin: _savedUserIconMargin,
+  /// いいねしたユーザーのアイコン（裏面用 - 固定サイズ）
+  Widget _buildLikedUsersIcons() {
+    return _buildLikedUsersIconsCommon(
+      iconSize: _likedUserIconSize,
+      margin: _likedUserIconMargin,
     );
   }
 
-  /// 保存したユーザーのアイコン（表面用 - 相対サイズ）
-  Widget _buildSavedUsersIconsFront(double cardWidth, double cardHeight) {
-    return _buildSavedUsersIconsCommon(
-      iconSize: cardWidth * (_savedUserIconSize / _cardBaseWidth),
-      margin: cardWidth * (_savedUserIconMargin / _cardBaseWidth),
+  /// いいねしたユーザーのアイコン（表面用 - 相対サイズ）
+  Widget _buildLikedUsersIconsFront(double cardWidth, double cardHeight) {
+    return _buildLikedUsersIconsCommon(
+      iconSize: cardWidth * (_likedUserIconSize / _cardBaseWidth),
+      margin: cardWidth * (_likedUserIconMargin / _cardBaseWidth),
     );
   }
 
-  /// 保存したユーザーのアイコン（共通ロジック）
-  Widget _buildSavedUsersIconsCommon({
+  /// いいねしたユーザーのアイコン（共通ロジック）
+  Widget _buildLikedUsersIconsCommon({
     required double iconSize,
     required double margin,
   }) {
-    final displayCount = widget.post.savedByUserIconUrls.length > _maxSavedUsersToShow
-        ? _maxSavedUsersToShow
-        : widget.post.savedByUserIconUrls.length;
+    final displayCount = widget.post.likedByUserIconUrls.length > _maxLikedUsersToShow
+        ? _maxLikedUsersToShow
+        : widget.post.likedByUserIconUrls.length;
 
     if (displayCount == 0) {
       return const SizedBox.shrink();
@@ -1460,8 +1459,8 @@ class _PostCardState extends State<PostCard>
         displayCount,
         (index) => GestureDetector(
           onTap: () {
-            if (index < widget.post.savedByUserIds.length) {
-              _navigateToUserProfile(widget.post.savedByUserIds[index]);
+            if (index < widget.post.likedUserIds.length) {
+              _navigateToUserProfile(widget.post.likedUserIds[index]);
             }
           },
           child: Container(
@@ -1474,7 +1473,7 @@ class _PostCardState extends State<PostCard>
             ),
             child: ClipOval(
               child: ProfileImage(
-                imageUrl: widget.post.savedByUserIconUrls[index],
+                imageUrl: widget.post.likedByUserIconUrls[index],
                 size: 25,
               ),
             ),

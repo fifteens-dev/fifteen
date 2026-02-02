@@ -50,6 +50,9 @@ class PostService {
         'likeCount': 0,
         'commentCount': 0,
         'likedUserIds': [],
+        'likedByUserIconUrls': [],
+        'savedByUserIds': [],
+        'savedByUserIconUrls': [],
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'photoUrl': photoUrl,
@@ -210,6 +213,10 @@ class PostService {
       String? trackName;
       bool wasLiked = false;
 
+      // ユーザー情報を事前に取得（トランザクション外）
+      final currentUser = await _userService.getUser(userId);
+      final userIconUrl = currentUser?.profileImageUrl ?? '';
+
       await _firestore.runTransaction((transaction) async {
         final postDoc = await transaction.get(postRef);
 
@@ -219,6 +226,8 @@ class PostService {
 
         final data = postDoc.data()!;
         final likedUserIds = List<String>.from(data['likedUserIds'] ?? []);
+        final likedByUserIconUrls =
+            List<String>.from(data['likedByUserIconUrls'] ?? []);
         final isLiked = likedUserIds.contains(userId);
 
         // いいね追加時のみ投稿者情報を保存（通知用）
@@ -234,14 +243,20 @@ class PostService {
 
         if (isLiked) {
           // いいねを削除
+          final index = likedUserIds.indexOf(userId);
           likedUserIds.remove(userId);
+          if (index >= 0 && index < likedByUserIconUrls.length) {
+            likedByUserIconUrls.removeAt(index);
+          }
         } else {
           // いいねを追加
           likedUserIds.add(userId);
+          likedByUserIconUrls.add(userIconUrl);
         }
 
         transaction.update(postRef, {
           'likedUserIds': likedUserIds,
+          'likedByUserIconUrls': likedByUserIconUrls,
           'likeCount': likedUserIds.length,
           'updatedAt': FieldValue.serverTimestamp(),
         });
@@ -249,8 +264,6 @@ class PostService {
 
       // トランザクション外で通知を作成（いいね追加時のみ）
       if (!wasLiked && postOwnerId != null) {
-        // 現在のユーザー情報を取得
-        final currentUser = await _userService.getUser(userId);
 
         await _notificationService.createNotification(
           type: NotificationType.like,
@@ -487,23 +500,4 @@ class PostService {
     }
   }
 
-  /// 今日のVibeランキングを取得
-  Future<List<VibeRankingItem>> getTodaysVibeRanking({int limit = 10}) async {
-    try {
-      // 今日の日付
-      final today = DateTime.now();
-
-      // 今日のアクティブなお題IDを取得する必要がある
-      // ここではダミーとして空のリストを返す
-      // 実際の実装では、VibeTopicServiceからtopicIdを取得してcalculateVibeRankingを呼び出す
-      // この処理はUI側（HomeScreen）で行う方が適切
-
-      return [];
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting today\'s vibe ranking: $e');
-      }
-      return [];
-    }
-  }
 }

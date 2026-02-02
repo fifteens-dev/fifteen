@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../constants/app_colors.dart';
 import '../../models/post_model.dart';
 import '../../services/post_service.dart';
 import '../../services/user_service.dart';
@@ -44,7 +45,6 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
         _selectedDate.month,
         _selectedDate.day,
       );
-      final nextDay = normalizedDate.add(const Duration(days: 1));
 
       // isVibeがtrueの投稿を取得し、日付はクライアント側でフィルタ
       final snapshot = await FirebaseFirestore.instance
@@ -109,8 +109,8 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
         return Theme(
           data: ThemeData.dark().copyWith(
             colorScheme: const ColorScheme.dark(
-              primary: Color(0xFF5D8FFF),
-              surface: Color(0xFF1E1E1E),
+              primary: AppColors.accentBlue,
+              surface: AppColors.surfaceLight,
             ),
           ),
           child: child!,
@@ -141,13 +141,13 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF2A2A2A),
+                color: AppColors.surfaceLighter,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 children: [
                   const Icon(Icons.music_note,
-                      color: Color(0xFF5D8FFF), size: 20),
+                      color: AppColors.accentBlue, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -200,9 +200,9 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E),
+                  color: AppColors.surfaceLight,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF333333)),
+                  border: Border.all(color: AppColors.border),
                 ),
                 child: Row(
                   children: [
@@ -298,9 +298,9 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
+        color: AppColors.surfaceLight,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF333333)),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -313,14 +313,14 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
                 width: 28,
                 height: 28,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF5D8FFF).withOpacity(0.2),
+                  color: AppColors.accentBlue.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   '$number',
                   style: const TextStyle(
-                    color: Color(0xFF5D8FFF),
+                    color: AppColors.accentBlue,
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                   ),
@@ -392,7 +392,7 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFF2A2A2A),
+              color: AppColors.surfaceLighter,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(

@@ -12,6 +12,7 @@ class PostModel {
   final int likeCount;
   final int commentCount;
   final List<String> likedUserIds; // いいねしたユーザーのIDリスト
+  final List<String> likedByUserIconUrls; // いいねしたユーザーのアイコンURLリスト
   final List<String> savedByUserIds; // 保存したユーザーのIDリスト
   final List<String> savedByUserIconUrls; // 保存したユーザーのアイコンURLリスト
   final DateTime createdAt;
@@ -38,6 +39,7 @@ class PostModel {
     this.likeCount = 0,
     this.commentCount = 0,
     this.likedUserIds = const [],
+    this.likedByUserIconUrls = const [],
     this.savedByUserIds = const [],
     this.savedByUserIconUrls = const [],
     required this.createdAt,
@@ -69,6 +71,7 @@ class PostModel {
       likeCount: data['likeCount'] ?? 0,
       commentCount: data['commentCount'] ?? 0,
       likedUserIds: List<String>.from(data['likedUserIds'] ?? []),
+      likedByUserIconUrls: List<String>.from(data['likedByUserIconUrls'] ?? []),
       savedByUserIds: List<String>.from(data['savedByUserIds'] ?? []),
       savedByUserIconUrls: List<String>.from(data['savedByUserIconUrls'] ?? []),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -100,6 +103,7 @@ class PostModel {
       'likeCount': likeCount,
       'commentCount': commentCount,
       'likedUserIds': likedUserIds,
+      'likedByUserIconUrls': likedByUserIconUrls,
       'savedByUserIds': savedByUserIds,
       'savedByUserIconUrls': savedByUserIconUrls,
       'createdAt': Timestamp.fromDate(createdAt),
@@ -129,6 +133,7 @@ class PostModel {
     int? likeCount,
     int? commentCount,
     List<String>? likedUserIds,
+    List<String>? likedByUserIconUrls,
     List<String>? savedByUserIds,
     List<String>? savedByUserIconUrls,
     DateTime? createdAt,
@@ -155,6 +160,7 @@ class PostModel {
       likeCount: likeCount ?? this.likeCount,
       commentCount: commentCount ?? this.commentCount,
       likedUserIds: likedUserIds ?? this.likedUserIds,
+      likedByUserIconUrls: likedByUserIconUrls ?? this.likedByUserIconUrls,
       savedByUserIds: savedByUserIds ?? this.savedByUserIds,
       savedByUserIconUrls: savedByUserIconUrls ?? this.savedByUserIconUrls,
       createdAt: createdAt ?? this.createdAt,

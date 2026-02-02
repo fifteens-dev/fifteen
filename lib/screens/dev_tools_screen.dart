@@ -19,259 +19,29 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
   bool _isLoading = false;
   String _statusMessage = '';
 
-  Future<void> _handleSetupTestData() async {
+  Future<void> _executeAction({
+    required String loadingMessage,
+    required String successMessage,
+    required String snackBarMessage,
+    required Future<void> Function() action,
+  }) async {
     setState(() {
       _isLoading = true;
-      _statusMessage = 'テストデータをセットアップ中...';
+      _statusMessage = loadingMessage;
     });
 
     try {
-      await _setupTestData.setupAllTestData();
+      await action();
 
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _statusMessage = '✅ テストデータのセットアップが完了しました！';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('テスト用招待コードが作成されました'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '❌ エラー: $e';
+          _statusMessage = successMessage;
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-
-  Future<void> _handleCreateDummyUsers() async {
-    setState(() {
-      _isLoading = true;
-      _statusMessage = 'ダミーユーザーを作成中...';
-    });
-
-    try {
-      await _setupTestData.createDummyUsers();
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '✅ ダミーユーザーの作成が完了しました！';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ダミーユーザーが作成されました'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '❌ エラー: $e';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleCreateDummyUserPosts() async {
-    setState(() {
-      _isLoading = true;
-      _statusMessage = 'Spotifyから楽曲を検索中...';
-    });
-
-    try {
-      await _setupTestData.createDummyUserPosts();
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '✅ ダミーユーザーの投稿データが作成されました！';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ダミーユーザーの投稿データが作成されました'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '❌ エラー: $e';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleDeleteNonDummyPosts() async {
-    setState(() {
-      _isLoading = true;
-      _statusMessage = 'ダミー以外の投稿を削除中...';
-    });
-
-    try {
-      await _setupTestData.deleteNonDummyPosts();
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '✅ ダミー以外の投稿を削除しました！';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ダミー以外の投稿を削除しました'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '❌ エラー: $e';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleDeleteOldTestPosts() async {
-    setState(() {
-      _isLoading = true;
-      _statusMessage = '古いテスト投稿を削除中...';
-    });
-
-    try {
-      await _setupTestData.deleteOldTestPosts();
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '✅ 古いテスト投稿が削除されました！';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('古いテスト投稿が削除されました'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '❌ エラー: $e';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleCreateInitialVibeTopics() async {
-    setState(() {
-      _isLoading = true;
-      _statusMessage = '初期Vibeお題を作成中...';
-    });
-
-    try {
-      await createInitialVibeTopics();
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '✅ 今日のお題と投票用お題が作成されました！';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vibeお題が作成されました'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '❌ エラー: $e';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleCreateAllVotingTopics() async {
-    setState(() {
-      _isLoading = true;
-      _statusMessage = '全てのお題候補を作成中...';
-    });
-
-    try {
-      await createAllVotingTopics();
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '✅ 全てのお題候補が作成されました！';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('全てのお題候補が作成されました'),
+            content: Text(snackBarMessage),
             backgroundColor: AppColors.success,
           ),
         );
@@ -381,7 +151,12 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               ],
               PrimaryButton(
                 text: 'テストデータを作成',
-                onPressed: _handleSetupTestData,
+                onPressed: () => _executeAction(
+                  loadingMessage: 'テストデータをセットアップ中...',
+                  successMessage: '✅ テストデータのセットアップが完了しました！',
+                  snackBarMessage: 'テスト用招待コードが作成されました',
+                  action: _setupTestData.setupAllTestData,
+                ),
                 isLoading: _isLoading,
               ),
               const SizedBox(height: AppDimensions.paddingMedium),
@@ -409,13 +184,23 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               const SizedBox(height: AppDimensions.paddingLarge),
               PrimaryButton(
                 text: 'ダミーユーザーを作成',
-                onPressed: _handleCreateDummyUsers,
+                onPressed: () => _executeAction(
+                  loadingMessage: 'ダミーユーザーを作成中...',
+                  successMessage: '✅ ダミーユーザーの作成が完了しました！',
+                  snackBarMessage: 'ダミーユーザーが作成されました',
+                  action: _setupTestData.createDummyUsers,
+                ),
                 isLoading: _isLoading,
               ),
               const SizedBox(height: AppDimensions.paddingMedium),
               PrimaryButton(
                 text: 'ダミーユーザーの投稿を作成（Spotify連携）',
-                onPressed: _handleCreateDummyUserPosts,
+                onPressed: () => _executeAction(
+                  loadingMessage: 'Spotifyから楽曲を検索中...',
+                  successMessage: '✅ ダミーユーザーの投稿データが作成されました！',
+                  snackBarMessage: 'ダミーユーザーの投稿データが作成されました',
+                  action: _setupTestData.createDummyUserPosts,
+                ),
                 isLoading: _isLoading,
               ),
               const SizedBox(height: AppDimensions.paddingMedium),
@@ -428,8 +213,32 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               ),
               const SizedBox(height: AppDimensions.paddingMedium),
               PrimaryButton(
+                text: 'ダミーいいねをセットアップ（全員相互）',
+                onPressed: () => _executeAction(
+                  loadingMessage: 'ダミーいいねをセットアップ中...',
+                  successMessage: '✅ ダミーいいねのセットアップが完了しました！',
+                  snackBarMessage: '全ダミーユーザーが相互に全投稿をいいねしました',
+                  action: _setupTestData.setupDummyLikes,
+                ),
+                isLoading: _isLoading,
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              const Text(
+                '全てのダミーユーザーが残り2人の全投稿をいいねします。',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: AppDimensions.paddingMedium),
+              PrimaryButton(
                 text: 'ダミー以外の投稿を削除',
-                onPressed: _handleDeleteNonDummyPosts,
+                onPressed: () => _executeAction(
+                  loadingMessage: 'ダミー以外の投稿を削除中...',
+                  successMessage: '✅ ダミー以外の投稿を削除しました！',
+                  snackBarMessage: 'ダミー以外の投稿を削除しました',
+                  action: _setupTestData.deleteNonDummyPosts,
+                ),
                 isLoading: _isLoading,
               ),
               const SizedBox(height: AppDimensions.paddingMedium),
@@ -484,7 +293,12 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               ),
               const SizedBox(height: AppDimensions.paddingLarge),
               OutlinedButton(
-                onPressed: _isLoading ? null : _handleDeleteOldTestPosts,
+                onPressed: _isLoading ? null : () => _executeAction(
+                  loadingMessage: '古いテスト投稿を削除中...',
+                  successMessage: '✅ 古いテスト投稿が削除されました！',
+                  snackBarMessage: '古いテスト投稿が削除されました',
+                  action: _setupTestData.deleteOldTestPosts,
+                ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.error,
                   side: const BorderSide(color: AppColors.error),
@@ -509,12 +323,22 @@ class _DevToolsScreenState extends State<DevToolsScreen> {
               const SizedBox(height: AppDimensions.paddingLarge),
               PrimaryButton(
                 text: '初期Vibeお題を作成（今日+明日の4候補）',
-                onPressed: _handleCreateInitialVibeTopics,
+                onPressed: () => _executeAction(
+                  loadingMessage: '初期Vibeお題を作成中...',
+                  successMessage: '✅ 今日のお題と投票用お題が作成されました！',
+                  snackBarMessage: 'Vibeお題が作成されました',
+                  action: createInitialVibeTopics,
+                ),
                 isLoading: _isLoading,
               ),
               const SizedBox(height: AppDimensions.paddingMedium),
               OutlinedButton(
-                onPressed: _isLoading ? null : _handleCreateAllVotingTopics,
+                onPressed: _isLoading ? null : () => _executeAction(
+                  loadingMessage: '全てのお題候補を作成中...',
+                  successMessage: '✅ 全てのお題候補が作成されました！',
+                  snackBarMessage: '全てのお題候補が作成されました',
+                  action: createAllVotingTopics,
+                ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.textPrimary,
                   side: const BorderSide(color: AppColors.border),

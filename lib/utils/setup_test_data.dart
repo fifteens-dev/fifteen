@@ -104,9 +104,6 @@ class SetupTestData {
         print('🗑️  Deleting all non-dummy user posts...');
       }
 
-      // ダミーユーザーのID
-      final dummyUserIds = ['dummy_user_sana', 'dummy_user_mina', 'dummy_user_momo'];
-
       // 全投稿を取得
       final allPosts = await _firestore.collection('posts').get();
 
@@ -212,7 +209,6 @@ class SetupTestData {
     try {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-      final tomorrow = today.add(const Duration(days: 1));
 
       // 既存のアクティブなトピックを検索（dateフィルタはクライアント側で実行）
       final existingTopics = await _firestore
@@ -501,6 +497,83 @@ class SetupTestData {
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error creating dummy user posts: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// ダミーユーザーのいいねをセットアップ
+  /// 全てのダミーユーザーが残り2人の全投稿をいいねする
+  Future<void> setupDummyLikes() async {
+    try {
+      if (kDebugMode) {
+        print('👍 Setting up dummy likes for all dummy users...');
+      }
+
+      int totalLikedCount = 0;
+
+      for (final likerId in dummyUserIds) {
+        final likerIconUrl = dummyUserProfileImages[likerId]!;
+        final targetUserIds = dummyUserIds.where((id) => id != likerId).toList();
+
+        int likedCount = 0;
+
+        for (final targetUserId in targetUserIds) {
+          final posts = await _firestore
+              .collection('posts')
+              .where('userId', isEqualTo: targetUserId)
+              .get();
+
+          for (final doc in posts.docs) {
+            final data = doc.data();
+            final likedUserIds = List<String>.from(data['likedUserIds'] ?? []);
+            final likedByUserIconUrls =
+                List<String>.from(data['likedByUserIconUrls'] ?? []);
+
+            // 既にいいね済みの場合はスキップ
+            if (likedUserIds.contains(likerId)) {
+              if (kDebugMode) {
+                final track = data['track'] as Map<String, dynamic>?;
+                final trackName = track?['trackName'] ?? 'Unknown';
+                print('⏭️  Already liked by $likerId: $trackName');
+              }
+              continue;
+            }
+
+            likedUserIds.add(likerId);
+            likedByUserIconUrls.add(likerIconUrl);
+
+            await doc.reference.update({
+              'likedUserIds': likedUserIds,
+              'likedByUserIconUrls': likedByUserIconUrls,
+              'likeCount': likedUserIds.length,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+
+            likedCount++;
+
+            if (kDebugMode) {
+              final track = data['track'] as Map<String, dynamic>?;
+              final trackName = track?['trackName'] ?? 'Unknown';
+              final username = data['username'] ?? targetUserId;
+              print('👍 $likerId liked: "$trackName" by @$username');
+            }
+          }
+        }
+
+        totalLikedCount += likedCount;
+
+        if (kDebugMode) {
+          print('✅ $likerId liked $likedCount posts');
+        }
+      }
+
+      if (kDebugMode) {
+        print('✅ All dummy likes set up! Total: $totalLikedCount likes');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error setting up dummy likes: $e');
       }
       rethrow;
     }

@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -17,11 +16,12 @@ import '../widgets/post_creation/lyrics_card_layouts.dart';
 import '../services/audio_player_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
-import '../services/user_service.dart';
 import '../services/lyrics_service.dart';
 import '../services/itunes_search_service.dart';
 import '../utils/color_extractor.dart';
+import '../utils/current_user_helper.dart';
 import '../utils/photo_helper.dart';
+import '../widgets/shared/user_info_badge.dart';
 import 'post_photo_selection_screen.dart';
 
 /// 投稿プレビュー画面
@@ -61,7 +61,6 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   // 投稿関連サービス
   final PostService _postService = PostService();
   final StorageService _storageService = StorageService();
-  final UserService _userService = UserService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   bool _isPosting = false;
 
@@ -134,10 +133,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       _extractColorsFromAlbumArt();
     }
 
-    // 音楽のプレビューを自動再生
-    _playMusicPreview();
-
-    // 2秒後に自動的にカードを裏返す
+    // 2秒後に自動的にカードを裏返す（裏面で音楽再生開始）
     _autoFlipTimer = Timer(const Duration(seconds: 2), () {
       if (mounted && _showFront) {
         print('⏰ 2秒経過：カードを自動的に裏返します');
@@ -148,19 +144,12 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   /// 現在のユーザー情報を取得
   Future<void> _loadCurrentUserInfo() async {
-    try {
-      final currentUser = _auth.currentUser;
-      if (currentUser != null) {
-        final userData = await _userService.getUser(currentUser.uid);
-        if (mounted) {
-          setState(() {
-            _currentUsername = userData?.username ?? currentUser.displayName ?? 'ユーザー';
-            _currentUserIconUrl = userData?.profileImageUrl;
-          });
-        }
-      }
-    } catch (e) {
-      print('❌ ユーザー情報取得エラー: $e');
+    final userInfo = await CurrentUserHelper.load();
+    if (mounted) {
+      setState(() {
+        _currentUsername = userInfo.username;
+        _currentUserIconUrl = userInfo.iconUrl;
+      });
     }
   }
 
@@ -258,8 +247,12 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   void _flipCard() {
     if (_showFront) {
       _flipController.forward();
+      // 裏面に切り替え → 音楽を再生
+      _playMusicPreview();
     } else {
       _flipController.reverse();
+      // 表面に切り替え → 音楽を停止
+      _audioService.stop();
     }
     setState(() {
       _showFront = !_showFront;
@@ -272,8 +265,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     return PostModel(
       postId: 'preview_post',
       userId: 'preview_user',
-      username: 'taroooooda',
-      userIconUrl: null,
+      username: _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
+      userIconUrl: _currentUserIconUrl,
       track: widget.track,
       likeCount: 3,
       commentCount: 3,
@@ -307,9 +300,15 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
           track: widget.track,
           lyricsData: _lyricsData, // 現在保持している歌詞データを渡す
           lyricsFuture: _lyricsFuture, // バックグラウンド取得Futureを渡す
+          isVibe: widget.isVibe,
+          vibeTopicId: widget.vibeTopicId,
+          vibeTopicTitle: widget.vibeTopicTitle,
         ),
       ),
     );
+
+    // 写真選択画面から戻ったら音楽を再開
+    _playMusicPreview();
 
     print('📷 写真選択画面から戻りました');
     print('  - result: $result');
@@ -426,18 +425,12 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     try {
       final currentUser = _auth.currentUser;
       final userId = currentUser?.uid ?? 'test_user_temp';
-      final username = currentUser?.displayName ?? 'taroooooda';
-
-      // ユーザーのプロフィール画像URLを取得
-      String? userIconUrl;
-      try {
-        final userData = await _userService.getUser(userId);
-        userIconUrl = userData?.profileImageUrl;
-        print('👤 ユーザー情報: userId=$userId, username=$username, userIconUrl=$userIconUrl');
-      } catch (e) {
-        print('⚠️ ユーザー情報取得エラー: $e');
-        print('👤 ユーザー情報: userId=$userId, username=$username');
-      }
+      // _loadCurrentUserInfoで取得済みのユーザー情報を使用
+      final username = _currentUsername.isNotEmpty
+          ? _currentUsername
+          : currentUser?.displayName ?? 'ユーザー';
+      final userIconUrl = _currentUserIconUrl;
+      print('👤 ユーザー情報: userId=$userId, username=$username, userIconUrl=$userIconUrl');
 
       // 写真を処理（PhotoHelperを使用）
       String? photoUrl;
@@ -826,70 +819,12 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   /// ユーザー情報（裏面）
   Widget _buildUserInfoBack() {
-    // Vibeお題のタイトルを取得（Vibeでなければnull）
-    final hashtagText = widget.isVibe && widget.vibeTopicTitle != null
-        ? '#${widget.vibeTopicTitle}'
-        : null;
-
-    return Row(
-      children: [
-        // アバター
-        Container(
-          width: 32,
-          height: 32,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: Color(0xFF9F9F9F),
-          ),
-          child: _currentUserIconUrl != null
-              ? ClipOval(
-                  child: Image.network(
-                    _currentUserIconUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => const Icon(
-                      Icons.person,
-                      size: 18,
-                      color: Colors.white,
-                    ),
-                  ),
-                )
-              : const Icon(
-                  Icons.person,
-                  size: 18,
-                  color: Colors.white,
-                ),
-        ),
-        const SizedBox(width: 9),
-        // ユーザー名とハッシュタグ
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-                fontFamily: 'Noto Sans',
-                letterSpacing: -0.12,
-              ),
-            ),
-            // Vibeの場合のみハッシュタグを表示
-            if (hashtagText != null) ...[
-              const SizedBox(height: 2),
-              Text(
-                hashtagText,
-                style: const TextStyle(
-                  fontSize: 8,
-                  color: Colors.white,
-                  fontFamily: 'Noto Sans',
-                  letterSpacing: -0.08,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ],
+    return UserInfoBadge(
+      username: _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
+      iconUrl: _currentUserIconUrl,
+      hashtagText: widget.isVibe && widget.vibeTopicTitle != null
+          ? '#${widget.vibeTopicTitle}'
+          : null,
     );
   }
 

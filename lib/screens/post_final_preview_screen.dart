@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -8,7 +7,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
+import '../utils/current_user_helper.dart';
 import '../utils/photo_helper.dart';
+import '../widgets/shared/user_info_badge.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
 import 'home_screen.dart';
 
@@ -20,6 +21,8 @@ class PostFinalPreviewScreen extends StatefulWidget {
   final Offset cardPosition;
   final double cardScale;
   final double cardRotation;
+  final bool isVibe;
+  final String? vibeTopicTitle;
 
   const PostFinalPreviewScreen({
     super.key,
@@ -29,6 +32,8 @@ class PostFinalPreviewScreen extends StatefulWidget {
     this.cardPosition = Offset.zero,
     this.cardScale = 1.0,
     this.cardRotation = 0.0,
+    this.isVibe = false,
+    this.vibeTopicTitle,
   });
 
   @override
@@ -41,6 +46,24 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
   final StorageService _storageService = StorageService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   bool _isPosting = false;
+  String _currentUsername = '';
+  String? _currentUserIconUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUserInfo();
+  }
+
+  Future<void> _loadCurrentUserInfo() async {
+    final userInfo = await CurrentUserHelper.load();
+    if (mounted) {
+      setState(() {
+        _currentUsername = userInfo.username;
+        _currentUserIconUrl = userInfo.iconUrl;
+      });
+    }
+  }
 
   /// 投稿を完了
   Future<void> _onPost() async {
@@ -51,8 +74,10 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
     try {
       final currentUser = _auth.currentUser;
       final userId = currentUser?.uid ?? 'test_user_temp';
-      final username = currentUser?.displayName ?? 'taroooooda';
-      final userIconUrl = currentUser?.photoURL;
+      final username = _currentUsername.isNotEmpty
+          ? _currentUsername
+          : currentUser?.displayName ?? 'ユーザー';
+      final userIconUrl = _currentUserIconUrl;
 
       print('📝 投稿作成開始...');
       print('  ユーザーID: $userId');
@@ -338,41 +363,12 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
 
   /// ユーザー情報
   Widget _buildUserInfo() {
-    return Row(
-      children: [
-        // アバター
-        Container(
-          width: 32,
-          height: 32,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: Color(0xFF9F9F9F),
-          ),
-        ),
-        const SizedBox(width: 9),
-
-        // ユーザー名とハッシュタグ
-        const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'taroooooda',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-            Text(
-              '#盛り上がる一曲は？',
-              style: TextStyle(
-                fontSize: 8,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-      ],
+    return UserInfoBadge(
+      username: _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
+      iconUrl: _currentUserIconUrl,
+      hashtagText: widget.isVibe && widget.vibeTopicTitle != null
+          ? '#${widget.vibeTopicTitle}'
+          : null,
     );
   }
 

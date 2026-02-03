@@ -57,9 +57,21 @@
 				<string>fifteenapp</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>app-1-344562966483-ios-69f860d2818f66ad29d926</string>
+			</array>
+		</dict>
 	</array>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Apple Musicの楽曲を検索・再生するために使用します</string>
+	<key>NSCameraUsageDescription</key>
+	<string>投稿に写真を撮影するために使用します</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>投稿に写真を選択するために使用します</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

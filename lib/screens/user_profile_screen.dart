@@ -61,6 +61,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _loadDummyPostsAlbumArt();
   }
 
+  @override
+  void dispose() {
+    _audioService.stop();
+    super.dispose();
+  }
+
   /// ユーザーデータを読み込み
   Future<void> _loadUserData() async {
     try {
@@ -157,7 +163,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       PostModel(
         postId: 'dummy_today_post',
         userId: 'test_user_temp',
-        username: 'taroooooda',
+        username: _userData?.username ?? widget.username ?? 'ユーザー',
         track: TrackModel(
           trackId: 'dummy_track_1',
           trackName: 'いとしのエリー',
@@ -262,7 +268,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           // 戻るボタン
           IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              _audioService.stop();
+              Navigator.pop(context);
+            },
           ),
           // ユーザーID
           Text(
@@ -531,16 +540,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             final previewUrl = _previewUrlCache[post.postId];
             final isThisTrackPlaying =
                 previewUrl != null && _audioService.isPlayingUrl(previewUrl);
-            final isPaused = _audioService.isPaused;
 
             return GestureDetector(
               onTap: () async {
                 if (isThisTrackPlaying) {
-                  // 再生中の場合は一時停止
-                  _audioService.pause();
-                } else if (isPaused && previewUrl != null) {
-                  // 一時停止中の場合は再開
-                  _audioService.resume();
+                  // 再生中の場合は停止（リセット）
+                  _audioService.stop();
                 } else {
                   // 停止中の場合は再生開始
                   String? urlToPlay = previewUrl;
@@ -591,32 +596,37 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         StreamBuilder<Duration>(
           stream: _audioService.positionStream,
           builder: (context, positionSnapshot) {
-            return StreamBuilder<Duration?>(
-              stream: _audioService.durationStream,
-              builder: (context, durationSnapshot) {
-                final duration = durationSnapshot.data;
-                final position = positionSnapshot.data ?? Duration.zero;
+            // このトラックが再生中かどうかを判定
+            final previewUrl = _previewUrlCache[post.postId];
+            final isThisTrackPlaying =
+                previewUrl != null && _audioService.isPlayingUrl(previewUrl);
 
-                // 残り時間を計算
-                final remaining = duration != null
-                    ? duration - position
-                    : const Duration(seconds: 30);
+            // 再生中でなければ固定で0:15を表示
+            if (!isThisTrackPlaying) {
+              return const Text(
+                '0:15',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              );
+            }
 
-                // フォーマット
-                final minutes = remaining.inMinutes;
-                final seconds = remaining.inSeconds % 60;
-                final timeText =
-                    '$minutes:${seconds.toString().padLeft(2, '0')}';
+            final position = positionSnapshot.data ?? Duration.zero;
+            final remaining = _audioService.previewDuration - position;
+            final minutes = remaining.inMinutes;
+            final seconds = remaining.inSeconds % 60;
+            final timeText =
+                '$minutes:${seconds.toString().padLeft(2, '0')}';
 
-                return Text(
-                  timeText,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                );
-              },
+            return Text(
+              timeText,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             );
           },
         ),
@@ -672,7 +682,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Widget _buildPostItemFromModel(PostModel post) {
     return GestureDetector(
       onTap: () {
-        // 投稿詳細画面に遷移
+        // 音楽を停止してから投稿詳細画面に遷移
+        _audioService.stop();
         Navigator.push(
           context,
           MaterialPageRoute(

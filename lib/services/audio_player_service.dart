@@ -1,4 +1,8 @@
+import 'dart:async';
 import 'package:just_audio/just_audio.dart';
+
+/// プレビュー再生の長さ
+const _previewDuration = Duration(seconds: 15);
 
 /// 音楽再生を管理するサービス（Singleton）
 class AudioPlayerService {
@@ -15,6 +19,7 @@ class AudioPlayerService {
 
   AudioPlayer? _audioPlayer;
   String? _currentUrl;
+  StreamSubscription<Duration>? _positionSubscription;
 
   /// AudioPlayerのインスタンスを取得（必要に応じて作成）
   AudioPlayer get _player {
@@ -22,7 +27,17 @@ class AudioPlayerService {
     return _audioPlayer!;
   }
 
-  /// プレビューURLから音楽を再生
+  /// 15秒ループ監視を開始
+  void _startLoopMonitor() {
+    _positionSubscription?.cancel();
+    _positionSubscription = _player.positionStream.listen((position) {
+      if (position >= _previewDuration && _player.playing) {
+        _player.seek(Duration.zero);
+      }
+    });
+  }
+
+  /// プレビューURLから音楽を再生（冒頭15秒ループ）
   Future<void> playPreview(String url) async {
     try {
       print('🎵 Attempting to play: $url');
@@ -50,8 +65,11 @@ class AudioPlayerService {
       _currentUrl = url;
       await _player.setUrl(url);
 
-      // ループ再生を有効化（プレビューが終わったら最初から再生）
-      await _player.setLoopMode(LoopMode.one);
+      // ループモードはoff（手動で15秒ループを制御）
+      await _player.setLoopMode(LoopMode.off);
+
+      // 15秒ループ監視を開始
+      _startLoopMonitor();
 
       // 再生開始
       print('▶️ Starting playback...');
@@ -91,6 +109,8 @@ class AudioPlayerService {
   /// 再生を停止
   Future<void> stop() async {
     try {
+      _positionSubscription?.cancel();
+      _positionSubscription = null;
       await _player.stop();
       _currentUrl = null;
       print('Stopped playback');
@@ -108,23 +128,33 @@ class AudioPlayerService {
   /// 現在のURLが指定されたURLかどうか
   bool isPlayingUrl(String url) => _currentUrl == url && _player.playing;
 
+  /// プレビューの長さ（常に15秒）
+  Duration get previewDuration => _previewDuration;
+
   /// プレイヤーの状態ストリーム
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
 
-  /// 再生位置のストリーム
-  Stream<Duration> get positionStream => _player.positionStream;
+  /// 再生位置のストリーム（15秒でキャップ）
+  Stream<Duration> get positionStream =>
+      _player.positionStream.map((pos) => pos > _previewDuration ? _previewDuration : pos);
 
-  /// 楽曲の長さのストリーム
-  Stream<Duration?> get durationStream => _player.durationStream;
+  /// 楽曲の長さのストリーム（常に15秒を返す）
+  Stream<Duration?> get durationStream =>
+      _player.durationStream.map((_) => _previewDuration);
 
-  /// 現在の楽曲の長さ
-  Duration? get duration => _player.duration;
+  /// 現在の楽曲の長さ（常に15秒）
+  Duration? get duration => _previewDuration;
 
   /// 現在の再生位置
-  Duration get position => _player.position;
+  Duration get position {
+    final pos = _player.position;
+    return pos > _previewDuration ? _previewDuration : pos;
+  }
 
   /// リソースを解放
   Future<void> dispose() async {
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
     await _audioPlayer?.dispose();
     _audioPlayer = null;
     _currentUrl = null;

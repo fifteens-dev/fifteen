@@ -95,15 +95,43 @@ class PostService {
       }
 
       final snapshot = await query.get();
-      return snapshot.docs
+      final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
           .toList();
+
+      return await _applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
         print('Error getting posts: $e');
       }
       return [];
     }
+  }
+
+  /// 投稿リストのユーザー名・アイコンを最新のプロフィール情報で更新
+  Future<List<PostModel>> _applyLatestUserInfo(List<PostModel> posts) async {
+    if (posts.isEmpty) return posts;
+
+    final userIds = posts.map((p) => p.userId).toSet();
+    final userMap = <String, ({String? username, String? iconUrl})>{};
+
+    for (final uid in userIds) {
+      try {
+        final user = await _userService.getUser(uid);
+        if (user != null) {
+          userMap[uid] = (username: user.username, iconUrl: user.profileImageUrl);
+        }
+      } catch (_) {}
+    }
+
+    return posts.map((post) {
+      final userInfo = userMap[post.userId];
+      if (userInfo == null || userInfo.username == null) return post;
+      return post.copyWith(
+        username: userInfo.username,
+        userIconUrl: userInfo.iconUrl,
+      );
+    }).toList();
   }
 
   /// 投稿のリアルタイムストリームを取得
@@ -128,11 +156,12 @@ class PostService {
         .collection(_postsCollection)
         .orderBy('createdAt', descending: true)
         .limit(limit)
-        .snapshots() // リアルタイム更新を受信
-        .map((snapshot) {
-      return snapshot.docs
+        .snapshots()
+        .asyncMap((snapshot) async {
+      final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
           .toList();
+      return await _applyLatestUserInfo(posts);
     });
   }
 
@@ -146,9 +175,10 @@ class PostService {
           .limit(limit)
           .get();
 
-      return snapshot.docs
+      final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
           .toList();
+      return await _applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
         print('Error getting posts by userId: $e');
@@ -175,7 +205,7 @@ class PostService {
 
       posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-      return posts;
+      return await _applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
         print('Error getting saved posts by userId: $e');
@@ -363,9 +393,10 @@ class PostService {
           .orderBy('createdAt', descending: true)
           .get();
 
-      return snapshot.docs
+      final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
           .toList();
+      return await _applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
         print('Error getting today\'s posts: $e');
@@ -389,9 +420,10 @@ class PostService {
           .limit(limit)
           .get();
 
-      return snapshot.docs
+      final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
           .toList();
+      return await _applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
         print('Error getting posts excluding today: $e');
@@ -418,9 +450,10 @@ class PostService {
           .where('vibeDate', isLessThan: Timestamp.fromDate(nextDay))
           .get();
 
-      return snapshot.docs
+      final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
           .toList();
+      return await _applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
         print('Error getting vibe posts by topic: $e');

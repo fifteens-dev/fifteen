@@ -6,6 +6,8 @@ import 'package:flutter_box_transform/flutter_box_transform.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/track_model.dart';
 import '../services/lyrics_service.dart';
+import '../utils/current_user_helper.dart';
+import '../widgets/shared/user_info_badge.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// 歌詞カード選択画面
@@ -15,6 +17,7 @@ class LyricsCardSelectionScreen extends StatefulWidget {
   final XFile? selectedImage;
   final bool isVibe;
   final String? vibeTopicId;
+  final String? vibeTopicTitle;
 
   const LyricsCardSelectionScreen({
     super.key,
@@ -23,6 +26,7 @@ class LyricsCardSelectionScreen extends StatefulWidget {
     this.selectedImage,
     this.isVibe = false,
     this.vibeTopicId,
+    this.vibeTopicTitle,
   });
 
   @override
@@ -32,6 +36,9 @@ class LyricsCardSelectionScreen extends StatefulWidget {
 
 class _LyricsCardSelectionScreenState
     extends State<LyricsCardSelectionScreen> {
+  String _currentUsername = '';
+  String? _currentUserIconUrl;
+
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
   Rect _rect = const Rect.fromLTWH(0, 0, 196, 126); // 歌詞カードの位置とサイズ
   Flip _flip = Flip.none; // 反転情報
@@ -44,6 +51,7 @@ class _LyricsCardSelectionScreenState
   void initState() {
     super.initState();
     _lyricsData = widget.lyricsData;
+    _loadCurrentUserInfo();
 
     // 歌詞がまだ取得されていない場合はバックグラウンドで取得
     if (_lyricsData == null) {
@@ -51,6 +59,16 @@ class _LyricsCardSelectionScreenState
       _fetchLyrics();
     } else {
       print('✅ 既に取得済みの歌詞を使用します (${_lyricsData!.source})');
+    }
+  }
+
+  Future<void> _loadCurrentUserInfo() async {
+    final userInfo = await CurrentUserHelper.load();
+    if (mounted) {
+      setState(() {
+        _currentUsername = userInfo.username;
+        _currentUserIconUrl = userInfo.iconUrl;
+      });
     }
   }
 
@@ -237,40 +255,12 @@ class _LyricsCardSelectionScreenState
               Positioned(
                 left: 15,
                 top: 15,
-                child: Row(
-                  children: [
-                    // アバター
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xFF9F9F9F),
-                      ),
-                    ),
-                    const SizedBox(width: 9),
-                    // ユーザー名とハッシュタグ
-                    const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'taroooooda',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                        Text(
-                          '#盛り上がる一曲は？',
-                          style: TextStyle(
-                            fontSize: 8,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                child: UserInfoBadge(
+                  username: _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
+                  iconUrl: _currentUserIconUrl,
+                  hashtagText: widget.isVibe && widget.vibeTopicTitle != null
+                      ? '#${widget.vibeTopicTitle}'
+                      : null,
                 ),
               ),
             ],

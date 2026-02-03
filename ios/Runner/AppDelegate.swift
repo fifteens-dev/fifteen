@@ -133,33 +133,10 @@ import MusicKit
   }
 
   private func getUserToken(result: @escaping FlutterResult) {
-    // Check iOS version
-    if #available(iOS 15.0, *) {
-      Task {
-        do {
-          // Get user token (requires authorization)
-          let token = try await MusicUserTokenProvider().getUserToken()
-
-          DispatchQueue.main.async {
-            result(token)
-          }
-        } catch {
-          DispatchQueue.main.async {
-            result(FlutterError(
-              code: "TOKEN_ERROR",
-              message: "Failed to get user token: \(error.localizedDescription)",
-              details: nil
-            ))
-          }
-        }
-      }
-    } else {
-      // iOS 15未満では利用不可
-      result(FlutterError(
-        code: "UNAVAILABLE",
-        message: "MusicKit requires iOS 15.0 or later",
-        details: nil
-      ))
-    }
+    result(FlutterError(
+      code: "UNAVAILABLE",
+      message: "getUserToken is not supported in this version",
+      details: nil
+    ))
   }
 }

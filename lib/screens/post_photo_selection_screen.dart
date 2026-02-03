@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/track_model.dart';
+import '../services/audio_player_service.dart';
 import '../services/lyrics_service.dart';
 import 'lyrics_card_selection_screen.dart';
 
@@ -14,6 +15,7 @@ class PostPhotoSelectionScreen extends StatefulWidget {
   final Future<LyricsData?>? lyricsFuture; // バックグラウンド取得用
   final bool isVibe;
   final String? vibeTopicId;
+  final String? vibeTopicTitle;
 
   const PostPhotoSelectionScreen({
     super.key,
@@ -22,6 +24,7 @@ class PostPhotoSelectionScreen extends StatefulWidget {
     this.lyricsFuture,
     this.isVibe = false,
     this.vibeTopicId,
+    this.vibeTopicTitle,
   });
 
   @override
@@ -38,6 +41,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
   @override
   void initState() {
     super.initState();
+    AudioPlayerService().stop();
     _loadGalleryImages();
 
     // 親から受け取った歌詞データを保存
@@ -174,6 +178,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
           selectedImage: _selectedImage,
           isVibe: widget.isVibe,
           vibeTopicId: widget.vibeTopicId,
+          vibeTopicTitle: widget.vibeTopicTitle,
         ),
       ),
     );

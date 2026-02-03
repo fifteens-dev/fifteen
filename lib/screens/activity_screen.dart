@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/current_user_helper.dart';
 
 /// アクティビティ画面（通知画面）
 class ActivityScreen extends StatefulWidget {
@@ -9,6 +10,23 @@ class ActivityScreen extends StatefulWidget {
 }
 
 class _ActivityScreenState extends State<ActivityScreen> {
+  String _currentUsername = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUserInfo();
+  }
+
+  Future<void> _loadCurrentUserInfo() async {
+    final userInfo = await CurrentUserHelper.load();
+    if (mounted) {
+      setState(() {
+        _currentUsername = userInfo.username;
+      });
+    }
+  }
+
   // TODO: 実際のデータはFirestoreから取得
   final List<ActivityItem> _activities = [
     ActivityItem(
@@ -102,9 +120,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
           ),
           const SizedBox(width: 8),
           // ユーザー名
-          const Text(
-            'taroooooda',
-            style: TextStyle(
+          Text(
+            _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
+            style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w600,
               color: Colors.white,

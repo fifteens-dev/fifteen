@@ -1101,15 +1101,35 @@ class _HomeScreenState extends State<HomeScreen>
 
     // 認証済みユーザーの場合はFirestoreを使用
     try {
+      final isSaved = _savedPostIds.contains(post.postId);
+
+      // 楽観的UI更新
+      setState(() {
+        if (isSaved) {
+          _savedPostIds.remove(post.postId);
+        } else {
+          _savedPostIds.add(post.postId);
+        }
+      });
+
       await _userService.toggleSavePost(
         userId: userId,
         postId: post.postId,
       );
 
-      // 成功メッセージを表示
-      _showMessage('投稿を保存しました');
+      _showMessage(isSaved ? '投稿の保存を解除しました' : '投稿を保存しました');
     } catch (e) {
       print('投稿の保存に失敗: $e');
+
+      // エラー時は状態を元に戻す
+      setState(() {
+        if (_savedPostIds.contains(post.postId)) {
+          _savedPostIds.remove(post.postId);
+        } else {
+          _savedPostIds.add(post.postId);
+        }
+      });
+
       _showMessage('投稿の保存に失敗しました');
     }
   }

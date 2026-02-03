@@ -918,7 +918,7 @@ class _PostCardState extends State<PostCard>
     if (widget.post.isVibe) {
       // Vibe投稿の場合
       if (widget.post.vibeTopicTitle != null && widget.post.vibeTopicTitle!.isNotEmpty) {
-        displayText = 'Vibe【${widget.post.vibeTopicTitle!}】';
+        displayText = '#${widget.post.vibeTopicTitle!}';
       } else {
         // vibeTopicTitleがない古い投稿の場合はVibeのみ表示
         displayText = 'Vibe';

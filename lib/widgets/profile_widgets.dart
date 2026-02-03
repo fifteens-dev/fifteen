@@ -110,7 +110,8 @@ class ProfilePostGridItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        // アルバムアートをタップした時は表面から表示して0.5秒後に自動反転
+        // 音楽を停止してから投稿詳細画面に遷移
+        AudioPlayerService().stop();
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -241,16 +242,12 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
             final previewUrl = widget.previewUrlCache[widget.post.postId];
             final isThisTrackPlaying = previewUrl != null &&
                 widget.audioService.isPlayingUrl(previewUrl);
-            final isPaused = widget.audioService.isPaused;
 
             return GestureDetector(
               onTap: () async {
                 if (isThisTrackPlaying) {
-                  // 再生中の場合は一時停止
-                  widget.audioService.pause();
-                } else if (isPaused && previewUrl != null) {
-                  // 一時停止中の場合は再開
-                  widget.audioService.resume();
+                  // 再生中の場合は停止（リセット）
+                  widget.audioService.stop();
                 } else {
                   // 停止中の場合は再生開始
                   String? urlToPlay = previewUrl;
@@ -302,31 +299,36 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
         StreamBuilder<Duration>(
           stream: widget.audioService.positionStream,
           builder: (context, positionSnapshot) {
-            return StreamBuilder<Duration?>(
-              stream: widget.audioService.durationStream,
-              builder: (context, durationSnapshot) {
-                final duration = durationSnapshot.data;
-                final position = positionSnapshot.data ?? Duration.zero;
+            // このトラックが再生中かどうかを判定
+            final previewUrl = widget.previewUrlCache[widget.post.postId];
+            final isThisTrackPlaying = previewUrl != null &&
+                widget.audioService.isPlayingUrl(previewUrl);
 
-                // 残り時間を計算
-                final remaining = duration != null
-                    ? duration - position
-                    : const Duration(seconds: 30);
+            // 再生中でなければ固定で0:15を表示
+            if (!isThisTrackPlaying) {
+              return const Text(
+                '0:15',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              );
+            }
 
-                // フォーマット
-                final minutes = remaining.inMinutes;
-                final seconds = remaining.inSeconds % 60;
-                final timeText = '$minutes:${seconds.toString().padLeft(2, '0')}';
+            final position = positionSnapshot.data ?? Duration.zero;
+            final remaining = widget.audioService.previewDuration - position;
+            final minutes = remaining.inMinutes;
+            final seconds = remaining.inSeconds % 60;
+            final timeText = '$minutes:${seconds.toString().padLeft(2, '0')}';
 
-                return Text(
-                  timeText,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                );
-              },
+            return Text(
+              timeText,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             );
           },
         ),
@@ -363,6 +365,8 @@ class TodaysTrackCard extends StatelessWidget {
             // アルバムアート（タップで投稿詳細を表面から表示して0.5秒後に自動反転）
             GestureDetector(
               onTap: () {
+                // 音楽を停止してから投稿詳細画面に遷移
+                audioService.stop();
                 Navigator.push(
                   context,
                   MaterialPageRoute(

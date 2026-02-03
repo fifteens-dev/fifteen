@@ -62,7 +62,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       // Web開発用：Firebase認証がない場合はダミーデータを使用
       setState(() {
         _nameController.text = '後藤　太郎';
-        _usernameController.text = 'taroooooda';
+        _usernameController.text = 'ユーザー';
         _bioController.text = '';
         _isLoading = false;
       });

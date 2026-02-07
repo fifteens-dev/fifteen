@@ -4,6 +4,7 @@ import '../models/post_model.dart';
 import '../models/track_model.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
+import '../utils/current_user_helper.dart';
 
 /// 特定のトラックのVibe投稿一覧を表示する画面
 class VibeTrackPostsScreen extends StatefulWidget {
@@ -26,6 +27,22 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
   final PageController _pageController = PageController();
   final AudioPlayerService _audioService = AudioPlayerService();
   int _currentPage = 0;
+  String? _currentUserIconUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUserIconUrl();
+  }
+
+  Future<void> _loadCurrentUserIconUrl() async {
+    final userInfo = await CurrentUserHelper.load();
+    if (mounted) {
+      setState(() {
+        _currentUserIconUrl = userInfo.iconUrl;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -102,6 +119,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                 child: PostCard(
                   post: post,
                   currentUserId: widget.currentUserId,
+                  currentUserIconUrl: _currentUserIconUrl,
                   audioService: _audioService,
                   autoFlipAfterDelay: true, // すぐに裏返す
                   onLike: () {

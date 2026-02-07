@@ -3,7 +3,6 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,6 +12,7 @@ import '../models/post_theme.dart';
 import '../widgets/post_card.dart';
 import '../widgets/post_card_back_info.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
+import '../widgets/dialogs/dialogs.dart';
 import '../services/audio_player_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
@@ -133,10 +133,10 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       _extractColorsFromAlbumArt();
     }
 
-    // 2秒後に自動的にカードを裏返す（裏面で音楽再生開始）
-    _autoFlipTimer = Timer(const Duration(seconds: 2), () {
+    // 1秒後に自動的にカードを裏返す（裏面で音楽再生開始）
+    _autoFlipTimer = Timer(const Duration(seconds: 1), () {
       if (mounted && _showFront) {
-        print('⏰ 2秒経過：カードを自動的に裏返します');
+        print('⏰ 1秒経過：カードを自動的に裏返します');
         _flipCard();
       }
     });
@@ -347,55 +347,27 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     }
   }
 
+  /// 閉じるボタンタップ時のダイアログを表示
+  Future<void> _showCloseConfirmDialog() async {
+    final shouldCancel = await ActionDialog.showCancelConfirm(
+      context,
+      title: 'どうしますか？',
+      cancelActionLabel: '投稿をキャンセル',
+      continueActionLabel: 'このまま続ける',
+    );
+
+    if (shouldCancel && mounted) {
+      // 投稿をキャンセル → ホーム画面に戻る
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/home',
+        (route) => false,
+      );
+    }
+  }
+
   /// 投稿確認ダイアログを表示
   Future<bool> _showPostConfirmDialog() async {
-    return await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        title: const Text(
-          '投稿しますか？',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        content: const Text(
-          'この内容で投稿します。よろしいですか？',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 14,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text(
-              'キャンセル',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              '投稿する',
-              style: TextStyle(
-                color: Color(0xFF5D8FFF),
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    ) ?? false;
+    return await ActionDialog.showPostConfirm(context);
   }
 
   /// 投稿を完了
@@ -483,7 +455,18 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       final baseSize = _getCardSizeBack();
       final cardScale = _rect.width / baseSize.width;
 
+      // 歌詞テキストを取得
+      String? lyricsText;
+      if (_lyricsData != null) {
+        final lyricsService = LyricsService();
+        lyricsText = lyricsService.truncateLyrics(
+          _lyricsData!.plainLyrics,
+          maxLines: 4,
+        );
+      }
+
       print('📝 投稿データ: isVibe=${widget.isVibe}, vibeTopicId=${widget.vibeTopicId}, vibeTopicTitle=${widget.vibeTopicTitle}');
+      print('  - lyricsText: ${lyricsText != null ? "${lyricsText.length}文字" : "なし"}');
       final postId = await _postService.createPost(
         userId: userId,
         username: username,
@@ -499,6 +482,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         vibeTopicId: widget.vibeTopicId,
         vibeTopicTitle: widget.vibeTopicTitle,
         theme: extractedTheme, // 抽出した色テーマを保存
+        lyricsText: lyricsText, // 歌詞テキスト
       );
       print('✅ 投稿作成完了: postId=$postId');
 
@@ -603,11 +587,11 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 戻るボタン（矢印）- 投稿中は無効化
+          // 閉じるボタン（バツマーク）- 投稿中は無効化
           GestureDetector(
-            onTap: _isPosting ? null : () => Navigator.pop(context),
+            onTap: _isPosting ? null : _showCloseConfirmDialog,
             child: Icon(
-              Icons.arrow_back_ios,
+              Icons.close,
               color: _isPosting ? Colors.grey : Colors.white,
               size: 20,
             ),

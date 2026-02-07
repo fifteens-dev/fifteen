@@ -86,7 +86,7 @@ class NotificationModel {
   /// Firestoreドキュメント用マップに変換
   Map<String, dynamic> toMap() {
     return {
-      'type': type.toString().split('.').last,
+      'type': type.name,
       'recipientId': recipientId,
       'senderId': senderId,
       'senderUsername': senderUsername,

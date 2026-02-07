@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
-import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../utils/test_data.dart';
+import '../utils/current_user_helper.dart';
 
 /// 初回タイムライン画面
 ///
@@ -21,6 +21,22 @@ class FirstTimelineScreen extends StatefulWidget {
 class _FirstTimelineScreenState extends State<FirstTimelineScreen> {
   // 音楽再生サービス
   final AudioPlayerService _audioService = AudioPlayerService();
+  String? _currentUserIconUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUserIconUrl();
+  }
+
+  Future<void> _loadCurrentUserIconUrl() async {
+    final userInfo = await CurrentUserHelper.load();
+    if (mounted) {
+      setState(() {
+        _currentUserIconUrl = userInfo.iconUrl;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -177,6 +193,7 @@ class _FirstTimelineScreenState extends State<FirstTimelineScreen> {
             key: ValueKey(post.postId),
             post: post,
             currentUserId: currentUserId,
+            currentUserIconUrl: _currentUserIconUrl,
             audioService: _audioService,
             onLike: () => _handleLike(post),
             onComment: () => _handleComment(post),

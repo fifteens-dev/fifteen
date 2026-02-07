@@ -6,6 +6,8 @@ import '../models/comment_model.dart';
 import '../services/comment_service.dart';
 import '../constants/app_colors.dart';
 import '../utils/test_data.dart';
+import '../utils/current_user_helper.dart';
+import '../widgets/dialogs/dialogs.dart';
 
 /// コメント画面（ボトムシート）
 class CommentScreen extends StatefulWidget {
@@ -49,8 +51,26 @@ class _CommentScreenState extends State<CommentScreen> {
   final CommentService _commentService = CommentService();
   final ScrollController _scrollController = ScrollController();
   bool _isPosting = false;
+  String _currentUsername = '';
+  String? _currentUserIconUrl;
 
   PostTheme get _theme => widget.post.theme;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUserInfo();
+  }
+
+  Future<void> _loadCurrentUserInfo() async {
+    final userInfo = await CurrentUserHelper.load();
+    if (mounted) {
+      setState(() {
+        _currentUsername = userInfo.username;
+        _currentUserIconUrl = userInfo.iconUrl;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -71,14 +91,14 @@ class _CommentScreenState extends State<CommentScreen> {
     try {
       final currentUser = FirebaseAuth.instance.currentUser;
       final userId = currentUser?.uid ?? 'test_user_temp';
-      final username = currentUser?.displayName ?? 'test_user';
+      final username = _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー';
 
       final newComment = CommentModel(
         commentId: 'local_comment_${DateTime.now().millisecondsSinceEpoch}',
         postId: widget.post.postId,
         userId: userId,
         username: username,
-        userIconUrl: currentUser?.photoURL,
+        userIconUrl: _currentUserIconUrl,
         content: content,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
@@ -99,7 +119,7 @@ class _CommentScreenState extends State<CommentScreen> {
           postId: widget.post.postId,
           userId: userId,
           username: username,
-          userIconUrl: currentUser?.photoURL,
+          userIconUrl: _currentUserIconUrl,
           content: content,
         );
 
@@ -327,7 +347,7 @@ class _CommentScreenState extends State<CommentScreen> {
                       comment.username,
                       style: TextStyle(
                         color: _theme.textColor,
-                        fontSize: 10,
+                        fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -336,18 +356,18 @@ class _CommentScreenState extends State<CommentScreen> {
                       _formatTimestamp(comment.createdAt),
                       style: const TextStyle(
                         color: Color(0xFF68717B),
-                        fontSize: 9,
+                        fontSize: 10,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 // コメント本文
                 Text(
                   comment.content,
                   style: TextStyle(
                     color: _theme.textColor,
-                    fontSize: 11,
+                    fontSize: 14,
                   ),
                 ),
               ],
@@ -371,8 +391,6 @@ class _CommentScreenState extends State<CommentScreen> {
 
   /// コメント入力欄（Figma準拠）
   Widget _buildCommentInput() {
-    final currentUser = FirebaseAuth.instance.currentUser;
-
     return Container(
       padding: EdgeInsets.only(
         left: 19,
@@ -390,11 +408,11 @@ class _CommentScreenState extends State<CommentScreen> {
               shape: BoxShape.circle,
               color: Colors.grey,
             ),
-            child: currentUser?.photoURL != null &&
-                    currentUser!.photoURL!.isNotEmpty
+            child: _currentUserIconUrl != null &&
+                    _currentUserIconUrl!.isNotEmpty
                 ? ClipOval(
                     child: Image.network(
-                      currentUser.photoURL!,
+                      _currentUserIconUrl!,
                       width: 40,
                       height: 40,
                       fit: BoxFit.cover,
@@ -492,30 +510,13 @@ class _CommentScreenState extends State<CommentScreen> {
 
   /// コメントを削除
   Future<void> _deleteComment(CommentModel comment) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text('コメントを削除',
-            style: TextStyle(color: AppColors.textPrimary)),
-        content: const Text('このコメントを削除しますか？',
-            style: TextStyle(color: AppColors.textSecondary)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル',
-                style: TextStyle(color: AppColors.textSecondary)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child:
-                const Text('削除', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
+    final confirmed = await DeleteConfirmDialog.show(
+      context,
+      title: 'コメントを削除',
+      message: 'このコメントを削除しますか？',
     );
 
-    if (confirmed == true) {
+    if (confirmed) {
       try {
         if (comment.commentId.startsWith('local_comment_')) {
           await TestData.removeLocalComment(

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../models/post_theme.dart';
 import '../models/track_model.dart';
-import 'post_card.dart'; // MarqueeText用
+import 'post_card/marquee_text.dart';
 
 /// 投稿カード裏面の情報セクション（タイトルエリア）
 /// PostCardとpost_preview_screenの両方で使用される共通ウィジェット

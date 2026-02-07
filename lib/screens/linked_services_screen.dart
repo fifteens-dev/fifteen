@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../services/music_service_manager.dart';
 import '../models/music_service_type.dart';
+import '../widgets/dialogs/dialogs.dart';
 
 /// 連携サービス画面
 class LinkedServicesScreen extends StatefulWidget {
@@ -425,7 +426,7 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
   }
 
   /// サービス情報ダイアログ
-  void _showServiceInfoDialog(MusicServiceType service, VoidCallback onConnect) {
+  Future<void> _showServiceInfoDialog(MusicServiceType service, VoidCallback onConnect) async {
     // サービスごとの説明
     String title;
     List<String> features;
@@ -451,339 +452,40 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
         return;
     }
 
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        margin: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey[800],
-          borderRadius: BorderRadius.circular(36),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // アイコンとタイトル
-              Row(
-                children: [
-                  Text(
-                    icon,
-                    style: const TextStyle(fontSize: 32),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              // できること
-              Text(
-                'できること',
-                style: TextStyle(
-                  color: Colors.grey[400],
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              // 機能リスト
-              ...features.map((feature) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '✓',
-                          style: TextStyle(
-                            color: Color(0xFF4CAF50),
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            feature,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )),
-              const SizedBox(height: 24),
-              // ボタン
-              Row(
-                children: [
-                  // キャンセルボタン
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        height: 45,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[700],
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'キャンセル',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // 接続ボタン
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        Navigator.pop(context);
-                        onConnect();
-                      },
-                      child: Container(
-                        height: 45,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF5D8FFF),
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            '接続する',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+    final shouldConnect = await ServiceInfoBottomSheet.show(
+      context,
+      title: title,
+      icon: icon,
+      features: features,
     );
+
+    if (shouldConnect) {
+      onConnect();
+    }
   }
 
   /// 接続切り替え確認ダイアログ
-  void _showSwitchConnectionDialog(String newService, String currentService, VoidCallback onSwitch) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        margin: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey[800],
-          borderRadius: BorderRadius.circular(36),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // タイトル
-              Text(
-                '${newService}と接続',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              // メッセージ
-              Text(
-                '${currentService}との接続を解除して${newService}と接続しますか？',
-                style: TextStyle(
-                  color: Colors.grey[400],
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 24),
-              // ボタン
-              Row(
-                children: [
-                  // キャンセルボタン
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        height: 45,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[700],
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'キャンセル',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // 接続ボタン
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        Navigator.pop(context);
-                        onSwitch();
-                      },
-                      child: Container(
-                        height: 45,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[700],
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            '接続',
-                            style: TextStyle(
-                              color: Colors.red,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+  Future<void> _showSwitchConnectionDialog(String newService, String currentService, VoidCallback onSwitch) async {
+    final shouldSwitch = await BottomSheetDialog.showSwitchService(
+      context,
+      newService: newService,
+      currentService: currentService,
     );
+
+    if (shouldSwitch) {
+      onSwitch();
+    }
   }
 
   /// 接続解除確認ダイアログ
-  void _showDisconnectDialog(String serviceName, VoidCallback onDisconnect) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        margin: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey[800],
-          borderRadius: BorderRadius.circular(36),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // タイトル
-              Text(
-                '${serviceName}との接続を解除',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              // メッセージ
-              Text(
-                '本当に接続を解除しますか？',
-                style: TextStyle(
-                  color: Colors.grey[400],
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 24),
-              // ボタン
-              Row(
-                children: [
-                  // キャンセルボタン
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        height: 45,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[700],
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'キャンセル',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // 解除ボタン
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        Navigator.pop(context);
-                        onDisconnect();
-                      },
-                      child: Container(
-                        height: 45,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[700],
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            '解除',
-                            style: TextStyle(
-                              color: Colors.red,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+  Future<void> _showDisconnectDialog(String serviceName, VoidCallback onDisconnect) async {
+    final shouldDisconnect = await BottomSheetDialog.showDisconnect(
+      context,
+      serviceName: serviceName,
     );
+
+    if (shouldDisconnect) {
+      onDisconnect();
+    }
   }
 }

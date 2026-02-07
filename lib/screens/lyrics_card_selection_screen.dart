@@ -128,8 +128,8 @@ class _LyricsCardSelectionScreenState
       );
     }
 
-    // デフォルト歌詞
-    return '今宵涙こらえて奏でる愛のSerenade\n今も忘れない恋の歌';
+    // 歌詞が見つからなかった場合
+    return '歌詞が見つかりませんでした';
   }
 
   @override
@@ -183,7 +183,7 @@ class _LyricsCardSelectionScreenState
           GestureDetector(
             onTap: () => Navigator.pop(context),
             child: const Icon(
-              Icons.close,
+              Icons.arrow_back_ios,
               color: Colors.white,
               size: 20,
             ),

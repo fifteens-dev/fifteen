@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
-import '../models/track_model.dart';
-import '../models/vibe_topic_model.dart';
 import '../models/vibe_ranking_item.dart';
 import '../widgets/post_card.dart';
 import '../widgets/notification_badge.dart';
@@ -14,13 +11,15 @@ import '../services/audio_player_service.dart';
 import '../services/user_service.dart';
 import '../services/vibe_topic_service.dart';
 import '../utils/test_data.dart';
+import '../utils/current_user_helper.dart';
 import 'comment_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
-import 'activity_screen.dart';
 import 'music_selection_screen.dart';
 import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
+import 'home/vibe_bar_section.dart';
+import 'home/home_bottom_nav.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -61,6 +60,9 @@ class _HomeScreenState extends State<HomeScreen>
   // 投稿リストをキャッシュ（再構築を避けるため）
   List<PostModel>? _cachedPosts;
 
+  // 現在のユーザーのアイコンURL（楽観的UI用）
+  String? _currentUserIconUrl;
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +70,17 @@ class _HomeScreenState extends State<HomeScreen>
     _loadPosts();
     _loadLocalLikeStates();
     _loadLocalSaveStates();
+    _loadCurrentUserIconUrl();
+  }
+
+  /// 現在のユーザーのアイコンURLを取得
+  Future<void> _loadCurrentUserIconUrl() async {
+    final userInfo = await CurrentUserHelper.load();
+    if (mounted) {
+      setState(() {
+        _currentUserIconUrl = userInfo.iconUrl;
+      });
+    }
   }
 
   /// 投稿リストを読み込み（Firestoreから取得）
@@ -280,7 +293,10 @@ class _HomeScreenState extends State<HomeScreen>
                     slivers: [
                       // Vibeバー
                       SliverToBoxAdapter(
-                        child: _buildVibeBar(),
+                        child: VibeBarSection(
+                          vibeDataFuture: _loadVibeData(),
+                          onRankingItemTap: _handleRankingItemTap,
+                        ),
                       ),
 
                       const SliverToBoxAdapter(
@@ -305,7 +321,10 @@ class _HomeScreenState extends State<HomeScreen>
               left: 0,
               right: 0,
               bottom: 0,
-              child: _buildBottomNavigation(),
+              child: HomeBottomNavigation(
+                selectedIndex: _selectedIndex,
+                onItemTapped: _onItemTapped,
+              ),
             ),
           ],
         ),
@@ -352,51 +371,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  /// Vibeバー（ランキング表示）
-  Widget _buildVibeBar() {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _loadVibeData(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildVibeBarSkeleton();
-        }
-
-        if (!snapshot.hasData ||
-            snapshot.data!['topic'] == null) {
-          return _buildVibeBarEmpty();
-        }
-
-        final topic = snapshot.data!['topic'] as VibeTopicModel;
-        final ranking = snapshot.data!['ranking'] as List<VibeRankingItem>;
-
-        return Container(
-          height: 190,
-          color: AppColors.background,
-          child: Column(
-            children: [
-              // ヘッダー（お題タイトル + 投票ボタン）
-              _buildVibeBarHeader(topic),
-
-              // ランキング（横スクロール）
-              Expanded(
-                child: ranking.isEmpty
-                    ? _buildNoRankingMessage()
-                    : ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: ranking.length,
-                        itemBuilder: (context, index) {
-                          return _buildRankingItem(ranking[index], index + 1);
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   /// Vibeデータを読み込み（今日のお題とランキング）
   Future<Map<String, dynamic>> _loadVibeData() async {
     try {
@@ -415,151 +389,6 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (e) {
       print('Error loading vibe data: $e');
       return {'topic': null, 'ranking': []};
-    }
-  }
-
-  /// Vibeバーのヘッダー
-  Widget _buildVibeBarHeader(VibeTopicModel topic) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          // Vibeアイコン
-          Image.asset(
-            'assets/icons/Vibe.png',
-            width: 40,
-            height: 40,
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.purple,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.music_note, color: Colors.white),
-              );
-            },
-          ),
-          const SizedBox(width: 12),
-          // お題タイトル
-          Expanded(
-            child: Text(
-              'Vibe【${topic.title}】',
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// ランキングアイテム
-  Widget _buildRankingItem(VibeRankingItem item, int rank) {
-    return GestureDetector(
-      onTap: () => _handleRankingItemTap(item),
-      child: Container(
-        width: 80,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        child: Column(
-          children: [
-            // ランク番号（円形バッジ）
-            Container(
-              width: 20,
-              height: 20,
-              decoration: BoxDecoration(
-                color: _getRankColor(rank),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  '$rank',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-
-            // アルバムアートワーク
-            Container(
-              width: 70,
-              height: 70,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Image.network(
-                  item.track.albumImageUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: Colors.grey[800],
-                      child: const Icon(Icons.album, color: Colors.white54),
-                    );
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-
-            // 楽曲名
-            Text(
-              item.track.trackName,
-              style: const TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-            ),
-            // アーティスト名
-            Text(
-              item.track.artistName,
-              style: TextStyle(
-                fontSize: 7,
-                color: Colors.white.withOpacity(0.7),
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-            ),
-
-            // 投稿数
-            Text(
-              '${item.postCount}投稿',
-              style: const TextStyle(
-                fontSize: 7,
-                color: Color(0xFF5D8FFF),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// ランク別の色を取得
-  Color _getRankColor(int rank) {
-    switch (rank) {
-      case 1:
-        return const Color(0xFFFFD700); // ゴールド
-      case 2:
-        return const Color(0xFFC0C0C0); // シルバー
-      case 3:
-        return const Color(0xFFCD7F32); // ブロンズ
-      default:
-        return const Color(0xFF5D8FFF); // デフォルト
     }
   }
 
@@ -614,125 +443,6 @@ class _HomeScreenState extends State<HomeScreen>
       print('Error handling ranking item tap: $e');
       _showMessage('投稿の読み込みに失敗しました');
     }
-  }
-
-  /// Vibeバーのスケルトン（ローディング表示）
-  Widget _buildVibeBarSkeleton() {
-    return Container(
-      height: 190,
-      color: AppColors.background,
-      padding: const EdgeInsets.all(16),
-      child: const Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
-  }
-
-  /// Vibeバーの空状態（お題がない場合）
-  Widget _buildVibeBarEmpty() {
-    return Container(
-      height: 190,
-      color: AppColors.background,
-      child: Column(
-        children: [
-          // ヘッダー（アイコンと見出し）
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                // Vibeアイコン
-                Image.asset(
-                  'assets/icons/Vibe.png',
-                  width: 40,
-                  height: 40,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.purple,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.music_note, color: Colors.white),
-                    );
-                  },
-                ),
-                const SizedBox(width: 12),
-                // Vibe見出し
-                const Text(
-                  'Vibe',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // メッセージ
-          Expanded(
-            child: Center(
-              child: Text(
-                '今日のVibeお題はありません',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white.withOpacity(0.6),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// ランキングがない場合のメッセージ
-  Widget _buildNoRankingMessage() {
-    return Center(
-      child: Text(
-        'まだ投稿がありません',
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.white.withOpacity(0.6),
-        ),
-      ),
-    );
-  }
-
-  /// アルバムアイテム（Vibeバー用）
-  Widget _buildAlbumItem() {
-    return Container(
-      width: 70,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // アルバムジャケット
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              color: Colors.grey[800],
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: const Icon(Icons.album, color: Colors.white54),
-          ),
-          const SizedBox(height: 2),
-          // アーティスト名 / 曲名
-          const Text(
-            'アーティスト / 曲名',
-            style: TextStyle(
-              fontSize: 7,
-              color: Colors.white,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
   }
 
   /// タイムライン（投稿カードリスト）- Sliver版
@@ -805,6 +515,7 @@ class _HomeScreenState extends State<HomeScreen>
                 key: ValueKey(post.postId), // 投稿IDをkeyにして状態を保持
                 post: displayPost,
                 currentUserId: currentUserId,
+                currentUserIconUrl: _currentUserIconUrl,
                 audioService: _homeAudioService, // ホーム画面専用の音楽再生サービスを渡す
                 onLike: () => _handleLike(post),
                 onComment: () => _handleComment(post),
@@ -816,106 +527,6 @@ class _HomeScreenState extends State<HomeScreen>
           childCount: posts.length,
         ),
       ),
-    );
-  }
-
-  /// タイムライン（投稿カードリスト）- 旧版（未使用）
-  ///
-  /// StreamBuilderを使用してFirestoreからリアルタイムで投稿データを取得します。
-  /// 他のユーザーが投稿を作成したり、いいねを押した場合、
-  /// 自動的にUIが更新され、すべてのユーザーに変更が即座に反映されます。
-  Widget _buildTimeline() {
-    return StreamBuilder<List<PostModel>>(
-      stream: _postService.getPostsStream(limit: 20),
-      builder: (context, snapshot) {
-        // ローディング中
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(32),
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
-          );
-        }
-
-        // エラー発生
-        if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Text(
-                'エラーが発生しました\n${snapshot.error}',
-                style: const TextStyle(color: Colors.white),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
-        }
-
-        // デバッグ用: 常にテストデータを表示（Firestoreの古いデータを無視）
-        final posts = TestData.generateTestPosts();
-
-        // 本番用（Firestoreデータを使用する場合）:
-        // final posts = (snapshot.hasData && snapshot.data!.isNotEmpty)
-        //     ? snapshot.data!
-        //     : TestData.generateTestPosts();
-        // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
-        final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 15),
-          child: Column(
-            children: posts.map((post) {
-              // コメント数といいね数のオーバーライドを適用
-              var displayPost = post;
-
-              // コメント数のオーバーライド
-              if (_commentCounts.containsKey(post.postId)) {
-                displayPost = displayPost.copyWith(
-                    commentCount: _commentCounts[post.postId]);
-              }
-
-              // いいね数のオーバーライド
-              if (_likeCounts.containsKey(post.postId)) {
-                displayPost =
-                    displayPost.copyWith(likeCount: _likeCounts[post.postId]);
-              }
-
-              // いいね状態のオーバーライド
-              if (_likedPostIds.contains(post.postId)) {
-                // ユーザーがいいねしている場合、likedUserIdsにユーザーIDを追加
-                final updatedLikedUserIds =
-                    List<String>.from(displayPost.likedUserIds);
-                if (!updatedLikedUserIds.contains(currentUserId)) {
-                  updatedLikedUserIds.add(currentUserId);
-                  displayPost =
-                      displayPost.copyWith(likedUserIds: updatedLikedUserIds);
-                }
-              } else if (_likeCounts.containsKey(post.postId)) {
-                // いいね解除した場合、likedUserIdsからユーザーIDを削除
-                final updatedLikedUserIds =
-                    List<String>.from(displayPost.likedUserIds);
-                updatedLikedUserIds.remove(currentUserId);
-                displayPost =
-                    displayPost.copyWith(likedUserIds: updatedLikedUserIds);
-              }
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: PostCard(
-                  key: ValueKey(post.postId), // 投稿IDをkeyにして状態を保持
-                  post: displayPost,
-                  currentUserId: currentUserId,
-                  audioService: _homeAudioService,
-                  onLike: () => _handleLike(post),
-                  onComment: () => _handleComment(post),
-                  onAdd: () => _handleAdd(post),
-                ),
-              );
-            }).toList(),
-          ),
-        );
-      },
     );
   }
 
@@ -1146,99 +757,4 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// ボトムナビゲーション（Figma準拠）
-  Widget _buildBottomNavigation() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-          decoration: BoxDecoration(
-            color: const Color(0xFF191919).withOpacity(0.77),
-            borderRadius: BorderRadius.circular(30),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // ホームボタン
-              _buildNavItem(
-                icon: Icons.home_outlined,
-                selectedIcon: Icons.home,
-                index: 0,
-              ),
-              const SizedBox(width: 28),
-              // 検索ボタン
-              _buildNavItem(
-                icon: Icons.search,
-                index: 1,
-              ),
-              const SizedBox(width: 28),
-              // 投稿ボタン
-              _buildNavItemSvg(
-                svgPath: 'assets/icons/post_icon.svg',
-                index: 2,
-              ),
-              const SizedBox(width: 28),
-              // アカウントボタン
-              _buildNavItem(
-                icon: Icons.account_circle_outlined,
-                selectedIcon: Icons.account_circle,
-                index: 3,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// ナビゲーションアイテム（Figma: 40x40）
-  Widget _buildNavItem({
-    required IconData icon,
-    IconData? selectedIcon,
-    required int index,
-  }) {
-    final isSelected = _selectedIndex == index;
-    return GestureDetector(
-      onTap: () => _onItemTapped(index),
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 40,
-        height: 40,
-        child: Center(
-          child: Icon(
-            isSelected ? (selectedIcon ?? icon) : icon,
-            color: Colors.white,
-            size: 24,
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// ナビゲーションアイテムSVG版（Figma: 40x40）
-  Widget _buildNavItemSvg({
-    required String svgPath,
-    required int index,
-  }) {
-    return GestureDetector(
-      onTap: () => _onItemTapped(index),
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 40,
-        height: 40,
-        child: Center(
-          child: SvgPicture.asset(
-            svgPath,
-            width: 24,
-            height: 24,
-            colorFilter: const ColorFilter.mode(
-              Colors.white,
-              BlendMode.srcIn,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

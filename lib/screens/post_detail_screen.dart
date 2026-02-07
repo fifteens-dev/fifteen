@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
+import '../utils/current_user_helper.dart';
 
 /// 投稿カード単体表示画面
 class PostDetailScreen extends StatefulWidget {
@@ -20,6 +21,22 @@ class PostDetailScreen extends StatefulWidget {
 
 class _PostDetailScreenState extends State<PostDetailScreen> {
   final AudioPlayerService _audioService = AudioPlayerService();
+  String? _currentUserIconUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUserIconUrl();
+  }
+
+  Future<void> _loadCurrentUserIconUrl() async {
+    final userInfo = await CurrentUserHelper.load();
+    if (mounted) {
+      setState(() {
+        _currentUserIconUrl = userInfo.iconUrl;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -39,6 +56,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             Center(
               child: PostCard(
                 post: widget.post,
+                currentUserIconUrl: _currentUserIconUrl,
                 audioService: _audioService,
                 autoFlipAfterDelay: widget.autoFlipAfterDelay,
               ),

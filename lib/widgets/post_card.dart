@@ -10,10 +10,14 @@ import '../models/post_theme.dart';
 import '../screens/other_user_profile_screen.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
+import '../services/lyrics_service.dart';
+import '../services/post_service.dart';
 import '../utils/color_extractor.dart';
 import '../utils/photo_helper.dart';
 import 'profile_widgets.dart';
 import 'post_creation/lyrics_card_layouts.dart';
+import 'post_card/post_card_constants.dart';
+import 'post_card/marquee_text.dart';
 
 /// 投稿カードウィジェット（表裏反転アニメーション付き）
 class PostCard extends StatefulWidget {
@@ -22,6 +26,7 @@ class PostCard extends StatefulWidget {
   final VoidCallback? onComment;
   final VoidCallback? onAdd;
   final String? currentUserId;
+  final String? currentUserIconUrl; // 現在のユーザーのアイコンURL（楽観的UI用）
   final AudioPlayerService audioService; // 音楽再生サービス（外部から注入）
   final bool showFrontOnly; // trueの場合、表面のみ表示（反転なし）
   final VoidCallback? onCardTap; // showFrontOnly時の外部タップハンドラ
@@ -38,6 +43,7 @@ class PostCard extends StatefulWidget {
     this.onComment,
     this.onAdd,
     this.currentUserId,
+    this.currentUserIconUrl,
     required this.audioService, // 必須パラメータ
     this.showFrontOnly = false, // デフォルトは両面表示
     this.onCardTap, // 外部タップハンドラ（オプション）
@@ -54,21 +60,6 @@ class PostCard extends StatefulWidget {
 
 class _PostCardState extends State<PostCard>
     with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
-  // カードサイズの定数
-  static const double _cardBaseWidth = 363.0;
-  static const double _likedUserIconSize = 25.0;
-  static const double _likedUserIconMargin = 4.0;
-  static const int _maxLikedUsersToShow = 2;
-
-  // 再生ボタンの定数
-  static const double _playButtonSize = 56.0;
-  static const double _playButtonIconSize = 32.0;
-  static const double _playButtonBorderWidth = 2.0;
-  static const double _playButtonBackgroundOpacity = 0.6;
-
-  // カード角丸の定数
-  static const double _cardBorderRadius = 18.0;
-
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
   bool _showFront = true;
@@ -81,6 +72,7 @@ class _PostCardState extends State<PostCard>
   // 楽観的UI更新用のローカル状態
   bool? _isLikedOptimistic;
   int? _likeCountOptimistic;
+  List<String>? _likedByUserIconUrlsOptimistic;
 
   // iTunes検索サービス
   final ITunesSearchService _itunesService = ITunesSearchService();
@@ -113,6 +105,11 @@ class _PostCardState extends State<PostCard>
   Color? _extractedGradientEnd;
   bool _isColorExtracting = false;
 
+  // 動的に取得した歌詞
+  String? _fetchedLyricsText;
+  bool _isLyricsFetching = false;
+  bool _lyricsFetchAttempted = false;
+
   // スクロール時にウィジェットの状態を保持
   @override
   bool get wantKeepAlive => true;
@@ -126,7 +123,7 @@ class _PostCardState extends State<PostCard>
 
     // 自動反転が有効な場合、0.5秒後に裏返す
     if (widget.autoFlipAfterDelay) {
-      Future.delayed(const Duration(milliseconds: 500), () {
+      Future.delayed(PostCardConstants.autoFlipDelay, () {
         if (mounted && _showFront) {
           _flipCard();
         }
@@ -138,7 +135,7 @@ class _PostCardState extends State<PostCard>
   void _initializeAnimations() {
     // カード反転アニメーション
     _flipController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: PostCardConstants.flipAnimationDuration,
       vsync: this,
     );
     _flipAnimation = Tween<double>(begin: 0, end: 1).animate(
@@ -147,7 +144,7 @@ class _PostCardState extends State<PostCard>
 
     // 再生ボタンアニメーション
     _playButtonAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
+      duration: PostCardConstants.playButtonAnimationDuration,
       vsync: this,
     );
 
@@ -234,6 +231,56 @@ class _PostCardState extends State<PostCard>
       if (mounted) {
         setState(() {
           _isColorExtracting = false;
+        });
+      }
+    }
+  }
+
+  /// 歌詞を動的に取得（lyricsTextがない場合のフォールバック）
+  Future<void> _fetchLyricsIfNeeded() async {
+    // 既に歌詞がある場合、または取得中/取得済みの場合はスキップ
+    if (widget.post.lyricsText != null || _isLyricsFetching || _lyricsFetchAttempted) {
+      return;
+    }
+
+    setState(() {
+      _isLyricsFetching = true;
+    });
+
+    try {
+      final lyricsService = LyricsService();
+      final lyricsData = await lyricsService.getLyrics(
+        trackName: widget.post.track.trackName,
+        artistName: widget.post.track.artistName,
+      );
+
+      if (mounted && lyricsData != null) {
+        final truncatedLyrics = lyricsService.truncateLyrics(
+          lyricsData.plainLyrics,
+          maxLines: 4,
+        );
+        setState(() {
+          _fetchedLyricsText = truncatedLyrics;
+        });
+        debugPrint('✅ PostCard: 歌詞を動的に取得しました');
+
+        // Firebaseに保存（テスト投稿以外の場合）
+        final postId = widget.post.postId;
+        if (!postId.startsWith('test_post_') && !postId.startsWith('preview_')) {
+          final postService = PostService();
+          await postService.updateLyricsText(
+            postId: postId,
+            lyricsText: truncatedLyrics,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ PostCard: 歌詞取得エラー: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLyricsFetching = false;
+          _lyricsFetchAttempted = true;
         });
       }
     }
@@ -363,10 +410,28 @@ class _PostCardState extends State<PostCard>
             (widget.currentUserId != null &&
                 widget.post.isLikedBy(widget.currentUserId!));
         final currentLikeCount = _likeCountOptimistic ?? widget.post.likeCount;
+        final currentIconUrls = _likedByUserIconUrlsOptimistic ??
+            List<String>.from(widget.post.likedByUserIconUrls);
 
         _isLikedOptimistic = !currentIsLiked;
         _likeCountOptimistic =
             currentIsLiked ? currentLikeCount - 1 : currentLikeCount + 1;
+
+        // アイコンURLリストも楽観的に更新
+        if (currentIsLiked) {
+          // いいね解除：自分のアイコンを削除
+          if (widget.currentUserIconUrl != null) {
+            currentIconUrls.remove(widget.currentUserIconUrl);
+          } else if (currentIconUrls.isNotEmpty) {
+            // アイコンURLがない場合は最後の要素を削除
+            currentIconUrls.removeLast();
+          }
+        } else {
+          // いいね追加：自分のアイコンを追加
+          final iconUrl = widget.currentUserIconUrl ?? '';
+          currentIconUrls.add(iconUrl);
+        }
+        _likedByUserIconUrlsOptimistic = currentIconUrls;
       });
 
       widget.onLike!();
@@ -380,7 +445,8 @@ class _PostCardState extends State<PostCard>
     if (oldWidget.post.postId != widget.post.postId) {
       _isLikedOptimistic = null;
       _likeCountOptimistic = null;
-    } else if (_isLikedOptimistic != null || _likeCountOptimistic != null) {
+      _likedByUserIconUrlsOptimistic = null;
+    } else if (_isLikedOptimistic != null || _likeCountOptimistic != null || _likedByUserIconUrlsOptimistic != null) {
       final actualIsLiked = widget.currentUserId != null &&
           widget.post.isLikedBy(widget.currentUserId!);
       final actualLikeCount = widget.post.likeCount;
@@ -389,6 +455,7 @@ class _PostCardState extends State<PostCard>
           _likeCountOptimistic == actualLikeCount) {
         _isLikedOptimistic = null;
         _likeCountOptimistic = null;
+        _likedByUserIconUrlsOptimistic = null;
       }
     }
   }
@@ -453,11 +520,11 @@ class _PostCardState extends State<PostCard>
             width: cardWidth,
             height: cardHeight,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(_cardBorderRadius),
+              borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
               color: theme.gradientEnd,
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(_cardBorderRadius),
+              borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
               child: Stack(
             children: [
               // アルバムカバー（全表示）
@@ -606,11 +673,11 @@ class _PostCardState extends State<PostCard>
               width: cardWidth,
               height: cardHeight,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(_cardBorderRadius),
+                borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
                 color: theme.gradientEnd,
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(_cardBorderRadius),
+                borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
                 child: Stack(
               children: [
                 // 写真エリア（上部）- 投稿の写真またはアルバムアート
@@ -735,8 +802,8 @@ class _PostCardState extends State<PostCard>
 
                 // 再生ボタン（写真エリアの中央）
                 Positioned(
-                  left: (cardWidth - _playButtonSize) / 2,
-                  top: (photoHeight - _playButtonSize) / 2,
+                  left: (cardWidth - PostCardConstants.playButtonSize) / 2,
+                  top: (photoHeight - PostCardConstants.playButtonSize) / 2,
                   child: _buildPlayButton(),
                 ),
 
@@ -1017,6 +1084,17 @@ class _PostCardState extends State<PostCard>
     // レイアウトタイプを取得
     final layoutType = LyricsCardLayout.getLayoutType(layoutIndex);
 
+    // 歌詞テキストを決定（保存済み > 動的取得 > null）
+    final lyricsText = widget.post.lyricsText ?? _fetchedLyricsText;
+
+    // 歌詞がない場合は動的に取得を試みる
+    if (lyricsText == null && !_lyricsFetchAttempted) {
+      // 非同期で歌詞を取得（UIはブロックしない）
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _fetchLyricsIfNeeded();
+      });
+    }
+
     return Positioned(
       left: positionX,
       top: positionY,
@@ -1029,7 +1107,7 @@ class _PostCardState extends State<PostCard>
           child: LyricsCardLayout(
             layoutType: layoutType,
             track: widget.post.track,
-            lyricsText: null, // 歌詞テキストは今は表示しない
+            lyricsText: _isLyricsFetching ? '歌詞を取得中...' : lyricsText,
           ),
         ),
       ),
@@ -1089,8 +1167,8 @@ class _PostCardState extends State<PostCard>
           onTap: () => _handlePlayButtonTap(isThisTrackPlaying, previewUrl),
           behavior: HitTestBehavior.opaque,
           child: Container(
-            width: _playButtonSize,
-            height: _playButtonSize,
+            width: PostCardConstants.playButtonSize,
+            height: PostCardConstants.playButtonSize,
             color: Colors.transparent,
             child: AnimatedBuilder(
               animation: _playButtonAnimationController,
@@ -1100,20 +1178,20 @@ class _PostCardState extends State<PostCard>
                   child: Transform.scale(
                     scale: _playButtonScaleAnimation.value,
                     child: Container(
-                      width: _playButtonSize,
-                      height: _playButtonSize,
+                      width: PostCardConstants.playButtonSize,
+                      height: PostCardConstants.playButtonSize,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.black.withOpacity(_playButtonBackgroundOpacity),
+                        color: Colors.black.withOpacity(PostCardConstants.playButtonBackgroundOpacity),
                         border: Border.all(
                           color: Colors.white,
-                          width: _playButtonBorderWidth,
+                          width: PostCardConstants.playButtonBorderWidth,
                         ),
                       ),
                       child: Icon(
                         isThisTrackPlaying ? Icons.pause : Icons.play_arrow,
                         color: Colors.white,
-                        size: _playButtonIconSize,
+                        size: PostCardConstants.playButtonIconSize,
                       ),
                     ),
                   ),
@@ -1428,16 +1506,16 @@ class _PostCardState extends State<PostCard>
   /// いいねしたユーザーのアイコン（裏面用 - 固定サイズ）
   Widget _buildLikedUsersIcons() {
     return _buildLikedUsersIconsCommon(
-      iconSize: _likedUserIconSize,
-      margin: _likedUserIconMargin,
+      iconSize: PostCardConstants.likedUserIconSize,
+      margin: PostCardConstants.likedUserIconMargin,
     );
   }
 
   /// いいねしたユーザーのアイコン（表面用 - 相対サイズ）
   Widget _buildLikedUsersIconsFront(double cardWidth, double cardHeight) {
     return _buildLikedUsersIconsCommon(
-      iconSize: cardWidth * (_likedUserIconSize / _cardBaseWidth),
-      margin: cardWidth * (_likedUserIconMargin / _cardBaseWidth),
+      iconSize: cardWidth * (PostCardConstants.likedUserIconSize / PostCardConstants.cardBaseWidth),
+      margin: cardWidth * (PostCardConstants.likedUserIconMargin / PostCardConstants.cardBaseWidth),
     );
   }
 
@@ -1446,9 +1524,11 @@ class _PostCardState extends State<PostCard>
     required double iconSize,
     required double margin,
   }) {
-    final displayCount = widget.post.likedByUserIconUrls.length > _maxLikedUsersToShow
-        ? _maxLikedUsersToShow
-        : widget.post.likedByUserIconUrls.length;
+    // 楽観的UIを使用するか、実際のデータを使用
+    final iconUrls = _likedByUserIconUrlsOptimistic ?? widget.post.likedByUserIconUrls;
+    final displayCount = iconUrls.length > PostCardConstants.maxLikedUsersToShow
+        ? PostCardConstants.maxLikedUsersToShow
+        : iconUrls.length;
 
     if (displayCount == 0) {
       return const SizedBox.shrink();
@@ -1473,7 +1553,7 @@ class _PostCardState extends State<PostCard>
             ),
             child: ClipOval(
               child: ProfileImage(
-                imageUrl: widget.post.likedByUserIconUrls[index],
+                imageUrl: iconUrls[index],
                 size: 25,
               ),
             ),
@@ -1642,115 +1722,3 @@ class _PostCardState extends State<PostCard>
   }
 }
 
-/// テキストが長い場合に横スクロールするマーキーウィジェット
-class MarqueeText extends StatefulWidget {
-  final String text;
-  final TextStyle? style;
-  final double width;
-
-  const MarqueeText({
-    super.key,
-    required this.text,
-    this.style,
-    required this.width,
-  });
-
-  @override
-  State<MarqueeText> createState() => _MarqueeTextState();
-}
-
-class _MarqueeTextState extends State<MarqueeText> {
-  late ScrollController _scrollController;
-  bool _needsScrolling = false;
-  double _textWidth = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController = ScrollController();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkAndStartScrolling();
-    });
-  }
-
-  void _checkAndStartScrolling() async {
-    // テキストの幅を計算
-    final textPainter = TextPainter(
-      text: TextSpan(text: widget.text, style: widget.style),
-      maxLines: 1,
-      textDirection: TextDirection.ltr,
-    )..layout();
-
-    _textWidth = textPainter.width;
-
-    if (_textWidth > widget.width) {
-      setState(() {
-        _needsScrolling = true;
-      });
-
-      // スクロールアニメーションを開始
-      await Future.delayed(const Duration(seconds: 1));
-      if (!mounted) return;
-
-      while (mounted) {
-        // 右から左へスクロール
-        await _scrollController.animateTo(
-          _textWidth - widget.width + 20,
-          duration: const Duration(seconds: 5),
-          curve: Curves.linear,
-        );
-
-        // 少し待つ
-        await Future.delayed(const Duration(seconds: 1));
-        if (!mounted) return;
-
-        // 左端に戻る
-        await _scrollController.animateTo(
-          0,
-          duration: const Duration(seconds: 5),
-          curve: Curves.linear,
-        );
-
-        // 少し待つ
-        await Future.delayed(const Duration(seconds: 1));
-        if (!mounted) return;
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_needsScrolling) {
-      return SizedBox(
-        width: widget.width,
-        child: Text(
-          widget.text,
-          style: widget.style,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      );
-    }
-
-    return SizedBox(
-      width: widget.width,
-      child: SingleChildScrollView(
-        controller: _scrollController,
-        scrollDirection: Axis.horizontal,
-        physics: const NeverScrollableScrollPhysics(),
-        child: Text(
-          widget.text,
-          style: widget.style,
-          maxLines: 1,
-        ),
-      ),
-    );
-  }
-}

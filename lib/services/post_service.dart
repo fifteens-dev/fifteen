@@ -32,6 +32,7 @@ class PostService {
     String? vibeTopicTitle,
     String? emotionTag,
     PostTheme? theme, // アルバムアートから抽出した色テーマ
+    String? lyricsText, // 歌詞テキスト
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
@@ -67,6 +68,7 @@ class PostService {
         'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
         'emotionTag': emotionTag,
         'theme': theme != null ? theme.toMap() : null, // 抽出した色テーマを保存
+        'lyricsText': lyricsText, // 歌詞テキスト
       };
 
       await postRef.set(postData);
@@ -76,6 +78,26 @@ class PostService {
         print('Error creating post: $e');
       }
       rethrow;
+    }
+  }
+
+  /// 投稿の歌詞テキストを更新（フォールバック取得後の保存用）
+  Future<void> updateLyricsText({
+    required String postId,
+    required String lyricsText,
+  }) async {
+    try {
+      await _firestore.collection(_postsCollection).doc(postId).update({
+        'lyricsText': lyricsText,
+      });
+      if (kDebugMode) {
+        print('✅ 歌詞をFirebaseに保存しました: postId=$postId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 歌詞の保存エラー: $e');
+      }
+      // エラーは無視（次回また取得すればいい）
     }
   }
 

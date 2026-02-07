@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:just_audio/just_audio.dart';
-import '../constants/app_colors.dart';
 import '../services/user_service.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
@@ -10,8 +8,6 @@ import '../services/itunes_search_service.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
 import '../models/track_model.dart';
-import '../utils/test_data.dart';
-import 'settings_screen.dart';
 import 'post_detail_screen.dart';
 
 /// プロフィール画面（他のユーザー）

@@ -29,6 +29,7 @@ class PostModel {
   final String? vibeTopicTitle; // Vibeお題のタイトル（例: "ドライブで聴きたい曲"）
   final DateTime? vibeDate; // Vibe投稿の日付（集計用）
   final String? emotionTag; // 感情タグ（例: "嬉しい", "悲しい", "楽しい"）
+  final String? lyricsText; // 歌詞テキスト（歌詞カード表示用）
 
   PostModel({
     required this.postId,
@@ -56,6 +57,7 @@ class PostModel {
     this.vibeTopicTitle,
     this.vibeDate,
     this.emotionTag,
+    this.lyricsText,
   });
 
   // Firestoreドキュメントから作成
@@ -90,6 +92,7 @@ class PostModel {
       vibeTopicTitle: data['vibeTopicTitle'],
       vibeDate: (data['vibeDate'] as Timestamp?)?.toDate(),
       emotionTag: data['emotionTag'],
+      lyricsText: data['lyricsText'],
     );
   }
 
@@ -120,6 +123,7 @@ class PostModel {
       'vibeTopicTitle': vibeTopicTitle,
       'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate!) : null,
       'emotionTag': emotionTag,
+      'lyricsText': lyricsText,
     };
   }
 
@@ -150,6 +154,7 @@ class PostModel {
     String? vibeTopicTitle,
     DateTime? vibeDate,
     String? emotionTag,
+    String? lyricsText,
   }) {
     return PostModel(
       postId: postId ?? this.postId,
@@ -177,6 +182,7 @@ class PostModel {
       vibeTopicTitle: vibeTopicTitle ?? this.vibeTopicTitle,
       vibeDate: vibeDate ?? this.vibeDate,
       emotionTag: emotionTag ?? this.emotionTag,
+      lyricsText: lyricsText ?? this.lyricsText,
     );
   }
 

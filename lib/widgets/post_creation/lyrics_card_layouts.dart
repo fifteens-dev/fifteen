@@ -75,7 +75,7 @@ class LyricsCardLayout extends StatelessWidget {
               padding: const EdgeInsets.all(11),
               child: Center(
                 child: Text(
-                  lyricsText ?? '今宵涙こらえて奏でる愛のSerenade\n今も忘れない恋の歌',
+                  lyricsText ?? '歌詞が見つかりませんでした',
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,

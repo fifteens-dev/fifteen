@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 /// 音楽トラック情報を表すモデル
 class TrackModel {
   final String trackId;

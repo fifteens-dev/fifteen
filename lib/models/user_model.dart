@@ -81,6 +81,7 @@ class UserModel {
     List<String>? following,
     List<String>? savedPosts,
     int? postsCount,
+    bool? isAdmin,
   }) {
     return UserModel(
       uid: uid,
@@ -95,6 +96,7 @@ class UserModel {
       postsCount: postsCount ?? this.postsCount,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
+      isAdmin: isAdmin ?? this.isAdmin,
     );
   }
 

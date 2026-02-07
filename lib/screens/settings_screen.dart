@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_service.dart';
 import '../services/admin_service.dart';
 import '../models/user_model.dart';
+import '../widgets/dialogs/dialogs.dart';
 import 'account_edit_screen.dart';
 import 'notification_settings_screen.dart';
 import 'linked_services_screen.dart';
@@ -464,43 +465,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// ログアウト確認ダイアログ
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        title: const Text(
-          'ログアウト',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: const Text(
-          'ログアウトしますか？',
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'キャンセル',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              }
-            },
-            child: const Text(
-              'ログアウト',
-              style: TextStyle(color: Colors.red),
-            ),
-          ),
-        ],
-      ),
+  Future<void> _showLogoutDialog(BuildContext context) async {
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: 'ログアウト',
+      message: 'ログアウトしますか？',
+      cancelText: 'キャンセル',
+      confirmText: 'ログアウト',
+      confirmColor: Colors.red,
     );
+
+    if (confirmed && context.mounted) {
+      await FirebaseAuth.instance.signOut();
+      if (context.mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    }
   }
 }
 

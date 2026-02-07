@@ -230,11 +230,11 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 閉じるボタン
+          // 戻るボタン
           GestureDetector(
             onTap: () => Navigator.pop(context),
             child: const Icon(
-              Icons.close,
+              Icons.arrow_back_ios,
               color: Colors.white,
               size: 20,
             ),

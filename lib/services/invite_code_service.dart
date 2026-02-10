@@ -29,10 +29,19 @@ class InviteCodeService {
       final data = doc.data();
       if (data == null) return InviteCodeValidationResult.notFound;
 
-      // 使用済みかチェック
-      final isUsed = data['isUsed'] ?? false;
-      if (isUsed) {
-        return InviteCodeValidationResult.alreadyUsed;
+      // 使用回数制の場合
+      final maxUses = data['maxUses'] as int?;
+      final usedCount = data['usedCount'] as int? ?? 0;
+      if (maxUses != null) {
+        if (usedCount >= maxUses) {
+          return InviteCodeValidationResult.alreadyUsed;
+        }
+      } else {
+        // 従来の1回使い切り方式
+        final isUsed = data['isUsed'] ?? false;
+        if (isUsed) {
+          return InviteCodeValidationResult.alreadyUsed;
+        }
       }
 
       // 有効期限をチェック（オプション）
@@ -61,14 +70,27 @@ class InviteCodeService {
   // 招待コードを使用済みにする
   Future<void> markInviteCodeAsUsed(String code, String userId) async {
     try {
-      await _firestore
+      final docRef = _firestore
           .collection(_inviteCodesCollection)
-          .doc(code.toUpperCase())
-          .update({
-        'isUsed': true,
-        'usedBy': userId,
-        'usedAt': FieldValue.serverTimestamp(),
-      });
+          .doc(code.toUpperCase());
+      final doc = await docRef.get();
+      final data = doc.data();
+
+      if (data != null && data['maxUses'] != null) {
+        // 使用回数制：カウントをインクリメント
+        await docRef.update({
+          'usedCount': FieldValue.increment(1),
+          'lastUsedBy': userId,
+          'lastUsedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        // 従来方式：使用済みフラグ
+        await docRef.update({
+          'isUsed': true,
+          'usedBy': userId,
+          'usedAt': FieldValue.serverTimestamp(),
+        });
+      }
     } catch (e) {
       if (kDebugMode) {
         print('Error marking invite code as used: $e');
@@ -88,6 +110,23 @@ class InviteCodeService {
     } catch (e) {
       if (kDebugMode) {
         print('Error creating test invite code: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 使用回数制の招待コードを作成
+  Future<void> createInviteCodeWithMaxUses(String code, int maxUses) async {
+    try {
+      await _firestore.collection(_inviteCodesCollection).doc(code.toUpperCase()).set({
+        'code': code.toUpperCase(),
+        'maxUses': maxUses,
+        'usedCount': 0,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error creating invite code: $e');
       }
       rethrow;
     }

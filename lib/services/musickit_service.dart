@@ -88,7 +88,8 @@ class MusicKitService {
   /// User Tokenを取得（認証が必要）
   ///
   /// User TokenはApple Music APIで個人データにアクセスするために必要
-  Future<String?> getUserToken() async {
+  /// [developerToken] Developer Token（SKCloudServiceControllerで必要）
+  Future<String?> getUserToken({String? developerToken}) async {
     if (!isSupported) {
       if (kIsWeb) {
         print('⚠️ MusicKit is not supported on Web (MusicKit JS not implemented)');
@@ -103,7 +104,9 @@ class MusicKitService {
     }
 
     try {
-      final String token = await _channel.invokeMethod('getUserToken');
+      final String token = await _channel.invokeMethod('getUserToken', {
+        'developerToken': developerToken,
+      });
       print('✅ Got user token (length: ${token.length})');
       return token;
     } on PlatformException catch (e) {

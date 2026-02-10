@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/track_model.dart';
-import 'itunes_search_service.dart';
 import 'spotify_auth_service.dart';
 
 /// Spotify Web API サービス
@@ -13,9 +12,6 @@ class SpotifyService {
 
   String? _clientCredentialsToken;
   DateTime? _tokenExpiry;
-
-  // iTunes Search APIのフォールバック
-  final ITunesSearchService _itunesService = ITunesSearchService();
 
   // OAuth認証サービス
   final SpotifyAuthService _authService = SpotifyAuthService();
@@ -35,12 +31,17 @@ class SpotifyService {
       }
     }
 
-    // OAuth認証がない場合は、Client Credentials Flowにフォールバック
-    // トークンがまだ有効な場合は再利用
+    // OAuthがない場合はClient Credentialsにフォールバック
+    return await _getClientCredentialsToken();
+  }
+
+  /// Client Credentialsトークンを取得（ユーザー認証不要）
+  Future<String?> _getClientCredentialsToken() async {
+    // キャッシュが有効ならそれを使用
     if (_clientCredentialsToken != null &&
         _tokenExpiry != null &&
         DateTime.now().isBefore(_tokenExpiry!)) {
-      print('✅ Spotify キャッシュされたトークンを使用');
+      print('✅ Spotify キャッシュされたClient Credentialsトークンを使用');
       return _clientCredentialsToken;
     }
 
@@ -68,10 +69,9 @@ class SpotifyService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         _clientCredentialsToken = data['access_token'];
-        // トークンは通常3600秒（1時間）有効
         final expiresIn = data['expires_in'] as int;
         _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn - 60));
-        print('✅ Spotify トークン取得成功（有効期限: ${expiresIn}秒）');
+        print('✅ Spotify Client Credentials トークン取得成功');
         return _clientCredentialsToken;
       } else {
         print('❌ Spotify token error: ${response.statusCode} ${response.body}');
@@ -83,86 +83,94 @@ class SpotifyService {
     }
   }
 
-  /// 楽曲を検索（アルバムアートはSpotify、プレビューURLはiTunes）
+  /// Spotify APIで検索を実行（内部用）
+  Future<http.Response> _executeSearch(String token, String encodedQuery, int searchLimit) {
+    return http.get(
+      Uri.parse(
+          'https://api.spotify.com/v1/search?q=$encodedQuery&type=track&limit=$searchLimit'),
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+  }
+
+  /// レスポンスからTrackModelリストを生成
+  List<TrackModel> _parseSearchResponse(http.Response response, String query, int limit) {
+    final data = json.decode(response.body);
+    final tracks = data['tracks']['items'] as List;
+
+    if (tracks.isEmpty) {
+      print('🎵 Spotify: No results found for "$query"');
+      return [];
+    }
+
+    print('🎵 Spotify: Found ${tracks.length} results, filtering for original versions...');
+
+    final scoredTracks = _scoreAndFilterTracks(tracks, query);
+
+    final results = scoredTracks.take(limit).map((scoredTrack) {
+      final trackData = scoredTrack['track'];
+
+      final images = trackData['album']['images'] as List;
+      String albumImageUrl = '';
+      if (images.isNotEmpty) {
+        albumImageUrl = images[0]['url'];
+      }
+
+      final artists = trackData['artists'] as List;
+      String artistName = '';
+      if (artists.isNotEmpty) {
+        artistName = artists.map((a) => a['name']).join(', ');
+      }
+
+      final previewUrl = trackData['preview_url'] as String? ?? '';
+
+      return TrackModel(
+        trackId: trackData['id'],
+        trackName: trackData['name'],
+        artistName: artistName,
+        albumImageUrl: albumImageUrl,
+        previewUrl: previewUrl,
+      );
+    }).toList();
+
+    print('✅ Spotify: Returning ${results.length} filtered tracks');
+    return results;
+  }
+
+  /// 楽曲を検索（403時はClient Credentialsで再試行）
   Future<List<TrackModel>> searchTracks(String query, {int limit = 20}) async {
     if (query.isEmpty) return [];
 
     final token = await _getAccessToken();
     if (token == null) {
-      print('⚠️  Spotifyトークン取得失敗 - iTunes APIにフォールバック');
-      print('💡 Spotify認証情報を.envファイルで確認してください');
-      // Spotify認証失敗時はiTunes APIにフォールバック
-      return await _itunesService.searchTracks(query, limit: limit);
+      print('❌ Spotifyトークン取得失敗');
+      throw Exception('Spotifyトークンを取得できません');
     }
 
-    try {
-      final encodedQuery = Uri.encodeComponent(query);
-      // より多くの結果を取得してフィルタリング（Spotify APIの最大値は50）
-      final searchLimit = (limit * 3).clamp(1, 50);
-      final response = await http.get(
-        Uri.parse(
-            'https://api.spotify.com/v1/search?q=$encodedQuery&type=track&limit=$searchLimit'),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      );
+    final encodedQuery = Uri.encodeComponent(query);
+    final searchLimit = (limit * 3).clamp(1, 50);
+    final response = await _executeSearch(token, encodedQuery, searchLimit);
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final tracks = data['tracks']['items'] as List;
+    if (response.statusCode == 200) {
+      return _parseSearchResponse(response, query, limit);
+    }
 
-        if (tracks.isEmpty) {
-          print('🎵 Spotify: No results found for "$query"');
-          return [];
+    // 403エラー: OAuthトークンがDevelopment mode制限 → Client Credentialsで再試行
+    if (response.statusCode == 403) {
+      print('⚠️ Spotify OAuth 403エラー - Client Credentialsトークンで再試行');
+      final ccToken = await _getClientCredentialsToken();
+      if (ccToken != null) {
+        final retryResponse = await _executeSearch(ccToken, encodedQuery, searchLimit);
+        if (retryResponse.statusCode == 200) {
+          return _parseSearchResponse(retryResponse, query, limit);
         }
-
-        print('🎵 Spotify: Found ${tracks.length} results, filtering for original versions...');
-
-        // スコアリングしてオリジナル版を優先
-        final scoredTracks = _scoreAndFilterTracks(tracks, query);
-
-        // 上位limit件を返す
-        final results = scoredTracks.take(limit).map((scoredTrack) {
-          final trackData = scoredTrack['track'];
-
-          // アルバムアートワークを取得
-          final images = trackData['album']['images'] as List;
-          String albumImageUrl = '';
-          if (images.isNotEmpty) {
-            albumImageUrl = images[0]['url'];
-          }
-
-          // アーティスト名を取得
-          final artists = trackData['artists'] as List;
-          String artistName = '';
-          if (artists.isNotEmpty) {
-            artistName = artists.map((a) => a['name']).join(', ');
-          }
-
-          // プレビューURLを取得（nullの場合は空文字列）
-          final previewUrl = trackData['preview_url'] as String? ?? '';
-
-          return TrackModel(
-            trackId: trackData['id'],
-            trackName: trackData['name'],
-            artistName: artistName,
-            albumImageUrl: albumImageUrl,
-            previewUrl: previewUrl,
-          );
-        }).toList();
-
-        print('✅ Spotify: Returning ${results.length} filtered tracks');
-        return results;
-      } else {
-        print('❌ Spotify search error: ${response.statusCode} ${response.body}');
-        print('⚠️  iTunes APIにフォールバック');
-        return await _itunesService.searchTracks(query, limit: limit);
+        print('❌ Spotify Client Credentials再試行も失敗: ${retryResponse.statusCode}');
       }
-    } catch (e) {
-      print('❌ Error searching tracks: $e');
-      print('⚠️  iTunes APIにフォールバック');
-      return await _itunesService.searchTracks(query, limit: limit);
     }
+
+    print('❌ Spotify search error: ${response.statusCode} ${response.body}');
+    throw Exception('Spotify API error: ${response.statusCode}');
   }
 
   /// 楽曲名を正規化（括弧や特別版の情報を除去）
@@ -347,31 +355,9 @@ class SpotifyService {
 
       if (response.statusCode == 200) {
         final trackData = json.decode(response.body);
-
-        // アルバムアートワークを取得
-        final images = trackData['album']['images'] as List;
-        String albumImageUrl = '';
-        if (images.isNotEmpty) {
-          albumImageUrl = images[0]['url'];
-        }
-
-        // アーティスト名を取得
-        final artists = trackData['artists'] as List;
-        String artistName = '';
-        if (artists.isNotEmpty) {
-          artistName = artists.map((a) => a['name']).join(', ');
-        }
-
-        return TrackModel(
-          trackId: trackData['id'],
-          trackName: trackData['name'],
-          artistName: artistName,
-          albumImageUrl: albumImageUrl,
-          previewUrl: trackData['preview_url'],
-        );
+        return _parseTrackData(trackData);
       } else {
-        print(
-            'Spotify get track error: ${response.statusCode} ${response.body}');
+        print('Spotify get track error: ${response.statusCode} ${response.body}');
         return null;
       }
     } catch (e) {
@@ -380,74 +366,29 @@ class SpotifyService {
     }
   }
 
-  /// おすすめの楽曲を取得（カテゴリ別）
-  Future<List<TrackModel>> getRecommendations({
-    String? seedGenres,
-    String? seedArtists,
-    String? seedTracks,
-    int limit = 20,
-  }) async {
-    // フォールバック用の検索クエリを準備
-    final searchQuery = seedGenres ?? seedArtists ?? 'popular music';
-
-    final token = await _getAccessToken();
-    if (token == null) {
-      print('⚠️  Spotifyトークン取得失敗 - iTunes APIにフォールバック');
-      print('💡 Spotify認証情報を.envファイルで確認してください');
-      // Spotify認証失敗時はiTunes APIにフォールバック
-      print('🎵 iTunes APIで検索: "$searchQuery"');
-      return await _itunesService.searchTracks(searchQuery, limit: limit);
+  /// Spotifyトラックデータから TrackModel を生成（共通パーサー）
+  TrackModel _parseTrackData(Map<String, dynamic> trackData) {
+    final images = trackData['album']?['images'] as List? ?? [];
+    String albumImageUrl = '';
+    if (images.isNotEmpty) {
+      albumImageUrl = images[0]['url'] ?? '';
     }
 
-    try {
-      String url = 'https://api.spotify.com/v1/recommendations?limit=$limit';
-
-      if (seedGenres != null) url += '&seed_genres=$seedGenres';
-      if (seedArtists != null) url += '&seed_artists=$seedArtists';
-      if (seedTracks != null) url += '&seed_tracks=$seedTracks';
-
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final tracks = data['tracks'] as List;
-
-        return tracks.map((trackData) {
-          final images = trackData['album']['images'] as List;
-          String albumImageUrl = '';
-          if (images.isNotEmpty) {
-            albumImageUrl = images[0]['url'];
-          }
-
-          final artists = trackData['artists'] as List;
-          String artistName = '';
-          if (artists.isNotEmpty) {
-            artistName = artists.map((a) => a['name']).join(', ');
-          }
-
-          return TrackModel(
-            trackId: trackData['id'],
-            trackName: trackData['name'],
-            artistName: artistName,
-            albumImageUrl: albumImageUrl,
-            previewUrl: trackData['preview_url'],
-          );
-        }).toList();
-      } else {
-        print('❌ Spotify recommendations error: ${response.statusCode} ${response.body}');
-        print('⚠️  iTunes APIにフォールバック');
-        return await _itunesService.searchTracks(searchQuery, limit: limit);
-      }
-    } catch (e) {
-      print('❌ Error getting recommendations: $e');
-      print('⚠️  iTunes APIにフォールバック');
-      return await _itunesService.searchTracks(searchQuery, limit: limit);
+    final artists = trackData['artists'] as List? ?? [];
+    String artistName = '';
+    if (artists.isNotEmpty) {
+      artistName = artists.map((a) => a['name']).join(', ');
     }
+
+    final previewUrl = trackData['preview_url'] as String? ?? '';
+
+    return TrackModel(
+      trackId: trackData['id'],
+      trackName: trackData['name'],
+      artistName: artistName,
+      albumImageUrl: albumImageUrl,
+      previewUrl: previewUrl,
+    );
   }
 
   /// プレイリストから楽曲を取得
@@ -471,38 +412,12 @@ class SpotifyService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final items = data['items'] as List;
-
-        return items.where((item) => item['track'] != null).map((item) {
-          final trackData = item['track'];
-
-          // アルバムアートワークを取得
-          final images = trackData['album']['images'] as List;
-          String albumImageUrl = '';
-          if (images.isNotEmpty) {
-            albumImageUrl = images[0]['url'];
-          }
-
-          // アーティスト名を取得
-          final artists = trackData['artists'] as List;
-          String artistName = '';
-          if (artists.isNotEmpty) {
-            artistName = artists.map((a) => a['name']).join(', ');
-          }
-
-          // プレビューURLを取得（nullの場合は空文字列）
-          final previewUrl = trackData['preview_url'] as String? ?? '';
-
-          return TrackModel(
-            trackId: trackData['id'],
-            trackName: trackData['name'],
-            artistName: artistName,
-            albumImageUrl: albumImageUrl,
-            previewUrl: previewUrl,
-          );
-        }).toList();
+        return items
+            .where((item) => item['track'] != null)
+            .map((item) => _parseTrackData(item['track']))
+            .toList();
       } else {
-        print(
-            'Spotify playlist error: ${response.statusCode} ${response.body}');
+        print('Spotify playlist error: ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {
@@ -514,17 +429,20 @@ class SpotifyService {
   /// ユーザーのお気に入り楽曲（Saved Tracks）を取得
   /// OAuth認証が必要（user-library-readスコープ）
   Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {
-    final token = await _getAccessToken();
-    if (token == null) {
-      print('Failed to get access token for saved tracks');
+    // OAuth認証トークンが必要（Client Credentialsでは不可）
+    if (!await _authService.isAuthenticated()) {
+      print('❌ OAuth authentication required for saved tracks');
       return [];
     }
 
-    // OAuth認証トークンが必要（Client Credentialsでは不可）
-    if (!await _authService.isAuthenticated()) {
-      print('OAuth authentication required for saved tracks');
+    // OAuthトークンを直接取得（Client Credentialsではなく）
+    final token = await _authService.getAccessToken();
+    if (token == null) {
+      print('❌ Failed to get OAuth access token for saved tracks');
       return [];
     }
+
+    print('🎵 Spotify getSavedTracks: OAuthトークンでライブラリ取得中...');
 
     try {
       final response = await http.get(
@@ -532,43 +450,17 @@ class SpotifyService {
         headers: {
           'Authorization': 'Bearer $token',
         },
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final items = data['items'] as List;
-
-        return items.where((item) => item['track'] != null).map((item) {
-          final trackData = item['track'];
-
-          // アルバムアートワークを取得
-          final images = trackData['album']['images'] as List;
-          String albumImageUrl = '';
-          if (images.isNotEmpty) {
-            albumImageUrl = images[0]['url'];
-          }
-
-          // アーティスト名を取得
-          final artists = trackData['artists'] as List;
-          String artistName = '';
-          if (artists.isNotEmpty) {
-            artistName = artists.map((a) => a['name']).join(', ');
-          }
-
-          // プレビューURLを取得（nullの場合は空文字列）
-          final previewUrl = trackData['preview_url'] as String? ?? '';
-
-          return TrackModel(
-            trackId: trackData['id'],
-            trackName: trackData['name'],
-            artistName: artistName,
-            albumImageUrl: albumImageUrl,
-            previewUrl: previewUrl,
-          );
-        }).toList();
+        return items
+            .where((item) => item['track'] != null)
+            .map((item) => _parseTrackData(item['track']))
+            .toList();
       } else {
-        print(
-            'Spotify saved tracks error: ${response.statusCode} ${response.body}');
+        print('Spotify saved tracks error: ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {

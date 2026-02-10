@@ -21,6 +21,7 @@ import 'screens/music_selection_screen.dart';
 import 'constants/app_colors.dart';
 import 'services/fcm_handler_service.dart';
 import 'services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() async {
   // Flutter バインディングの初期化
@@ -95,9 +96,10 @@ class FifteenApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      initialRoute: '/dev-tools', // 開発ツール画面から開始（招待コード作成）
+      initialRoute: '/', // 認証状態チェックから開始
       routes: {
-        '/': (context) => const PhoneAuthScreen(),
+        '/': (context) => const AuthGate(),
+        '/phone-auth': (context) => const PhoneAuthScreen(),
         '/verification': (context) => const VerificationCodeScreen(),
         '/invite-code': (context) => const InviteCodeScreen(),
         '/name-input': (context) => const NameInputScreen(),
@@ -113,6 +115,64 @@ class FifteenApp extends StatelessWidget {
         '/photo-picker': (context) => const PhotoPickerScreen(),
         '/music-selection': (context) => const MusicSelectionScreen(),
       },
+    );
+  }
+}
+
+/// ログイン状態を確認して適切な画面に遷移するゲート
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAuthState();
+    });
+  }
+
+  Future<void> _checkAuthState() async {
+    if (!mounted) return;
+
+    final authService = AuthService();
+    final user = authService.currentUser;
+
+    if (user != null) {
+      // ログイン済み：Firestoreにユーザーデータがあるか確認
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        if (!mounted) return;
+        if (doc.exists) {
+          Navigator.pushReplacementNamed(context, '/home');
+        } else {
+          Navigator.pushReplacementNamed(context, '/invite-code');
+        }
+      } catch (e) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/phone-auth');
+      }
+    } else {
+      // 未ログイン → 認証画面へ
+      Navigator.pushReplacementNamed(context, '/phone-auth');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: AppColors.background,
+      body: Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
     );
   }
 }

@@ -320,16 +320,7 @@ class _CommentScreenState extends State<CommentScreen> {
             child:
                 comment.userIconUrl != null && comment.userIconUrl!.isNotEmpty
                     ? ClipOval(
-                        child: Image.network(
-                          comment.userIconUrl!,
-                          width: 32,
-                          height: 32,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Icon(Icons.person,
-                                size: 20, color: _theme.textColor);
-                          },
-                        ),
+                        child: _buildUserIcon(comment.userIconUrl!, 32),
                       )
                     : Icon(Icons.person, size: 20, color: _theme.textColor),
           ),
@@ -411,16 +402,7 @@ class _CommentScreenState extends State<CommentScreen> {
             child: _currentUserIconUrl != null &&
                     _currentUserIconUrl!.isNotEmpty
                 ? ClipOval(
-                    child: Image.network(
-                      _currentUserIconUrl!,
-                      width: 40,
-                      height: 40,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Icon(Icons.person,
-                            size: 24, color: _theme.textColor);
-                      },
-                    ),
+                    child: _buildUserIcon(_currentUserIconUrl!, 40),
                   )
                 : Icon(Icons.person, size: 24, color: _theme.textColor),
           ),
@@ -488,6 +470,31 @@ class _CommentScreenState extends State<CommentScreen> {
         ],
       ),
     );
+  }
+
+  /// ユーザーアイコンを表示（アセットパスとネットワークURLの両方に対応）
+  Widget _buildUserIcon(String url, double size) {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return Image.network(
+        url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Icon(Icons.person, size: size * 0.6, color: _theme.textColor);
+        },
+      );
+    } else {
+      return Image.asset(
+        url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Icon(Icons.person, size: size * 0.6, color: _theme.textColor);
+        },
+      );
+    }
   }
 
   /// タイムスタンプをフォーマット（Figma準拠: 短縮表記）

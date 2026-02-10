@@ -887,7 +887,12 @@ class _PostCardState extends State<PostCard>
                             : theme.iconColor,
                         count: widget.hideReactionCounts ? null : (_likeCountOptimistic ?? widget.post.likeCount),
                         onTap: _handleLikeTap,
-                        textColor: theme.iconColor,
+                        textColor: _isLikedOptimistic ??
+                                (widget.currentUserId != null &&
+                                    widget.post
+                                        .isLikedBy(widget.currentUserId!))
+                            ? Colors.red
+                            : theme.iconColor,
                       ),
                       SizedBox(width: cardWidth * (15 / 363)),
                       // コメント

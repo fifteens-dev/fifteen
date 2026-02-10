@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import MusicKit
+import StoreKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -55,7 +56,9 @@ import MusicKit
       case "getAuthorizationStatus":
         self?.getAuthorizationStatus(result: result)
       case "getUserToken":
-        self?.getUserToken(result: result)
+        let args = call.arguments as? [String: Any]
+        let developerToken = args?["developerToken"] as? String
+        self?.getUserToken(result: result, developerToken: developerToken)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -132,11 +135,55 @@ import MusicKit
     }
   }
 
-  private func getUserToken(result: @escaping FlutterResult) {
-    result(FlutterError(
-      code: "UNAVAILABLE",
-      message: "getUserToken is not supported in this version",
-      details: nil
-    ))
+  private func getUserToken(result: @escaping FlutterResult, developerToken: String?) {
+    if #available(iOS 15.0, *) {
+      // Check if user is authorized first
+      let status = MusicAuthorization.currentStatus
+      guard status == .authorized else {
+        result(FlutterError(
+          code: "NOT_AUTHORIZED",
+          message: "User is not authorized for Apple Music",
+          details: nil
+        ))
+        return
+      }
+
+      guard let devToken = developerToken, !devToken.isEmpty else {
+        result(FlutterError(
+          code: "TOKEN_ERROR",
+          message: "Developer token is required to obtain user token",
+          details: nil
+        ))
+        return
+      }
+
+      // Use SKCloudServiceController to request actual Music User Token
+      let controller = SKCloudServiceController()
+      controller.requestUserToken(forDeveloperToken: devToken) { (userToken, error) in
+        DispatchQueue.main.async {
+          if let error = error {
+            result(FlutterError(
+              code: "TOKEN_ERROR",
+              message: "Failed to get user token: \(error.localizedDescription)",
+              details: nil
+            ))
+          } else if let userToken = userToken, !userToken.isEmpty {
+            result(userToken)
+          } else {
+            result(FlutterError(
+              code: "TOKEN_ERROR",
+              message: "User token was empty",
+              details: nil
+            ))
+          }
+        }
+      }
+    } else {
+      result(FlutterError(
+        code: "UNAVAILABLE",
+        message: "MusicKit requires iOS 15.0 or later",
+        details: nil
+      ))
+    }
   }
 }

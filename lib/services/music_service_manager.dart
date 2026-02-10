@@ -94,47 +94,64 @@ class MusicServiceManager {
   /// 楽曲を検索
   Future<List<TrackModel>> searchTracks(String query, {int limit = 20}) async {
     final service = await getSelectedService();
+    print('🎵 MusicServiceManager.searchTracks: service=$service, query="$query"');
 
     switch (service) {
       case MusicServiceType.spotify:
-        return await _spotifyService.searchTracks(query, limit: limit);
+        try {
+          return await _spotifyService.searchTracks(query, limit: limit);
+        } catch (e) {
+          print('⚠️ Spotify検索失敗: $e');
+          return [];
+        }
       case MusicServiceType.appleMusic:
-        return await _appleMusicService.searchTracks(query, limit: limit);
+        final results = await _appleMusicService.searchTracks(query, limit: limit);
+        if (results.isNotEmpty) return results;
+        // Apple Musicで結果が空の場合、Spotifyにフォールバック
+        print('⚠️ Apple Music検索失敗 - Spotifyにフォールバック');
+        try {
+          return await _spotifyService.searchTracks(query, limit: limit);
+        } catch (e) {
+          print('⚠️ Spotifyフォールバックも失敗: $e');
+          return [];
+        }
       case MusicServiceType.none:
-        // デフォルトでSpotifyを使用（非認証モード）
-        return await _spotifyService.searchTracks(query, limit: limit);
+        try {
+          return await _spotifyService.searchTracks(query, limit: limit);
+        } catch (e) {
+          print('⚠️ Spotify検索失敗: $e');
+          return [];
+        }
     }
   }
 
   /// おすすめの楽曲を取得
+  /// 全サービス共通で Apple Music Charts API（日本トップチャート）を使用
   Future<List<TrackModel>> getRecommendedTracks({int limit = 50}) async {
     final service = await getSelectedService();
+    print('🎵 MusicServiceManager.getRecommendedTracks: service=$service');
 
-    switch (service) {
-      case MusicServiceType.spotify:
-        // OAuth認証済みならRecommendations APIを試す
-        if (await _spotifyAuthService.isAuthenticated()) {
-          final tracks = await _spotifyService.getRecommendations(
-            seedGenres: 'j-pop',
-            limit: limit,
-          );
-          if (tracks.isNotEmpty) return tracks;
-        }
-        // フォールバック: 検索
-        return await _spotifyService.searchTracks('J-POP 2025 ヒット',
-            limit: limit);
+    // Apple Music日本トップチャートを取得（Developer Tokenのみで動作）
+    try {
+      final charts = await _appleMusicService.getTopCharts(limit: limit);
+      if (charts.isNotEmpty) {
+        print('📊 Apple Music日本トップチャートから${charts.length}曲取得');
+        return charts;
+      }
+    } catch (e) {
+      print('⚠️ Apple Musicトップチャート取得失敗: $e');
+    }
 
-      case MusicServiceType.appleMusic:
-        // Apple MusicのTop Chartsを取得
-        final charts = await _appleMusicService.getTopCharts(limit: limit);
-        if (charts.isNotEmpty) return charts;
-        // フォールバック: 検索
-        return await _appleMusicService.searchTracks('J-POP', limit: limit);
-
-      case MusicServiceType.none:
-        // デフォルトでSpotify検索
-        return await _spotifyService.searchTracks('J-POP 2025 ヒット',
-            limit: limit);
+    // フォールバック: サービスに応じた検索
+    try {
+      if (service == MusicServiceType.appleMusic) {
+        final amTracks = await _appleMusicService.searchTracks('J-POP', limit: limit);
+        if (amTracks.isNotEmpty) return amTracks;
+      }
+      return await _spotifyService.searchTracks('J-POP 人気', limit: limit);
+    } catch (e) {
+      print('⚠️ 検索フォールバックも失敗: $e');
+      return [];
     }
   }
 
@@ -161,14 +178,24 @@ class MusicServiceManager {
 
     switch (service) {
       case MusicServiceType.spotify:
-        // OAuth認証済みの場合のみお気に入り楽曲を取得
+        // OAuth認証済みの場合のみお気に入り楽曲を取得（フォールバックなし）
         if (await _spotifyAuthService.isAuthenticated()) {
-          return await _spotifyService.getSavedTracks(limit: limit);
+          try {
+            return await _spotifyService.getSavedTracks(limit: limit);
+          } catch (e) {
+            print('⚠️ Spotifyライブラリ取得失敗: $e');
+            return [];
+          }
         }
         return [];
       case MusicServiceType.appleMusic:
-        // Apple Music User Token認証が必要（未実装）
-        return await _appleMusicService.getSavedTracks(limit: limit);
+        // ユーザーのライブラリから取得のみ（フォールバックなし）
+        try {
+          return await _appleMusicService.getSavedTracks(limit: limit);
+        } catch (e) {
+          print('⚠️ Apple Musicライブラリ取得失敗: $e');
+          return [];
+        }
       case MusicServiceType.none:
         return [];
     }

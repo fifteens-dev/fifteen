@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/track_model.dart';
 import '../models/vibe_topic_model.dart';
-import '../services/spotify_service.dart';
 import '../services/music_service_manager.dart';
 import '../services/post_service.dart';
 import '../services/vibe_topic_service.dart';
@@ -23,7 +22,6 @@ class MusicSelectionScreen extends StatefulWidget {
 
 class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   final TextEditingController _searchController = TextEditingController();
-  final SpotifyService _spotifyService = SpotifyService();
   final MusicServiceManager _musicServiceManager = MusicServiceManager();
   final PostService _postService = PostService();
   final VibeTopicService _vibeTopicService = VibeTopicService();
@@ -70,37 +68,12 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Spotify検索APIを使用（Recommendations APIの404エラーを回避）
-      // 日本の人気曲を検索クエリで取得
-      final searchQueries = [
-        '日本TOP',
-        'J-POP',
-        '日本 音楽',
-        'Japanese pop',
-      ];
+      // Apple Music日本トップチャートからおすすめ楽曲を取得
+      List<TrackModel> tracks = await _musicServiceManager.getRecommendedTracks(limit: 50);
 
-      List<TrackModel> tracks = [];
-
-      // 各検索クエリを順番に試す
-      for (final query in searchQueries) {
-        try {
-          print('🔍 Spotify検索API (クエリ: "$query") を試行中...');
-          tracks = await _spotifyService.searchTracks(query, limit: 50);
-
-          if (tracks.isNotEmpty) {
-            print('✅ 取得成功: クエリ "$query" (${tracks.length}曲取得)');
-            break;
-          }
-        } catch (e) {
-          print('❌ クエリ "$query" での取得に失敗: $e');
-          continue;
-        }
-      }
-
-      // それでも失敗した場合は、デフォルトクエリを使用
       if (tracks.isEmpty) {
-        print('⚠️ すべての方法が失敗。デフォルトクエリを使用...');
-        tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 50);
+        print('⚠️ おすすめ取得が空。検索にフォールバック...');
+        tracks = await _musicServiceManager.searchTracks('J-POP 人気', limit: 25);
       }
 
       if (mounted) {
@@ -139,22 +112,11 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 音楽サービスに連携している場合は、ユーザーのお気に入り楽曲を取得
       final isAuthenticated = await _musicServiceManager.isAuthenticated();
 
-      List<TrackModel> tracks;
+      List<TrackModel> tracks = [];
       if (isAuthenticated) {
-        // 連携済み: お気に入り楽曲を取得
         tracks = await _musicServiceManager.getSavedTracks(limit: 50);
-
-        // お気に入り楽曲が取得できなかった場合はフォールバック
-        if (tracks.isEmpty) {
-          print('お気に入り楽曲が見つかりませんでした。デフォルトの検索結果を表示します。');
-          tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 20);
-        }
-      } else {
-        // 未連携: 人気のJ-POPを表示
-        tracks = await _spotifyService.searchTracks('J-POP 人気', limit: 20);
       }
 
       if (mounted) {
@@ -166,7 +128,10 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     } catch (e) {
       print('Error loading my playlist tracks: $e');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _tracks = [];
+          _isLoading = false;
+        });
       }
     }
   }
@@ -181,7 +146,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final tracks = await _spotifyService.searchTracks(query, limit: 20);
+      final tracks = await _musicServiceManager.searchTracks(query, limit: 20);
 
       if (mounted) {
         setState(() {

@@ -23,8 +23,25 @@ class AppleMusicService {
   /// Developer Tokenを取得（.envまたはバックエンドから）
   String get _envDeveloperToken => dotenv.env['APPLE_MUSIC_DEVELOPER_TOKEN'] ?? '';
 
+  /// Developer Tokenを確実にロードする
+  Future<void> _ensureDeveloperToken() async {
+    if (_developerToken != null && _developerToken!.isNotEmpty) return;
+
+    // .envから読み込み
+    if (_envDeveloperToken.isNotEmpty) {
+      _developerToken = _envDeveloperToken;
+      return;
+    }
+
+    // ストレージから読み込み
+    _developerToken = await _storage.read(key: _developerTokenKey);
+  }
+
   /// 認証状態を確認
   Future<bool> isAuthenticated() async {
+    // Developer Tokenを常にロード（API呼び出しに必要）
+    await _ensureDeveloperToken();
+
     // User Token認証をチェック（個人データアクセス用）
     if (_userToken != null) {
       return true;
@@ -37,19 +54,7 @@ class AppleMusicService {
     }
 
     // Developer Tokenがあれば基本的な検索は可能
-    if (_developerToken != null) {
-      return true;
-    }
-
-    // .envから読み込み
-    if (_envDeveloperToken.isNotEmpty) {
-      _developerToken = _envDeveloperToken;
-      return true;
-    }
-
-    // ストレージから読み込み
-    _developerToken = await _storage.read(key: _developerTokenKey);
-    return _developerToken != null;
+    return _developerToken != null && _developerToken!.isNotEmpty;
   }
 
   /// User Token認証（MusicKit使用）
@@ -64,8 +69,15 @@ class AppleMusicService {
         final status = await _musicKit.requestAuthorization();
 
         if (status == 'authorized') {
+          // Developer Tokenを確認（User Token取得に必要）
+          await _ensureDeveloperToken();
+          if (_developerToken == null || _developerToken!.isEmpty) {
+            print('❌ Developer Tokenが設定されていないため、User Token取得不可');
+            return false;
+          }
+
           // User Tokenを取得
-          final userToken = await _musicKit.getUserToken();
+          final userToken = await _musicKit.getUserToken(developerToken: _developerToken);
 
           if (userToken != null) {
             _userToken = userToken;
@@ -121,10 +133,12 @@ class AppleMusicService {
     }
 
     try {
+      // Apple Music APIのlimit上限は25
+      final apiLimit = limit.clamp(1, 25);
       final encodedQuery = Uri.encodeComponent(query);
       final response = await http.get(
         Uri.parse(
-            'https://api.music.apple.com/v1/catalog/jp/search?term=$encodedQuery&types=songs&limit=$limit'),
+            'https://api.music.apple.com/v1/catalog/jp/search?term=$encodedQuery&types=songs&limit=$apiLimit'),
         headers: {
           'Authorization': 'Bearer $_developerToken',
         },

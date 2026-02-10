@@ -68,6 +68,8 @@
 	</array>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Apple Musicの楽曲を検索・再生するために使用します</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>音声の録音に使用します</string>
 	<key>NSCameraUsageDescription</key>
 	<string>投稿に写真を撮影するために使用します</string>
 	<key>NSPhotoLibraryUsageDescription</key>

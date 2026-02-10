@@ -579,6 +579,116 @@ class SetupTestData {
     }
   }
 
+  /// ダミーコメントをセットアップ
+  /// 各投稿のcommentCountに合わせてコメントを作成
+  Future<void> setupDummyComments() async {
+    try {
+      if (kDebugMode) {
+        print('💬 Setting up dummy comments for all dummy user posts...');
+      }
+
+      final random = Random();
+      int totalCreated = 0;
+
+      // コメントのテンプレート
+      final commentTemplates = [
+        'この曲めっちゃ好き！',
+        'いい選曲だね〜',
+        '最高すぎる🔥',
+        'センスいいな〜',
+        '何回もリピートしてる',
+        'この曲知らなかった！ありがとう',
+        '雰囲気最高👏',
+        'エモい...',
+        '今の気分にぴったり',
+        'これ聴くと元気出る！',
+        'ずっと聴いてられる',
+        '名曲すぎん？',
+        'いいVibeだね✨',
+        'まさにそれ！共感',
+        'プレイリストに追加した',
+        'この曲泣ける😭',
+        'テンション上がる！',
+        'いい曲シェアありがとう',
+        '神曲🙏',
+        'これハマりそう',
+      ];
+
+      // ダミーユーザーの投稿を取得
+      for (final userId in dummyUserIds) {
+        final posts = await _firestore
+            .collection('posts')
+            .where('userId', isEqualTo: userId)
+            .get();
+
+        for (final postDoc in posts.docs) {
+          final postData = postDoc.data();
+          final commentCount = postData['commentCount'] as int? ?? 0;
+
+          // 既存のコメント数を確認
+          final existingComments = await _firestore
+              .collection('comments')
+              .where('postId', isEqualTo: postDoc.id)
+              .get();
+
+          final needCount = commentCount - existingComments.docs.length;
+          if (needCount <= 0) {
+            if (kDebugMode) {
+              final track = postData['track'] as Map<String, dynamic>?;
+              final trackName = track?['trackName'] ?? 'Unknown';
+              print('⏭️  Already has enough comments: $trackName');
+            }
+            continue;
+          }
+
+          // 投稿者以外のダミーユーザーからコメントを生成
+          final commenters = dummyUserIds.where((id) => id != userId).toList();
+
+          for (int i = 0; i < needCount; i++) {
+            final commenterId = commenters[i % commenters.length];
+            final commenterDoc = await _firestore.collection('users').doc(commenterId).get();
+            final commenterData = commenterDoc.data();
+            final commenterUsername = commenterData?['username'] ?? commenterId;
+            final commenterIconUrl = commenterData?['profileImageUrl'];
+
+            final content = commentTemplates[random.nextInt(commentTemplates.length)];
+            final createdAt = DateTime.now().subtract(Duration(
+              hours: random.nextInt(48) + 1,
+              minutes: random.nextInt(60),
+            ));
+
+            await _firestore.collection('comments').add({
+              'postId': postDoc.id,
+              'userId': commenterId,
+              'username': commenterUsername,
+              'userIconUrl': commenterIconUrl,
+              'content': content,
+              'createdAt': Timestamp.fromDate(createdAt),
+              'updatedAt': Timestamp.fromDate(createdAt),
+            });
+
+            totalCreated++;
+          }
+
+          if (kDebugMode) {
+            final track = postData['track'] as Map<String, dynamic>?;
+            final trackName = track?['trackName'] ?? 'Unknown';
+            print('💬 Added $needCount comments to: $trackName');
+          }
+        }
+      }
+
+      if (kDebugMode) {
+        print('✅ All dummy comments set up! Total: $totalCreated comments');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error setting up dummy comments: $e');
+      }
+      rethrow;
+    }
+  }
+
   /// すべてのテストデータをセットアップ
   Future<void> setupAllTestData() async {
     try {

@@ -478,7 +478,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed && context.mounted) {
       await FirebaseAuth.instance.signOut();
       if (context.mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/phone-auth',
+          (route) => false,
+        );
       }
     }
   }

@@ -18,13 +18,15 @@ class HomeBottomNavigation extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 10),
       child: Center(
         child: Container(
+          width: 301,
+          height: 61,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           decoration: BoxDecoration(
             color: const Color(0xFF191919).withValues(alpha: 0.77),
             borderRadius: BorderRadius.circular(30),
           ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // ホームボタン
               _buildNavItem(
@@ -74,8 +76,8 @@ class HomeBottomNavigation extends StatelessWidget {
         child: Center(
           child: Icon(
             isSelected ? (selectedIcon ?? icon) : icon,
-            color: Colors.white,
-            size: 24,
+            color: isSelected ? Colors.white : const Color(0xFF929292),
+            size: 28,
           ),
         ),
       ),
@@ -87,6 +89,7 @@ class HomeBottomNavigation extends StatelessWidget {
     required String svgPath,
     required int index,
   }) {
+    final isSelected = selectedIndex == index;
     return GestureDetector(
       onTap: () => onItemTapped(index),
       behavior: HitTestBehavior.opaque,
@@ -96,10 +99,10 @@ class HomeBottomNavigation extends StatelessWidget {
         child: Center(
           child: SvgPicture.asset(
             svgPath,
-            width: 24,
-            height: 24,
-            colorFilter: const ColorFilter.mode(
-              Colors.white,
+            width: 28,
+            height: 28,
+            colorFilter: ColorFilter.mode(
+              isSelected ? Colors.white : const Color(0xFF929292),
               BlendMode.srcIn,
             ),
           ),

@@ -42,6 +42,12 @@ class _HomeScreenState extends State<HomeScreen>
   // ホーム画面専用の音楽再生サービス（全てのPostCardで共有）
   final AudioPlayerService _homeAudioService = AudioPlayerService();
 
+  // 各PostCardのGlobalKey（可視性チェック用）
+  final Map<String, GlobalKey> _postCardKeys = {};
+
+  // 現在再生中の投稿ID
+  String? _playingPostId;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -171,6 +177,48 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
+  /// スクロール時に再生中のカードが完全に画面外に出たら音楽を停止
+  void _checkPlayingCardVisibility() {
+    if (!_homeAudioService.isPlaying && !_homeAudioService.isPaused) return;
+    if (_playingPostId == null) {
+      // playingPostIdが不明だが再生中 → 安全のため停止
+      _homeAudioService.stop();
+      return;
+    }
+
+    final key = _postCardKeys[_playingPostId];
+    if (key == null) {
+      _homeAudioService.stop();
+      _playingPostId = null;
+      return;
+    }
+
+    final currentContext = key.currentContext;
+    if (currentContext == null) {
+      // ウィジェットがSliverListに破棄された → 画面外
+      _homeAudioService.stop();
+      _playingPostId = null;
+      return;
+    }
+
+    final renderBox = currentContext.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.attached) {
+      _homeAudioService.stop();
+      _playingPostId = null;
+      return;
+    }
+
+    final position = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    // カードが完全に画面外に出たら停止
+    if (position.dy + size.height <= 0 || position.dy >= screenHeight) {
+      _homeAudioService.stop();
+      _playingPostId = null;
+    }
+  }
+
   /// ローカルストレージからいいね状態を読み込み
   Future<void> _loadLocalLikeStates() async {
     final posts = TestData.generateTestPosts();
@@ -214,61 +262,26 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ボトムナビゲーションのタップ処理
   void _onItemTapped(int index) {
-    if (index == 0) {
-      // ホーム（現在の画面）- 選択状態を更新するだけ
-      setState(() {
-        _selectedIndex = 0;
-      });
+    if (index == 2) {
+      // 楽曲選択画面へ遷移（別画面として開く）
+      _homeAudioService.stop();
+      Navigator.push(
+        context,
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => const MusicSelectionScreen(),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+        ),
+      );
       return;
     }
 
-    setState(() {
-      _selectedIndex = index;
-    });
-
-    switch (index) {
-      case 1:
-        // 検索画面へ遷移
-        _homeAudioService.stop();
-        Navigator.push(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (_, __, ___) => const SearchScreen(),
-            transitionDuration: Duration.zero,
-            reverseTransitionDuration: Duration.zero,
-          ),
-        ).then((_) {
-          if (mounted) setState(() => _selectedIndex = 0);
-        });
-        break;
-      case 2:
-        // 楽曲選択画面へ遷移
-        _homeAudioService.stop();
-        Navigator.push(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (_, __, ___) => const MusicSelectionScreen(),
-            transitionDuration: Duration.zero,
-            reverseTransitionDuration: Duration.zero,
-          ),
-        ).then((_) {
-          if (mounted) setState(() => _selectedIndex = 0);
-        });
-        break;
-      case 3:
-        // プロフィール画面へ遷移
-        _homeAudioService.stop();
-        Navigator.push(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (_, __, ___) => const ProfileScreen(),
-            transitionDuration: Duration.zero,
-            reverseTransitionDuration: Duration.zero,
-          ),
-        ).then((_) {
-          if (mounted) setState(() => _selectedIndex = 0);
-        });
-        break;
+    if (index != _selectedIndex) {
+      _homeAudioService.stop();
+      _playingPostId = null;
+      setState(() {
+        _selectedIndex = index;
+      });
     }
   }
 
@@ -278,45 +291,49 @@ class _HomeScreenState extends State<HomeScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
+        bottom: false,
         child: Stack(
           children: [
-            // メインコンテンツ
-            Column(
+            // タブコンテンツ
+            IndexedStack(
+              index: _selectedIndex <= 1 ? _selectedIndex : (_selectedIndex == 3 ? 2 : 0),
               children: [
-                // ヘッダー
-                _buildHeader(),
-
-                // メインコンテンツ（スクロール可能）
-                Expanded(
+                // index 0: ホーム
+                NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    _checkPlayingCardVisibility();
+                    return false;
+                  },
                   child: CustomScrollView(
                     controller: _scrollController,
                     slivers: [
-                      // Vibeバー
-                      SliverToBoxAdapter(
-                        child: VibeBarSection(
-                          vibeDataFuture: _loadVibeData(),
-                          onRankingItemTap: _handleRankingItemTap,
-                        ),
+                    SliverToBoxAdapter(
+                      child: _buildHeader(),
+                    ),
+                    SliverToBoxAdapter(
+                      child: VibeBarSection(
+                        vibeDataFuture: _loadVibeData(),
+                        onRankingItemTap: _handleRankingItemTap,
                       ),
-
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 16),
-                      ),
-
-                      // 投稿カード束（タイムライン）
-                      _buildTimelineSliver(),
-
-                      // ボトムナビゲーション分の余白
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 80),
-                      ),
+                    ),
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 16),
+                    ),
+                    _buildTimelineSliver(),
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 80),
+                    ),
                     ],
                   ),
                 ),
+                // index 1: 検索
+                const SearchScreen(),
+                // index 2: プロフィール
+                const ProfileScreen(),
               ],
             ),
 
-            // フローティングボトムナビゲーション（投稿カードの上に重ねる）
+            // フローティングボトムナビゲーション
             Positioned(
               left: 0,
               right: 0,
@@ -337,33 +354,37 @@ class _HomeScreenState extends State<HomeScreen>
     return Container(
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Stack(
         children: [
-          const Spacer(),
-          // 15sロゴ（中央）
-          const Text(
-            '15s',
-            style: TextStyle(
-              fontSize: 30,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
+          // 15sロゴ（画面中央）
+          const Center(
+            child: Text(
+              '15s',
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
             ),
           ),
-          const Spacer(),
-          // 通知アイコン（バッジ付き）
-          NotificationBadge(
-            child: IconButton(
-              icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-              onPressed: () {
-                // ホーム画面の音楽を停止
-                _homeAudioService.stop();
-                // 通知一覧画面へ遷移
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const NotificationListScreen()),
-                );
-              },
+          // 通知アイコン（右端）
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: NotificationBadge(
+              child: IconButton(
+                icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+                onPressed: () {
+                  // ホーム画面の音楽を停止
+                  _homeAudioService.stop();
+                  // 通知一覧画面へ遷移
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const NotificationListScreen()),
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -509,7 +530,12 @@ class _HomeScreenState extends State<HomeScreen>
                   displayPost.copyWith(likedUserIds: updatedLikedUserIds);
             }
 
+            // PostCardにGlobalKeyを割り当て（可視性チェック用）
+            _postCardKeys.putIfAbsent(post.postId, () => GlobalKey());
+            final cardKey = _postCardKeys[post.postId]!;
+
             return Padding(
+              key: cardKey,
               padding: const EdgeInsets.only(bottom: 16),
               child: PostCard(
                 key: ValueKey(post.postId), // 投稿IDをkeyにして状態を保持
@@ -521,6 +547,9 @@ class _HomeScreenState extends State<HomeScreen>
                 onComment: () => _handleComment(post),
                 onAdd: () => _handleAdd(post),
                 isSaved: _savedPostIds.contains(post.postId),
+                onPlayStarted: () {
+                  _playingPostId = post.postId;
+                },
               ),
             );
           },

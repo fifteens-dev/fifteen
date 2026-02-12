@@ -7,6 +7,7 @@ class TrackModel {
   final String? trackUrl; // 音楽ファイルのURL（将来的に実装）
   final String? previewUrl; // プレビューURL（将来的に実装）
   final String? lyrics; // 歌詞
+  final double? tempo; // テンポ（BPM）
 
   TrackModel({
     required this.trackId,
@@ -16,6 +17,7 @@ class TrackModel {
     this.trackUrl,
     this.previewUrl,
     this.lyrics,
+    this.tempo,
   });
 
   // Mapから作成
@@ -28,6 +30,7 @@ class TrackModel {
       trackUrl: map['trackUrl'],
       previewUrl: map['previewUrl'],
       lyrics: map['lyrics'],
+      tempo: (map['tempo'] as num?)?.toDouble(),
     );
   }
 
@@ -41,6 +44,7 @@ class TrackModel {
       'trackUrl': trackUrl,
       'previewUrl': previewUrl,
       'lyrics': lyrics,
+      'tempo': tempo,
     };
   }
 
@@ -53,6 +57,7 @@ class TrackModel {
     String? trackUrl,
     String? previewUrl,
     String? lyrics,
+    double? tempo,
   }) {
     return TrackModel(
       trackId: trackId ?? this.trackId,
@@ -62,6 +67,7 @@ class TrackModel {
       trackUrl: trackUrl ?? this.trackUrl,
       previewUrl: previewUrl ?? this.previewUrl,
       lyrics: lyrics ?? this.lyrics,
+      tempo: tempo ?? this.tempo,
     );
   }
 }

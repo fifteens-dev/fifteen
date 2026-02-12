@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'animated_waveform.dart';
+import '../services/bpm_service.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/post_model.dart';
@@ -35,6 +37,7 @@ class PostCard extends StatefulWidget {
   final Color? preExtractedGradientStart; // 事前抽出されたグラデーション開始色
   final Color? preExtractedGradientEnd; // 事前抽出されたグラデーション終了色
   final bool autoFlipAfterDelay; // trueの場合、0.5秒後に自動で裏返す
+  final VoidCallback? onPlayStarted; // 音楽再生開始時のコールバック
 
   const PostCard({
     super.key,
@@ -52,6 +55,7 @@ class PostCard extends StatefulWidget {
     this.preExtractedGradientStart, // 事前抽出された色（オプション）
     this.preExtractedGradientEnd, // 事前抽出された色（オプション）
     this.autoFlipAfterDelay = false, // デフォルトは自動反転なし
+    this.onPlayStarted, // 再生開始通知（オプション）
   });
 
   @override
@@ -110,6 +114,10 @@ class _PostCardState extends State<PostCard>
   bool _isLyricsFetching = false;
   bool _lyricsFetchAttempted = false;
 
+  // BPM
+  final BpmService _bpmService = BpmService();
+  double? _tempo;
+
   // スクロール時にウィジェットの状態を保持
   @override
   bool get wantKeepAlive => true;
@@ -120,6 +128,7 @@ class _PostCardState extends State<PostCard>
 
     _initializeAnimations();
     _initializeColors();
+    _fetchTempo();
 
     // 自動反転が有効な場合、0.5秒後に裏返す
     if (widget.autoFlipAfterDelay) {
@@ -175,6 +184,30 @@ class _PostCardState extends State<PostCard>
         weight: 50,
       ),
     ]).animate(_playButtonAnimationController);
+  }
+
+  /// BPMを非同期で取得
+  Future<void> _fetchTempo() async {
+    final track = widget.post.track;
+    // TrackModelに既にtempoがある場合はそれを使う
+    if (track.tempo != null) {
+      _tempo = track.tempo;
+      return;
+    }
+    try {
+      final tempo = await _bpmService.getTempo(
+        trackId: track.trackId,
+        trackName: track.trackName,
+        artistName: track.artistName,
+      );
+      if (mounted && tempo != null) {
+        setState(() {
+          _tempo = tempo;
+        });
+      }
+    } catch (e) {
+      // BPM取得失敗は無視（デフォルトBPMが使われる）
+    }
   }
 
   /// 色テーマの初期化
@@ -319,15 +352,14 @@ class _PostCardState extends State<PostCard>
         print('Track: ${widget.post.track.trackName} - ${widget.post.track.artistName}');
       }
 
+      // 再生開始を即座に通知（スクロール検知用）
+      widget.onPlayStarted?.call();
+
       // 音楽再生は非同期で実行（UIブロックしない）
       _playAudioAsync();
     } else {
-      // 表面に反転
+      // 表面に反転（音楽は停止しない）
       _flipController.reverse();
-      if (kDebugMode) {
-        print('=== Flipping to front - stopping playback ===');
-      }
-      widget.audioService.stop();
     }
   }
 
@@ -1152,9 +1184,10 @@ class _PostCardState extends State<PostCard>
     } else if (widget.audioService.isPaused && previewUrl != null) {
       widget.audioService.resume();
     } else {
+      widget.onPlayStarted?.call();
       final urlToPlay = await _fetchPreviewUrl();
       if (urlToPlay != null && urlToPlay.isNotEmpty) {
-        widget.audioService.playPreview(urlToPlay);
+        await widget.audioService.playPreview(urlToPlay);
       }
     }
   }
@@ -1314,59 +1347,12 @@ class _PostCardState extends State<PostCard>
   /// 音楽波形
   /// 大、小、大のパターン（各投稿でpostIdをシードとして微妙に異なるパターン）
   Widget _buildWaveform(PostTheme theme) {
-    // postIdをシードとしてランダムな変動を追加
-    final seed = widget.post.postId.hashCode;
-    final random = Random(seed);
-
-    // Figmaの基準サイズで固定（拡大縮小しない）
-    const cardWidth = 363.0;
-    const contentHeight = 294.0;
-    const availableWidth = cardWidth - 24; // カード内のpadding（左右12pxずつ）を引く
-
-    // バーの幅とマージンから必要なバーの数を計算
-    const barWidth = 2.5;
-    const barMargin = 1.2 * 2; // 左右のマージン
-    const totalBarWidth = barWidth + barMargin;
-    final maxBarCount = (availableWidth / totalBarWidth).floor();
-    final barCount = (maxBarCount * 2 / 3).floor(); // 棒の数を3分の2に削減
-
-    // 利用可能な幅全体を埋めるように間隔を調整
-    final totalBarWidthOnly = barCount * barWidth;
-    final remainingWidth = availableWidth - totalBarWidthOnly;
-    final horizontalMargin = (remainingWidth / barCount) / 2; // 片側のマージン
-
-    return Container(
-      height: contentHeight * (32 / 294),
-      child: Row(
-        children: List.generate(barCount, (index) {
-          // 大、小、大のパターン（-π/4〜5π/4の範囲）
-          // 0〜(barCount-1)のインデックスを-π/4〜5π/4の範囲にマッピング
-          final normalizedIndex = index / (barCount - 1).toDouble(); // 0〜1の範囲
-          final angle =
-              -pi / 4 + normalizedIndex * 1.5 * pi; // -π/4〜5π/4の範囲（1.5π）
-
-          // sin(angle)で波形を作成（-1〜1の範囲）
-          // 絶対値を取って、0〜1の範囲にする
-          final waveValue = sin(angle).abs();
-
-          // 0〜1の範囲を0.3〜1.0の範囲にマッピング
-          final baseHeight = 0.3 + waveValue * 0.7;
-
-          // 5〜32の範囲にスケーリング + ランダムな変動（±3px）
-          final randomVariation = (random.nextDouble() - 0.5) * 6;
-          final height = 5.0 + (baseHeight * 28.0) + randomVariation;
-
-          return Container(
-            width: barWidth,
-            height: height.clamp(10.0, 48.0),
-            margin: EdgeInsets.symmetric(horizontal: horizontalMargin),
-            decoration: BoxDecoration(
-              color: theme.iconColor,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          );
-        }),
-      ),
+    return AnimatedWaveform(
+      postId: widget.post.postId,
+      barColor: theme.iconColor,
+      audioService: widget.audioService,
+      previewUrl: _cachedPreviewUrl,
+      tempo: _tempo,
     );
   }
 

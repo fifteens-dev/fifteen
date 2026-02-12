@@ -791,6 +791,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                     fontWeight: FontWeight.bold,
                     color: Colors.black,
                     fontFamily: 'Noto Sans',
+                    fontFamilyFallback: ['Noto Sans JP'],
                   ),
                 ),
               ],

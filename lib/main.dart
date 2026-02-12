@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/verification_code_screen.dart';
 import 'screens/invite_code_screen.dart';
@@ -79,6 +80,32 @@ void main() async {
   runApp(const FifteenApp());
 }
 
+/// Noto Sans（英語）+ Noto Sans JP（日本語フォールバック）のTextThemeを構築
+/// 英語 → Noto Sans で描画（ラテン文字をカバー）
+/// 日本語 → Noto Sans に無いグリフなので Noto Sans JP にフォールバック
+TextTheme _buildTextTheme(TextTheme base) {
+  final notoSansJpFamily = GoogleFonts.notoSansJp().fontFamily!;
+  final fallback = [notoSansJpFamily];
+  final notoSans = GoogleFonts.notoSansTextTheme(base);
+  return TextTheme(
+    displayLarge: notoSans.displayLarge?.copyWith(fontFamilyFallback: fallback),
+    displayMedium: notoSans.displayMedium?.copyWith(fontFamilyFallback: fallback),
+    displaySmall: notoSans.displaySmall?.copyWith(fontFamilyFallback: fallback),
+    headlineLarge: notoSans.headlineLarge?.copyWith(fontFamilyFallback: fallback),
+    headlineMedium: notoSans.headlineMedium?.copyWith(fontFamilyFallback: fallback),
+    headlineSmall: notoSans.headlineSmall?.copyWith(fontFamilyFallback: fallback),
+    titleLarge: notoSans.titleLarge?.copyWith(fontFamilyFallback: fallback),
+    titleMedium: notoSans.titleMedium?.copyWith(fontFamilyFallback: fallback),
+    titleSmall: notoSans.titleSmall?.copyWith(fontFamilyFallback: fallback),
+    bodyLarge: notoSans.bodyLarge?.copyWith(fontFamilyFallback: fallback),
+    bodyMedium: notoSans.bodyMedium?.copyWith(fontFamilyFallback: fallback),
+    bodySmall: notoSans.bodySmall?.copyWith(fontFamilyFallback: fallback),
+    labelLarge: notoSans.labelLarge?.copyWith(fontFamilyFallback: fallback),
+    labelMedium: notoSans.labelMedium?.copyWith(fontFamilyFallback: fallback),
+    labelSmall: notoSans.labelSmall?.copyWith(fontFamilyFallback: fallback),
+  );
+}
+
 class FifteenApp extends StatelessWidget {
   const FifteenApp({super.key});
 
@@ -94,6 +121,7 @@ class FifteenApp extends StatelessWidget {
           primary: AppColors.buttonPrimary,
           surface: AppColors.surface,
         ),
+        textTheme: _buildTextTheme(ThemeData(brightness: Brightness.dark).textTheme),
         useMaterial3: true,
       ),
       initialRoute: '/', // 認証状態チェックから開始

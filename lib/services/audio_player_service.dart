@@ -122,6 +122,9 @@ class AudioPlayerService {
   /// 現在再生中かどうか
   bool get isPlaying => _player.playing;
 
+  /// 現在再生中または一時停止中のURL
+  String? get currentUrl => _currentUrl;
+
   /// 現在一時停止中かどうか
   bool get isPaused => _player.processingState == ProcessingState.ready && !_player.playing;
 

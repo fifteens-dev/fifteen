@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 /// アプリケーション全体で使用する色定義
 class AppColors {
   // プライマリカラー
-  static const Color background = Color(0xFF000000); // 黒背景
+  static const Color background = Color(0xFF121212); // 背景
   static const Color surface = Color(0xFF1A1A1A); // 入力フィールドなどの表面色
 
   // テキストカラー

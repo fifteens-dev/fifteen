@@ -391,6 +391,35 @@ class SpotifyService {
     );
   }
 
+  /// Spotify検索でトラックIDを取得（楽曲名+アーティスト名から）
+  /// Apple Musicトラック等のSpotify ID取得に使用
+  Future<String?> searchTrackId(String trackName, String artistName) async {
+    final token = await _getAccessToken();
+    if (token == null) return null;
+
+    try {
+      final query = Uri.encodeComponent('track:$trackName artist:$artistName');
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/search?q=$query&type=track&limit=1'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final tracks = data['tracks']['items'] as List;
+        if (tracks.isNotEmpty) {
+          return tracks[0]['id'] as String;
+        }
+      }
+      return null;
+    } catch (e) {
+      print('❌ Error searching track ID: $e');
+      return null;
+    }
+  }
+
   /// プレイリストから楽曲を取得
   Future<List<TrackModel>> getPlaylistTracks(String playlistId,
       {int limit = 50}) async {

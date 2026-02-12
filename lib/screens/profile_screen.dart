@@ -247,16 +247,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Container(
       height: 45,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Stack(
         children: [
-          // 戻るボタン
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
-          ),
-          // ユーザーID
-          Text(
+          // ユーザーID（中央）
+          Center(
+            child: Text(
             username,
             style: const TextStyle(
               color: Colors.white,
@@ -264,15 +259,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
               fontWeight: FontWeight.w800,
             ),
           ),
-          // 設定アイコン
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Colors.white),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsScreen()),
-              );
-            },
+          ),
+          // 設定アイコン（右端）
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: IconButton(
+              icon: const Icon(Icons.settings_outlined, color: Colors.white),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                );
+              },
+            ),
           ),
         ],
       ),

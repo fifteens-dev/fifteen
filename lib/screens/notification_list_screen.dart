@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/notification_model.dart';
 import '../services/notification_service.dart';
 import '../services/auth_service.dart';
@@ -406,12 +407,12 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
             const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                notification.imageUrl!,
+              child: CachedNetworkImage(
+                imageUrl: notification.imageUrl!,
                 fit: BoxFit.cover,
                 height: 120,
                 width: double.infinity,
-                errorBuilder: (context, error, stackTrace) {
+                errorWidget: (context, url, error) {
                   return Container(
                     height: 120,
                     color: const Color(0xFF2D2D2D),
@@ -437,7 +438,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         color: const Color(0xFF2D2D2D),
         image: imageUrl != null && imageUrl.isNotEmpty
             ? DecorationImage(
-                image: NetworkImage(imageUrl),
+                image: CachedNetworkImageProvider(imageUrl),
                 fit: BoxFit.cover,
               )
             : null,
@@ -460,7 +461,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         borderRadius: BorderRadius.circular(8),
         color: const Color(0xFF2D2D2D),
         image: DecorationImage(
-          image: NetworkImage(imageUrl),
+          image: CachedNetworkImageProvider(imageUrl),
           fit: BoxFit.cover,
         ),
       ),

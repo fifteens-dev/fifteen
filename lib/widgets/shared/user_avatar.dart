@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../constants/post_card_constants.dart';
 
@@ -87,12 +88,12 @@ class UserAvatar extends StatelessWidget {
       ),
       child: ClipOval(
         child: imageUrl != null && imageUrl!.isNotEmpty
-            ? Image.network(
-                imageUrl!,
+            ? CachedNetworkImage(
+                imageUrl: imageUrl!,
                 width: avatarSize,
                 height: avatarSize,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+                errorWidget: (context, url, error) => _buildPlaceholder(),
               )
             : _buildPlaceholder(),
       ),

@@ -134,10 +134,16 @@ class PostService {
   Future<List<PostModel>> _applyLatestUserInfo(List<PostModel> posts) async {
     if (posts.isEmpty) return posts;
 
-    final userIds = posts.map((p) => p.userId).toSet();
+    // 投稿者 + いいねユーザー全員のIDを収集
+    final allUserIds = <String>{};
+    for (final post in posts) {
+      allUserIds.add(post.userId);
+      allUserIds.addAll(post.likedUserIds);
+    }
+
     final userMap = <String, ({String? username, String? iconUrl})>{};
 
-    for (final uid in userIds) {
+    for (final uid in allUserIds) {
       try {
         final user = await _userService.getUser(uid);
         if (user != null) {
@@ -148,10 +154,17 @@ class PostService {
 
     return posts.map((post) {
       final userInfo = userMap[post.userId];
-      if (userInfo == null || userInfo.username == null) return post;
+
+      // いいねユーザーのアイコンURLを最新に更新
+      final updatedLikedByIconUrls = post.likedUserIds.map((uid) {
+        final info = userMap[uid];
+        return info?.iconUrl ?? '';
+      }).toList();
+
       return post.copyWith(
-        username: userInfo.username,
-        userIconUrl: userInfo.iconUrl,
+        username: userInfo?.username ?? post.username,
+        userIconUrl: userInfo?.iconUrl ?? post.userIconUrl,
+        likedByUserIconUrls: updatedLikedByIconUrls,
       );
     }).toList();
   }

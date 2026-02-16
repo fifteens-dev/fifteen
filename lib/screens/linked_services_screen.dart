@@ -154,7 +154,7 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.asset(
-        'assets/icons/spotify.png',
+        'assets/icons/Spotify.png',
         width: 40,
         height: 40,
         fit: BoxFit.cover,
@@ -185,7 +185,7 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.asset(
-        'assets/icons/apple_music.png',
+        'assets/icons/Apple_Music.png',
         width: 40,
         height: 40,
         fit: BoxFit.cover,

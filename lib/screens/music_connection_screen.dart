@@ -99,7 +99,7 @@ class MusicConnectionScreen extends StatelessWidget {
           // Apple Musicボタン（順序変更：Apple Music → Spotify）
           _buildMusicServiceButton(
             context: context,
-            iconAsset: 'assets/icons/apple_music.png', // TODO: アイコンを追加
+            iconAsset: 'assets/icons/Apple_Music.png', // TODO: アイコンを追加
             label: 'Apple Musicと連携する',
             onTap: () => _handleAppleMusicConnection(context),
           ),
@@ -108,7 +108,7 @@ class MusicConnectionScreen extends StatelessWidget {
           // Spotifyボタン
           _buildMusicServiceButton(
             context: context,
-            iconAsset: 'assets/icons/spotify.png', // TODO: アイコンを追加
+            iconAsset: 'assets/icons/Spotify.png', // TODO: アイコンを追加
             label: 'Spotifyと連携する',
             onTap: () => _handleSpotifyConnection(context),
           ),

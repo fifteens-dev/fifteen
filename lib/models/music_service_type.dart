@@ -21,9 +21,9 @@ extension MusicServiceTypeExtension on MusicServiceType {
   String get iconPath {
     switch (this) {
       case MusicServiceType.spotify:
-        return 'assets/icons/spotify.png';
+        return 'assets/icons/Spotify.png';
       case MusicServiceType.appleMusic:
-        return 'assets/icons/apple_music.png';
+        return 'assets/icons/Apple_Music.png';
       case MusicServiceType.none:
         return '';
     }

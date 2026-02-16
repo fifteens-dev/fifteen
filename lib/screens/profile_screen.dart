@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_service.dart';
 import '../services/post_service.dart';
@@ -572,10 +573,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           color: Colors.grey[800],
         ),
         child: albumArt.isNotEmpty
-            ? Image.network(
-                albumArt,
+            ? CachedNetworkImage(
+                imageUrl: albumArt,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
+                errorWidget: (context, url, error) {
                   return const Icon(
                     Icons.album,
                     size: 50,

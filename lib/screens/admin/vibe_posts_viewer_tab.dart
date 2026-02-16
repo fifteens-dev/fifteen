@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../constants/app_colors.dart';
 import '../../models/post_model.dart';
 import '../../services/post_service.dart';
@@ -341,12 +342,12 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
                   child: iconUrl != null && iconUrl.isNotEmpty
                       ? ClipOval(
                           child: iconUrl.startsWith('http')
-                              ? Image.network(
-                                  iconUrl,
+                              ? CachedNetworkImage(
+                                  imageUrl: iconUrl,
                                   width: 24,
                                   height: 24,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => const Icon(
+                                  errorWidget: (_, __, ___) => const Icon(
                                       Icons.person,
                                       size: 16,
                                       color: Colors.white),
@@ -400,12 +401,12 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
                 // アルバムアート
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
-                  child: Image.network(
-                    post.track.albumImageUrl,
+                  child: CachedNetworkImage(
+                    imageUrl: post.track.albumImageUrl,
                     width: 44,
                     height: 44,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorWidget: (_, __, ___) => Container(
                       width: 44,
                       height: 44,
                       color: Colors.grey[800],

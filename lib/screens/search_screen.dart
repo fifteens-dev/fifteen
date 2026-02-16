@@ -146,45 +146,71 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildSearchBar() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Container(
-        height: 30,
-        decoration: BoxDecoration(
-          color: const Color(0xFF2D2D2D),
-          borderRadius: BorderRadius.circular(5),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 12),
-            const Icon(
-              Icons.search,
-              color: Color(0xFF9F9F9F),
-              size: 18,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextField(
-                controller: _searchController,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.white,
-                ),
-                decoration: const InputDecoration(
-                  hintText: '検索',
-                  hintStyle: TextStyle(
-                    fontSize: 13,
+      child: Row(
+        children: [
+          // 検索フィールド
+          Expanded(
+            child: Container(
+              height: 30,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2D2D2D),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Row(
+                children: [
+                  const SizedBox(width: 11),
+                  const Icon(
+                    Icons.search,
                     color: Color(0xFF9F9F9F),
+                    size: 18,
                   ),
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(vertical: 6),
-                ),
-                onChanged: (value) {
-                  _onSearchChanged(value);
-                },
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: '検索',
+                        hintStyle: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF9F9F9F),
+                        ),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 6),
+                      ),
+                      onChanged: (value) {
+                        _onSearchChanged(value);
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+          // キャンセルボタン
+          GestureDetector(
+            onTap: () {
+              _searchController.clear();
+              _onSearchChanged('');
+              FocusScope.of(context).unfocus();
+            },
+            child: const Padding(
+              padding: EdgeInsets.only(left: 10, right: 4),
+              child: Text(
+                'キャンセル',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w400,
+                  color: Color(0xFF99999B),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -277,8 +303,8 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             // プロフィール画像
             Container(
-              width: 48,
-              height: 48,
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.grey[800],
@@ -286,7 +312,7 @@ class _SearchScreenState extends State<SearchScreen> {
               child: ClipOval(
                 child: ProfileImage(
                   imageUrl: user.profileImageUrl,
-                  size: 48,
+                  size: 44,
                 ),
               ),
             ),

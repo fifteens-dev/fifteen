@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -226,10 +227,10 @@ class UserInfoPreview extends StatelessWidget {
           ),
           child: userIconUrl != null && userIconUrl!.isNotEmpty
               ? ClipOval(
-                  child: Image.network(
-                    userIconUrl!,
+                  child: CachedNetworkImage(
+                    imageUrl: userIconUrl!,
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
+                    errorWidget: (context, url, error) {
                       return const Icon(
                         Icons.person,
                         size: 20,

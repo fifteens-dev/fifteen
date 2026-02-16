@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../constants/app_colors.dart';
 import '../../models/vibe_topic_model.dart';
 import '../../models/vibe_ranking_item.dart';
@@ -147,10 +148,10 @@ class VibeBarSection extends StatelessWidget {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                child: Image.network(
-                  item.track.albumImageUrl,
+                child: CachedNetworkImage(
+                  imageUrl: item.track.albumImageUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
+                  errorWidget: (context, url, error) {
                     return Container(
                       color: Colors.grey[800],
                       child: const Icon(Icons.album, color: Colors.white54),

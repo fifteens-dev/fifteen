@@ -1,6 +1,9 @@
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
+
+const getsongbpmApiKey = defineSecret('GETSONGBPM_API_KEY');
 
 admin.initializeApp();
 
@@ -231,5 +234,94 @@ exports.sendOfficialNotification = onCall(async (request) => {
   } catch (error) {
     console.error('Error sending official notification:', error);
     throw new HttpsError('internal', `公式通知の送信に失敗しました: ${error.message}`);
+  }
+});
+
+/**
+ * BPM取得Cloud Function
+ *
+ * GetSongBPM APIをサーバー側から呼び出してBPMを取得する
+ * Cloudflare保護をバイパスするためCloud Function経由で実行
+ *
+ * パラメータ:
+ * - trackName: 楽曲名（必須）
+ * - artistName: アーティスト名（オプション）
+ *
+ * レスポンス:
+ * - tempo: BPM値（数値 or null）
+ */
+exports.getBpm = onCall({ secrets: [getsongbpmApiKey] }, async (request) => {
+  const { trackName, artistName } = request.data;
+
+  if (!trackName) {
+    throw new HttpsError('invalid-argument', 'trackName is required');
+  }
+
+  const apiKey = getsongbpmApiKey.value();
+  if (!apiKey) {
+    throw new HttpsError('failed-precondition', 'GETSONGBPM_API_KEY is not configured');
+  }
+
+  try {
+    // 1. 楽曲を検索
+    const lookup = encodeURIComponent(trackName);
+    const searchUrl = `https://api.getsong.co/search/?api_key=${apiKey}&type=song&lookup=${lookup}`;
+
+    const searchRes = await fetch(searchUrl, {
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!searchRes.ok) {
+      console.error(`GetSongBPM search error: ${searchRes.status}`);
+      return { tempo: null };
+    }
+
+    const searchData = await searchRes.json();
+    const results = searchData.search;
+    if (!Array.isArray(results) || results.length === 0) {
+      console.log(`No results for: ${trackName}`);
+      return { tempo: null };
+    }
+
+    // アーティスト名でマッチング
+    let songId = null;
+    if (artistName) {
+      const artistLower = artistName.toLowerCase();
+      for (const r of results) {
+        const name = (r.artist?.name || '').toLowerCase();
+        if (name.includes(artistLower) || artistLower.includes(name)) {
+          songId = r.id;
+          break;
+        }
+      }
+    }
+    if (!songId) {
+      songId = results[0].id;
+    }
+
+    // 2. BPMを取得
+    const songUrl = `https://api.getsong.co/song/?api_key=${apiKey}&id=${songId}`;
+    const songRes = await fetch(songUrl, {
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!songRes.ok) {
+      console.error(`GetSongBPM song error: ${songRes.status}`);
+      return { tempo: null };
+    }
+
+    const songData = await songRes.json();
+    const tempo = songData.song?.tempo;
+    if (!tempo) {
+      return { tempo: null };
+    }
+
+    const bpm = parseFloat(tempo);
+    console.log(`BPM for "${trackName}": ${bpm}`);
+    return { tempo: isNaN(bpm) ? null : bpm };
+
+  } catch (error) {
+    console.error('getBpm error:', error);
+    return { tempo: null };
   }
 });

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
@@ -656,10 +657,10 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         decoration: BoxDecoration(
           color: Colors.grey[900],
         ),
-        child: Image.network(
-          albumArt,
+        child: CachedNetworkImage(
+          imageUrl: albumArt,
           fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
+          errorWidget: (context, url, error) {
             return Container(
               color: Colors.grey[800],
               child: const Icon(

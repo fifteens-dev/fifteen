@@ -155,7 +155,7 @@ class _MusicServiceSelectionScreenState
                     service: MusicServiceType.spotify,
                     title: 'Spotify',
                     description: '世界最大の音楽ストリーミングサービス',
-                    iconPath: 'assets/icons/spotify.png',
+                    iconPath: 'assets/icons/Spotify.png',
                   ),
                   const SizedBox(height: 12),
 
@@ -163,7 +163,7 @@ class _MusicServiceSelectionScreenState
                     service: MusicServiceType.appleMusic,
                     title: 'Apple Music',
                     description: 'Appleの音楽ストリーミングサービス',
-                    iconPath: 'assets/icons/apple_music.png',
+                    iconPath: 'assets/icons/Apple_Music.png',
                   ),
                   const SizedBox(height: 32),
 

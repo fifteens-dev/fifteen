@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/post_model.dart';
@@ -45,12 +46,12 @@ class ProfileImage extends StatelessWidget {
         },
       );
     } else {
-      return Image.network(
-        imageUrl!,
+      return CachedNetworkImage(
+        imageUrl: imageUrl!,
         width: size,
         height: size,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
+        errorWidget: (context, url, error) {
           return Icon(
             Icons.person,
             size: size * 0.6,
@@ -139,12 +140,12 @@ class ProfilePostGridItem extends StatelessWidget {
                 child: post.track.albumImageUrl.isNotEmpty
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(3),
-                        child: Image.network(
-                          post.track.albumImageUrl,
+                        child: CachedNetworkImage(
+                          imageUrl: post.track.albumImageUrl,
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return const Icon(
                               Icons.album,
                               size: 50,
@@ -387,12 +388,12 @@ class TodaysTrackCard extends StatelessWidget {
                 child: post.track.albumImageUrl.isNotEmpty
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(4),
-                        child: Image.network(
-                          post.track.albumImageUrl,
+                        child: CachedNetworkImage(
+                          imageUrl: post.track.albumImageUrl,
                           width: 60,
                           height: 60,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return const Icon(
                               Icons.album,
                               size: 30,

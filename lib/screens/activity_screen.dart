@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/current_user_helper.dart';
 
 /// アクティビティ画面（通知画面）
@@ -427,7 +428,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
         color: const Color(0xFF2D2D2D),
         image: imageUrl != null
             ? DecorationImage(
-                image: NetworkImage(imageUrl),
+                image: CachedNetworkImageProvider(imageUrl),
                 fit: BoxFit.cover,
               )
             : null,
@@ -445,7 +446,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
         color: const Color(0xFF2D2D2D),
         image: imageUrl != null
             ? DecorationImage(
-                image: NetworkImage(imageUrl),
+                image: CachedNetworkImageProvider(imageUrl),
                 fit: BoxFit.cover,
               )
             : null,

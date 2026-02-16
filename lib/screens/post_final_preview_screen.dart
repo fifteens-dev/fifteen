@@ -190,15 +190,19 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
       height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 19),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           // 閉じるボタン
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: const Icon(
-              Icons.close,
-              color: Colors.white,
-              size: 20,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: const Icon(
+                  Icons.close,
+                  color: Colors.white,
+                  size: 27,
+                ),
+              ),
             ),
           ),
 
@@ -213,25 +217,30 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
           ),
 
           // 投稿するボタン
-          GestureDetector(
-            onTap: _isPosting ? null : _onPost,
-            child: _isPosting
-                ? const SizedBox(
-                    width: 13,
-                    height: 13,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFF5D8FFF),
-                    ),
-                  )
-                : const Text(
-                    '投稿する',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF5D8FFF),
-                    ),
-                  ),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                onTap: _isPosting ? null : _onPost,
+                child: _isPosting
+                    ? const SizedBox(
+                        width: 13,
+                        height: 13,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF5D8FFF),
+                        ),
+                      )
+                    : const Text(
+                        '投稿する',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF5D8FFF),
+                        ),
+                      ),
+              ),
+            ),
           ),
         ],
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -395,15 +396,19 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 19),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           // 戻るボタン
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: const Icon(
-              Icons.close,
-              color: Colors.white,
-              size: 20,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: const Icon(
+                  Icons.close,
+                  color: Colors.white,
+                  size: 27,
+                ),
+              ),
             ),
           ),
 
@@ -418,16 +423,25 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
           ),
 
           // 次へボタン
-          GestureDetector(
-            onTap: _selectedTrack != null ? _onNext : null,
-            child: Text(
-              '次へ',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: _selectedTrack != null
-                    ? const Color(0xFF5D8FFF)
-                    : const Color(0xFF5B5B5B),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _selectedTrack != null ? _onNext : null,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Text(
+                    '次へ',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: _selectedTrack != null
+                          ? const Color(0xFF5D8FFF)
+                          : const Color(0xFF5B5B5B),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -469,7 +483,8 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                     color: Color(0xFF9F9F9F),
                   ),
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 8),
                 ),
                 onChanged: (value) {
                   _searchTracks(value);
@@ -756,22 +771,24 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   /// 楽曲アイテム（リスト表示用）
   Widget _buildTrackItem(TrackModel track, bool isSelected) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () => _toggleTrackSelection(track),
       child: Container(
         height: 59,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        color: isSelected ? const Color(0xFF2A2A2A) : Colors.transparent,
         child: Row(
           children: [
             // アルバムアート
             ClipRRect(
               borderRadius: BorderRadius.circular(3),
               child: track.albumImageUrl != null
-                  ? Image.network(
-                      track.albumImageUrl!,
+                  ? CachedNetworkImage(
+                      imageUrl: track.albumImageUrl!,
                       width: 47,
                       height: 47,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
+                      errorWidget: (context, url, error) {
                         return _buildPlaceholderImage();
                       },
                     )
@@ -853,12 +870,12 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(5),
                   child: track.albumImageUrl != null
-                      ? Image.network(
-                          track.albumImageUrl!,
+                      ? CachedNetworkImage(
+                          imageUrl: track.albumImageUrl!,
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return _buildGridPlaceholderImage();
                           },
                         )

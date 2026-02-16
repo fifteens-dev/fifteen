@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/post_model.dart';
@@ -27,12 +28,12 @@ class AlbumArtImage extends StatelessWidget {
       return _buildPlaceholder();
     }
 
-    return Image.network(
-      imageUrl,
+    return CachedNetworkImage(
+      imageUrl: imageUrl,
       width: size,
       height: size,
       fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+      errorWidget: (context, url, error) => _buildPlaceholder(),
     );
   }
 
@@ -118,24 +119,23 @@ class PostPhotoImage extends StatelessWidget {
   }
 
   Widget _buildNetworkImage() {
-    return Image.network(
-      photoUrl!,
+    return CachedNetworkImage(
+      imageUrl: photoUrl!,
       width: width,
       height: height,
       fit: BoxFit.cover,
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
+      progressIndicatorBuilder: (context, url, progress) {
         return Center(
           child: CircularProgressIndicator(
-            value: loadingProgress.expectedTotalBytes != null
-                ? loadingProgress.cumulativeBytesLoaded /
-                    loadingProgress.expectedTotalBytes!
+            value: progress.totalSize != null
+                ? progress.downloaded /
+                    progress.totalSize!
                 : null,
             color: Colors.white,
           ),
         );
       },
-      errorBuilder: (context, error, stackTrace) {
+      errorWidget: (context, url, error) {
         if (kDebugMode) {
           print('❌ Failed to load photo: $error');
           print('   URL: ${PhotoHelper.formatPhotoUrlForLog(photoUrl)}');
@@ -157,12 +157,12 @@ class PostPhotoImage extends StatelessWidget {
 
   Widget _buildFallbackImage() {
     if (fallbackAlbumArtUrl.isNotEmpty) {
-      return Image.network(
-        fallbackAlbumArtUrl,
+      return CachedNetworkImage(
+        imageUrl: fallbackAlbumArtUrl,
         width: width,
         height: height,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _buildPhotoPlaceholder(),
+        errorWidget: (context, url, error) => _buildPhotoPlaceholder(),
       );
     }
     return _buildPhotoPlaceholder();

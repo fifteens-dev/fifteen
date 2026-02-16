@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:photo_manager/photo_manager.dart';
 import '../models/track_model.dart';
 import '../services/audio_player_service.dart';
 import '../services/lyrics_service.dart';
@@ -35,39 +36,53 @@ class PostPhotoSelectionScreen extends StatefulWidget {
 class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
-  final List<XFile> _galleryImages = [];
-  LyricsData? _lyricsData; // 取得した歌詞データ（状態として保持）
+  LyricsData? _lyricsData;
+
+  // photo_manager 用
+  List<AssetEntity> _galleryAssets = [];
+  int? _selectedAssetIndex;
+  bool _hasPermission = false;
+  AssetPathEntity? _recentAlbum;
+  int _currentPage = 0;
+  bool _isLoadingMore = false;
+  bool _hasMorePhotos = true;
+  static const int _initialLoad = 100;
+  static const int _pageSize = 70;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     AudioPlayerService().stop();
     _loadGalleryImages();
+    _scrollController.addListener(_onScroll);
 
-    // 親から受け取った歌詞データを保存
     _lyricsData = widget.lyricsData;
 
-    // バックグラウンドで取得中の歌詞があれば、それを待つ
     if (widget.lyricsFuture != null) {
-      print('🎵 写真選択画面: バックグラウンド歌詞取得の完了を待機中...');
       widget.lyricsFuture!.then((lyricsData) {
         if (mounted) {
           setState(() {
             _lyricsData = lyricsData;
           });
-          if (lyricsData != null) {
-            print('✅ 写真選択画面: バックグラウンド歌詞取得完了 (${lyricsData.source})');
-          } else {
-            print('⚠️ 写真選択画面: 歌詞が見つかりませんでした');
-          }
         }
       });
     } else if (_lyricsData == null) {
-      // Future もなく、歌詞も未取得の場合のみ、新規で取得
-      print('🎵 写真選択画面: 歌詞が未取得のため、新規で取得を開始');
       _fetchLyricsInBackground();
-    } else {
-      print('✅ 写真選択画面: 既に取得済みの歌詞を使用 (${_lyricsData!.source})');
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// スクロール末尾検知
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 1000) {
+      _loadMorePhotos();
     }
   }
 
@@ -88,23 +103,91 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
         setState(() {
           _lyricsData = lyricsData;
         });
-
-        if (lyricsData != null) {
-          print('✅ 写真選択画面: 歌詞取得完了 (${lyricsData.source})');
-        } else {
-          print('⚠️ 写真選択画面: 歌詞が見つかりませんでした');
-        }
       }
     } catch (e) {
       print('⚠️ 写真選択画面: 歌詞取得エラー - $e');
     }
   }
 
-  /// ギャラリーから画像リストを読み込む（Web対応のためダミー実装）
+  /// ギャラリーから画像リストを読み込む（初回）
   Future<void> _loadGalleryImages() async {
-    // TODO: 実際のギャラリーから画像を読み込む実装
-    // Webではimage_pickerのpickMultiImageを使用
-    // モバイルではphoto_managerパッケージなどを使用
+    if (kIsWeb) return;
+
+    final permission = await PhotoManager.requestPermissionExtend();
+    if (!permission.isAuth) {
+      if (!permission.hasAccess) {
+        setState(() => _hasPermission = false);
+        return;
+      }
+    }
+
+    setState(() => _hasPermission = true);
+
+    final albums = await PhotoManager.getAssetPathList(
+      type: RequestType.image,
+      filterOption: FilterOptionGroup(
+        imageOption: const FilterOption(
+          sizeConstraint: SizeConstraint(ignoreSize: true),
+        ),
+        orders: [const OrderOption(type: OrderOptionType.createDate, asc: false)],
+      ),
+    );
+
+    if (albums.isEmpty) return;
+
+    _recentAlbum = albums.first;
+    final assets = await _recentAlbum!.getAssetListRange(
+      start: 0,
+      end: _initialLoad,
+    );
+
+    final totalCount = await _recentAlbum!.assetCountAsync;
+
+    if (mounted) {
+      setState(() {
+        _galleryAssets = assets;
+        _currentPage = _initialLoad;
+        _hasMorePhotos = _initialLoad < totalCount;
+      });
+    }
+  }
+
+  /// 追加の写真を読み込む（スクロール時）
+  Future<void> _loadMorePhotos() async {
+    if (_isLoadingMore || !_hasMorePhotos || _recentAlbum == null) return;
+
+    _isLoadingMore = true;
+
+    final totalCount = await _recentAlbum!.assetCountAsync;
+    final end = (_currentPage + _pageSize).clamp(0, totalCount);
+    final assets = await _recentAlbum!.getAssetListRange(
+      start: _currentPage,
+      end: end,
+    );
+
+    if (mounted) {
+      setState(() {
+        _galleryAssets.addAll(assets);
+        _currentPage = end;
+        _hasMorePhotos = end < totalCount;
+      });
+    }
+
+    _isLoadingMore = false;
+  }
+
+  /// グリッドの写真をタップして選択
+  Future<void> _selectAsset(int assetIndex) async {
+    final asset = _galleryAssets[assetIndex];
+    final file = await asset.file;
+    if (file == null) return;
+
+    if (mounted) {
+      setState(() {
+        _selectedImage = XFile(file.path);
+        _selectedAssetIndex = assetIndex;
+      });
+    }
   }
 
   /// カメラで写真を撮影
@@ -116,6 +199,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       if (photo != null) {
         setState(() {
           _selectedImage = photo;
+          _selectedAssetIndex = null;
         });
       }
     } catch (e) {
@@ -130,7 +214,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
     }
   }
 
-  /// ギャラリーから写真を選択
+  /// ギャラリーから写真を選択（システムピッカー - フォールバック用）
   Future<void> _pickFromGallery() async {
     try {
       final XFile? image = await _picker.pickImage(
@@ -139,6 +223,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       if (image != null) {
         setState(() {
           _selectedImage = image;
+          _selectedAssetIndex = null;
         });
       }
     } catch (e) {
@@ -165,16 +250,12 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       return;
     }
 
-    print('📸 写真選択完了: 歌詞カード選択画面へ遷移');
-    print('  - 歌詞データ: ${_lyricsData != null ? "あり (${_lyricsData!.source})" : "なし"}');
-
-    // 歌詞カード選択画面へ遷移（現在保持している歌詞データを渡す）
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
         builder: (context) => LyricsCardSelectionScreen(
           track: widget.track,
-          lyricsData: _lyricsData, // 状態変数から渡す
+          lyricsData: _lyricsData,
           selectedImage: _selectedImage,
           isVibe: widget.isVibe,
           vibeTopicId: widget.vibeTopicId,
@@ -183,7 +264,6 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       ),
     );
 
-    // 歌詞カード選択画面から戻ってきた場合、PostPreviewScreenにデータを返す
     if (result != null && mounted) {
       Navigator.pop(context, result);
     }
@@ -196,21 +276,15 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ヘッダー
             _buildHeader(),
-
-            // メインコンテンツ（スクロール可能）
             Expanded(
               child: SingleChildScrollView(
+                controller: _scrollController,
                 child: Column(
                   children: [
                     const SizedBox(height: 16),
-                    // 選択された写真のプレビュー
                     _buildPreviewImage(),
-
                     const SizedBox(height: 7),
-
-                    // 写真グリッド
                     _buildPhotoGrid(),
                   ],
                 ),
@@ -228,19 +302,20 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 19),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 戻るボタン
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: const Icon(
-              Icons.arrow_back_ios,
-              color: Colors.white,
-              size: 20,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: const Icon(
+                  Icons.arrow_back_ios,
+                  color: Colors.white,
+                  size: 27,
+                ),
+              ),
             ),
           ),
-
-          // タイトル
           const Text(
             '新規投稿',
             style: TextStyle(
@@ -249,16 +324,23 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
               color: Colors.white,
             ),
           ),
-
-          // 次へボタン
-          GestureDetector(
-            onTap: _onNext,
-            child: const Text(
-              '次へ',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF5D8FFF),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _onNext,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Text(
+                    '次へ',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF5D8FFF),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -327,22 +409,67 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
 
   /// 写真グリッド
   Widget _buildPhotoGrid() {
+    // 権限なし or Web → システムピッカーへのフォールバック
+    if (!_hasPermission || kIsWeb) {
+      return _buildFallbackGrid();
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 1),
       child: GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
+          crossAxisCount: 3,
           mainAxisSpacing: 1,
           crossAxisSpacing: 1,
         ),
-        itemCount: 12, // カメラボタン + 11個の写真
+        itemCount: 1 + _galleryAssets.length, // カメラボタン + 写真
         itemBuilder: (context, index) {
           if (index == 0) {
             return _buildCameraButton();
           }
-          return _buildPhotoGridItem(index);
+          return _buildPhotoGridItem(index - 1);
+        },
+      ),
+    );
+  }
+
+  /// 権限がない場合のフォールバックグリッド
+  Widget _buildFallbackGrid() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 1),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          mainAxisSpacing: 1,
+          crossAxisSpacing: 1,
+        ),
+        itemCount: 2,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return _buildCameraButton();
+          }
+          // ギャラリーピッカーボタン
+          return GestureDetector(
+            onTap: _pickFromGallery,
+            child: Container(
+              color: const Color(0xFF2B2B2B),
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.photo_library, size: 36, color: Colors.white54),
+                  SizedBox(height: 4),
+                  Text(
+                    '写真を選択',
+                    style: TextStyle(fontSize: 10, color: Colors.white54),
+                  ),
+                ],
+              ),
+            ),
+          );
         },
       ),
     );
@@ -353,8 +480,6 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
     return GestureDetector(
       onTap: _takePhoto,
       child: Container(
-        width: 97,
-        height: 97,
         color: const Color(0xFF2B2B2B),
         child: const Icon(
           Icons.camera_alt,
@@ -366,71 +491,92 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
   }
 
   /// 写真グリッドアイテム
-  Widget _buildPhotoGridItem(int index) {
-    // ダミー画像として2番目のアイテムを選択状態にする
-    final bool isSelected = index == 1 && _selectedImage != null;
+  Widget _buildPhotoGridItem(int assetIndex) {
+    final asset = _galleryAssets[assetIndex];
+    final bool isSelected = _selectedAssetIndex == assetIndex;
 
     return GestureDetector(
-      onTap: () {
-        // ギャラリーから選択
-        _pickFromGallery();
-      },
-      child: Container(
-        width: 97,
-        height: 97,
-        color: const Color(0xFF2B2B2B),
-        child: Stack(
-          children: [
-            // ダミー画像（実際はギャラリーから取得した画像を表示）
+      onTap: () => _selectAsset(assetIndex),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _ThumbnailImage(asset: asset),
+
+          // 選択状態のオーバーレイ
+          if (isSelected)
             Container(
-              color: Colors.grey[800],
-              child: const Center(
-                child: Icon(
-                  Icons.image,
-                  size: 40,
-                  color: Colors.white24,
-                ),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 1),
               ),
-            ),
-
-            // 選択状態のオーバーレイ
-            if (isSelected)
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: Colors.white,
-                    width: 1,
+              child: Stack(
+                children: [
+                  Container(
+                    color: Colors.white.withValues(alpha: 0.5),
                   ),
-                ),
-                child: Stack(
-                  children: [
-                    // 半透明の白いオーバーレイ
-                    Container(
-                      color: Colors.white.withOpacity(0.5),
-                    ),
-
-                    // チェックマークアイコン
-                    Center(
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF5D8FFF),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.check,
-                          color: Colors.white,
-                          size: 20,
-                        ),
+                  Center(
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF5D8FFF),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.check,
+                        color: Colors.white,
+                        size: 20,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
+  }
+}
+
+/// サムネイル画像を非同期で読み込む独立ウィジェット
+/// 各セルが独立して読み込むのでUIをブロックしない
+class _ThumbnailImage extends StatefulWidget {
+  final AssetEntity asset;
+
+  const _ThumbnailImage({required this.asset});
+
+  @override
+  State<_ThumbnailImage> createState() => _ThumbnailImageState();
+}
+
+class _ThumbnailImageState extends State<_ThumbnailImage> {
+  Uint8List? _thumbData;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadThumbnail();
+  }
+
+  Future<void> _loadThumbnail() async {
+    final data = await widget.asset.thumbnailDataWithSize(
+      const ThumbnailSize(200, 200),
+    );
+    if (mounted && data != null) {
+      setState(() => _thumbData = data);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_thumbData != null) {
+      return Image.memory(
+        _thumbData!,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        gaplessPlayback: true,
+      );
+    }
+    return Container(color: Colors.grey[800]);
   }
 }

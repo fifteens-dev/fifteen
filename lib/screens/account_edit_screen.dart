@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
@@ -381,12 +382,12 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
                           fit: BoxFit.cover,
                         )
                       : _currentProfileImageUrl != null
-                          ? Image.network(
-                              _currentProfileImageUrl!,
+                          ? CachedNetworkImage(
+                              imageUrl: _currentProfileImageUrl!,
                               width: 123,
                               height: 123,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
+                              errorWidget: (context, url, error) {
                                 return Icon(
                                   Icons.person,
                                   size: 60,

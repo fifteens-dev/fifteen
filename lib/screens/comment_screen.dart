@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
@@ -475,12 +476,12 @@ class _CommentScreenState extends State<CommentScreen> {
   /// ユーザーアイコンを表示（アセットパスとネットワークURLの両方に対応）
   Widget _buildUserIcon(String url, double size) {
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      return Image.network(
-        url,
+      return CachedNetworkImage(
+        imageUrl: url,
         width: size,
         height: size,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
+        errorWidget: (context, imageUrl, error) {
           return Icon(Icons.person, size: size * 0.6, color: _theme.textColor);
         },
       );

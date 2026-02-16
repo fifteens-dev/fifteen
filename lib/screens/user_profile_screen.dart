@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:just_audio/just_audio.dart';
 import '../services/user_service.dart';
 import '../services/post_service.dart';
@@ -333,12 +334,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 ),
                 child: ClipOval(
                   child: profileImageUrl != null
-                      ? Image.network(
-                          profileImageUrl,
+                      ? CachedNetworkImage(
+                          imageUrl: profileImageUrl,
                           width: 65,
                           height: 65,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return Icon(
                               Icons.person,
                               size: 40,
@@ -466,12 +467,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               child: post.track.albumImageUrl.isNotEmpty
                   ? ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        post.track.albumImageUrl,
+                      child: CachedNetworkImage(
+                        imageUrl: post.track.albumImageUrl,
                         width: 60,
                         height: 60,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
+                        errorWidget: (context, url, error) {
                           return const Icon(
                             Icons.album,
                             size: 30,
@@ -704,12 +705,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 child: post.track.albumImageUrl.isNotEmpty
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(3),
-                        child: Image.network(
-                          post.track.albumImageUrl,
+                        child: CachedNetworkImage(
+                          imageUrl: post.track.albumImageUrl,
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return const Icon(
                               Icons.album,
                               size: 50,
@@ -796,12 +797,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               child: albumArt != null && albumArt.isNotEmpty
                   ? ClipRRect(
                       borderRadius: BorderRadius.circular(3),
-                      child: Image.network(
-                        albumArt,
+                      child: CachedNetworkImage(
+                        imageUrl: albumArt,
                         width: double.infinity,
                         height: double.infinity,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
+                        errorWidget: (context, url, error) {
                           return const Icon(
                             Icons.album,
                             size: 50,

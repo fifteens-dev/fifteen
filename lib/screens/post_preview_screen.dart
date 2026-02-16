@@ -3,7 +3,6 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_box_transform/flutter_box_transform.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
@@ -67,7 +66,6 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   // 歌詞カード関連
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
   Rect _rect = const Rect.fromLTWH(0, 0, 196, 126); // 歌詞カードの位置とサイズ
-  Flip _flip = Flip.none; // 反転情報
   double _cardRotation = 0.0; // 回転角度（ラジアン）
   LyricsData? _lyricsData; // 取得した歌詞データ
   Future<LyricsData?>? _lyricsFuture; // バックグラウンド取得用Future
@@ -585,15 +583,19 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 19),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           // 閉じるボタン（バツマーク）- 投稿中は無効化
-          GestureDetector(
-            onTap: _isPosting ? null : _showCloseConfirmDialog,
-            child: Icon(
-              Icons.close,
-              color: _isPosting ? Colors.grey : Colors.white,
-              size: 20,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: GestureDetector(
+                onTap: _isPosting ? null : _showCloseConfirmDialog,
+                child: Icon(
+                  Icons.close,
+                  color: _isPosting ? Colors.grey : Colors.white,
+                  size: 27,
+                ),
+              ),
             ),
           ),
 
@@ -607,44 +609,49 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
             ),
           ),
 
-          // 投稿するボタン（写真が選択されている場合のみ有効、投稿中はローディング）
-          _isPosting
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Color(0xFF5D8FFF),
+          // 投稿するボタン
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _isPosting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFF5D8FFF),
+                        ),
+                      ),
+                    )
+                  : GestureDetector(
+                      onTap: canPost
+                          ? () {
+                              print('🔘 投稿するボタンがタップされました');
+                              print('  - isPhotoSelected: $isPhotoSelected');
+                              print('  - _isPosting: $_isPosting');
+                              print('  - canPost: $canPost');
+                              _onPost();
+                            }
+                          : () {
+                              print('⚠️ 投稿ボタンが無効です');
+                              print('  - isPhotoSelected: $isPhotoSelected');
+                              print('  - _isPosting: $_isPosting');
+                              print('  - canPost: $canPost');
+                            },
+                      child: Text(
+                        '投稿する',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: canPost
+                              ? const Color(0xFF5D8FFF)
+                              : Colors.grey,
+                        ),
+                      ),
                     ),
-                  ),
-                )
-              : GestureDetector(
-                  onTap: canPost
-                      ? () {
-                          print('🔘 投稿するボタンがタップされました');
-                          print('  - isPhotoSelected: $isPhotoSelected');
-                          print('  - _isPosting: $_isPosting');
-                          print('  - canPost: $canPost');
-                          _onPost();
-                        }
-                      : () {
-                          print('⚠️ 投稿ボタンが無効です');
-                          print('  - isPhotoSelected: $isPhotoSelected');
-                          print('  - _isPosting: $_isPosting');
-                          print('  - canPost: $canPost');
-                        },
-                  child: Text(
-                    '投稿する',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: canPost
-                          ? const Color(0xFF5D8FFF)
-                          : Colors.grey,
-                    ),
-                  ),
-                ),
+            ),
+          ),
         ],
       ),
     );

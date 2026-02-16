@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -570,10 +571,10 @@ class _PostCardState extends State<PostCard>
                     borderRadius: BorderRadius.circular(3),
                   ),
                   child: _displayAlbumArtUrl.isNotEmpty
-                      ? Image.network(
-                          _displayAlbumArtUrl,
+                      ? CachedNetworkImage(
+                          imageUrl: _displayAlbumArtUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return _buildAlbumPlaceholder();
                           },
                         )
@@ -737,10 +738,10 @@ class _PostCardState extends State<PostCard>
                                         }
                                         // デコード失敗時はアルバムアートにフォールバック
                                         return _displayAlbumArtUrl.isNotEmpty
-                                            ? Image.network(
-                                                _displayAlbumArtUrl,
+                                            ? CachedNetworkImage(
+                                                imageUrl: _displayAlbumArtUrl,
                                                 fit: BoxFit.cover,
-                                                errorBuilder: (context, error, stackTrace) {
+                                                errorWidget: (context, url, error) {
                                                   return _buildPhotoPlaceholder();
                                                 },
                                               )
@@ -759,32 +760,31 @@ class _PostCardState extends State<PostCard>
                                 // モバイル版: Firebase StorageなどのネットワークURL
                                 ? Builder(
                                     builder: (context) {
-                                      return Image.network(
-                                        widget.post.photoUrl!,
+                                      return CachedNetworkImage(
+                                        imageUrl: widget.post.photoUrl!,
                                         fit: BoxFit.cover,
-                                        loadingBuilder: (context, child, loadingProgress) {
-                                          if (loadingProgress == null) return child;
+                                        progressIndicatorBuilder: (context, url, progress) {
                                           return Center(
                                             child: CircularProgressIndicator(
-                                              value: loadingProgress.expectedTotalBytes != null
-                                                  ? loadingProgress.cumulativeBytesLoaded /
-                                                      loadingProgress.expectedTotalBytes!
+                                              value: progress.totalSize != null
+                                                  ? progress.downloaded /
+                                                      progress.totalSize!
                                                   : null,
                                               color: Colors.white,
                                             ),
                                           );
                                         },
-                                        errorBuilder: (context, error, stackTrace) {
+                                        errorWidget: (context, url, error) {
                                           if (kDebugMode) {
                                             print('❌ Failed to load photo: $error');
                                             print('   URL: ${PhotoHelper.formatPhotoUrlForLog(widget.post.photoUrl)}');
                                           }
                                           // ネットワーク読み込み失敗時はアルバムアートにフォールバック
                                           return _displayAlbumArtUrl.isNotEmpty
-                                              ? Image.network(
-                                                  _displayAlbumArtUrl,
+                                              ? CachedNetworkImage(
+                                                  imageUrl: _displayAlbumArtUrl,
                                                   fit: BoxFit.cover,
-                                                  errorBuilder: (context, error, stackTrace) {
+                                                  errorWidget: (context, url, error) {
                                                     return _buildPhotoPlaceholder();
                                                   },
                                                 )
@@ -800,10 +800,10 @@ class _PostCardState extends State<PostCard>
                                     errorBuilder: (context, error, stackTrace) {
                                       // アセット読み込み失敗時はアルバムアートにフォールバック
                                       return _displayAlbumArtUrl.isNotEmpty
-                                          ? Image.network(
-                                              _displayAlbumArtUrl,
+                                          ? CachedNetworkImage(
+                                              imageUrl: _displayAlbumArtUrl,
                                               fit: BoxFit.cover,
-                                              errorBuilder: (context, error, stackTrace) {
+                                              errorWidget: (context, url, error) {
                                                 return _buildPhotoPlaceholder();
                                               },
                                             )
@@ -811,10 +811,10 @@ class _PostCardState extends State<PostCard>
                                     },
                                   ))
                         : _displayAlbumArtUrl.isNotEmpty
-                            ? Image.network(
-                                _displayAlbumArtUrl,
+                            ? CachedNetworkImage(
+                                imageUrl: _displayAlbumArtUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
+                                errorWidget: (context, url, error) {
                                   return _buildPhotoPlaceholder();
                                 },
                               )

@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../models/track_model.dart';
 
@@ -389,10 +390,10 @@ class LyricsCardLayout extends StatelessWidget {
       child: track.albumImageUrl.isNotEmpty
           ? ClipRRect(
               borderRadius: BorderRadius.circular(borderRadius),
-              child: Image.network(
-                track.albumImageUrl,
+              child: CachedNetworkImage(
+                imageUrl: track.albumImageUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
+                errorWidget: (context, url, error) {
                   return Container(
                     color: const Color(0xFF9F9F9F),
                   );

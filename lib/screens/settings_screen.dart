@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_service.dart';
 import '../services/admin_service.dart';
@@ -304,12 +305,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   child: ClipOval(
                     child: profileImageUrl != null
-                        ? Image.network(
-                            profileImageUrl,
+                        ? CachedNetworkImage(
+                            imageUrl: profileImageUrl,
                             width: 59,
                             height: 59,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
+                            errorWidget: (context, url, error) {
                               return const Icon(
                                 Icons.person,
                                 size: 35,

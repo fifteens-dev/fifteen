@@ -162,6 +162,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             // ヘッダー
@@ -210,7 +211,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
           const Text(
             '新規投稿',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               color: Colors.white,
             ),
@@ -224,8 +225,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
                 onTap: _isPosting ? null : _onPost,
                 child: _isPosting
                     ? const SizedBox(
-                        width: 13,
-                        height: 13,
+                        width: 15,
+                        height: 15,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           color: Color(0xFF5D8FFF),
@@ -234,7 +235,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
                     : const Text(
                         '投稿する',
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFF5D8FFF),
                         ),

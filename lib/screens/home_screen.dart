@@ -174,6 +174,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _scrollController.dispose();
+    _bellOpacity.dispose();
     super.dispose();
   }
 
@@ -285,14 +286,26 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // ベルアイコンの透明度（スクロールに応じてフェードアウト）
+  final ValueNotifier<double> _bellOpacity = ValueNotifier<double>(1.0);
+
+  /// スクロール量に応じてベルアイコンの透明度を更新
+  void _updateBellOpacity() {
+    if (!_scrollController.hasClients) return;
+    final offset = _scrollController.offset;
+    // 0〜80pxのスクロールで1.0→0.0にフェードアウト
+    _bellOpacity.value = (1.0 - (offset / 80.0)).clamp(0.0, 1.0);
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixinのために必要
+    final topPadding = MediaQuery.of(context).padding.top;
+    final headerHeight = 48.0 + topPadding;
+
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        bottom: false,
-        child: Stack(
+      body: Stack(
           children: [
             // タブコンテンツ
             IndexedStack(
@@ -302,13 +315,15 @@ class _HomeScreenState extends State<HomeScreen>
                 NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
                     _checkPlayingCardVisibility();
+                    _updateBellOpacity();
                     return false;
                   },
                   child: CustomScrollView(
                     controller: _scrollController,
                     slivers: [
+                    // ヘッダー分のスペース（固定ヘッダーの下にコンテンツが隠れないように）
                     SliverToBoxAdapter(
-                      child: _buildHeader(),
+                      child: SizedBox(height: headerHeight),
                     ),
                     SliverToBoxAdapter(
                       child: VibeBarSection(
@@ -317,7 +332,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                     const SliverToBoxAdapter(
-                      child: SizedBox(height: 16),
+                      child: SizedBox(height: 9),
                     ),
                     _buildTimelineSliver(),
                     const SliverToBoxAdapter(
@@ -333,62 +348,77 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
 
-            // フローティングボトムナビゲーション
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: HomeBottomNavigation(
-                selectedIndex: _selectedIndex,
-                onItemTapped: _onItemTapped,
+            // 固定ヘッダー（15sロゴ + ベルアイコン）
+            if (_selectedIndex == 0)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                child: Container(
+                  height: headerHeight,
+                  color: AppColors.background,
+                  padding: EdgeInsets.only(left: 16, right: 16, top: topPadding),
+                  child: Stack(
+                    children: [
+                      // 15sロゴ（中央固定）
+                      const Center(
+                        child: Text(
+                          '15s',
+                          style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                      // 通知アイコン（スクロールでフェードアウト）
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        child: ValueListenableBuilder<double>(
+                          valueListenable: _bellOpacity,
+                          builder: (context, opacity, child) {
+                            return Opacity(
+                              opacity: opacity,
+                              child: IgnorePointer(
+                                ignoring: opacity < 0.1,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: NotificationBadge(
+                            child: IconButton(
+                              icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+                              onPressed: () {
+                                _homeAudioService.stop();
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const NotificationListScreen()),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+
+            // フローティングボトムナビゲーション（キーボード表示中は非表示）
+            if (MediaQuery.of(context).viewInsets.bottom == 0)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: HomeBottomNavigation(
+                  selectedIndex: _selectedIndex,
+                  onItemTapped: _onItemTapped,
+                ),
+              ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// ヘッダー（15sロゴ + 通知アイコン）
-  Widget _buildHeader() {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Stack(
-        children: [
-          // 15sロゴ（画面中央）
-          const Center(
-            child: Text(
-              '15s',
-              style: TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          // 通知アイコン（右端）
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            child: NotificationBadge(
-              child: IconButton(
-                icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                onPressed: () {
-                  // ホーム画面の音楽を停止
-                  _homeAudioService.stop();
-                  // 通知一覧画面へ遷移
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const NotificationListScreen()),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

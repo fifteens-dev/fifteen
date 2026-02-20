@@ -33,12 +33,13 @@ class VibeBarSection extends StatelessWidget {
         final ranking = snapshot.data!['ranking'] as List<VibeRankingItem>;
 
         return Container(
-          height: 190,
           color: AppColors.background,
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               _buildHeader(topic),
-              Expanded(
+              SizedBox(
+                height: ranking.isEmpty ? 40 : 97,
                 child: ranking.isEmpty
                     ? _buildNoRankingMessage()
                     : ListView.builder(
@@ -60,7 +61,7 @@ class VibeBarSection extends StatelessWidget {
   /// ヘッダー（お題タイトル）
   Widget _buildHeader(VibeTopicModel topic) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 4),
       child: Row(
         children: [
           Image.asset(
@@ -114,31 +115,10 @@ class VibeBarSection extends StatelessWidget {
     return GestureDetector(
       onTap: () => onRankingItemTap(item),
       child: Container(
-        width: 80,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
+        width: 76,
+        margin: const EdgeInsets.symmetric(horizontal: 2),
         child: Column(
           children: [
-            // ランク番号
-            Container(
-              width: 20,
-              height: 20,
-              decoration: BoxDecoration(
-                color: _getRankColor(rank),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  '$rank',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-
             // アルバムアートワーク
             Container(
               width: 70,
@@ -185,15 +165,6 @@ class VibeBarSection extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
             ),
-
-            // 投稿数
-            Text(
-              '${item.postCount}投稿',
-              style: const TextStyle(
-                fontSize: 7,
-                color: Color(0xFF5D8FFF),
-              ),
-            ),
           ],
         ),
       ),
@@ -217,7 +188,6 @@ class VibeBarSection extends StatelessWidget {
   /// スケルトン（ローディング）
   Widget _buildSkeleton() {
     return Container(
-      height: 190,
       color: AppColors.background,
       padding: const EdgeInsets.all(16),
       child: const Center(
@@ -229,7 +199,6 @@ class VibeBarSection extends StatelessWidget {
   /// 空状態
   Widget _buildEmpty() {
     return Container(
-      height: 190,
       color: AppColors.background,
       child: Column(
         children: [
@@ -257,8 +226,8 @@ class VibeBarSection extends StatelessWidget {
                 const Text(
                   'Vibe',
                   style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
                     color: Colors.white,
                   ),
                 ),

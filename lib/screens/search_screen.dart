@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
 import '../models/user_model.dart';
 import '../widgets/profile_widgets.dart';
@@ -16,23 +18,97 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   final UserService _userService = UserService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   // 検索状態管理
   List<UserModel> _searchResults = [];
   bool _isSearching = false;
+  bool _isFocused = false;
   String _currentQuery = '';
   Timer? _debounceTimer;
 
+  // 最近の検索履歴
+  List<Map<String, String>> _recentSearches = [];
+
   // デバウンス時間（ミリ秒）
   static const int _debounceDuration = 500;
+  static const String _recentSearchesKey = 'recent_searches';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchFocusNode.addListener(_onFocusChanged);
+    _loadRecentSearches();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.removeListener(_onFocusChanged);
+    _searchFocusNode.dispose();
     _debounceTimer?.cancel();
     super.dispose();
+  }
+
+  void _onFocusChanged() {
+    setState(() {
+      _isFocused = _searchFocusNode.hasFocus;
+    });
+  }
+
+  /// 最近の検索履歴を読み込み
+  Future<void> _loadRecentSearches() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = prefs.getStringList(_recentSearchesKey);
+    if (data != null && mounted) {
+      setState(() {
+        _recentSearches = data
+            .map((e) => Map<String, String>.from(jsonDecode(e)))
+            .toList();
+      });
+    }
+  }
+
+  /// 最近の検索履歴に追加
+  Future<void> _addToRecentSearches(UserModel user) async {
+    final entry = {
+      'uid': user.uid,
+      'username': user.username ?? 'unknown',
+      'name': user.name ?? '',
+      'profileImageUrl': user.profileImageUrl ?? '',
+    };
+
+    // 既に存在する場合は削除して先頭に追加
+    _recentSearches.removeWhere((e) => e['uid'] == user.uid);
+    _recentSearches.insert(0, entry);
+
+    // 最大10件まで保持
+    if (_recentSearches.length > 10) {
+      _recentSearches = _recentSearches.sublist(0, 10);
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _recentSearchesKey,
+      _recentSearches.map((e) => jsonEncode(e)).toList(),
+    );
+
+    if (mounted) setState(() {});
+  }
+
+  /// 最近の検索履歴から削除
+  Future<void> _removeFromRecentSearches(String uid) async {
+    _recentSearches.removeWhere((e) => e['uid'] == uid);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _recentSearchesKey,
+      _recentSearches.map((e) => jsonEncode(e)).toList(),
+    );
+
+    if (mounted) setState(() {});
   }
 
   /// 検索を実行（デバウンス処理付き）
@@ -84,7 +160,7 @@ class _SearchScreenState extends State<SearchScreen> {
         });
       }
     } catch (e) {
-      print('❌ Search error: $e');
+      print('Search error: $e');
       if (mounted) {
         setState(() {
           _searchResults = [];
@@ -99,6 +175,17 @@ class _SearchScreenState extends State<SearchScreen> {
         );
       }
     }
+  }
+
+  /// キャンセルボタンのタップ処理
+  void _onCancel() {
+    _searchController.clear();
+    _onSearchChanged('');
+    _searchFocusNode.unfocus();
+    setState(() {
+      _currentQuery = '';
+      _searchResults = [];
+    });
   }
 
   @override
@@ -168,6 +255,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   Expanded(
                     child: TextField(
                       controller: _searchController,
+                      focusNode: _searchFocusNode,
                       style: const TextStyle(
                         fontSize: 13,
                         color: Colors.white,
@@ -191,25 +279,22 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
           ),
-          // キャンセルボタン
-          GestureDetector(
-            onTap: () {
-              _searchController.clear();
-              _onSearchChanged('');
-              FocusScope.of(context).unfocus();
-            },
-            child: const Padding(
-              padding: EdgeInsets.only(left: 10, right: 4),
-              child: Text(
-                'キャンセル',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w400,
-                  color: Color(0xFF99999B),
+          // キャンセルボタン（フォーカス時のみ表示）
+          if (_isFocused)
+            GestureDetector(
+              onTap: _onCancel,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 10, right: 4),
+                child: Text(
+                  'キャンセル',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFF99999B),
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -217,6 +302,11 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// メインコンテンツ
   Widget _buildContent() {
+    // 未フォーカス時は空表示
+    if (!_isFocused && _currentQuery.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     // ローディング中
     if (_isSearching) {
       return const Center(
@@ -227,17 +317,9 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
 
-    // 検索クエリが空の場合
+    // フォーカス中でクエリが空 → 最近の検索を表示
     if (_currentQuery.isEmpty) {
-      return const Center(
-        child: Text(
-          '検索してユーザーを見つけましょう',
-          style: TextStyle(
-            fontSize: 16,
-            color: Color(0xFF9F9F9F),
-          ),
-        ),
-      );
+      return _buildRecentSearches();
     }
 
     // 検索結果が0件の場合
@@ -275,6 +357,127 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  /// 最近の検索履歴セクション
+  Widget _buildRecentSearches() {
+    if (_recentSearches.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(left: 16, top: 12, bottom: 8),
+          child: Text(
+            '最近',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _recentSearches.length,
+            itemBuilder: (context, index) {
+              final entry = _recentSearches[index];
+              return _buildRecentSearchItem(entry);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 最近の検索アイテム
+  Widget _buildRecentSearchItem(Map<String, String> entry) {
+    return InkWell(
+      onTap: () {
+        final uid = entry['uid'] ?? '';
+        final currentUserId = _auth.currentUser?.uid;
+        if (uid == currentUserId) {
+          Navigator.pushNamed(context, '/profile');
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OtherUserProfileScreen(userId: uid),
+            ),
+          );
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            // プロフィール画像
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.grey[800],
+              ),
+              child: ClipOval(
+                child: ProfileImage(
+                  imageUrl: (entry['profileImageUrl']?.isNotEmpty == true)
+                      ? entry['profileImageUrl']
+                      : null,
+                  size: 44,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+
+            // ユーザー情報
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry['username'] ?? 'unknown',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (entry['name']?.isNotEmpty == true)
+                    Text(
+                      entry['name']!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF9F9F9F),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+
+            // 削除ボタン
+            GestureDetector(
+              onTap: () => _removeFromRecentSearches(entry['uid'] ?? ''),
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(
+                  Icons.close,
+                  size: 18,
+                  color: Color(0xFF9F9F9F),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// ユーザーリストアイテム
   Widget _buildUserListItem(UserModel user) {
     final currentUserId = _auth.currentUser?.uid;
@@ -282,6 +485,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return InkWell(
       onTap: () {
+        // 最近の検索に追加
+        _addToRecentSearches(user);
+
         // 自分自身の場合はプロフィール画面へ
         if (isCurrentUser) {
           Navigator.pushNamed(context, '/profile');

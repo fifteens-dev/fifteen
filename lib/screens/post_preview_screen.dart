@@ -53,6 +53,9 @@ class PostPreviewScreen extends StatefulWidget {
 class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTickerProviderStateMixin {
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
+  Offset _imageOffset = Offset.zero;
+  double _imageScale = 1.0;
+  Size? _imageNaturalSize;
 
   // 音楽再生サービス
   final AudioPlayerService _audioService = AudioPlayerService();
@@ -316,6 +319,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
       print('✅ 写真が選択されました');
       setState(() {
         _selectedImage = result['image'] as XFile?;
+        _imageOffset = result['imageOffset'] as Offset? ?? Offset.zero;
+        _imageScale = result['imageScale'] as double? ?? 1.0;
+        _imageNaturalSize = result['imageNaturalSize'] as Size?;
         _selectedLayoutIndex = result['layoutIndex'] as int? ?? 0;
         final cardPosition = result['cardPosition'] as Offset? ?? Offset.zero;
         final cardScale = result['cardScale'] as double? ?? 1.0;
@@ -471,6 +477,11 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         userIconUrl: userIconUrl,
         trackData: trackData,
         photoUrl: photoUrl,
+        imageOffsetX: _imageOffset.dx,
+        imageOffsetY: _imageOffset.dy,
+        imageScale: _imageScale,
+        imageNaturalWidth: _imageNaturalSize?.width ?? 0,
+        imageNaturalHeight: _imageNaturalSize?.height ?? 0,
         selectedLayoutIndex: _selectedLayoutIndex,
         cardPositionX: _rect.left,
         cardPositionY: _rect.top,
@@ -527,6 +538,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             // ヘッダー
@@ -603,7 +615,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
           const Text(
             '新規投稿',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               color: Colors.white,
             ),
@@ -642,7 +654,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                       child: Text(
                         '投稿する',
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: canPost
                               ? const Color(0xFF5D8FFF)
@@ -704,14 +716,28 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   /// 写真セクション（裏面）
   Widget _buildPhotoSectionBack() {
+    // 画像表示サイズを事前計算
+    const frameW = 363.0;
+    const frameH = 484.0;
+    double? displayW, displayH;
+    if (_imageNaturalSize != null) {
+      final natW = _imageNaturalSize!.width;
+      final natH = _imageNaturalSize!.height;
+      if (natW > 0 && natH > 0) {
+        final baseScale = max(frameW / natW, frameH / natH);
+        displayW = natW * baseScale;
+        displayH = natH * baseScale;
+      }
+    }
+
     return Stack(
       children: [
         // 白い枠
         Positioned(
           left: 0,
           top: 0,
-          width: 363,
-          height: 484,
+          width: frameW,
+          height: frameH,
           child: Container(
             decoration: BoxDecoration(
               border: Border.all(color: Colors.white, width: 0.5),
@@ -723,19 +749,36 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                 topRight: Radius.circular(18.0),
               ),
               child: Stack(
+                clipBehavior: Clip.hardEdge,
                 children: [
                   // 選択された写真または写真追加ボタン
-                  if (_selectedImage != null)
+                  if (_selectedImage != null && displayW != null)
+                    Positioned(
+                      left: _imageOffset.dx,
+                      top: _imageOffset.dy,
+                      child: Transform.scale(
+                        scale: _imageScale,
+                        alignment: Alignment.topLeft,
+                        child: SizedBox(
+                          width: displayW,
+                          height: displayH!,
+                          child: kIsWeb
+                              ? Image.network(
+                                  _selectedImage!.path,
+                                  fit: BoxFit.fill,
+                                )
+                              : Image.file(
+                                  File(_selectedImage!.path),
+                                  fit: BoxFit.fill,
+                                ),
+                        ),
+                      ),
+                    )
+                  else if (_selectedImage != null)
                     Positioned.fill(
                       child: kIsWeb
-                          ? Image.network(
-                              _selectedImage!.path,
-                              fit: BoxFit.cover,
-                            )
-                          : Image.file(
-                              File(_selectedImage!.path),
-                              fit: BoxFit.cover,
-                            ),
+                          ? Image.network(_selectedImage!.path, fit: BoxFit.cover)
+                          : Image.file(File(_selectedImage!.path), fit: BoxFit.cover),
                     )
                   else
                     _buildAddPhotoButtonBack(),

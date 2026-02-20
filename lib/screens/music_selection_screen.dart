@@ -319,6 +319,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             // ヘッダー
@@ -402,11 +403,15 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () => Navigator.pop(context),
-                child: const Icon(
-                  Icons.close,
-                  color: Colors.white,
-                  size: 27,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Icon(
+                    Icons.close,
+                    color: Colors.white,
+                    size: 27,
+                  ),
                 ),
               ),
             ),
@@ -416,7 +421,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
           const Text(
             '新規投稿',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               color: Colors.white,
             ),
@@ -430,11 +435,11 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                 behavior: HitTestBehavior.opaque,
                 onTap: _selectedTrack != null ? _onNext : null,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Text(
                     '次へ',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 15,
                       fontWeight: FontWeight.w600,
                       color: _selectedTrack != null
                           ? const Color(0xFF5D8FFF)

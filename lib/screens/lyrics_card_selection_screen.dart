@@ -17,6 +17,9 @@ class LyricsCardSelectionScreen extends StatefulWidget {
   final TrackModel track;
   final LyricsData? lyricsData;
   final XFile? selectedImage;
+  final Offset imageOffset;
+  final double imageScale;
+  final Size? imageNaturalSize;
   final bool isVibe;
   final String? vibeTopicId;
   final String? vibeTopicTitle;
@@ -26,6 +29,9 @@ class LyricsCardSelectionScreen extends StatefulWidget {
     required this.track,
     this.lyricsData,
     this.selectedImage,
+    this.imageOffset = Offset.zero,
+    this.imageScale = 1.0,
+    this.imageNaturalSize,
     this.isVibe = false,
     this.vibeTopicId,
     this.vibeTopicTitle,
@@ -156,6 +162,7 @@ class _LyricsCardSelectionScreenState
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             // ヘッダー
@@ -211,7 +218,7 @@ class _LyricsCardSelectionScreenState
           const Text(
             '新規投稿',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               color: Colors.white,
             ),
@@ -227,10 +234,23 @@ class _LyricsCardSelectionScreenState
   /// 背景の投稿カードプレビュー
   Widget _buildBackgroundPreview() {
     const photoHeight = 484.0;
+    const frameW = 363.0;
+
+    // 画像表示サイズを事前計算
+    double? _displayW, _displayH;
+    if (widget.imageNaturalSize != null) {
+      final natW = widget.imageNaturalSize!.width;
+      final natH = widget.imageNaturalSize!.height;
+      if (natW > 0 && natH > 0) {
+        final baseScale = max(frameW / natW, photoHeight / natH);
+        _displayW = natW * baseScale;
+        _displayH = natH * baseScale;
+      }
+    }
 
     return Center(
       child: Container(
-        width: 363,
+        width: frameW,
         height: photoHeight,
         decoration: BoxDecoration(
           color: const Color(0xFF121212),
@@ -246,21 +266,38 @@ class _LyricsCardSelectionScreenState
             topRight: Radius.circular(18),
           ),
           child: Stack(
+            clipBehavior: Clip.hardEdge,
             children: [
               // 選択された写真を表示（静的・再構築不要）
-              if (widget.selectedImage != null)
-                Positioned.fill(
+              if (widget.selectedImage != null && _displayW != null)
+                Positioned(
+                  left: widget.imageOffset.dx,
+                  top: widget.imageOffset.dy,
                   child: RepaintBoundary(
-                    child: kIsWeb
-                        ? Image.network(
-                            widget.selectedImage!.path,
-                            fit: BoxFit.cover,
-                          )
-                        : Image.file(
-                            File(widget.selectedImage!.path),
-                            fit: BoxFit.cover,
-                          ),
+                    child: Transform.scale(
+                      scale: widget.imageScale,
+                      alignment: Alignment.topLeft,
+                      child: SizedBox(
+                        width: _displayW,
+                        height: _displayH!,
+                        child: kIsWeb
+                            ? Image.network(
+                                widget.selectedImage!.path,
+                                fit: BoxFit.fill,
+                              )
+                            : Image.file(
+                                File(widget.selectedImage!.path),
+                                fit: BoxFit.fill,
+                              ),
+                      ),
+                    ),
                   ),
+                )
+              else if (widget.selectedImage != null)
+                Positioned.fill(
+                  child: kIsWeb
+                      ? Image.network(widget.selectedImage!.path, fit: BoxFit.cover)
+                      : Image.file(File(widget.selectedImage!.path), fit: BoxFit.cover),
                 )
               else
                 Container(
@@ -271,33 +308,20 @@ class _LyricsCardSelectionScreenState
               ValueListenableBuilder<int>(
                 valueListenable: _gestureNotifier,
                 builder: (context, _, child) {
-                  // カード中央座標からPositionedの左上を計算
-                  final cardSize = _getCardSize();
-                  final paddedW = cardSize.width + 2 * _hitPadding;
-                  final paddedH = cardSize.height + 2 * _hitPadding;
-
                   return Stack(
                     children: [
-                      // 歌詞カードプレビュー
-                      Positioned(
-                        left: _cardCenter.dx - paddedW / 2,
-                        top: _cardCenter.dy - paddedH / 2,
-                        child: GestureDetector(
-                          onScaleStart: _onGestureScaleStart,
-                          onScaleUpdate: _onGestureScaleUpdate,
-                          onScaleEnd: _onGestureScaleEnd,
+                      // 歌詞カードプレビュー（Transform のみで移動・回転・拡大 → layout pass なし）
+                      Positioned.fill(
+                        child: Transform.translate(
+                          offset: Offset(
+                            _cardCenter.dx - _photoWidth / 2,
+                            _cardCenter.dy - _photoHeight / 2,
+                          ),
                           child: Transform.scale(
                             scale: _cardScale,
-                            alignment: Alignment.center,
                             child: Transform.rotate(
                               angle: _cardRotation,
-                              alignment: Alignment.center,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: child!,
-                              ),
+                              child: child!,
                             ),
                           ),
                         ),
@@ -305,15 +329,27 @@ class _LyricsCardSelectionScreenState
                       // 補助線
                       if (_isTwoFingerGesture)
                         Positioned.fill(
-                          child: CustomPaint(
-                            painter: _GuideLinePainter(activeSnapAngles: _activeSnapAngles),
+                          child: RepaintBoundary(
+                            child: CustomPaint(
+                              painter: _GuideLinePainter(activeSnapAngles: _activeSnapAngles),
+                            ),
                           ),
                         ),
                     ],
                   );
                 },
                 // child は layout ウィジェット（ジェスチャーで再構築不要）
-                child: _buildCurrentLayout(),
+                child: Center(child: _buildCurrentLayout()),
+              ),
+
+              // ジェスチャー検出オーバーレイ（写真エリア全体をカバー）
+              Positioned.fill(
+                child: GestureDetector(
+                  onScaleStart: _onGestureScaleStart,
+                  onScaleUpdate: _onGestureScaleUpdate,
+                  onScaleEnd: _onGestureScaleEnd,
+                  behavior: HitTestBehavior.translucent,
+                ),
               ),
 
               // ユーザー情報（静的・再構築不要）
@@ -335,8 +371,20 @@ class _LyricsCardSelectionScreenState
     );
   }
 
-  // 当たり判定拡張パディング
-  static const double _hitPadding = 40.0;
+  // 写真フレームサイズ
+  static const double _photoWidth = 363.0;
+  static const double _photoHeight = 484.0;
+
+  // 2本指ジェスチャーの判定エリア（写真枠の60%、円形）
+  static const double _twoFingerHitRatio = 0.6;
+  bool _isTwoFingerAccepted = false;
+
+  /// 2本指ジェスチャーの判定エリア内かチェック（中心から円状）
+  bool _isInTwoFingerHitArea(Offset localFocalPoint) {
+    const center = Offset(_photoWidth / 2, _photoHeight / 2);
+    final radius = min(_photoWidth, _photoHeight) * _twoFingerHitRatio / 2;
+    return (localFocalPoint - center).distance <= radius;
+  }
 
   /// カードサイズを取得（レイアウトごとに異なる）
   Size _getCardSize() {
@@ -356,67 +404,76 @@ class _LyricsCardSelectionScreenState
     }
   }
 
-  /// 現在選択中のレイアウトウィジェットを返す（当たり判定拡張付き）
+  /// 現在選択中のレイアウトウィジェットを返す
   Widget _buildCurrentLayout() {
-    Widget layout;
     switch (_selectedLayoutIndex) {
       case 0:
-        layout = _buildLayout1();
-        break;
+        return _buildLayout1();
       case 1:
-        layout = _buildLayout2();
-        break;
+        return _buildLayout2();
       case 2:
-        layout = _buildLayout3();
-        break;
+        return _buildLayout3();
       case 3:
-        layout = _buildLayout4();
-        break;
+        return _buildLayout4();
       case 4:
-        layout = _buildLayout5();
-        break;
+        return _buildLayout5();
       default:
-        layout = _buildLayout1();
+        return _buildLayout1();
     }
-    return Padding(
-      padding: const EdgeInsets.all(_hitPadding),
-      child: layout,
-    );
   }
 
   /// ジェスチャーコールバック（setStateを使わず ValueNotifier で通知）
   void _onGestureScaleStart(ScaleStartDetails details) {
     _startScale = _cardScale;
     _startRotation = _cardRotation;
+    _isTwoFingerAccepted = false;
+
     if (details.pointerCount >= 2) {
-      _isTwoFingerGesture = true;
-      _gestureNotifier.value++;
+      // 2本指：円形判定エリア内かチェック
+      if (_isInTwoFingerHitArea(details.localFocalPoint)) {
+        _isTwoFingerAccepted = true;
+        _isTwoFingerGesture = true;
+        _gestureNotifier.value++;
+      }
     }
   }
 
   void _onGestureScaleUpdate(ScaleUpdateDetails details) {
     if (details.pointerCount >= 2) {
-      _isTwoFingerGesture = true;
-      _cardScale = (_startScale * details.scale).clamp(0.3, 3.0);
-      _cardRotation = _startRotation + details.rotation;
-
-      // スナップ角度の検知
-      double deg = (_cardRotation * 180 / pi) % 360;
-      if (deg < 0) deg += 360;
-      final newSnaps = <double>{};
-      for (final snapDeg in _snapDegrees) {
-        double diff = (deg - snapDeg).abs();
-        if (diff > 180) diff = 360 - diff;
-        if (diff <= _snapThreshold) {
-          newSnaps.add(snapDeg);
+      // 2本指に遷移した場合、まだ判定されていなければチェック
+      if (!_isTwoFingerAccepted) {
+        if (_isInTwoFingerHitArea(details.localFocalPoint)) {
+          _isTwoFingerAccepted = true;
+          _startScale = _cardScale;
+          _startRotation = _cardRotation;
         }
       }
-      if (newSnaps.isNotEmpty && !newSnaps.every((a) => _prevSnapAngles.contains(a))) {
-        HapticFeedback.lightImpact();
+
+      if (_isTwoFingerAccepted) {
+        _isTwoFingerGesture = true;
+        _cardScale = (_startScale * details.scale).clamp(0.3, 3.0);
+        _cardRotation = _startRotation + details.rotation;
+
+        // スナップ角度の検知
+        double deg = (_cardRotation * 180 / pi) % 360;
+        if (deg < 0) deg += 360;
+        final newSnaps = <double>{};
+        for (final snapDeg in _snapDegrees) {
+          double diff = (deg - snapDeg).abs();
+          if (diff > 180) diff = 360 - diff;
+          if (diff <= _snapThreshold) {
+            newSnaps.add(snapDeg);
+          }
+        }
+        if (newSnaps.isNotEmpty && !newSnaps.every((a) => _prevSnapAngles.contains(a))) {
+          HapticFeedback.lightImpact();
+        }
+        _prevSnapAngles = newSnaps;
+        _activeSnapAngles = newSnaps;
       }
-      _prevSnapAngles = newSnaps;
-      _activeSnapAngles = newSnaps;
     }
+
+    // カード移動（1本指・2本指共通）
     _cardCenter = Offset(
       _cardCenter.dx + details.focalPointDelta.dx,
       _cardCenter.dy + details.focalPointDelta.dy,
@@ -426,6 +483,7 @@ class _LyricsCardSelectionScreenState
 
   void _onGestureScaleEnd(ScaleEndDetails details) {
     _isTwoFingerGesture = false;
+    _isTwoFingerAccepted = false;
     _activeSnapAngles = {};
     _prevSnapAngles = {};
     _gestureNotifier.value++;
@@ -878,6 +936,9 @@ class _LyricsCardSelectionScreenState
             );
             Navigator.pop(context, {
               'image': widget.selectedImage,
+              'imageOffset': widget.imageOffset,
+              'imageScale': widget.imageScale,
+              'imageNaturalSize': widget.imageNaturalSize,
               'layoutIndex': _selectedLayoutIndex,
               'cardPosition': adjustedOffset,
               'cardScale': _cardScale,

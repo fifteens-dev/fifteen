@@ -19,6 +19,11 @@ class PostModel {
   final DateTime updatedAt;
   final PostTheme theme; // カラーテーマ
   final String? photoUrl; // 投稿の写真URL
+  final double imageOffsetX; // 写真のXオフセット
+  final double imageOffsetY; // 写真のYオフセット
+  final double imageScale; // 写真のスケール
+  final double imageNaturalWidth; // 写真の元の幅
+  final double imageNaturalHeight; // 写真の元の高さ
   final int selectedLayoutIndex; // 選択された歌詞カードレイアウト
   final double cardPositionX; // 歌詞カードのX位置
   final double cardPositionY; // 歌詞カードのY位置
@@ -47,6 +52,11 @@ class PostModel {
     required this.updatedAt,
     this.theme = PostTheme.defaultTheme,
     this.photoUrl,
+    this.imageOffsetX = 0.0,
+    this.imageOffsetY = 0.0,
+    this.imageScale = 1.0,
+    this.imageNaturalWidth = 0.0,
+    this.imageNaturalHeight = 0.0,
     this.selectedLayoutIndex = 0,
     this.cardPositionX = 0.0,
     this.cardPositionY = 0.0,
@@ -82,6 +92,11 @@ class PostModel {
           ? PostTheme.fromMap(data['theme'] as Map<String, dynamic>)
           : PostTheme.defaultTheme,
       photoUrl: data['photoUrl'],
+      imageOffsetX: (data['imageOffsetX'] ?? 0.0).toDouble(),
+      imageOffsetY: (data['imageOffsetY'] ?? 0.0).toDouble(),
+      imageScale: (data['imageScale'] ?? 1.0).toDouble(),
+      imageNaturalWidth: (data['imageNaturalWidth'] ?? 0.0).toDouble(),
+      imageNaturalHeight: (data['imageNaturalHeight'] ?? 0.0).toDouble(),
       selectedLayoutIndex: data['selectedLayoutIndex'] ?? 0,
       cardPositionX: (data['cardPositionX'] ?? 0.0).toDouble(),
       cardPositionY: (data['cardPositionY'] ?? 0.0).toDouble(),
@@ -113,6 +128,11 @@ class PostModel {
       'updatedAt': Timestamp.fromDate(updatedAt),
       'theme': theme.toMap(),
       'photoUrl': photoUrl,
+      'imageOffsetX': imageOffsetX,
+      'imageOffsetY': imageOffsetY,
+      'imageScale': imageScale,
+      'imageNaturalWidth': imageNaturalWidth,
+      'imageNaturalHeight': imageNaturalHeight,
       'selectedLayoutIndex': selectedLayoutIndex,
       'cardPositionX': cardPositionX,
       'cardPositionY': cardPositionY,
@@ -144,6 +164,11 @@ class PostModel {
     DateTime? updatedAt,
     PostTheme? theme,
     String? photoUrl,
+    double? imageOffsetX,
+    double? imageOffsetY,
+    double? imageScale,
+    double? imageNaturalWidth,
+    double? imageNaturalHeight,
     int? selectedLayoutIndex,
     double? cardPositionX,
     double? cardPositionY,
@@ -172,6 +197,11 @@ class PostModel {
       updatedAt: updatedAt ?? this.updatedAt,
       theme: theme ?? this.theme,
       photoUrl: photoUrl ?? this.photoUrl,
+      imageOffsetX: imageOffsetX ?? this.imageOffsetX,
+      imageOffsetY: imageOffsetY ?? this.imageOffsetY,
+      imageScale: imageScale ?? this.imageScale,
+      imageNaturalWidth: imageNaturalWidth ?? this.imageNaturalWidth,
+      imageNaturalHeight: imageNaturalHeight ?? this.imageNaturalHeight,
       selectedLayoutIndex: selectedLayoutIndex ?? this.selectedLayoutIndex,
       cardPositionX: cardPositionX ?? this.cardPositionX,
       cardPositionY: cardPositionY ?? this.cardPositionY,

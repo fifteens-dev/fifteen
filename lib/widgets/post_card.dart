@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'animated_waveform.dart';
 import '../services/bpm_service.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -334,6 +335,9 @@ class _PostCardState extends State<PostCard>
       widget.onCardTap?.call();
       return;
     }
+
+    // 触覚フィードバック
+    HapticFeedback.mediumImpact();
 
     // 状態を先に更新してUIを即座に反映
     setState(() {
@@ -717,108 +721,12 @@ class _PostCardState extends State<PostCard>
                 Positioned(
                   left: 0,
                   top: 0,
-                  child: Container(
-                    width: cardWidth,
-                    height: photoHeight,
-                    child: _hasBackPhoto
-                        ? (_isPhotoUrlDataUrl
-                            // Web版: Base64 Data URL
-                            ? Builder(
-                                builder: (context) {
-                                  try {
-                                    // data:image/jpeg;base64,... の形式から base64 部分を抽出
-                                    final String base64String = widget.post.photoUrl!.split(',')[1];
-                                    final Uint8List bytes = base64Decode(base64String);
-                                    return Image.memory(
-                                      bytes,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        if (kDebugMode) {
-                                          print('❌ Failed to decode Base64 photo: $error');
-                                        }
-                                        // デコード失敗時はアルバムアートにフォールバック
-                                        return _displayAlbumArtUrl.isNotEmpty
-                                            ? CachedNetworkImage(
-                                                imageUrl: _displayAlbumArtUrl,
-                                                fit: BoxFit.cover,
-                                                errorWidget: (context, url, error) {
-                                                  return _buildPhotoPlaceholder();
-                                                },
-                                              )
-                                            : _buildPhotoPlaceholder();
-                                      },
-                                    );
-                                  } catch (e) {
-                                    if (kDebugMode) {
-                                      print('❌ Error parsing Base64: $e');
-                                    }
-                                    return _buildPhotoPlaceholder();
-                                  }
-                                },
-                              )
-                            : _isPhotoUrlNetwork
-                                // モバイル版: Firebase StorageなどのネットワークURL
-                                ? Builder(
-                                    builder: (context) {
-                                      return CachedNetworkImage(
-                                        imageUrl: widget.post.photoUrl!,
-                                        fit: BoxFit.cover,
-                                        progressIndicatorBuilder: (context, url, progress) {
-                                          return Center(
-                                            child: CircularProgressIndicator(
-                                              value: progress.totalSize != null
-                                                  ? progress.downloaded /
-                                                      progress.totalSize!
-                                                  : null,
-                                              color: Colors.white,
-                                            ),
-                                          );
-                                        },
-                                        errorWidget: (context, url, error) {
-                                          if (kDebugMode) {
-                                            print('❌ Failed to load photo: $error');
-                                            print('   URL: ${PhotoHelper.formatPhotoUrlForLog(widget.post.photoUrl)}');
-                                          }
-                                          // ネットワーク読み込み失敗時はアルバムアートにフォールバック
-                                          return _displayAlbumArtUrl.isNotEmpty
-                                              ? CachedNetworkImage(
-                                                  imageUrl: _displayAlbumArtUrl,
-                                                  fit: BoxFit.cover,
-                                                  errorWidget: (context, url, error) {
-                                                    return _buildPhotoPlaceholder();
-                                                  },
-                                                )
-                                              : _buildPhotoPlaceholder();
-                                        },
-                                      );
-                                    },
-                                  )
-                                // ローカルアセット（ダミー写真など）
-                                : Image.asset(
-                                    widget.post.photoUrl!,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      // アセット読み込み失敗時はアルバムアートにフォールバック
-                                      return _displayAlbumArtUrl.isNotEmpty
-                                          ? CachedNetworkImage(
-                                              imageUrl: _displayAlbumArtUrl,
-                                              fit: BoxFit.cover,
-                                              errorWidget: (context, url, error) {
-                                                return _buildPhotoPlaceholder();
-                                              },
-                                            )
-                                          : _buildPhotoPlaceholder();
-                                    },
-                                  ))
-                        : _displayAlbumArtUrl.isNotEmpty
-                            ? CachedNetworkImage(
-                                imageUrl: _displayAlbumArtUrl,
-                                fit: BoxFit.cover,
-                                errorWidget: (context, url, error) {
-                                  return _buildPhotoPlaceholder();
-                                },
-                              )
-                            : _buildPhotoPlaceholder(),
+                  child: ClipRect(
+                    child: SizedBox(
+                      width: cardWidth,
+                      height: photoHeight,
+                      child: _buildPhotoArea(cardWidth, photoHeight),
+                    ),
                   ),
                 ),
 
@@ -998,6 +906,138 @@ class _PostCardState extends State<PostCard>
         ),
       ),
     );
+  }
+
+  /// 写真エリア（画像のオフセット・スケール・元サイズを考慮）
+  Widget _buildPhotoArea(double cardWidth, double photoHeight) {
+    final imgScale = widget.post.imageScale != 0 ? widget.post.imageScale : 1.0;
+    final natW = widget.post.imageNaturalWidth;
+    final natH = widget.post.imageNaturalHeight;
+    final hasNaturalDims = natW > 0 && natH > 0;
+
+    final imageWidget = _buildPhotoImage(hasNaturalDims ? BoxFit.fill : BoxFit.cover);
+
+    if (hasNaturalDims) {
+      // 新方式: 画像の元サイズから枠を埋める表示サイズを計算
+      final scaleFactor = cardWidth / 363.0;
+      final baseScale = max(cardWidth / natW, photoHeight / natH);
+      final displayW = natW * baseScale;
+      final displayH = natH * baseScale;
+      return Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned(
+            left: widget.post.imageOffsetX * scaleFactor,
+            top: widget.post.imageOffsetY * scaleFactor,
+            child: Transform.scale(
+              scale: imgScale,
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: displayW,
+                height: displayH,
+                child: imageWidget,
+              ),
+            ),
+          ),
+        ],
+      );
+    } else {
+      // 旧方式（後方互換）: BoxFit.cover + Transform
+      return Transform.translate(
+        offset: Offset(widget.post.imageOffsetX, widget.post.imageOffsetY),
+        child: Transform.scale(
+          scale: imgScale,
+          child: imageWidget,
+        ),
+      );
+    }
+  }
+
+  /// 写真画像ウィジェット（Base64 / ネットワーク / アセット / アルバムアート）
+  Widget _buildPhotoImage(BoxFit fit) {
+    if (_hasBackPhoto) {
+      if (_isPhotoUrlDataUrl) {
+        return Builder(
+          builder: (context) {
+            try {
+              final String base64String = widget.post.photoUrl!.split(',')[1];
+              final Uint8List bytes = base64Decode(base64String);
+              return Image.memory(
+                bytes,
+                fit: fit,
+                errorBuilder: (context, error, stackTrace) {
+                  if (kDebugMode) {
+                    print('❌ Failed to decode Base64 photo: $error');
+                  }
+                  return _displayAlbumArtUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: _displayAlbumArtUrl,
+                          fit: fit,
+                          errorWidget: (context, url, error) => _buildPhotoPlaceholder(),
+                        )
+                      : _buildPhotoPlaceholder();
+                },
+              );
+            } catch (e) {
+              if (kDebugMode) {
+                print('❌ Error parsing Base64: $e');
+              }
+              return _buildPhotoPlaceholder();
+            }
+          },
+        );
+      } else if (_isPhotoUrlNetwork) {
+        return CachedNetworkImage(
+          imageUrl: widget.post.photoUrl!,
+          fit: fit,
+          progressIndicatorBuilder: (context, url, progress) {
+            return Center(
+              child: CircularProgressIndicator(
+                value: progress.totalSize != null
+                    ? progress.downloaded / progress.totalSize!
+                    : null,
+                color: Colors.white,
+              ),
+            );
+          },
+          errorWidget: (context, url, error) {
+            if (kDebugMode) {
+              print('❌ Failed to load photo: $error');
+              print('   URL: ${PhotoHelper.formatPhotoUrlForLog(widget.post.photoUrl)}');
+            }
+            return _displayAlbumArtUrl.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: _displayAlbumArtUrl,
+                    fit: fit,
+                    errorWidget: (context, url, error) => _buildPhotoPlaceholder(),
+                  )
+                : _buildPhotoPlaceholder();
+          },
+        );
+      } else {
+        return Image.asset(
+          widget.post.photoUrl!,
+          fit: fit,
+          errorBuilder: (context, error, stackTrace) {
+            return _displayAlbumArtUrl.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: _displayAlbumArtUrl,
+                    fit: fit,
+                    errorWidget: (context, url, error) => _buildPhotoPlaceholder(),
+                  )
+                : _buildPhotoPlaceholder();
+          },
+        );
+      }
+    } else {
+      return _displayAlbumArtUrl.isNotEmpty
+          ? CachedNetworkImage(
+              imageUrl: _displayAlbumArtUrl,
+              fit: fit,
+              errorWidget: (context, url, error) => _buildPhotoPlaceholder(),
+            )
+          : _buildPhotoPlaceholder();
+    }
   }
 
   /// 写真プレースホルダー

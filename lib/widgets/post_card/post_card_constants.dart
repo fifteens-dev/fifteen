@@ -24,7 +24,7 @@ class PostCardConstants {
   static const double playButtonBackgroundOpacity = 0.6;
 
   // アニメーション
-  static const Duration flipAnimationDuration = Duration(milliseconds: 600);
+  static const Duration flipAnimationDuration = Duration(milliseconds: 400);
   static const Duration playButtonAnimationDuration = Duration(milliseconds: 1000);
   static const Duration autoFlipDelay = Duration(milliseconds: 500);
 

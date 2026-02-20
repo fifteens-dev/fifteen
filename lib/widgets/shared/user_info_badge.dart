@@ -30,7 +30,7 @@ class UserInfoBadge extends StatelessWidget {
             imageUrl: iconUrl,
             size: UserAvatarSize.medium,
           ),
-          const SizedBox(width: 9),
+          const SizedBox(width: 11),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -38,7 +38,7 @@ class UserInfoBadge extends StatelessWidget {
               Text(
                 username,
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: Colors.white,
                 ),
@@ -48,7 +48,7 @@ class UserInfoBadge extends StatelessWidget {
                 Text(
                   hashtagText!,
                   style: const TextStyle(
-                    fontSize: 8,
+                    fontSize: 9,
                     color: Colors.white,
                   ),
                   maxLines: 2,

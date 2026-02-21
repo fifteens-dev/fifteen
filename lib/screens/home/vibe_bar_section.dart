@@ -9,11 +9,13 @@ import '../../models/vibe_ranking_item.dart';
 class VibeBarSection extends StatelessWidget {
   final Future<Map<String, dynamic>> vibeDataFuture;
   final void Function(VibeRankingItem item) onRankingItemTap;
+  final VoidCallback? onPostTap;
 
   const VibeBarSection({
     super.key,
     required this.vibeDataFuture,
     required this.onRankingItemTap,
+    this.onPostTap,
   });
 
   @override
@@ -63,6 +65,7 @@ class VibeBarSection extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 4),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Image.asset(
             'assets/icons/Vibe.png',
@@ -105,6 +108,44 @@ class VibeBarSection extends StatelessWidget {
               ),
             ),
           ),
+          if (onPostTap != null)
+            GestureDetector(
+              onTap: onPostTap,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 17,
+                      height: 17,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.black, width: 1.5),
+                      ),
+                      child: const Icon(
+                        Icons.add,
+                        size: 10.2,
+                        color: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Text(
+                      '投稿する',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );

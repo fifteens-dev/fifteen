@@ -7,6 +7,7 @@ class SettingsService {
   static const String _keyLikeCommentNotification = 'like_comment_notification';
   static const String _keyFollowNotification = 'follow_notification';
   static const String _keyOfficialNotification = 'official_notification';
+  static const String _keyPostNotification = 'post_notification';
   static const String _keySpotifyConnected = 'spotify_connected';
   static const String _keyAppleMusicConnected = 'apple_music_connected';
 
@@ -80,6 +81,18 @@ class SettingsService {
     await prefs.setBool(_keyOfficialNotification, value);
   }
 
+  /// 投稿通知設定を取得
+  Future<bool> getPostNotification() async {
+    final prefs = await _getPrefs();
+    return prefs.getBool(_keyPostNotification) ?? true;
+  }
+
+  /// 投稿通知設定を保存
+  Future<void> setPostNotification(bool value) async {
+    final prefs = await _getPrefs();
+    await prefs.setBool(_keyPostNotification, value);
+  }
+
   /// 全ての通知設定を一括取得
   Future<Map<String, bool>> getAllNotificationSettings() async {
     return {
@@ -87,6 +100,7 @@ class SettingsService {
       'likeCommentNotification': await getLikeCommentNotification(),
       'followNotification': await getFollowNotification(),
       'officialNotification': await getOfficialNotification(),
+      'postNotification': await getPostNotification(),
     };
   }
 

@@ -6,6 +6,8 @@ enum NotificationType {
   comment,  // コメント
   follow,   // フォロー
   official, // 公式通知
+  post,     // フォロー中ユーザーの投稿通知
+  vibe,     // 毎日20:00のVibe通知
 }
 
 /// 通知モデル
@@ -141,6 +143,10 @@ class NotificationModel {
       case NotificationType.follow:
         return 'あなたをフォローしました';
       case NotificationType.official:
+        return body ?? '';
+      case NotificationType.post:
+        return body ?? '';
+      case NotificationType.vibe:
         return body ?? '';
     }
   }

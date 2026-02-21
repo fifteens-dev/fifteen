@@ -45,6 +45,7 @@ class UserService {
     String? name,
     String? username,
     String? profileImageUrl,
+    String? bio,
   }) async {
     try {
       final userDoc = _firestore.collection(_usersCollection).doc(uid);
@@ -56,6 +57,7 @@ class UserService {
       if (name != null) updates['name'] = name;
       if (username != null) updates['username'] = username;
       if (profileImageUrl != null) updates['profileImageUrl'] = profileImageUrl;
+      if (bio != null) updates['bio'] = bio;
 
       await userDoc.update(updates);
     } catch (e) {

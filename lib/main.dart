@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/verification_code_screen.dart';
 import 'screens/invite_code_screen.dart';
@@ -80,9 +79,9 @@ void main() async {
   runApp(const FifteenApp());
 }
 
-/// Noto Sans JP をアプリ全体のフォントとして適用
+/// OS標準フォント（iOS: SF Pro, Android: Roboto）をそのまま使用
 TextTheme _buildTextTheme(TextTheme base) {
-  return GoogleFonts.notoSansJpTextTheme(base);
+  return base;
 }
 
 class FifteenApp extends StatelessWidget {

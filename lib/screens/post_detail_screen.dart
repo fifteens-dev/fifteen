@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/post_model.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
+import '../services/user_service.dart';
 import '../utils/current_user_helper.dart';
 
 /// 投稿カード単体表示画面
 class PostDetailScreen extends StatefulWidget {
   final PostModel post;
   final bool autoFlipAfterDelay; // trueの場合、0.5秒後に自動で裏返す
+  final bool disableInteractions; // いいね/コメント無効化
 
   const PostDetailScreen({
     super.key,
     required this.post,
     this.autoFlipAfterDelay = false, // デフォルトは自動反転なし
+    this.disableInteractions = false,
   });
 
   @override
@@ -21,12 +25,43 @@ class PostDetailScreen extends StatefulWidget {
 
 class _PostDetailScreenState extends State<PostDetailScreen> {
   final AudioPlayerService _audioService = AudioPlayerService();
+  final UserService _userService = UserService();
   String? _currentUserIconUrl;
+  bool _isSaved = false;
 
   @override
   void initState() {
     super.initState();
     _loadCurrentUserIconUrl();
+    _checkSaveState();
+  }
+
+  Future<void> _checkSaveState() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId != null) {
+      setState(() {
+        _isSaved = widget.post.savedByUserIds.contains(userId);
+      });
+    }
+  }
+
+  Future<void> _handleSave() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
+    setState(() {
+      _isSaved = !_isSaved;
+    });
+
+    try {
+      await _userService.toggleSavePost(userId: userId, postId: widget.post.postId);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSaved = !_isSaved;
+        });
+      }
+    }
   }
 
   Future<void> _loadCurrentUserIconUrl() async {
@@ -59,6 +94,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 currentUserIconUrl: _currentUserIconUrl,
                 audioService: _audioService,
                 autoFlipAfterDelay: widget.autoFlipAfterDelay,
+                disableInteractions: widget.disableInteractions,
+                isSaved: _isSaved,
+                onAdd: _handleSave,
               ),
             ),
             // 閉じるボタン（左上）

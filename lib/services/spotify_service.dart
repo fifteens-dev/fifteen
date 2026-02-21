@@ -455,6 +455,52 @@ class SpotifyService {
     }
   }
 
+  /// ユーザーの最近再生した楽曲を取得
+  /// OAuth認証が必要（user-read-recently-playedスコープ）
+  Future<List<TrackModel>> getRecentlyPlayedTracks({int limit = 30}) async {
+    if (!await _authService.isAuthenticated()) {
+      print('❌ OAuth authentication required for recently played');
+      return [];
+    }
+
+    final token = await _authService.getAccessToken();
+    if (token == null) {
+      print('❌ Failed to get OAuth access token for recently played');
+      return [];
+    }
+
+    print('🎵 Spotify getRecentlyPlayedTracks: 最近再生した曲を取得中...');
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me/player/recently-played?limit=$limit'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final items = data['items'] as List;
+        // 重複を除外（同じ曲が複数回再生されている場合）
+        final Map<String, TrackModel> uniqueTracks = {};
+        for (final item in items) {
+          if (item['track'] != null) {
+            final track = _parseTrackData(item['track']);
+            uniqueTracks.putIfAbsent(track.trackId, () => track);
+          }
+        }
+        return uniqueTracks.values.toList();
+      } else {
+        print('Spotify recently played error: ${response.statusCode} ${response.body}');
+        return [];
+      }
+    } catch (e) {
+      print('Error getting recently played tracks: $e');
+      return [];
+    }
+  }
+
   /// ユーザーのお気に入り楽曲（Saved Tracks）を取得
   /// OAuth認証が必要（user-library-readスコープ）
   Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {

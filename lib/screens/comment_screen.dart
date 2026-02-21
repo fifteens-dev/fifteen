@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../models/comment_model.dart';
 import '../services/comment_service.dart';
 import '../constants/app_colors.dart';
-import '../utils/test_data.dart';
 import '../utils/current_user_helper.dart';
 import '../widgets/dialogs/dialogs.dart';
 
@@ -94,40 +94,23 @@ class _CommentScreenState extends State<CommentScreen> {
       final userId = currentUser?.uid ?? 'test_user_temp';
       final username = _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー';
 
-      final newComment = CommentModel(
-        commentId: 'local_comment_${DateTime.now().millisecondsSinceEpoch}',
+      await _commentService.createComment(
         postId: widget.post.postId,
         userId: userId,
         username: username,
         userIconUrl: _currentUserIconUrl,
         content: content,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
       );
 
-      if (widget.post.postId.startsWith('test_post_')) {
-        await TestData.addLocalComment(widget.post.postId, newComment);
-
-        if (widget.onCommentCountChanged != null) {
-          final newCommentCount =
-              await TestData.getCommentCount(widget.post.postId);
-          widget.onCommentCountChanged!(newCommentCount);
-        }
-
-        setState(() {});
-      } else {
-        await _commentService.createComment(
-          postId: widget.post.postId,
-          userId: userId,
-          username: username,
-          userIconUrl: _currentUserIconUrl,
-          content: content,
-        );
-
-        if (widget.onCommentCountChanged != null) {
-          final newCommentCount = widget.post.commentCount + 1;
-          widget.onCommentCountChanged!(newCommentCount);
-        }
+      if (widget.onCommentCountChanged != null) {
+        // commentCountフィールドはcreateComment内で既にインクリメント済み
+        // 投稿ドキュメントから直接読み取る
+        final postDoc = await FirebaseFirestore.instance
+            .collection('posts')
+            .doc(widget.post.postId)
+            .get();
+        final count = postDoc.data()?['commentCount'] ?? 0;
+        widget.onCommentCountChanged!(count as int);
       }
 
       _commentController.clear();
@@ -218,40 +201,6 @@ class _CommentScreenState extends State<CommentScreen> {
 
   /// コメント一覧
   Widget _buildCommentList() {
-    if (widget.post.postId.startsWith('test_post_')) {
-      return FutureBuilder<List<CommentModel>>(
-        future: TestData.getLocalComments(widget.post.postId),
-        builder: (context, snapshot) {
-          final dummyComments =
-              TestData.generateTestComments(widget.post.postId);
-          final localComments = snapshot.data ?? [];
-          final allComments = [...dummyComments, ...localComments];
-
-          if (allComments.isEmpty) {
-            return Center(
-              child: Text(
-                'まだコメントがありません\n最初のコメントを投稿しましょう',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _theme.secondaryTextColor,
-                  fontSize: 14,
-                ),
-              ),
-            );
-          }
-
-          return ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.only(top: 16),
-            itemCount: allComments.length,
-            itemBuilder: (context, index) {
-              return _buildCommentItem(allComments[index]);
-            },
-          );
-        },
-      );
-    }
-
     return StreamBuilder<List<CommentModel>>(
       stream: _commentService.getCommentsStream(widget.post.postId),
       builder: (context, snapshot) {
@@ -526,25 +475,16 @@ class _CommentScreenState extends State<CommentScreen> {
 
     if (confirmed) {
       try {
-        if (comment.commentId.startsWith('local_comment_')) {
-          await TestData.removeLocalComment(
-              comment.postId, comment.commentId);
+        await _commentService.deleteComment(
+            comment.commentId, comment.postId);
 
-          if (widget.onCommentCountChanged != null) {
-            final newCommentCount =
-                await TestData.getCommentCount(comment.postId);
-            widget.onCommentCountChanged!(newCommentCount);
-          }
-
-          setState(() {});
-        } else {
-          await _commentService.deleteComment(
-              comment.commentId, comment.postId);
-
-          if (widget.onCommentCountChanged != null) {
-            final newCommentCount = widget.post.commentCount - 1;
-            widget.onCommentCountChanged!(newCommentCount);
-          }
+        if (widget.onCommentCountChanged != null) {
+          final postDoc = await FirebaseFirestore.instance
+              .collection('posts')
+              .doc(comment.postId)
+              .get();
+          final count = postDoc.data()?['commentCount'] ?? 0;
+          widget.onCommentCountChanged!(count as int);
         }
       } catch (e) {
         if (mounted) {

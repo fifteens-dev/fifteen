@@ -110,6 +110,10 @@ class NotificationService {
           return await _settingsService.getFollowNotification();
         case NotificationType.official:
           return await _settingsService.getOfficialNotification();
+        case NotificationType.post:
+          return await _settingsService.getPostNotification();
+        case NotificationType.vibe:
+          return await _settingsService.getVibeNotification();
       }
     } catch (e) {
       if (kDebugMode) {

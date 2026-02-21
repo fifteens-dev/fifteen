@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Fifteenは、FlutterとFirebaseを使用したクロスプラットフォーム（iOS/Android）のSNSアプリケーションです。
+Fifteensは、FlutterとFirebaseを使用したクロスプラットフォーム（iOS/Android）のSNSアプリケーションです。
 
 ## Development Environment Setup
 

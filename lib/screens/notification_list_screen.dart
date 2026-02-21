@@ -163,6 +163,10 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         return _buildCommentNotification(notification);
       case NotificationType.official:
         return _buildOfficialNotification(notification);
+      case NotificationType.post:
+        return _buildPostNotification(notification);
+      case NotificationType.vibe:
+        return _buildVibeNotification(notification);
     }
   }
 
@@ -182,6 +186,132 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                   children: [
                     Text(
                       notification.senderUsername,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      notification.getRelativeTime(),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0x80FFFFFF),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  notification.getMessage(),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0x80FFFFFF),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPostNotification(NotificationModel notification) {
+    // バッチ通知（system）の場合はアプリアイコン、個別通知はユーザーアイコン
+    final isSystemNotification = notification.senderId == 'system';
+
+    return SizedBox(
+      height: 59,
+      child: Row(
+        children: [
+          if (isSystemNotification)
+            Container(
+              width: 42,
+              height: 42,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFF2D2D2D),
+              ),
+              child: const Icon(
+                Icons.group,
+                color: Color(0xFF5D8FFF),
+                size: 24,
+              ),
+            )
+          else
+            _buildUserIcon(notification.senderIconUrl),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      isSystemNotification ? '15s' : notification.senderUsername,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      notification.getRelativeTime(),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0x80FFFFFF),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  notification.getMessage(),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0x80FFFFFF),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVibeNotification(NotificationModel notification) {
+    return SizedBox(
+      height: 59,
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFF2D2D2D),
+            ),
+            child: const Icon(
+              Icons.local_fire_department,
+              color: Color(0xFFFF6B35),
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      notification.title ?? 'Vibe',
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,

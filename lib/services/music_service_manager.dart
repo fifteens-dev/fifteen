@@ -172,6 +172,33 @@ class MusicServiceManager {
     }
   }
 
+  /// ユーザーの最近再生した楽曲を取得
+  Future<List<TrackModel>> getRecentlyPlayedTracks({int limit = 30}) async {
+    final service = await getSelectedService();
+
+    switch (service) {
+      case MusicServiceType.spotify:
+        if (await _spotifyAuthService.isAuthenticated()) {
+          try {
+            return await _spotifyService.getRecentlyPlayedTracks(limit: limit);
+          } catch (e) {
+            print('⚠️ Spotify最近再生した曲の取得失敗: $e');
+            return [];
+          }
+        }
+        return [];
+      case MusicServiceType.appleMusic:
+        try {
+          return await _appleMusicService.getRecentlyPlayedTracks(limit: limit);
+        } catch (e) {
+          print('⚠️ Apple Music最近再生した曲の取得失敗: $e');
+          return [];
+        }
+      case MusicServiceType.none:
+        return [];
+    }
+  }
+
   /// ユーザーのお気に入り楽曲を取得
   Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {
     final service = await getSelectedService();

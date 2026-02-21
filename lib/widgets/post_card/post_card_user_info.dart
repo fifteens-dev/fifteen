@@ -38,13 +38,13 @@ class UserInfoBadge extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 11),
+          const SizedBox(width: 12),
 
           // ユーザー名
           Text(
             post.username,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
               color: theme.textColor,
             ),
@@ -117,7 +117,7 @@ class UserInfoOverlay extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 11),
+            const SizedBox(width: 12),
 
             // ユーザー名とハッシュタグ
             Flexible(
@@ -128,7 +128,7 @@ class UserInfoOverlay extends StatelessWidget {
                   Text(
                     post.username,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
                     ),

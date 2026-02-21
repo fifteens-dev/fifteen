@@ -35,6 +35,8 @@ class PostModel {
   final DateTime? vibeDate; // Vibe投稿の日付（集計用）
   final String? emotionTag; // 感情タグ（例: "嬉しい", "悲しい", "楽しい"）
   final String? lyricsText; // 歌詞テキスト（歌詞カード表示用）
+  final int audioStartMs; // 音楽再生開始位置（ミリ秒）
+  final int audioDurationSec; // 音楽再生時間（秒）
 
   PostModel({
     required this.postId,
@@ -68,6 +70,8 @@ class PostModel {
     this.vibeDate,
     this.emotionTag,
     this.lyricsText,
+    this.audioStartMs = 0,
+    this.audioDurationSec = 15,
   });
 
   // Firestoreドキュメントから作成
@@ -108,6 +112,8 @@ class PostModel {
       vibeDate: (data['vibeDate'] as Timestamp?)?.toDate(),
       emotionTag: data['emotionTag'],
       lyricsText: data['lyricsText'],
+      audioStartMs: data['audioStartMs'] ?? 0,
+      audioDurationSec: data['audioDurationSec'] ?? 15,
     );
   }
 
@@ -144,6 +150,8 @@ class PostModel {
       'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate!) : null,
       'emotionTag': emotionTag,
       'lyricsText': lyricsText,
+      'audioStartMs': audioStartMs,
+      'audioDurationSec': audioDurationSec,
     };
   }
 
@@ -180,6 +188,8 @@ class PostModel {
     DateTime? vibeDate,
     String? emotionTag,
     String? lyricsText,
+    int? audioStartMs,
+    int? audioDurationSec,
   }) {
     return PostModel(
       postId: postId ?? this.postId,
@@ -213,6 +223,8 @@ class PostModel {
       vibeDate: vibeDate ?? this.vibeDate,
       emotionTag: emotionTag ?? this.emotionTag,
       lyricsText: lyricsText ?? this.lyricsText,
+      audioStartMs: audioStartMs ?? this.audioStartMs,
+      audioDurationSec: audioDurationSec ?? this.audioDurationSec,
     );
   }
 

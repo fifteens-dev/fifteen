@@ -1,10 +1,13 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dialogs/glass_popup.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/post_model.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../screens/post_detail_screen.dart';
+import '../screens/profile_posts_list_screen.dart';
 
 /// プロフィール画面で使用する共通ウィジェット
 
@@ -101,27 +104,105 @@ class ProfileStatItem extends StatelessWidget {
 /// 投稿グリッドアイテム
 class ProfilePostGridItem extends StatelessWidget {
   final PostModel post;
+  final List<PostModel>? allPosts; // 全投稿リスト（一覧表示用）
+  final int? initialIndex; // タップした投稿のインデックス
+  final VoidCallback? onDelete; // 削除コールバック
+  final bool disableInteractions; // いいね/コメント無効化
 
   const ProfilePostGridItem({
     super.key,
     required this.post,
+    this.allPosts,
+    this.initialIndex,
+    this.onDelete,
+    this.disableInteractions = false,
   });
+
+  void _showDeleteMenu(BuildContext context, LongPressStartDetails details) {
+    HapticFeedback.mediumImpact();
+    GlassPopup.show<String>(
+      context: context,
+      position: details.globalPosition,
+      width: 160,
+      items: [
+        const GlassPopupItem<String>(
+          value: 'delete',
+          label: '削除する',
+          textColor: Colors.red,
+          icon: Icons.delete_outline,
+        ),
+      ],
+    ).then((value) {
+      if (value == 'delete') {
+        _showDeleteConfirm(context);
+      }
+    });
+  }
+
+  void _showDeleteConfirm(BuildContext context) {
+    showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          '本当に投稿を削除しますか？',
+          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'この操作は取り消せません。',
+          style: TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('キャンセル', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('削除', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    ).then((confirmed) {
+      if (confirmed == true) {
+        onDelete?.call();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      onLongPressStart: onDelete != null ? (details) => _showDeleteMenu(context, details) : null,
       onTap: () {
-        // 音楽を停止してから投稿詳細画面に遷移
         AudioPlayerService().stop();
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => PostDetailScreen(
-              post: post,
-              autoFlipAfterDelay: true,
+        if (allPosts != null && initialIndex != null) {
+          // インスタ式：縦スクロール投稿一覧に遷移
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ProfilePostsListScreen(
+                posts: allPosts!,
+                initialIndex: initialIndex!,
+                showBackFirst: true, // 裏面から表示
+                disableInteractions: disableInteractions,
+              ),
             ),
-          ),
-        );
+          );
+        } else {
+          // フォールバック：単体表示
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PostDetailScreen(
+                post: post,
+                autoFlipAfterDelay: true,
+                disableInteractions: disableInteractions,
+              ),
+            ),
+          );
+        }
       },
       child: Container(
         padding: const EdgeInsets.all(0),
@@ -196,11 +277,11 @@ class ProfilePostGridItem extends StatelessWidget {
                 height: 13,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1),
+                  border: Border.all(color: const Color(0xFF7A7A7A), width: 1),
                 ),
                 child: const Icon(
                   Icons.add,
-                  color: Colors.white,
+                  color: Color(0xFF7A7A7A),
                   size: 10,
                 ),
               ),
@@ -217,12 +298,14 @@ class AudioPlayButton extends StatefulWidget {
   final PostModel post;
   final AudioPlayerService audioService;
   final Map<String, String> previewUrlCache;
+  final VoidCallback? onPlayStarted;
 
   const AudioPlayButton({
     super.key,
     required this.post,
     required this.audioService,
     required this.previewUrlCache,
+    this.onPlayStarted,
   });
 
   @override
@@ -274,7 +357,12 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
                   }
 
                   // 再生開始（ループ再生は自動的に有効）
-                  await widget.audioService.playPreview(urlToPlay);
+                  widget.onPlayStarted?.call();
+                  await widget.audioService.playPreview(
+                    urlToPlay,
+                    startFrom: Duration(milliseconds: widget.post.audioStartMs),
+                    durationSeconds: widget.post.audioDurationSec,
+                  );
                 }
               },
               child: Container(
@@ -343,12 +431,14 @@ class TodaysTrackCard extends StatelessWidget {
   final PostModel post;
   final AudioPlayerService audioService;
   final Map<String, String> previewUrlCache;
+  final VoidCallback? onPlayStarted;
 
   const TodaysTrackCard({
     super.key,
     required this.post,
     required this.audioService,
     required this.previewUrlCache,
+    this.onPlayStarted,
   });
 
   @override
@@ -360,7 +450,7 @@ class TodaysTrackCard extends StatelessWidget {
         color: const Color(0xFF121212),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
           children: [
             // アルバムアート（タップで投稿詳細を表面から表示して0.5秒後に自動反転）
@@ -445,6 +535,7 @@ class TodaysTrackCard extends StatelessWidget {
               post: post,
               audioService: audioService,
               previewUrlCache: previewUrlCache,
+              onPlayStarted: onPlayStarted,
             ),
           ],
         ),

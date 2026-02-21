@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 
 /// プレビュー再生の長さ
@@ -15,11 +16,25 @@ class AudioPlayerService {
   }
 
   // Private constructor
-  AudioPlayerService._internal();
+  AudioPlayerService._internal() {
+    _configureAudioSession();
+  }
+
+  /// オーディオセッションを設定（他のアプリの音楽を止めない）
+  Future<void> _configureAudioSession() async {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration(
+      avAudioSessionCategory: AVAudioSessionCategory.playback,
+      avAudioSessionMode: AVAudioSessionMode.defaultMode,
+      avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers,
+    ));
+  }
 
   AudioPlayer? _audioPlayer;
   String? _currentUrl;
   StreamSubscription<Duration>? _positionSubscription;
+  Duration _startFrom = Duration.zero;
+  int _durationSeconds = 15;
 
   /// AudioPlayerのインスタンスを取得（必要に応じて作成）
   AudioPlayer get _player {
@@ -27,18 +42,23 @@ class AudioPlayerService {
     return _audioPlayer!;
   }
 
-  /// 15秒ループ監視を開始
+  /// ループ監視を開始（startFrom〜startFrom+duration区間）
   void _startLoopMonitor() {
     _positionSubscription?.cancel();
+    final loopEnd = _startFrom + Duration(seconds: _durationSeconds);
     _positionSubscription = _player.positionStream.listen((position) {
-      if (position >= _previewDuration && _player.playing) {
-        _player.seek(Duration.zero);
+      if (position >= loopEnd && _player.playing) {
+        _player.seek(_startFrom);
       }
     });
   }
 
-  /// プレビューURLから音楽を再生（冒頭15秒ループ）
-  Future<void> playPreview(String url) async {
+  /// プレビューURLから音楽を再生（指定区間ループ）
+  Future<void> playPreview(
+    String url, {
+    Duration startFrom = Duration.zero,
+    int durationSeconds = 15,
+  }) async {
     try {
       print('🎵 Attempting to play: $url');
 
@@ -49,7 +69,8 @@ class AudioPlayerService {
       }
 
       // 既に同じURLが再生中の場合は何もしない
-      if (_currentUrl == url && _player.playing) {
+      if (_currentUrl == url && _player.playing &&
+          _startFrom == startFrom && _durationSeconds == durationSeconds) {
         print('⏭️ Already playing this URL');
         return;
       }
@@ -60,15 +81,24 @@ class AudioPlayerService {
         await stop();
       }
 
+      // 区間を保存
+      _startFrom = startFrom;
+      _durationSeconds = durationSeconds;
+
       // 新しいURLをセット
       print('📥 Loading audio from URL...');
       _currentUrl = url;
       await _player.setUrl(url);
 
-      // ループモードはoff（手動で15秒ループを制御）
+      // ループモードはoff（手動でループを制御）
       await _player.setLoopMode(LoopMode.off);
 
-      // 15秒ループ監視を開始
+      // 開始位置にシーク
+      if (startFrom > Duration.zero) {
+        await _player.seek(startFrom);
+      }
+
+      // ループ監視を開始
       _startLoopMonitor();
 
       // 再生開始
@@ -85,6 +115,14 @@ class AudioPlayerService {
       rethrow;
     }
   }
+
+  /// シーク
+  Future<void> seek(Duration position) async {
+    await _player.seek(position);
+  }
+
+  /// 楽曲の実際の長さ
+  Duration? get totalDuration => _player.duration;
 
   /// 再生を一時停止
   Future<void> pause() async {
@@ -113,6 +151,8 @@ class AudioPlayerService {
       _positionSubscription = null;
       await _player.stop();
       _currentUrl = null;
+      _startFrom = Duration.zero;
+      _durationSeconds = 15;
       print('Stopped playback');
     } catch (e) {
       print('Error stopping playback: $e');
@@ -131,27 +171,34 @@ class AudioPlayerService {
   /// 現在のURLが指定されたURLかどうか
   bool isPlayingUrl(String url) => _currentUrl == url && _player.playing;
 
-  /// プレビューの長さ（常に15秒）
-  Duration get previewDuration => _previewDuration;
+  /// プレビューの長さ
+  Duration get previewDuration => Duration(seconds: _durationSeconds);
 
   /// プレイヤーの状態ストリーム
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
 
-  /// 再生位置のストリーム（15秒でキャップ）
+  /// 再生位置のストリーム（区間内の相対位置）
   Stream<Duration> get positionStream =>
-      _player.positionStream.map((pos) => pos > _previewDuration ? _previewDuration : pos);
+      _player.positionStream.map((pos) {
+        final relative = pos - _startFrom;
+        final limit = Duration(seconds: _durationSeconds);
+        if (relative < Duration.zero) return Duration.zero;
+        return relative > limit ? limit : relative;
+      });
 
-  /// 楽曲の長さのストリーム（常に15秒を返す）
+  /// 楽曲の長さのストリーム
   Stream<Duration?> get durationStream =>
-      _player.durationStream.map((_) => _previewDuration);
+      _player.durationStream.map((_) => Duration(seconds: _durationSeconds));
 
-  /// 現在の楽曲の長さ（常に15秒）
-  Duration? get duration => _previewDuration;
+  /// 現在の楽曲の長さ
+  Duration? get duration => Duration(seconds: _durationSeconds);
 
-  /// 現在の再生位置
+  /// 現在の再生位置（区間内の相対位置）
   Duration get position {
-    final pos = _player.position;
-    return pos > _previewDuration ? _previewDuration : pos;
+    final pos = _player.position - _startFrom;
+    final limit = Duration(seconds: _durationSeconds);
+    if (pos < Duration.zero) return Duration.zero;
+    return pos > limit ? limit : pos;
   }
 
   /// リソースを解放

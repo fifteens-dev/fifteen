@@ -451,8 +451,9 @@ class _LyricsCardSelectionScreenState
 
       if (_isTwoFingerAccepted) {
         _isTwoFingerGesture = true;
-        _cardScale = (_startScale * details.scale).clamp(0.3, 3.0);
-        _cardRotation = _startRotation + details.rotation;
+        final dampedScale = 1.0 + (details.scale - 1.0) * 0.6;
+        _cardScale = (_startScale * dampedScale).clamp(0.3, 3.0);
+        _cardRotation = _startRotation + details.rotation * 0.6;
 
         // スナップ角度の検知
         double deg = (_cardRotation * 180 / pi) % 360;
@@ -475,8 +476,8 @@ class _LyricsCardSelectionScreenState
 
     // カード移動（1本指・2本指共通）
     _cardCenter = Offset(
-      _cardCenter.dx + details.focalPointDelta.dx,
-      _cardCenter.dy + details.focalPointDelta.dy,
+      _cardCenter.dx + details.focalPointDelta.dx * 0.7,
+      _cardCenter.dy + details.focalPointDelta.dy * 0.7,
     );
     _gestureNotifier.value++;
   }

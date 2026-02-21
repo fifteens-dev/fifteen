@@ -9,7 +9,9 @@ import 'package:photo_manager/photo_manager.dart';
 import '../models/track_model.dart';
 import '../services/audio_player_service.dart';
 import '../services/lyrics_service.dart';
+import '../widgets/dialogs/glass_popup.dart';
 import 'lyrics_card_selection_screen.dart';
+import 'music_trim_screen.dart';
 
 /// 投稿用写真選択画面
 class PostPhotoSelectionScreen extends StatefulWidget {
@@ -46,6 +48,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   int? _selectedAssetIndex;
   bool _hasPermission = false;
   List<AssetPathEntity> _albums = [];
+  List<AssetPathEntity> _allAlbums = []; // フィルタなしの全アルバム
   AssetPathEntity? _selectedAlbum;
   int _currentPage = 0;
   bool _isLoadingMore = false;
@@ -54,14 +57,16 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   static const int _pageSize = 70;
   final ScrollController _scrollController = ScrollController();
 
-  // 画像編集（移動・拡大）
+  // 画像編集（移動・拡大）— ValueNotifier でジェスチャー中のリビルドを最小化
   Offset _imageOffset = Offset.zero;
   double _imageScale = 1.0;
   double _startImageScale = 1.0;
   bool _showGridLines = false;
+  final ValueNotifier<int> _transformNotifier = ValueNotifier<int>(0);
   static const double _previewW = 363.0;
   static const double _previewH = 484.0;
   Size? _imageNaturalSize; // 選択画像の元サイズ
+  File? _previewImageFile; // キャッシュ済みプレビュー画像
 
   // プレビュー表示/非表示アニメーション
   bool _showPreview = true;
@@ -130,6 +135,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   void dispose() {
     _previewAnimController.dispose();
     _scrollController.dispose();
+    _transformNotifier.dispose();
     super.dispose();
   }
 
@@ -219,40 +225,40 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   /// プレビュー画像のジェスチャー: 開始
   void _onImageScaleStart(ScaleStartDetails details) {
     _startImageScale = _imageScale;
-    setState(() => _showGridLines = true);
+    _showGridLines = true;
+    _transformNotifier.value++;
   }
 
-  /// プレビュー画像のジェスチャー: 更新
+  /// プレビュー画像のジェスチャー: 更新（setState不使用 → プレビューのみ再描画）
   void _onImageScaleUpdate(ScaleUpdateDetails details) {
-    setState(() {
-      // 1本指: 移動
-      var newOffset = Offset(
-        _imageOffset.dx + details.focalPointDelta.dx,
-        _imageOffset.dy + details.focalPointDelta.dy,
-      );
+    // 1本指: 移動
+    var newOffset = Offset(
+      _imageOffset.dx + details.focalPointDelta.dx,
+      _imageOffset.dy + details.focalPointDelta.dy,
+    );
 
-      // 2本指: 焦点を中心に拡大
-      if (details.pointerCount >= 2) {
-        final newScale = (_startImageScale * details.scale).clamp(1.0, 5.0);
-        if (newScale != _imageScale) {
-          final focal = details.localFocalPoint;
-          final ratio = newScale / _imageScale;
-          newOffset = Offset(
-            focal.dx - (focal.dx - newOffset.dx) * ratio,
-            focal.dy - (focal.dy - newOffset.dy) * ratio,
-          );
-          _imageScale = newScale;
-        }
+    // 2本指: 焦点を中心に拡大
+    if (details.pointerCount >= 2) {
+      final newScale = (_startImageScale * details.scale).clamp(1.0, 5.0);
+      if (newScale != _imageScale) {
+        final focal = details.localFocalPoint;
+        final ratio = newScale / _imageScale;
+        newOffset = Offset(
+          focal.dx - (focal.dx - newOffset.dx) * ratio,
+          focal.dy - (focal.dy - newOffset.dy) * ratio,
+        );
+        _imageScale = newScale;
       }
+    }
 
-      _imageOffset = newOffset;
-    });
+    _imageOffset = newOffset;
+    _transformNotifier.value++;
   }
 
   /// プレビュー画像のジェスチャー: 終了
   void _onImageScaleEnd(ScaleEndDetails details) {
+    _showGridLines = false;
     _correctImagePosition();
-    setState(() => _showGridLines = false);
   }
 
   /// 画像ファイルから元のサイズを取得
@@ -284,12 +290,13 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     final minX = -(dw - _previewW).clamp(0.0, double.infinity);
     final minY = -(dh - _previewH).clamp(0.0, double.infinity);
 
-    setState(() {
-      _imageOffset = Offset(
-        _imageOffset.dx.clamp(minX, 0.0),
-        _imageOffset.dy.clamp(minY, 0.0),
-      );
-    });
+    final clampedX = _imageOffset.dx.clamp(minX, 0.0);
+    final clampedY = _imageOffset.dy.clamp(minY, 0.0);
+
+    if (clampedX != _imageOffset.dx || clampedY != _imageOffset.dy) {
+      _imageOffset = Offset(clampedX, clampedY);
+    }
+    _transformNotifier.value++;
   }
 
   /// 画像編集状態をリセット
@@ -347,8 +354,14 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
 
     if (albums.isEmpty) return;
 
-    _albums = albums;
-    _selectedAlbum = albums.first;
+    // 全アルバムを保持（すべてのアルバムボトムシート用）
+    _allAlbums = albums;
+
+    // メインピッカーは「最近」「動画」「お気に入り」に絞る
+    final targetNames = {'recents', 'recent photos', 'favorites', 'videos', 'camera roll'};
+    _albums = albums.where((a) => targetNames.contains(a.name.toLowerCase())).toList();
+    if (_albums.isEmpty) _albums = [albums.first]; // フォールバック
+    _selectedAlbum = _albums.first;
     await _loadAlbumAssets(_selectedAlbum!);
   }
 
@@ -423,6 +436,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
       _resetImageTransform();
       setState(() {
         _selectedImage = XFile(file.path);
+        _previewImageFile = file;
         _selectedAssetIndex = assetIndex;
         _imageNaturalSize = naturalSize;
       });
@@ -474,6 +488,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
         _resetImageTransform();
         setState(() {
           _selectedImage = photo;
+          _previewImageFile = File(photo.path);
           _selectedAssetIndex = null;
           _imageNaturalSize = naturalSize;
         });
@@ -502,6 +517,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
         _resetImageTransform();
         setState(() {
           _selectedImage = image;
+          _previewImageFile = File(image.path);
           _selectedAssetIndex = null;
           _imageNaturalSize = naturalSize;
         });
@@ -534,7 +550,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
-        builder: (context) => LyricsCardSelectionScreen(
+        builder: (context) => MusicTrimScreen(
           track: widget.track,
           lyricsData: _lyricsData,
           selectedImage: _selectedImage,
@@ -568,11 +584,13 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
                 children: [
                   // 写真グリッド（常に全面を占有）
                   Positioned.fill(
-                    child: Listener(
-                      onPointerUp: _handlePointerUp,
-                      child: NotificationListener<ScrollNotification>(
-                        onNotification: _handleScrollNotification,
-                        child: _buildPhotoGrid(),
+                    child: RepaintBoundary(
+                      child: Listener(
+                        onPointerUp: _handlePointerUp,
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: _handleScrollNotification,
+                          child: _buildPhotoGrid(),
+                        ),
                       ),
                     ),
                   ),
@@ -685,51 +703,53 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
                 onScaleUpdate: _onImageScaleUpdate,
                 onScaleEnd: _onImageScaleEnd,
                 behavior: HitTestBehavior.opaque,
-                child: Builder(builder: (context) {
-                  // 画像の元サイズから枠を埋める表示サイズを計算
-                  final baseScale = _calcBaseScale(_imageNaturalSize!);
-                  final displayW = _imageNaturalSize!.width * baseScale;
-                  final displayH = _imageNaturalSize!.height * baseScale;
-                  return Stack(
-                    clipBehavior: Clip.hardEdge,
-                    children: [
-                      Positioned.fill(
-                        child: Container(color: Colors.black),
-                      ),
-                      // 画像を元サイズ比率で配置（枠より大きい部分はClipRRectでクリップ）
-                      Positioned(
-                        left: _imageOffset.dx,
-                        top: _imageOffset.dy,
-                        child: Transform.scale(
-                          scale: _imageScale,
-                          alignment: Alignment.topLeft,
-                          child: SizedBox(
-                            width: displayW,
-                            height: displayH,
-                            child: kIsWeb
-                                ? Image.network(
-                                    _selectedImage!.path,
-                                    fit: BoxFit.fill,
-                                  )
-                                : Image.file(
-                                    File(_selectedImage!.path),
-                                    fit: BoxFit.fill,
-                                  ),
-                          ),
-                        ),
-                      ),
-                      // 補助グリッド線（3×3）
-                      if (_showGridLines)
+                // ValueListenableBuilder: ジェスチャー中はこのサブツリーだけ再描画
+                child: ValueListenableBuilder<int>(
+                  valueListenable: _transformNotifier,
+                  builder: (context, _, __) {
+                    final baseScale = _calcBaseScale(_imageNaturalSize!);
+                    final displayW = _imageNaturalSize!.width * baseScale;
+                    final displayH = _imageNaturalSize!.height * baseScale;
+                    return Stack(
+                      clipBehavior: Clip.hardEdge,
+                      children: [
                         Positioned.fill(
-                          child: IgnorePointer(
-                            child: CustomPaint(
-                              painter: _GridLinesPainter(),
+                          child: Container(color: Colors.black),
+                        ),
+                        Positioned(
+                          left: _imageOffset.dx,
+                          top: _imageOffset.dy,
+                          child: Transform.scale(
+                            scale: _imageScale,
+                            alignment: Alignment.topLeft,
+                            child: SizedBox(
+                              width: displayW,
+                              height: displayH,
+                              child: kIsWeb
+                                  ? Image.network(
+                                      _selectedImage!.path,
+                                      fit: BoxFit.fill,
+                                    )
+                                  : Image.file(
+                                      _previewImageFile!,
+                                      fit: BoxFit.fill,
+                                      gaplessPlayback: true,
+                                    ),
                             ),
                           ),
                         ),
-                    ],
-                  );
-                }),
+                        if (_showGridLines)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                painter: _GridLinesPainter(),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
               )
             : Container(
                 color: const Color(0xFF2B2B2B),
@@ -760,7 +780,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
 
   /// アルバム選択バー
   Widget _buildAlbumSelector() {
-    final albumName = _selectedAlbum?.name ?? '最近の項目';
+    final albumName = _selectedAlbum != null ? _albumDisplayName(_selectedAlbum!.name) : '最近';
     return SizedBox(
       height: _albumBarHeight,
       child: Padding(
@@ -796,54 +816,82 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     );
   }
 
+  /// アルバム名を日本語に変換
+  String _albumDisplayName(String name) {
+    switch (name.toLowerCase()) {
+      case 'recents':
+      case 'recent photos':
+      case 'camera roll':
+        return '最近';
+      case 'favorites':
+        return 'お気に入り';
+      case 'videos':
+        return '動画';
+      case 'all photos':
+        return 'すべてのアルバム';
+      default:
+        return name;
+    }
+  }
+
   /// アルバム選択ポップアップ
   void _showAlbumPicker() {
     if (_albums.isEmpty) return;
 
     final renderBox = context.findRenderObject() as RenderBox;
+    final position = renderBox.localToGlobal(
+      Offset(16, renderBox.size.height * 0.5),
+    );
 
-    showMenu<AssetPathEntity>(
+    // 通常アルバム + 「すべてのアルバム」
+    final items = _albums.map((album) {
+      final isSelected = album.id == _selectedAlbum?.id;
+      return GlassPopupItem<String>(
+        value: 'album_${album.id}',
+        label: _albumDisplayName(album.name),
+        trailing: isSelected
+            ? const Icon(Icons.check, color: Colors.white, size: 20)
+            : null,
+      );
+    }).toList();
+
+    items.add(const GlassPopupItem<String>(
+      value: 'all_albums',
+      label: 'すべてのアルバム',
+      icon: Icons.photo_library_outlined,
+    ));
+
+    GlassPopup.show<String>(
       context: context,
-      position: RelativeRect.fromLTRB(
-        16,
-        renderBox.size.height * 0.5,
-        renderBox.size.width - 16,
-        0,
-      ),
-      color: const Color(0xFF2C2C2E),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
-      items: _albums.map((album) {
-        final isSelected = album.id == _selectedAlbum?.id;
-        return PopupMenuItem<AssetPathEntity>(
-          value: album,
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  album.name,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              if (isSelected)
-                const Icon(
-                  Icons.check,
-                  color: Colors.white,
-                  size: 20,
-                ),
-            ],
-          ),
-        );
-      }).toList(),
+      position: position,
+      width: renderBox.size.width - 32,
+      items: items,
     ).then((selected) {
-      if (selected != null) {
-        _switchAlbum(selected);
+      if (selected == 'all_albums') {
+        _showAllAlbumsBottomSheet();
+      } else if (selected != null) {
+        final albumId = selected.replaceFirst('album_', '');
+        final album = _albums.firstWhere((a) => a.id == albumId);
+        _switchAlbum(album);
       }
     });
+  }
+
+  /// すべてのアルバムボトムシート
+  void _showAllAlbumsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => _AllAlbumsBottomSheet(
+        albums: _allAlbums,
+        selectedAlbumId: _selectedAlbum?.id,
+        onAlbumSelected: (album) {
+          Navigator.pop(context);
+          _switchAlbum(album);
+        },
+      ),
+    );
   }
 
   /// 写真グリッド
@@ -1013,6 +1061,7 @@ class _ThumbnailImage extends StatefulWidget {
 
 class _ThumbnailImageState extends State<_ThumbnailImage> {
   Uint8List? _thumbData;
+  String? _loadedAssetId;
 
   @override
   void initState() {
@@ -1020,11 +1069,23 @@ class _ThumbnailImageState extends State<_ThumbnailImage> {
     _loadThumbnail();
   }
 
+  @override
+  void didUpdateWidget(_ThumbnailImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // GridViewのリサイクルでアセットが変わった場合に再読み込み
+    if (oldWidget.asset.id != widget.asset.id) {
+      _loadThumbnail();
+    }
+  }
+
   Future<void> _loadThumbnail() async {
+    final assetId = widget.asset.id;
+    _loadedAssetId = assetId;
     final data = await widget.asset.thumbnailDataWithSize(
       const ThumbnailSize(200, 200),
     );
-    if (mounted && data != null) {
+    // リクエスト中にアセットが変わっていたら無視
+    if (mounted && data != null && _loadedAssetId == assetId) {
       setState(() => _thumbData = data);
     }
   }
@@ -1041,5 +1102,225 @@ class _ThumbnailImageState extends State<_ThumbnailImage> {
       );
     }
     return Container(color: Colors.grey[800]);
+  }
+}
+
+/// すべてのアルバム表示用ボトムシート
+class _AllAlbumsBottomSheet extends StatefulWidget {
+  final List<AssetPathEntity> albums;
+  final String? selectedAlbumId;
+  final void Function(AssetPathEntity album) onAlbumSelected;
+
+  const _AllAlbumsBottomSheet({
+    required this.albums,
+    required this.selectedAlbumId,
+    required this.onAlbumSelected,
+  });
+
+  @override
+  State<_AllAlbumsBottomSheet> createState() => _AllAlbumsBottomSheetState();
+}
+
+class _AllAlbumsBottomSheetState extends State<_AllAlbumsBottomSheet> {
+  // アルバムごとのサムネイルとカウント
+  final Map<String, Uint8List?> _albumThumbnails = {};
+  final Map<String, int> _albumCounts = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAlbumInfo();
+  }
+
+  Future<void> _loadAlbumInfo() async {
+    for (final album in widget.albums) {
+      final count = await album.assetCountAsync;
+      if (!mounted) return;
+
+      Uint8List? thumb;
+      if (count > 0) {
+        final assets = await album.getAssetListRange(start: 0, end: 1);
+        if (assets.isNotEmpty) {
+          thumb = await assets.first.thumbnailDataWithSize(
+            const ThumbnailSize(200, 200),
+          );
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _albumCounts[album.id] = count;
+          _albumThumbnails[album.id] = thumb;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    return Container(
+      height: screenHeight * 0.75,
+      decoration: const BoxDecoration(
+        color: Color(0xFF1C1C1E),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        children: [
+          // ドラッグハンドル
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            width: 36,
+            height: 5,
+            decoration: BoxDecoration(
+              color: Colors.grey[600],
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+          // ヘッダー
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: const Text(
+                    'キャンセル',
+                    style: TextStyle(
+                      color: Color(0xFF5D8FFF),
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                const Expanded(
+                  child: Text(
+                    'アルバムを選択',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 72), // キャンセルとバランス
+              ],
+            ),
+          ),
+          Container(height: 0.5, color: Colors.grey[800]),
+          // アルバムグリッド
+          Expanded(
+            child: GridView.builder(
+              padding: const EdgeInsets.all(16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 20,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.85,
+              ),
+              itemCount: widget.albums.length,
+              itemBuilder: (context, index) {
+                final album = widget.albums[index];
+                final thumb = _albumThumbnails[album.id];
+                final count = _albumCounts[album.id];
+                final isSelected = album.id == widget.selectedAlbumId;
+
+                return GestureDetector(
+                  onTap: () => widget.onAlbumSelected(album),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // サムネイル
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey[800],
+                            borderRadius: BorderRadius.circular(8),
+                            border: isSelected
+                                ? Border.all(color: const Color(0xFF5D8FFF), width: 2)
+                                : null,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(isSelected ? 6 : 8),
+                            child: thumb != null
+                                ? Image.memory(
+                                    thumb,
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    gaplessPlayback: true,
+                                  )
+                                : const Center(
+                                    child: Icon(
+                                      Icons.photo_library_outlined,
+                                      color: Colors.white38,
+                                      size: 40,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      // アルバム名
+                      Text(
+                        _albumNameJa(album.name),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      // 写真数
+                      if (count != null)
+                        Text(
+                          '$count',
+                          style: TextStyle(
+                            color: Colors.grey[500],
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _albumNameJa(String name) {
+    switch (name.toLowerCase()) {
+      case 'recents':
+      case 'recent photos':
+      case 'camera roll':
+        return '最近の項目';
+      case 'favorites':
+        return 'お気に入り';
+      case 'videos':
+        return 'ビデオ';
+      case 'selfies':
+        return 'セルフィー';
+      case 'screenshots':
+        return 'スクリーンショット';
+      case 'live photos':
+        return 'Live Photos';
+      case 'panoramas':
+        return 'パノラマ';
+      case 'bursts':
+        return 'バースト';
+      case 'hidden':
+        return '非表示';
+      case 'recently deleted':
+        return '最近削除した項目';
+      case 'all photos':
+        return 'すべての写真';
+      default:
+        return name;
+    }
   }
 }

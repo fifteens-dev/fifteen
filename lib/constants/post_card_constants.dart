@@ -145,8 +145,6 @@ class PostCardTextStyles {
     fontSize: PostCardFontSizes.username,
     fontWeight: FontWeight.w600,
     color: Colors.white,
-    fontFamily: 'Noto Sans',
-    fontFamilyFallback: ['Noto Sans JP'],
     letterSpacing: -0.12,
   );
 
@@ -154,8 +152,6 @@ class PostCardTextStyles {
   static const TextStyle hashtagWhite = TextStyle(
     fontSize: PostCardFontSizes.hashtag,
     color: Colors.white,
-    fontFamily: 'Noto Sans',
-    fontFamilyFallback: ['Noto Sans JP'],
     letterSpacing: -0.08,
   );
 }

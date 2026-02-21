@@ -7,6 +7,7 @@ import '../services/user_service.dart';
 import '../services/storage_service.dart';
 import '../models/user_model.dart';
 import '../constants/app_colors.dart';
+import '../widgets/dialogs/glass_popup.dart';
 
 /// アカウント編集画面
 class AccountEditScreen extends StatefulWidget {
@@ -61,7 +62,7 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
         setState(() {
           _nameController.text = userData.name ?? '';
           _usernameController.text = userData.username ?? '';
-          _bioController.text = ''; // TODO: UserModelにbioフィールドを追加
+          _bioController.text = userData.bio ?? '';
           _currentProfileImageUrl = userData.profileImageUrl;
           _isLoading = false;
         });
@@ -82,101 +83,47 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
 
   /// 写真オプションダイアログを表示
   Future<void> _showPhotoOptionsDialog() async {
-    showDialog(
+    final screenSize = MediaQuery.of(context).size;
+    final result = await GlassPopup.show<String>(
       context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          child: Container(
-            width: 245,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.9),
-              borderRadius: BorderRadius.circular(32),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 写真ライブラリオプション
-                InkWell(
-                  onTap: () async {
-                    Navigator.pop(context);
-                    final result = await Navigator.pushNamed(context, '/photo-picker');
-                    if (result != null && mounted && result is Uint8List) {
-                      setState(() {
-                        _selectedImageBytes = result;
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('写真を選択しました'),
-                          backgroundColor: AppColors.success,
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
-                    }
-                  },
-                  child: Container(
-                    height: 45,
-                    padding: const EdgeInsets.symmetric(horizontal: 23, vertical: 12),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.photo_outlined,
-                          size: 20,
-                          color: Colors.black,
-                        ),
-                        const SizedBox(width: 11),
-                        Text(
-                          '写真ライブラリ',
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w400,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                // 写真を撮るオプション
-                InkWell(
-                  onTap: () {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('カメラ機能は今後実装予定です'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    height: 45,
-                    padding: const EdgeInsets.symmetric(horizontal: 23, vertical: 12),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.camera_alt,
-                          size: 20,
-                          color: Colors.black,
-                        ),
-                        const SizedBox(width: 11),
-                        Text(
-                          '写真を撮る',
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w400,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+      position: Offset(screenSize.width / 2 - 110, screenSize.height / 2 - 44),
+      width: 220,
+      items: const [
+        GlassPopupItem<String>(
+          value: 'library',
+          label: '写真ライブラリ',
+          icon: Icons.photo_outlined,
+        ),
+        GlassPopupItem<String>(
+          value: 'camera',
+          label: '写真を撮る',
+          icon: Icons.camera_alt,
+        ),
+      ],
+    );
+
+    if (result == 'library') {
+      final pickerResult = await Navigator.pushNamed(context, '/photo-picker');
+      if (pickerResult != null && mounted && pickerResult is Uint8List) {
+        setState(() {
+          _selectedImageBytes = pickerResult;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('写真を選択しました'),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 2),
           ),
         );
-      },
-    );
+      }
+    } else if (result == 'camera') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('カメラ機能は今後実装予定です'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   @override
@@ -276,19 +223,28 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
         name: name,
         username: username,
         profileImageUrl: profileImageUrl,
+        bio: bio,
       );
 
       if (mounted) {
+        // キーボードを先に閉じる
+        FocusScope.of(context).unfocus();
         setState(() {
           _isSaving = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
+        final messenger = ScaffoldMessenger.of(context);
+        final navigator = Navigator.of(context);
+        messenger.showSnackBar(
           const SnackBar(
             content: Text('プロフィールを保存しました'),
             backgroundColor: AppColors.success,
           ),
         );
-        Navigator.pop(context);
+        // キーボードが完全に閉じてから画面を戻す
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (mounted) {
+          navigator.pop();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -514,56 +470,90 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
 
   /// 編集ダイアログ
   void _showEditDialog(String title, TextEditingController targetController) {
-    final tempController = TextEditingController(text: targetController.text);
-
-    showDialog(
+    showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        title: Text(
-          title,
-          style: const TextStyle(color: Colors.white),
-        ),
-        content: TextField(
-          controller: tempController,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: '$titleを入力',
-            hintStyle: TextStyle(color: Colors.grey[600]),
-            enabledBorder: const UnderlineInputBorder(
-              borderSide: BorderSide(color: Colors.white54),
-            ),
-            focusedBorder: const UnderlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFF5D8FFF)),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              tempController.dispose();
-              Navigator.pop(context);
-            },
-            child: const Text(
-              'キャンセル',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                targetController.text = tempController.text;
-              });
-              tempController.dispose();
-              Navigator.pop(context);
-            },
-            child: const Text(
-              '保存',
-              style: TextStyle(color: Color(0xFF5D8FFF)),
-            ),
-          ),
-        ],
+      builder: (dialogContext) => _EditDialog(
+        title: title,
+        initialValue: targetController.text,
       ),
+    ).then((result) {
+      if (result != null && mounted) {
+        setState(() {
+          targetController.text = result;
+        });
+      }
+    });
+  }
+}
+
+/// 編集ダイアログ（独立したStatefulWidgetでcontrollerのライフサイクルを管理）
+class _EditDialog extends StatefulWidget {
+  final String title;
+  final String initialValue;
+
+  const _EditDialog({
+    required this.title,
+    required this.initialValue,
+  });
+
+  @override
+  State<_EditDialog> createState() => _EditDialogState();
+}
+
+class _EditDialogState extends State<_EditDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: Colors.grey[900],
+      title: Text(
+        widget.title,
+        style: const TextStyle(color: Colors.white),
+      ),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          hintText: '${widget.title}を入力',
+          hintStyle: TextStyle(color: Colors.grey[600]),
+          enabledBorder: const UnderlineInputBorder(
+            borderSide: BorderSide(color: Colors.white54),
+          ),
+          focusedBorder: const UnderlineInputBorder(
+            borderSide: BorderSide(color: Color(0xFF5D8FFF)),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text(
+            'キャンセル',
+            style: TextStyle(color: Colors.white70),
+          ),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text(
+            '保存',
+            style: TextStyle(color: Color(0xFF5D8FFF)),
+          ),
+        ),
+      ],
     );
   }
 }

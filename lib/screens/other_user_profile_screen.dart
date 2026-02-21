@@ -77,10 +77,14 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         // ダミーユーザーかどうかを判定
         final isDummyUser = _dummyUsernames.contains(userData?.username ?? '');
 
+        // 48時間フィルタ: 他人のプロフィールでは48時間以上前の投稿のみ表示
+        final cutoff48h = DateTime.now().subtract(const Duration(hours: 48));
+        final visibleOtherPosts = otherPosts.where((p) => p.createdAt.isBefore(cutoff48h)).toList();
+
         setState(() {
           _userData = userData;
           _todaysPosts = todaysPosts;
-          _otherPosts = otherPosts;
+          _otherPosts = visibleOtherPosts;
           _isFollowing = currentUser?.isFollowing(widget.userId) ?? false;
           _isLoading = false;
 
@@ -600,7 +604,12 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       itemCount: _otherPosts.length,
       itemBuilder: (context, index) {
         final post = _otherPosts[index];
-        return ProfilePostGridItem(post: post);
+        return ProfilePostGridItem(
+          post: post,
+          allPosts: _otherPosts,
+          initialIndex: index,
+          disableInteractions: true,
+        );
       },
     );
   }

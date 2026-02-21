@@ -315,6 +315,73 @@ class AppleMusicService {
 
   /// ユーザーのお気に入り楽曲を取得
   /// User Token認証が必要
+  Future<List<TrackModel>> getRecentlyPlayedTracks({int limit = 30}) async {
+    if (_userToken == null) {
+      _userToken = await _storage.read(key: _userTokenKey);
+    }
+    if (_userToken == null) {
+      print('❌ User Token not found for recently played.');
+      return [];
+    }
+    if (_developerToken == null) {
+      _developerToken = _envDeveloperToken.isNotEmpty
+          ? _envDeveloperToken
+          : await _storage.read(key: _developerTokenKey);
+    }
+    if (_developerToken == null || _developerToken!.isEmpty) {
+      print('❌ Developer Token not found for recently played.');
+      return [];
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.music.apple.com/v1/me/recent/played/tracks?limit=$limit'),
+        headers: {
+          'Authorization': 'Bearer $_developerToken',
+          'Music-User-Token': _userToken!,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['data'] == null || (data['data'] as List).isEmpty) {
+          print('⚠️ No recently played tracks found');
+          return [];
+        }
+
+        final songs = data['data'] as List;
+        final Map<String, TrackModel> uniqueTracks = {};
+        for (final songData in songs) {
+          final attributes = songData['attributes'];
+          String albumImageUrl = '';
+          if (attributes['artwork'] != null) {
+            final artworkUrl = attributes['artwork']['url'] as String;
+            albumImageUrl = artworkUrl.replaceAll('{w}', '640').replaceAll('{h}', '640');
+          }
+          String previewUrl = '';
+          if (attributes['previews'] != null && attributes['previews'].isNotEmpty) {
+            previewUrl = attributes['previews'][0]['url'] ?? '';
+          }
+          final track = TrackModel(
+            trackId: songData['id'],
+            trackName: attributes['name'] ?? 'Unknown',
+            artistName: attributes['artistName'] ?? 'Unknown Artist',
+            albumImageUrl: albumImageUrl,
+            previewUrl: previewUrl,
+          );
+          uniqueTracks.putIfAbsent(track.trackId, () => track);
+        }
+        return uniqueTracks.values.toList();
+      } else {
+        print('❌ Apple Music recently played error: ${response.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Error getting Apple Music recently played: $e');
+      return [];
+    }
+  }
+
   Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {
     // User Tokenがない場合は取得できない
     if (_userToken == null) {

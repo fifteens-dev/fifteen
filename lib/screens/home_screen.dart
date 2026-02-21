@@ -10,7 +10,6 @@ import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/user_service.dart';
 import '../services/vibe_topic_service.dart';
-import '../utils/test_data.dart';
 import '../utils/current_user_helper.dart';
 import 'comment_screen.dart';
 import 'search_screen.dart';
@@ -69,13 +68,14 @@ class _HomeScreenState extends State<HomeScreen>
   // 現在のユーザーのアイコンURL（楽観的UI用）
   String? _currentUserIconUrl;
 
+  // 現在のユーザーが今日投稿済みかどうか（裏面表示制御用）
+  bool _hasPostedToday = false;
+
   @override
   void initState() {
     super.initState();
     print('🏠 ホーム画面: initState()が呼ばれました');
     _loadPosts();
-    _loadLocalLikeStates();
-    _loadLocalSaveStates();
     _loadCurrentUserIconUrl();
   }
 
@@ -95,6 +95,12 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       final currentUser = _auth.currentUser;
       print('👤 現在のユーザー: ${currentUser?.uid ?? "未認証"}');
+
+      // 今日投稿済みかチェック（裏面表示制御用）
+      if (currentUser != null) {
+        _hasPostedToday = await _postService.hasUserPostedToday(currentUser.uid);
+      }
+
       List<PostModel> firestorePosts = [];
 
       // Firestoreから投稿を取得（認証の有無に関わらず試みる）
@@ -103,7 +109,7 @@ class _HomeScreenState extends State<HomeScreen>
         print('📥 Firestoreから取得した投稿数: ${firestorePosts.length}');
       } catch (e) {
         print('⚠️ Firestore取得エラー（権限エラーの可能性）: $e');
-        // エラーの場合は空配列のまま（TestDataのみ表示）
+        // エラーの場合は空配列のまま
       }
 
       // Firestoreの投稿のみを使用（テストデータは除外）
@@ -111,42 +117,39 @@ class _HomeScreenState extends State<HomeScreen>
 
       print('📊 表示する投稿数: ${postsToUse.length} (Firestore)');
 
-      // 各投稿の楽曲名でSpotify検索し、アルバムアートワークを更新（必要な場合のみ）
-      final updatedPosts = <PostModel>[];
-
-      for (final post in postsToUse) {
-        // アルバムアートワークが既にある場合はSpotify検索をスキップ
-        if (post.track.albumImageUrl.isNotEmpty) {
-          updatedPosts.add(post);
-          continue;
+      // 各投稿の楽曲名でSpotify検索し、アルバムアートワークを更新（必要な場合のみ、並列実行）
+      final postsNeedingArt = <int>[];
+      for (int i = 0; i < postsToUse.length; i++) {
+        if (postsToUse[i].track.albumImageUrl.isEmpty) {
+          postsNeedingArt.add(i);
         }
+      }
 
-        // アルバムアートがない場合はSpotify検索を試みる
-        try {
-          // 楽曲名とアーティスト名で検索
-          final searchQuery =
-              '${post.track.trackName} ${post.track.artistName}';
-          final tracks =
-              await _spotifyService.searchTracks(searchQuery, limit: 1);
+      final updatedPosts = List<PostModel>.from(postsToUse);
 
-          if (tracks.isNotEmpty) {
-            // 検索結果の最初のトラックのアルバムアートワークを使用
-            final spotifyTrack = tracks.first;
-            final updatedTrack = post.track.copyWith(
-              albumImageUrl: spotifyTrack.albumImageUrl,
-            );
-            final updatedPost = post.copyWith(track: updatedTrack);
-            updatedPosts.add(updatedPost);
-            print('🎵 Spotify検索成功: ${post.track.trackName}');
-          } else {
-            // 検索結果がない場合は元の投稿をそのまま使用
-            updatedPosts.add(post);
-            print('⚠️ Spotify検索結果なし: ${post.track.trackName}');
+      if (postsNeedingArt.isNotEmpty) {
+        final futures = postsNeedingArt.map((i) async {
+          final post = postsToUse[i];
+          try {
+            final searchQuery =
+                '${post.track.trackName} ${post.track.artistName}';
+            final tracks =
+                await _spotifyService.searchTracks(searchQuery, limit: 1);
+            if (tracks.isNotEmpty) {
+              final updatedTrack = post.track.copyWith(
+                albumImageUrl: tracks.first.albumImageUrl,
+              );
+              return MapEntry(i, post.copyWith(track: updatedTrack));
+            }
+          } catch (e) {
+            print('⚠️ Spotifyアルバムアートワーク取得エラー: $e');
           }
-        } catch (e) {
-          print('⚠️ Spotifyアルバムアートワーク取得エラー: $e');
-          // エラーの場合は元の投稿をそのまま使用
-          updatedPosts.add(post);
+          return MapEntry(i, post);
+        }).toList();
+
+        final results = await Future.wait(futures);
+        for (final entry in results) {
+          updatedPosts[entry.key] = entry.value;
         }
       }
 
@@ -161,11 +164,9 @@ class _HomeScreenState extends State<HomeScreen>
       }
     } catch (e) {
       print('❌ 投稿読み込みエラー: $e');
-      print('📦 エラー発生のため、TestDataのみを表示します');
-      // エラー時はテストデータを使用
       if (mounted) {
         setState(() {
-          _cachedPosts = TestData.generateTestPosts();
+          _cachedPosts = [];
         });
       }
     }
@@ -220,48 +221,22 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// ローカルストレージからいいね状態を読み込み
-  Future<void> _loadLocalLikeStates() async {
-    final posts = TestData.generateTestPosts();
-    final userId = _auth.currentUser?.uid ?? 'test_user_temp';
-
-    for (final post in posts) {
-      if (post.postId.startsWith('test_post_')) {
-        // ローカルストレージからいいね状態を読み込み
-        final likeState = await TestData.getLikeState(post.postId);
-        final likeCount = likeState['likeCount'] as int;
-        final likedUserIds = List<String>.from(likeState['likedUserIds']);
-
-        if (likeCount > 0) {
-          _likeCounts[post.postId] = likeCount;
-        }
-
-        if (likedUserIds.contains(userId)) {
-          _likedPostIds.add(post.postId);
-        }
-      }
-    }
-
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  /// ローカルストレージから保存状態を読み込み
-  Future<void> _loadLocalSaveStates() async {
-    final userId = _auth.currentUser?.uid ?? 'test_user_temp';
-
-    // TestDataから保存済み投稿IDリストを取得
-    final savedPostIds = await TestData.getSavedPosts(userId);
-
-    if (mounted) {
-      setState(() {
-        _savedPostIds.addAll(savedPostIds);
-      });
-    }
-  }
-
   // ボトムナビゲーションのタップ処理
+  /// Vibeの「投稿する」ボタンから楽曲選択画面へ遷移（Vibe事前選択済み）
+  void _navigateToVibePost() {
+    _homeAudioService.stop();
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const MusicSelectionScreen(
+          initialCategoryType: 'vibe',
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+  }
+
   void _onItemTapped(int index) {
     if (index == 2) {
       // 楽曲選択画面へ遷移（別画面として開く）
@@ -329,6 +304,7 @@ class _HomeScreenState extends State<HomeScreen>
                       child: VibeBarSection(
                         vibeDataFuture: _loadVibeData(),
                         onRankingItemTap: _handleRankingItemTap,
+                        onPostTap: _navigateToVibePost,
                       ),
                     ),
                     const SliverToBoxAdapter(
@@ -577,6 +553,7 @@ class _HomeScreenState extends State<HomeScreen>
                 onComment: () => _handleComment(post),
                 onAdd: () => _handleAdd(post),
                 isSaved: _savedPostIds.contains(post.postId),
+                backSideEnabled: _hasPostedToday,
                 onPlayStarted: () {
                   _playingPostId = post.postId;
                 },
@@ -592,44 +569,8 @@ class _HomeScreenState extends State<HomeScreen>
   /// いいねボタンが押されたときの処理
   Future<void> _handleLike(PostModel post) async {
     final currentUser = _auth.currentUser;
-
-    // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
     final userId = currentUser?.uid ?? 'test_user_temp';
 
-    // テスト投稿の場合はTestDataを使用
-    if (post.postId.startsWith('test_post_')) {
-      try {
-        // 元のいいね数を取得（表示上のオーバーライドがあればそれを使用）
-        final originalLikeCount = _likeCounts[post.postId] ?? post.likeCount;
-
-        // TestDataでいいねをトグル（ローカルストレージに保存）
-        await TestData.toggleLike(post.postId, userId, originalLikeCount);
-
-        // 更新されたいいね状態を取得
-        final likeState = await TestData.getLikeState(post.postId);
-        final likeCount = likeState['likeCount'] as int;
-        final likedUserIds = List<String>.from(likeState['likedUserIds']);
-
-        // ローカルの状態マップを更新（setState不要 - PostCardの楽観的UIが表示を担当）
-        if (likeCount > 0) {
-          _likeCounts[post.postId] = likeCount;
-        } else {
-          _likeCounts.remove(post.postId);
-        }
-
-        if (likedUserIds.contains(userId)) {
-          _likedPostIds.add(post.postId);
-        } else {
-          _likedPostIds.remove(post.postId);
-        }
-      } catch (e) {
-        print('いいねの保存に失敗: $e');
-        _showMessage('いいねに失敗しました');
-      }
-      return;
-    }
-
-    // 通常の投稿の場合は既存のロジック
     // 現在のいいね状態を取得
     final currentLikeCount = _likeCounts[post.postId] ?? post.likeCount;
     final isCurrentlyLiked =
@@ -692,24 +633,14 @@ class _HomeScreenState extends State<HomeScreen>
 
     // 戻ってきた後、投稿データを更新
     if (mounted) {
-      if (post.postId.startsWith('test_post_')) {
-        // テスト投稿の場合
-        final commentCount = await TestData.getCommentCount(post.postId);
+      final updatedPost = await _postService.getPost(post.postId);
+      if (updatedPost != null && _cachedPosts != null) {
         setState(() {
-          _commentCounts[post.postId] = commentCount;
+          final index = _cachedPosts!.indexWhere((p) => p.postId == post.postId);
+          if (index != -1) {
+            _cachedPosts![index] = updatedPost;
+          }
         });
-      } else {
-        // 通常の投稿の場合、Firestoreから最新のデータを取得
-        final updatedPost = await _postService.getPost(post.postId);
-        if (updatedPost != null && _cachedPosts != null) {
-          setState(() {
-            // キャッシュ内の投稿を更新
-            final index = _cachedPosts!.indexWhere((p) => p.postId == post.postId);
-            if (index != -1) {
-              _cachedPosts![index] = updatedPost;
-            }
-          });
-        }
       }
     }
   }
@@ -717,59 +648,10 @@ class _HomeScreenState extends State<HomeScreen>
   /// 追加ボタンが押されたときの処理（投稿を保存）
   Future<void> _handleAdd(PostModel post) async {
     final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
 
-    // テストモード用: currentUserがnullの場合はダミーユーザーIDを使用
-    final userId = currentUser?.uid ?? 'test_user_temp';
+    final userId = currentUser.uid;
 
-    // ダミーユーザーの場合は常にTestDataを使用（Firestoreにユーザーが存在しないため）
-    if (currentUser == null) {
-      try {
-        print('💾 保存処理開始 - 投稿ID: ${post.postId}');
-
-        // 現在の保存状態を確認
-        final isSaved = await TestData.hasSavedPost(userId, post.postId);
-        print('📌 現在の保存状態: ${isSaved ? "保存済み" : "未保存"}');
-
-        // 楽観的UI更新: 先に状態を更新
-        setState(() {
-          if (isSaved) {
-            _savedPostIds.remove(post.postId);
-          } else {
-            _savedPostIds.add(post.postId);
-          }
-        });
-
-        // TestDataで保存をトグル（ローカルストレージに保存）
-        await TestData.toggleSavePost(userId, post.postId);
-
-        // 保存後の状態を確認
-        final savedPosts = await TestData.getSavedPosts(userId);
-        print('📁 保存済み投稿一覧: $savedPosts');
-
-        // 成功メッセージを表示
-        if (isSaved) {
-          _showMessage('投稿の保存を解除しました');
-        } else {
-          _showMessage('投稿を保存しました');
-        }
-      } catch (e) {
-        print('投稿の保存に失敗: $e');
-
-        // エラーが発生したら状態を元に戻す
-        setState(() {
-          if (_savedPostIds.contains(post.postId)) {
-            _savedPostIds.remove(post.postId);
-          } else {
-            _savedPostIds.add(post.postId);
-          }
-        });
-
-        _showMessage('投稿の保存に失敗しました');
-      }
-      return;
-    }
-
-    // 認証済みユーザーの場合はFirestoreを使用
     try {
       final isSaved = _savedPostIds.contains(post.postId);
 

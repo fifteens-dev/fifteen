@@ -15,7 +15,12 @@ import 'post_preview_screen.dart';
 
 /// 投稿用楽曲選択画面
 class MusicSelectionScreen extends StatefulWidget {
-  const MusicSelectionScreen({super.key});
+  final String? initialCategoryType; // 'vibe' or 'emotion' — 事前選択用
+
+  const MusicSelectionScreen({
+    super.key,
+    this.initialCategoryType,
+  });
 
   @override
   State<MusicSelectionScreen> createState() => _MusicSelectionScreenState();
@@ -33,7 +38,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   // 今日のVibeお題
   VibeTopicModel? _todaysTopic;
 
-  // タブ選択状態: 0 = おすすめ, 1 = My Playlist, 2 = 保存済み
+  // タブ選択状態: 0 = 最近聞いた曲, 1 = おすすめ, 2 = My Playlist, 3 = 保存済み
   int _selectedTab = 0;
 
   // 表示モード: true = グリッド, false = リスト
@@ -54,7 +59,8 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   @override
   void initState() {
     super.initState();
-    _loadInitialTracks();
+    _selectedCategoryType = widget.initialCategoryType;
+    _loadRecentlyPlayedTracks();
     _loadTodaysTopic();
   }
 
@@ -62,6 +68,30 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// 最近聞いた曲を読み込み
+  Future<void> _loadRecentlyPlayedTracks() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final tracks = await _musicServiceManager.getRecentlyPlayedTracks(limit: 30);
+
+      if (mounted) {
+        setState(() {
+          _tracks = tracks;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading recently played tracks: $e');
+      if (mounted) {
+        setState(() {
+          _tracks = [];
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   /// 初期楽曲を読み込み（おすすめ = 日本の人気曲）
@@ -101,6 +131,10 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       if (mounted) {
         setState(() {
           _todaysTopic = topic;
+          // 初期カテゴリーがvibeの場合、トピックタイトルも設定
+          if (_selectedCategoryType == 'vibe' && topic != null) {
+            _selectedVibeCategory = topic.title;
+          }
         });
       }
     } catch (e) {
@@ -140,7 +174,15 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   /// 楽曲を検索
   Future<void> _searchTracks(String query) async {
     if (query.isEmpty) {
-      _loadInitialTracks();
+      if (_selectedTab == 0) {
+        _loadRecentlyPlayedTracks();
+      } else if (_selectedTab == 1) {
+        _loadInitialTracks();
+      } else if (_selectedTab == 2) {
+        _loadMyPlaylistTracks();
+      } else {
+        _loadSavedTracks();
+      }
       return;
     }
 
@@ -635,92 +677,17 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       padding: const EdgeInsets.only(left: 21, top: 11, bottom: 11, right: 21),
       child: Row(
         children: [
+          // 最近聞いた曲タブ
+          _buildTabButton(0, '最近聞いた曲', () => _loadRecentlyPlayedTracks()),
+          const SizedBox(width: 6),
           // おすすめタブ
-          GestureDetector(
-            onTap: () {
-              setState(() => _selectedTab = 0);
-              _loadInitialTracks();
-            },
-            child: Container(
-              height: 30,
-              padding: const EdgeInsets.symmetric(horizontal: 11),
-              decoration: BoxDecoration(
-                color:
-                    _selectedTab == 0 ? Colors.white : const Color(0xFF3A3A3A),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Center(
-                child: Text(
-                  'おすすめ',
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.w500,
-                    color: _selectedTab == 0
-                        ? const Color(0xFF101010)
-                        : Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          _buildTabButton(1, 'おすすめ', () => _loadInitialTracks()),
           const SizedBox(width: 6),
           // My Playlistタブ
-          GestureDetector(
-            onTap: () {
-              setState(() => _selectedTab = 1);
-              _loadMyPlaylistTracks();
-            },
-            child: Container(
-              height: 30,
-              padding: const EdgeInsets.symmetric(horizontal: 11),
-              decoration: BoxDecoration(
-                color:
-                    _selectedTab == 1 ? Colors.white : const Color(0xFF3A3A3A),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Center(
-                child: Text(
-                  'My Playlist',
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.w500,
-                    color: _selectedTab == 1
-                        ? const Color(0xFF101010)
-                        : Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          _buildTabButton(2, 'My Playlist', () => _loadMyPlaylistTracks()),
           const SizedBox(width: 6),
           // 保存済みタブ
-          GestureDetector(
-            onTap: () {
-              setState(() => _selectedTab = 2);
-              _loadSavedTracks();
-            },
-            child: Container(
-              height: 30,
-              padding: const EdgeInsets.symmetric(horizontal: 21),
-              decoration: BoxDecoration(
-                color:
-                    _selectedTab == 2 ? Colors.white : const Color(0xFF3A3A3A),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Center(
-                child: Text(
-                  '保存済み',
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.w500,
-                    color: _selectedTab == 2
-                        ? const Color(0xFF101010)
-                        : Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          _buildTabButton(3, '保存済み', () => _loadSavedTracks()),
           const Spacer(),
           // グリッド/リスト切り替えボタン
           GestureDetector(
@@ -736,6 +703,35 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// タブボタン
+  Widget _buildTabButton(int index, String label, VoidCallback onLoad) {
+    final isSelected = _selectedTab == index;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _selectedTab = index);
+        onLoad();
+      },
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 11),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : const Color(0xFF3A3A3A),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w500,
+              color: isSelected ? const Color(0xFF101010) : Colors.white,
+            ),
+          ),
+        ),
       ),
     );
   }

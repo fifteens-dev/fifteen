@@ -8,11 +8,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
+import 'package:just_audio/just_audio.dart';
 import '../widgets/post_card.dart';
+import '../widgets/post_card/post_card_constants.dart';
 import '../widgets/post_card_back_info.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
 import '../widgets/dialogs/dialogs.dart';
 import '../services/audio_player_service.dart';
+import '../services/bpm_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../services/lyrics_service.dart';
@@ -20,6 +23,7 @@ import '../services/itunes_search_service.dart';
 import '../utils/color_extractor.dart';
 import '../utils/current_user_helper.dart';
 import '../utils/photo_helper.dart';
+import '../widgets/animated_waveform.dart';
 import '../widgets/shared/user_info_badge.dart';
 import 'post_photo_selection_screen.dart';
 
@@ -50,7 +54,7 @@ class PostPreviewScreen extends StatefulWidget {
   State<PostPreviewScreen> createState() => _PostPreviewScreenState();
 }
 
-class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTickerProviderStateMixin {
+class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProviderStateMixin {
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
   Offset _imageOffset = Offset.zero;
@@ -59,6 +63,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
   // 音楽再生サービス
   final AudioPlayerService _audioService = AudioPlayerService();
+  final BpmService _bpmService = BpmService();
+  String? _cachedPreviewUrl; // 再生ボタン用にキャッシュ
+  double? _tempo; // BPM
 
   // 投稿関連サービス
   final PostService _postService = PostService();
@@ -70,6 +77,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
   Rect _rect = const Rect.fromLTWH(0, 0, 196, 126); // 歌詞カードの位置とサイズ
   double _cardRotation = 0.0; // 回転角度（ラジアン）
+  int _audioStartMs = 0; // 音楽再生開始位置（ミリ秒）
+  int _audioDurationSec = 15; // 音楽再生時間（秒）
   LyricsData? _lyricsData; // 取得した歌詞データ
   Future<LyricsData?>? _lyricsFuture; // バックグラウンド取得用Future
 
@@ -78,6 +87,11 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   late Animation<double> _flipAnimation;
   bool _showFront = true; // 初期状態は表面
   Timer? _autoFlipTimer; // 自動反転用タイマー
+
+  // 再生ボタンアニメーション用
+  late AnimationController _playButtonAnimController;
+  late Animation<double> _playButtonScaleAnim;
+  late Animation<double> _playButtonOpacityAnim;
 
   // アルバムアートから抽出した色（裏面のテーマ用）
   Color? _extractedGradientStart;
@@ -96,6 +110,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
 
     // 現在のユーザー情報を取得
     _loadCurrentUserInfo();
+
+    // BPM取得
+    _fetchTempo();
 
     // 歌詞データの初期化
     _lyricsData = widget.lyricsData;
@@ -123,6 +140,36 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     _flipAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
     );
+
+    // 再生ボタンアニメーション（PostCardと同一仕様）
+    _playButtonAnimController = AnimationController(
+      duration: PostCardConstants.playButtonAnimationDuration,
+      vsync: this,
+    );
+    _playButtonScaleAnim = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(_playButtonAnimController);
+    _playButtonOpacityAnim = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(_playButtonAnimController);
 
     // 事前抽出された色があれば使用、なければ色抽出を実行
     if (widget.preExtractedGradientStart != null && widget.preExtractedGradientEnd != null) {
@@ -154,6 +201,27 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     }
   }
 
+  /// BPMを非同期で取得
+  Future<void> _fetchTempo() async {
+    final track = widget.track;
+    if (track.tempo != null) {
+      _tempo = track.tempo;
+      return;
+    }
+    try {
+      final tempo = await _bpmService.getTempo(
+        trackId: track.trackId,
+        trackName: track.trackName,
+        artistName: track.artistName,
+      );
+      if (mounted && tempo != null) {
+        setState(() {
+          _tempo = tempo;
+        });
+      }
+    } catch (_) {}
+  }
+
   /// 音楽のプレビューを再生
   Future<void> _playMusicPreview() async {
     var previewUrl = widget.track.previewUrl;
@@ -165,9 +233,14 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
     }
 
     if (previewUrl != null && previewUrl.isNotEmpty) {
+      _cachedPreviewUrl = previewUrl; // 再生ボタン用にキャッシュ
       try {
         print('🎵 音楽プレビューを再生開始: ${widget.track.trackName}');
-        await _audioService.playPreview(previewUrl);
+        await _audioService.playPreview(
+          previewUrl,
+          startFrom: Duration(milliseconds: _audioStartMs),
+          durationSeconds: _audioDurationSec,
+        );
       } catch (e) {
         print('❌ 音楽プレビュー再生エラー: $e');
       }
@@ -239,6 +312,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   void dispose() {
     _autoFlipTimer?.cancel();
     _flipController.dispose();
+    _playButtonAnimController.dispose();
     // 音楽再生を停止
     _audioService.stop();
     super.dispose();
@@ -247,13 +321,17 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   /// カードを反転
   void _flipCard() {
     if (_showFront) {
-      _flipController.forward();
+      _flipController.forward().then((_) {
+        // フリップ完了後に再生ボタンアニメーションを表示
+        if (mounted && !_showFront) {
+          _playButtonAnimController.forward(from: 0.0);
+        }
+      });
       // 裏面に切り替え → 音楽を再生
       _playMusicPreview();
     } else {
       _flipController.reverse();
-      // 表面に切り替え → 音楽を停止
-      _audioService.stop();
+      // 表面に切り替え（音楽は停止しない）
     }
     setState(() {
       _showFront = !_showFront;
@@ -332,6 +410,10 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
           _lyricsData = result['lyricsData'] as LyricsData?;
           print('  - lyricsData: ${_lyricsData != null ? "取得済み (${_lyricsData!.source})" : "なし"}');
         }
+
+        // 音楽カット設定を保存
+        _audioStartMs = result['audioStartMs'] as int? ?? 0;
+        _audioDurationSec = result['audioDurationSec'] as int? ?? 15;
 
         // rectを更新（位置とスケールから計算）
         final baseSize = _getCardSizeBack();
@@ -492,6 +574,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
         vibeTopicTitle: widget.vibeTopicTitle,
         theme: extractedTheme, // 抽出した色テーマを保存
         lyricsText: lyricsText, // 歌詞テキスト
+        audioStartMs: _audioStartMs,
+        audioDurationSec: _audioDurationSec,
       );
       print('✅ 投稿作成完了: postId=$postId');
 
@@ -568,8 +652,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                                   showFrontOnly: true, // 表面のみ表示
                                   hideReactionCounts: true, // プレビューではカウント非表示
                                   onCardTap: _flipCard, // プレビュー画面の反転処理を実行
-                                  preExtractedGradientStart: _extractedGradientStart, // 事前抽出した色を渡す
-                                  preExtractedGradientEnd: _extractedGradientEnd, // 事前抽出した色を渡す
+                                  preExtractedGradientStart: _extractedGradientStart,
+                                  preExtractedGradientEnd: _extractedGradientEnd,
+                                  externalPreviewUrl: _cachedPreviewUrl,
                                 )
                               : _buildBackCard(),
                         );
@@ -706,11 +791,79 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                   bottom: 0,
                   child: _buildInfoSectionBack(),
                 ),
+
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// 再生ボタンタップ時の処理
+  Future<void> _handlePlayButtonTap() async {
+    // アニメーションを開始
+    _playButtonAnimController.forward(from: 0.0);
+
+    final isPlaying = _cachedPreviewUrl != null &&
+        _audioService.isPlayingUrl(_cachedPreviewUrl!);
+
+    if (isPlaying) {
+      _audioService.pause();
+    } else if (_audioService.isPaused && _cachedPreviewUrl != null) {
+      _audioService.resume();
+    } else {
+      await _playMusicPreview();
+    }
+  }
+
+  /// 再生ボタン（裏面の写真エリア中央）
+  Widget _buildPlayButton() {
+    return StreamBuilder<PlayerState>(
+      stream: _audioService.playerStateStream,
+      builder: (context, snapshot) {
+        final isPlaying = _cachedPreviewUrl != null &&
+            _audioService.isPlayingUrl(_cachedPreviewUrl!);
+
+        return GestureDetector(
+          onTap: _handlePlayButtonTap,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            width: PostCardConstants.playButtonSize,
+            height: PostCardConstants.playButtonSize,
+            color: Colors.transparent,
+            child: AnimatedBuilder(
+              animation: _playButtonAnimController,
+              builder: (context, child) {
+                return Opacity(
+                  opacity: _playButtonOpacityAnim.value,
+                  child: Transform.scale(
+                    scale: _playButtonScaleAnim.value,
+                    child: Container(
+                      width: PostCardConstants.playButtonSize,
+                      height: PostCardConstants.playButtonSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withOpacity(
+                            PostCardConstants.playButtonBackgroundOpacity),
+                        border: Border.all(
+                          color: Colors.white,
+                          width: PostCardConstants.playButtonBorderWidth,
+                        ),
+                      ),
+                      child: Icon(
+                        isPlaying ? Icons.pause : Icons.play_arrow,
+                        color: Colors.white,
+                        size: PostCardConstants.playButtonIconSize,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -791,6 +944,13 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
           ),
         ),
 
+        // 再生ボタン（写真エリアの中央）
+        Positioned(
+          left: (frameW - PostCardConstants.playButtonSize) / 2,
+          top: (frameH - PostCardConstants.playButtonSize) / 2,
+          child: _buildPlayButton(),
+        ),
+
         // ユーザー情報（左上）
         Positioned(
           left: 15,
@@ -805,7 +965,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
   Widget _buildAddPhotoButtonBack() {
     return Container(
       color: const Color(0xFF121212),
-      child: Center(
+      child: Align(
+        alignment: const Alignment(0.0, 0.35),
         child: GestureDetector(
           onTap: _pickImage,
           child: Container(
@@ -840,8 +1001,6 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with SingleTicker
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: Colors.black,
-                    fontFamily: 'Noto Sans',
-                    fontFamilyFallback: ['Noto Sans JP'],
                   ),
                 ),
               ],

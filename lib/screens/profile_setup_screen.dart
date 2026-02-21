@@ -75,7 +75,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         setState(() {
           _nameController.text = userData.name ?? '';
           _usernameController.text = userData.username ?? '';
-          _bioController.text = ''; // bioフィールドは今後追加予定
+          _bioController.text = userData.bio ?? '';
           _isLoading = false;
         });
       }
@@ -245,7 +245,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         name: name,
         username: username,
         profileImageUrl: profileImageUrl,
-        // bio: bio, // TODO: UserServiceにbioフィールドを追加
+        bio: bio,
       );
 
       if (mounted) {

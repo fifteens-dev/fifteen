@@ -39,7 +39,11 @@ class PostCard extends StatefulWidget {
   final Color? preExtractedGradientStart; // 事前抽出されたグラデーション開始色
   final Color? preExtractedGradientEnd; // 事前抽出されたグラデーション終了色
   final bool autoFlipAfterDelay; // trueの場合、0.5秒後に自動で裏返す
+  final bool startFromBack; // trueの場合、裏面から開始（表面への反転時に音楽再生）
   final VoidCallback? onPlayStarted; // 音楽再生開始時のコールバック
+  final String? externalPreviewUrl; // 外部から渡されるプレビューURL（waveform用）
+  final bool backSideEnabled; // falseの場合、裏面に反転しない
+  final bool disableInteractions; // trueの場合、いいね・コメント無効（カウントのみ表示）
 
   const PostCard({
     super.key,
@@ -57,7 +61,11 @@ class PostCard extends StatefulWidget {
     this.preExtractedGradientStart, // 事前抽出された色（オプション）
     this.preExtractedGradientEnd, // 事前抽出された色（オプション）
     this.autoFlipAfterDelay = false, // デフォルトは自動反転なし
+    this.startFromBack = false, // デフォルトは表面から開始
     this.onPlayStarted, // 再生開始通知（オプション）
+    this.externalPreviewUrl, // 外部プレビューURL（オプション）
+    this.backSideEnabled = true, // デフォルトは裏面反転可能
+    this.disableInteractions = false, // デフォルトはインタラクション有効
   });
 
   @override
@@ -106,6 +114,10 @@ class _PostCardState extends State<PostCard>
     return PhotoHelper.isDataUrl(widget.post.photoUrl!);
   }
 
+  // Base64写真のデコードキャッシュ
+  Uint8List? _decodedPhotoBytes;
+  String? _decodedPhotoUrl;
+
   // アルバムアートから抽出した色
   Color? _extractedGradientStart;
   Color? _extractedGradientEnd;
@@ -132,8 +144,14 @@ class _PostCardState extends State<PostCard>
     _initializeColors();
     _fetchTempo();
 
+    // 裏面から開始モード
+    if (widget.startFromBack) {
+      _showFront = false;
+      _flipController.value = 1.0; // アニメーションなしで裏面を表示
+    }
+
     // 自動反転が有効な場合、0.5秒後に裏返す
-    if (widget.autoFlipAfterDelay) {
+    if (widget.autoFlipAfterDelay && !widget.startFromBack) {
       Future.delayed(PostCardConstants.autoFlipDelay, () {
         if (mounted && _showFront) {
           _flipCard();
@@ -336,6 +354,11 @@ class _PostCardState extends State<PostCard>
       return;
     }
 
+    // 裏面無効の場合、表面→裏面への反転をブロック
+    if (!widget.backSideEnabled && _showFront) {
+      return;
+    }
+
     // 触覚フィードバック
     HapticFeedback.mediumImpact();
 
@@ -363,8 +386,14 @@ class _PostCardState extends State<PostCard>
       // 音楽再生は非同期で実行（UIブロックしない）
       _playAudioAsync();
     } else {
-      // 表面に反転（音楽は停止しない）
+      // 表面に反転
       _flipController.reverse();
+
+      // startFromBackモード: 表面に戻った時に音楽再生
+      if (widget.startFromBack) {
+        widget.onPlayStarted?.call();
+        _playAudioAsync();
+      }
     }
   }
 
@@ -409,7 +438,11 @@ class _PostCardState extends State<PostCard>
         print('▶️  Starting playback...');
       }
       try {
-        await widget.audioService.playPreview(previewUrl);
+        await widget.audioService.playPreview(
+          previewUrl,
+          startFrom: Duration(milliseconds: widget.post.audioStartMs),
+          durationSeconds: widget.post.audioDurationSec,
+        );
       } catch (e) {
         if (kDebugMode) {
           print('❌ Playback error: $e');
@@ -441,6 +474,7 @@ class _PostCardState extends State<PostCard>
 
   /// いいねボタンが押された時の処理（楽観的UI更新）
   void _handleLikeTap() {
+    if (widget.disableInteractions) return;
     if (widget.onLike != null) {
       setState(() {
         final currentIsLiked = _isLikedOptimistic ??
@@ -960,10 +994,14 @@ class _PostCardState extends State<PostCard>
         return Builder(
           builder: (context) {
             try {
-              final String base64String = widget.post.photoUrl!.split(',')[1];
-              final Uint8List bytes = base64Decode(base64String);
+              // キャッシュ済みならそれを使う
+              if (_decodedPhotoBytes == null || _decodedPhotoUrl != widget.post.photoUrl) {
+                final String base64String = widget.post.photoUrl!.split(',')[1];
+                _decodedPhotoBytes = base64Decode(base64String);
+                _decodedPhotoUrl = widget.post.photoUrl;
+              }
               return Image.memory(
-                bytes,
+                _decodedPhotoBytes!,
                 fit: fit,
                 errorBuilder: (context, error, stackTrace) {
                   if (kDebugMode) {
@@ -1084,13 +1122,7 @@ class _PostCardState extends State<PostCard>
           ),
         );
       },
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
+      child: Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1109,7 +1141,7 @@ class _PostCardState extends State<PostCard>
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 12),
 
             // ユーザー名とハッシュタグ
             Flexible(
@@ -1121,7 +1153,7 @@ class _PostCardState extends State<PostCard>
                   Text(
                     widget.post.username,
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
                     ),
@@ -1145,7 +1177,6 @@ class _PostCardState extends State<PostCard>
             ),
           ],
         ),
-      ),
     );
   }
 
@@ -1227,7 +1258,11 @@ class _PostCardState extends State<PostCard>
       widget.onPlayStarted?.call();
       final urlToPlay = await _fetchPreviewUrl();
       if (urlToPlay != null && urlToPlay.isNotEmpty) {
-        await widget.audioService.playPreview(urlToPlay);
+        await widget.audioService.playPreview(
+          urlToPlay,
+          startFrom: Duration(milliseconds: widget.post.audioStartMs),
+          durationSeconds: widget.post.audioDurationSec,
+        );
       }
     }
   }
@@ -1322,7 +1357,7 @@ class _PostCardState extends State<PostCard>
     required PostTheme theme,
   }) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: widget.disableInteractions ? null : onTap,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1352,6 +1387,9 @@ class _PostCardState extends State<PostCard>
 
   /// コメントボタン
   Widget _buildCommentButton(PostTheme theme) {
+    if (widget.disableInteractions) {
+      return const SizedBox.shrink();
+    }
     return GestureDetector(
       onTap: widget.onComment,
       child: Container(
@@ -1391,7 +1429,7 @@ class _PostCardState extends State<PostCard>
       postId: widget.post.postId,
       barColor: theme.iconColor,
       audioService: widget.audioService,
-      previewUrl: _cachedPreviewUrl,
+      previewUrl: _cachedPreviewUrl ?? widget.externalPreviewUrl,
       tempo: _tempo,
     );
   }
@@ -1506,7 +1544,7 @@ class _PostCardState extends State<PostCard>
     required PostTheme theme,
   }) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: widget.disableInteractions ? null : onTap,
       child: Row(
         children: [
           SvgPicture.asset(
@@ -1625,13 +1663,13 @@ class _PostCardState extends State<PostCard>
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
 
           // ユーザー名
           Text(
             widget.post.username,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
               color: theme.textColor,
             ),

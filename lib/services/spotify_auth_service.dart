@@ -104,6 +104,7 @@ class SpotifyAuthService {
         'playlist-read-private',
         'playlist-read-collaborative',
         'user-library-read',
+        'user-read-recently-played',
       ].join(' ');
 
       // 認証URLを構築

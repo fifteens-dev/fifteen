@@ -289,7 +289,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   /// プロフィール情報セクション
   Widget _buildProfileInfo() {
     final displayName = _userData?.name ?? '名前未設定';
-    final bio = 'aoyama'; // TODO: UserModelにbioフィールドを追加
+    final bio = _userData?.bio;
     final profileImageUrl = _userData?.profileImageUrl;
 
     return Padding(
@@ -313,14 +313,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      bio,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 12,
+                    if (bio != null && bio.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        bio,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.7),
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -567,7 +569,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   }
 
                   // 再生開始（ループ再生は自動的に有効）
-                  await _audioService.playPreview(urlToPlay);
+                  await _audioService.playPreview(
+                    urlToPlay,
+                    startFrom: Duration(milliseconds: post.audioStartMs),
+                    durationSeconds: post.audioDurationSec,
+                  );
                 }
               },
               child: Container(

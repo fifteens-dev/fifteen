@@ -38,6 +38,8 @@ class PostService {
     String? emotionTag,
     PostTheme? theme, // アルバムアートから抽出した色テーマ
     String? lyricsText, // 歌詞テキスト
+    int audioStartMs = 0, // 音楽再生開始位置（ミリ秒）
+    int audioDurationSec = 15, // 音楽再生時間（秒）
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
@@ -79,6 +81,8 @@ class PostService {
         'emotionTag': emotionTag,
         'theme': theme != null ? theme.toMap() : null, // 抽出した色テーマを保存
         'lyricsText': lyricsText, // 歌詞テキスト
+        'audioStartMs': audioStartMs,
+        'audioDurationSec': audioDurationSec,
       };
 
       await postRef.set(postData);
@@ -111,14 +115,17 @@ class PostService {
     }
   }
 
-  /// 投稿を取得（ページネーション付き）
+  /// 投稿を取得（ページネーション付き、24時間以内のみ）
   Future<List<PostModel>> getPosts({
     int limit = 20,
     DocumentSnapshot? startAfter,
   }) async {
     try {
+      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+
       Query query = _firestore
           .collection(_postsCollection)
+          .where('createdAt', isGreaterThan: Timestamp.fromDate(cutoff))
           .orderBy('createdAt', descending: true)
           .limit(limit);
 
@@ -153,13 +160,22 @@ class PostService {
 
     final userMap = <String, ({String? username, String? iconUrl})>{};
 
-    for (final uid in allUserIds) {
+    // 全ユーザー情報を並列取得
+    final futures = allUserIds.map((uid) async {
       try {
         final user = await _userService.getUser(uid);
         if (user != null) {
-          userMap[uid] = (username: user.username, iconUrl: user.profileImageUrl);
+          return MapEntry(uid, (username: user.username, iconUrl: user.profileImageUrl));
         }
       } catch (_) {}
+      return null;
+    }).toList();
+
+    final results = await Future.wait(futures);
+    for (final entry in results) {
+      if (entry != null) {
+        userMap[entry.key] = entry.value;
+      }
     }
 
     return posts.map((post) {
@@ -197,8 +213,11 @@ class PostService {
   /// )
   /// ```
   Stream<List<PostModel>> getPostsStream({int limit = 20}) {
+    final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+
     return _firestore
         .collection(_postsCollection)
+        .where('createdAt', isGreaterThan: Timestamp.fromDate(cutoff))
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
@@ -419,6 +438,31 @@ class PostService {
       }
       return null;
     });
+  }
+
+  /// 特定ユーザーが今日投稿しているかチェック
+  Future<bool> hasUserPostedToday(String userId) async {
+    try {
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day);
+      final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      return snapshot.docs.isNotEmpty;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error checking if user posted today: $e');
+      }
+      return false;
+    }
   }
 
   /// 特定ユーザーの今日の投稿を取得

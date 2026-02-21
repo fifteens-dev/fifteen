@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track_model.dart';
 import '../models/vibe_topic_model.dart';
 import '../services/music_service_manager.dart';
@@ -28,6 +30,7 @@ class MusicSelectionScreen extends StatefulWidget {
 
 class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   final MusicServiceManager _musicServiceManager = MusicServiceManager();
   final PostService _postService = PostService();
   final VibeTopicService _vibeTopicService = VibeTopicService();
@@ -56,10 +59,22 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   // ローディング状態
   bool _isLoading = false;
 
+  // 検索フォーカス状態
+  bool _isSearchFocused = false;
+
+  // 検索中のクエリ
+  String _currentSearchQuery = '';
+
+  // 最近の検索履歴
+  List<Map<String, String>> _recentMusicSearches = [];
+  static const String _recentMusicSearchesKey = 'recent_music_searches';
+
   @override
   void initState() {
     super.initState();
     _selectedCategoryType = widget.initialCategoryType;
+    _searchFocusNode.addListener(_onSearchFocusChanged);
+    _loadRecentMusicSearches();
     _loadRecentlyPlayedTracks();
     _loadTodaysTopic();
   }
@@ -67,7 +82,66 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.removeListener(_onSearchFocusChanged);
+    _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _onSearchFocusChanged() {
+    setState(() {
+      _isSearchFocused = _searchFocusNode.hasFocus;
+    });
+  }
+
+  /// 最近の検索履歴を読み込み
+  Future<void> _loadRecentMusicSearches() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = prefs.getStringList(_recentMusicSearchesKey);
+    if (data != null && mounted) {
+      setState(() {
+        _recentMusicSearches = data
+            .map((e) => Map<String, String>.from(jsonDecode(e)))
+            .toList();
+      });
+    }
+  }
+
+  /// 最近の検索履歴に追加
+  Future<void> _addToRecentMusicSearches(TrackModel track) async {
+    final entry = {
+      'trackId': track.trackId,
+      'trackName': track.trackName,
+      'artistName': track.artistName,
+      'albumImageUrl': track.albumImageUrl ?? '',
+    };
+
+    _recentMusicSearches.removeWhere((e) => e['trackId'] == track.trackId);
+    _recentMusicSearches.insert(0, entry);
+
+    if (_recentMusicSearches.length > 10) {
+      _recentMusicSearches = _recentMusicSearches.sublist(0, 10);
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _recentMusicSearchesKey,
+      _recentMusicSearches.map((e) => jsonEncode(e)).toList(),
+    );
+
+    if (mounted) setState(() {});
+  }
+
+  /// 最近の検索履歴から削除
+  Future<void> _removeFromRecentMusicSearches(String trackId) async {
+    _recentMusicSearches.removeWhere((e) => e['trackId'] == trackId);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _recentMusicSearchesKey,
+      _recentMusicSearches.map((e) => jsonEncode(e)).toList(),
+    );
+
+    if (mounted) setState(() {});
   }
 
   /// 最近聞いた曲を読み込み
@@ -173,7 +247,10 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// 楽曲を検索
   Future<void> _searchTracks(String query) async {
-    if (query.isEmpty) {
+    final trimmed = query.trim();
+    setState(() => _currentSearchQuery = trimmed);
+
+    if (trimmed.isEmpty) {
       if (_selectedTab == 0) {
         _loadRecentlyPlayedTracks();
       } else if (_selectedTab == 1) {
@@ -189,7 +266,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final tracks = await _musicServiceManager.searchTracks(query, limit: 20);
+      final tracks = await _musicServiceManager.searchTracks(trimmed, limit: 20);
 
       if (mounted) {
         setState(() {
@@ -276,6 +353,8 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         _selectedTrack = null;
       } else {
         _selectedTrack = track;
+        // 検索履歴に追加
+        _addToRecentMusicSearches(track);
         // デバッグ: 選択した楽曲のpreviewURLを確認
         print('🎵 選択した楽曲: ${track.trackName} by ${track.artistName}');
         print('   previewUrl: "${track.previewUrl ?? "null"}"');
@@ -370,42 +449,48 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             // 検索バー
             _buildSearchBar(),
 
-            // Vibe/感情選択ボタン
-            _buildCategoryButtons(),
+            // 検索フォーカス中＆クエリ空 → 検索履歴を表示
+            if (_isSearchFocused && _currentSearchQuery.isEmpty) ...[
+              Expanded(
+                child: _buildRecentMusicSearches(),
+              ),
+            ] else ...[
+              // Vibe/感情選択ボタン
+              _buildCategoryButtons(),
 
-            // タブバー
-            _buildTabBar(),
+              // タブバー
+              _buildTabBar(),
 
-            // 区切り線
-            Container(
-              height: 1,
-              color: const Color(0xFF2D2D2D),
-            ),
+              // 区切り線
+              Container(
+                height: 1,
+                color: const Color(0xFF2D2D2D),
+              ),
 
-            // 楽曲リスト or グリッド
-            Expanded(
-              child: Stack(
-                children: [
-                  // 楽曲リスト/グリッド
-                  _isLoading
-                      ? const Center(
-                          child: CircularProgressIndicator(
-                            color: Color(0xFF5D8FFF),
-                          ),
-                        )
-                      : _tracks.isEmpty
-                          ? const Center(
-                              child: Text(
-                                '楽曲が見つかりませんでした',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF9F9F9F),
+              // 楽曲リスト or グリッド
+              Expanded(
+                child: Stack(
+                  children: [
+                    // 楽曲リスト/グリッド
+                    _isLoading
+                        ? const Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF5D8FFF),
+                            ),
+                          )
+                        : _tracks.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  '楽曲が見つかりませんでした',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF9F9F9F),
+                                  ),
                                 ),
-                              ),
-                            )
-                          : _isGridView
-                              ? _buildTrackGrid()
-                              : _buildTrackList(),
+                              )
+                            : _isGridView
+                                ? _buildTrackGrid()
+                                : _buildTrackList(),
 
                   // カテゴリー未選択時のオーバーレイ
                   if (_selectedCategoryType == null)
@@ -424,9 +509,10 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                         ),
                       ),
                     ),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -497,49 +583,81 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     );
   }
 
+  /// 検索キャンセル
+  void _onSearchCancel() {
+    _searchController.clear();
+    _searchTracks('');
+    _searchFocusNode.unfocus();
+    setState(() {
+      _currentSearchQuery = '';
+    });
+  }
+
   /// 検索バー
   Widget _buildSearchBar() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        height: 36,
-        decoration: BoxDecoration(
-          color: const Color(0xFF2D2D2D),
-          borderRadius: BorderRadius.circular(11),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 13),
-            const Icon(
-              Icons.search,
-              color: Color(0xFF9F9F9F),
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: _searchController,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.white,
-                ),
-                decoration: const InputDecoration(
-                  hintText: '検索',
-                  hintStyle: TextStyle(
-                    fontSize: 13,
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2D2D2D),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Row(
+                children: [
+                  const SizedBox(width: 13),
+                  const Icon(
+                    Icons.search,
                     color: Color(0xFF9F9F9F),
+                    size: 22,
                   ),
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(vertical: 8),
-                ),
-                onChanged: (value) {
-                  _searchTracks(value);
-                },
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      focusNode: _searchFocusNode,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: '検索',
+                        hintStyle: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF9F9F9F),
+                        ),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      onChanged: (value) {
+                        _searchTracks(value);
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+          if (_isSearchFocused)
+            GestureDetector(
+              onTap: _onSearchCancel,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 10),
+                child: Text(
+                  'キャンセル',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFF99999B),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -703,6 +821,128 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 最近の検索履歴セクション
+  Widget _buildRecentMusicSearches() {
+    if (_recentMusicSearches.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(left: 16, top: 12, bottom: 8),
+          child: Text(
+            '最近',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _recentMusicSearches.length,
+            itemBuilder: (context, index) {
+              final entry = _recentMusicSearches[index];
+              return _buildRecentMusicSearchItem(entry);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 最近の検索アイテム
+  Widget _buildRecentMusicSearchItem(Map<String, String> entry) {
+    return InkWell(
+      onTap: () {
+        // 検索フィールドに曲名を入れて検索
+        _searchController.text = entry['trackName'] ?? '';
+        _searchTracks(entry['trackName'] ?? '');
+        _searchFocusNode.unfocus();
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            // アルバムアート
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: (entry['albumImageUrl']?.isNotEmpty == true)
+                  ? CachedNetworkImage(
+                      imageUrl: entry['albumImageUrl']!,
+                      width: 44,
+                      height: 44,
+                      fit: BoxFit.cover,
+                      errorWidget: (_, __, ___) => Container(
+                        width: 44,
+                        height: 44,
+                        color: const Color(0xFF2D2D2D),
+                        child: const Icon(Icons.music_note, color: Color(0xFF9F9F9F), size: 24),
+                      ),
+                    )
+                  : Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2D2D2D),
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                      child: const Icon(Icons.music_note, color: Color(0xFF9F9F9F), size: 24),
+                    ),
+            ),
+            const SizedBox(width: 12),
+
+            // 曲情報
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry['trackName'] ?? 'Unknown',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (entry['artistName']?.isNotEmpty == true)
+                    Text(
+                      entry['artistName']!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF9F9F9F),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+
+            // 削除ボタン
+            GestureDetector(
+              onTap: () => _removeFromRecentMusicSearches(entry['trackId'] ?? ''),
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(
+                  Icons.close,
+                  size: 18,
+                  color: Color(0xFF9F9F9F),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

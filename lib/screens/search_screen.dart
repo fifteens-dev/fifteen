@@ -249,7 +249,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   const Icon(
                     Icons.search,
                     color: Color(0xFF9F9F9F),
-                    size: 18,
+                    size: 22,
                   ),
                   const SizedBox(width: 8),
                   Expanded(

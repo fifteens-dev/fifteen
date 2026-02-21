@@ -1,6 +1,6 @@
 {
-    "name": "fifteen",
-    "short_name": "fifteen",
+    "name": "Fifteens",
+    "short_name": "Fifteens",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

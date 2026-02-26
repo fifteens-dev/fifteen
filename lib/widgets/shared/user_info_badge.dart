@@ -7,12 +7,14 @@ class UserInfoBadge extends StatelessWidget {
   final String username;
   final String? iconUrl;
   final String? hashtagText;
+  final bool showBackground;
 
   const UserInfoBadge({
     super.key,
     required this.username,
     this.iconUrl,
     this.hashtagText,
+    this.showBackground = true,
   });
 
   @override
@@ -20,7 +22,7 @@ class UserInfoBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.5),
+        color: showBackground ? Colors.black.withOpacity(0.5) : null,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(

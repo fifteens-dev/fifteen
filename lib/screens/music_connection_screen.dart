@@ -205,7 +205,7 @@ class MusicConnectionScreen extends StatelessWidget {
     final musicServiceManager = MusicServiceManager();
     final settingsService = SettingsService();
 
-    // Apple Musicを選択
+    // Apple Musicを一時的に選択（login()がgetSelectedService()を参照するため）
     await musicServiceManager.setSelectedService(MusicServiceType.appleMusic);
 
     // Apple Music認証を試行
@@ -232,19 +232,20 @@ class MusicConnectionScreen extends StatelessWidget {
       // ホーム画面へ遷移
       Navigator.pushReplacementNamed(context, '/home');
     } else {
-      // 認証失敗: エラーメッセージを表示
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Apple Musicの連携に失敗しました。User Token認証が未実装です。'),
-          backgroundColor: Color(0xFFE53935),
-          duration: Duration(seconds: 3),
-        ),
-      );
-
-      // 連携なしでホーム画面へ遷移
+      // 認証失敗: サービス選択をリセット
+      await musicServiceManager.setSelectedService(MusicServiceType.none);
       await settingsService.saveAllLinkedServicesSettings(
         spotifyConnected: false,
         appleMusicConnected: false,
+      );
+
+      // エラーメッセージを表示
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Apple Musicの連携に失敗しました。Apple Musicのサブスクリプションが有効か確認してください。'),
+          backgroundColor: Color(0xFFE53935),
+          duration: Duration(seconds: 4),
+        ),
       );
 
       if (context.mounted) {

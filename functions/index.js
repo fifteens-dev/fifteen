@@ -330,24 +330,13 @@ exports.getBpm = onCall({ secrets: [getsongbpmApiKey] }, async (request) => {
 // ========== 投稿通知システム ==========
 
 /**
- * 日付文字列を取得（JST: Asia/Tokyo）
- * @returns {string} "YYYY-MM-DD"
- */
-function getTodayStringJST() {
-  const now = new Date();
-  // JSTはUTC+9
-  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  return jst.toISOString().slice(0, 10);
-}
-
-/**
  * 投稿通知を送信するヘルパー
- * notifications + push_notification_requests に書き込み
+ * Firestore通知書き込み + FCM直接送信（リアルタイム）
  */
 async function sendPostNotification(recipientId, senderId, senderUsername, senderIconUrl, message) {
   const db = admin.firestore();
 
-  // notifications コレクションに通知を作成
+  // notifications コレクションに通知を作成（アプリ内通知）
   await db.collection('notifications').add({
     type: 'post',
     recipientId: recipientId,
@@ -360,88 +349,44 @@ async function sendPostNotification(recipientId, senderId, senderUsername, sende
     readAt: null,
   });
 
-  // push_notification_requests に書き込み（既存のsendPushNotification関数が処理）
-  await db.collection('push_notification_requests').add({
-    recipientId: recipientId,
-    notificationType: 'post',
-    senderUsername: senderUsername,
-    message: message,
-    postId: '',
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    processed: false,
-  });
-}
+  // FCMプッシュ通知を直接送信（push_notification_requests キューを経由しない）
+  const tokenDoc = await db.collection('user_fcm_tokens').doc(recipientId).get();
+  if (!tokenDoc.exists || !tokenDoc.data().tokens) return;
 
-/**
- * 1人のフォロワーに対する投稿通知の状態管理
- * トランザクションで排他制御
- */
-async function processPostNotificationForRecipient(
-  recipientId, posterId, posterUsername, posterIconUrl, today
-) {
-  const db = admin.firestore();
-  const stateDocId = `${recipientId}_${today}`;
-  const stateRef = db.collection('post_notification_state').doc(stateDocId);
+  const tokens = tokenDoc.data().tokens.map(t => t.token).filter(Boolean);
+  if (tokens.length === 0) return;
 
-  const result = await db.runTransaction(async (tx) => {
-    const stateDoc = await tx.get(stateRef);
+  const payload = {
+    notification: {
+      title: senderUsername,
+      body: message,
+    },
+    data: {
+      notificationType: 'post',
+      postId: '',
+      click_action: 'FLUTTER_NOTIFICATION_CLICK',
+    },
+    tokens: tokens,
+  };
 
-    if (!stateDoc.exists) {
-      // その日初めての通知 → 即時送信 + 3時間タイマー開始
-      const now = Date.now();
-      tx.set(stateRef, {
-        recipientId: recipientId,
-        date: today,
-        notificationsSentToday: 1,
-        firstNotificationSenderId: posterId,
-        timerExpiresAt: admin.firestore.Timestamp.fromMillis(now + 3 * 60 * 60 * 1000),
-        batchedSenderIds: [],
-        phase: 'TIMER_ACTIVE',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      return { action: 'SEND_FIRST' };
-    }
+  const response = await admin.messaging().sendEachForMulticast(payload);
 
-    const state = stateDoc.data();
-
-    if (state.phase === 'DONE') {
-      // 2通送信済み → スキップ
-      return { action: 'SKIP' };
-    }
-
-    if (state.phase === 'TIMER_ACTIVE') {
-      // 同一投稿者の重複チェック
-      if (posterId === state.firstNotificationSenderId ||
-          (state.batchedSenderIds && state.batchedSenderIds.includes(posterId))) {
-        return { action: 'SKIP' };
+  // 無効なトークンを削除
+  if (response.failureCount > 0) {
+    const invalidTokens = [];
+    response.responses.forEach((resp, idx) => {
+      if (!resp.success && (
+        resp.error?.code === 'messaging/invalid-registration-token' ||
+        resp.error?.code === 'messaging/registration-token-not-registered'
+      )) {
+        invalidTokens.push(tokens[idx]);
       }
-      // バッチリストに追加（通知なし）
-      tx.update(stateRef, {
-        batchedSenderIds: admin.firestore.FieldValue.arrayUnion([posterId]),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      return { action: 'BATCH' };
+    });
+    if (invalidTokens.length > 0) {
+      const updatedTokens = tokenDoc.data().tokens.filter(t => !invalidTokens.includes(t.token));
+      await tokenDoc.ref.update({ tokens: updatedTokens });
+      console.log(`Removed ${invalidTokens.length} invalid tokens for ${recipientId}`);
     }
-
-    if (state.phase === 'TIMER_EXPIRED_EMPTY') {
-      // パターンB: タイマー後の最初の投稿 → 即時送信
-      tx.update(stateRef, {
-        notificationsSentToday: 2,
-        phase: 'DONE',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      return { action: 'SEND_SECOND' };
-    }
-
-    return { action: 'SKIP' };
-  });
-
-  // トランザクション外で通知送信
-  if (result.action === 'SEND_FIRST' || result.action === 'SEND_SECOND') {
-    const message = `${posterUsername}が投稿しました。`;
-    await sendPostNotification(recipientId, posterId, posterUsername, posterIconUrl, message);
-    console.log(`Post notification sent to ${recipientId}: ${message}`);
   }
 }
 
@@ -452,8 +397,7 @@ async function processPostNotificationForRecipient(
  *
  * 処理:
  * 1. 投稿者のフォロワーリストを取得
- * 2. 各フォロワーの通知状態をチェック＆更新
- * 3. 条件に応じて即時通知 or バッチリストに追加
+ * 2. 全フォロワーへ即時通知（スロットリングなし・リアルタイム）
  */
 exports.onPostCreated = onDocumentCreated(
   { document: 'posts/{postId}', timeoutSeconds: 300 },
@@ -462,6 +406,7 @@ exports.onPostCreated = onDocumentCreated(
     const posterId = post.userId;
     const posterUsername = post.username || 'Unknown';
     const posterIconUrl = post.userIconUrl || null;
+    const message = `${posterUsername}が投稿しました。`;
 
     if (!posterId) {
       console.log('onPostCreated: userId not found in post');
@@ -487,20 +432,18 @@ exports.onPostCreated = onDocumentCreated(
         return;
       }
 
-      const today = getTodayStringJST();
-      console.log(`onPostCreated: processing ${followers.length} followers for ${posterUsername}`);
+      console.log(`onPostCreated: notifying ${followers.length} followers for ${posterUsername}`);
 
-      // 10件ずつ並列処理
+      // 10件ずつ並列処理で全フォロワーに即時通知
       const batchSize = 10;
       for (let i = 0; i < followers.length; i += batchSize) {
         const batch = followers.slice(i, i + batchSize);
         await Promise.all(
           batch.map((followerId) =>
-            processPostNotificationForRecipient(
-              followerId, posterId, posterUsername, posterIconUrl, today
-            ).catch((err) => {
-              console.error(`Error processing notification for ${followerId}:`, err);
-            })
+            sendPostNotification(followerId, posterId, posterUsername, posterIconUrl, message)
+              .catch((err) => {
+                console.error(`Error notifying ${followerId}:`, err);
+              })
           )
         );
       }
@@ -508,76 +451,6 @@ exports.onPostCreated = onDocumentCreated(
       console.log(`onPostCreated: completed for ${posterUsername}`);
     } catch (error) {
       console.error('onPostCreated error:', error);
-    }
-  }
-);
-
-/**
- * 期限切れタイマーを処理するスケジュール関数
- *
- * 15分ごとに実行
- * TIMER_ACTIVE かつ timerExpiresAt <= now のドキュメントを検索し、
- * パターンA（バッチ通知）またはパターンB/C（TIMER_EXPIRED_EMPTYに遷移）を処理
- */
-exports.processExpiredTimers = onSchedule(
-  { schedule: 'every 15 minutes', timeZone: 'Asia/Tokyo' },
-  async () => {
-    const db = admin.firestore();
-    const now = admin.firestore.Timestamp.now();
-
-    try {
-      // 期限切れのTIMER_ACTIVEドキュメントを検索
-      const expiredDocs = await db
-        .collection('post_notification_state')
-        .where('phase', '==', 'TIMER_ACTIVE')
-        .where('timerExpiresAt', '<=', now)
-        .get();
-
-      if (expiredDocs.empty) {
-        console.log('processExpiredTimers: no expired timers found');
-        return;
-      }
-
-      console.log(`processExpiredTimers: processing ${expiredDocs.size} expired timers`);
-
-      for (const doc of expiredDocs.docs) {
-        const data = doc.data();
-        const batchedSenderIds = data.batchedSenderIds || [];
-
-        if (batchedSenderIds.length > 0) {
-          // パターンA: バッチ通知を送信
-          const count = batchedSenderIds.length;
-          const message = `${count}人が投稿しました`;
-
-          await sendPostNotification(
-            data.recipientId,
-            'system',
-            '15s',
-            null,
-            message
-          );
-
-          await doc.ref.update({
-            phase: 'DONE',
-            notificationsSentToday: 2,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          console.log(`Batch notification sent to ${data.recipientId}: ${message}`);
-        } else {
-          // パターンB/C: 次の投稿を待つ状態に遷移
-          await doc.ref.update({
-            phase: 'TIMER_EXPIRED_EMPTY',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          console.log(`Timer expired empty for ${data.recipientId}, waiting for next post`);
-        }
-      }
-
-      console.log('processExpiredTimers: completed');
-    } catch (error) {
-      console.error('processExpiredTimers error:', error);
     }
   }
 );
@@ -633,19 +506,24 @@ exports.dailyVibeTopicRotation = onSchedule(
       const todayEndTimestamp = admin.firestore.Timestamp.fromDate(todayEnd);
 
       // 1. 昨日までのactiveなお題をarchivedに
-      const oldActiveTopics = await db
+      // ※ status + date の複合インデックスを避けるため、statusのみでクエリしてコード側で日付フィルタ
+      const activeTopics = await db
         .collection('vibe_topics')
         .where('status', '==', 'active')
-        .where('date', '<', todayTimestamp)
         .get();
 
-      for (const doc of oldActiveTopics.docs) {
-        await doc.ref.update({
-          status: 'archived',
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+      let archivedCount = 0;
+      for (const doc of activeTopics.docs) {
+        const topicDate = doc.data().date.toDate();
+        if (topicDate < todayStart) {
+          await doc.ref.update({
+            status: 'archived',
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          archivedCount++;
+        }
       }
-      console.log(`Archived ${oldActiveTopics.size} old active topics`);
+      console.log(`Archived ${archivedCount} old active topics`);
 
       // 2. 今日の日付のお題があるかチェック
       const todaysTopics = await db

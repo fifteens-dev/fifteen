@@ -14,6 +14,7 @@ class UserModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final bool isAdmin; // 管理者フラグ
+  final String? inviteCode; // 招待コード（7文字英数字）
 
   UserModel({
     required this.uid,
@@ -29,6 +30,7 @@ class UserModel {
     this.createdAt,
     this.updatedAt,
     this.isAdmin = false,
+    this.inviteCode,
   });
 
   // Firestoreドキュメントから作成
@@ -49,6 +51,7 @@ class UserModel {
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
       isAdmin: data['isAdmin'] ?? false,
+      inviteCode: data['inviteCode'],
     );
   }
 
@@ -68,6 +71,7 @@ class UserModel {
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : null,
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
       'isAdmin': isAdmin,
+      'inviteCode': inviteCode,
     };
   }
 

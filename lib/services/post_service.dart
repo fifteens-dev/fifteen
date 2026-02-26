@@ -195,6 +195,41 @@ class PostService {
     }).toList();
   }
 
+  /// フォロー中のユーザーの投稿を取得（Firestore whereIn のバッチ処理）
+  Future<List<PostModel>> getPostsForFollowing(List<String> userIds, {int limit = 50}) async {
+    if (userIds.isEmpty) return [];
+
+    try {
+      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+      final allPosts = <PostModel>[];
+
+      // Firestore whereIn は最大30件制限のためバッチ処理
+      for (int i = 0; i < userIds.length; i += 30) {
+        final batch = userIds.skip(i).take(30).toList();
+        final snapshot = await _firestore
+            .collection(_postsCollection)
+            .where('userId', whereIn: batch)
+            .limit(limit)
+            .get();
+
+        allPosts.addAll(
+          snapshot.docs
+              .map((doc) => PostModel.fromFirestore(doc))
+              .where((post) => post.createdAt.isAfter(cutoff)),
+        );
+      }
+
+      allPosts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final limited = allPosts.take(limit).toList();
+      return await _applyLatestUserInfo(limited);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting posts for following: $e');
+      }
+      return [];
+    }
+  }
+
   /// 投稿のリアルタイムストリームを取得
   ///
   /// このメソッドはFirestoreのsnapshotsを使用して、リアルタイムで投稿データを取得します。

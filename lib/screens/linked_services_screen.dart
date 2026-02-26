@@ -356,8 +356,11 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
 
     setState(() => _isLoading = true);
 
+    // 前のサービスを記憶（失敗時のリセット用）
+    final previousService = _selectedService;
+
     try {
-      // サービスを選択
+      // サービスを選択（login()がgetSelectedService()を参照するため先に設定）
       await _manager.setSelectedService(service);
 
       // ログイン実行
@@ -373,16 +376,27 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
           );
           await _loadSettings();
         } else {
+          // 失敗時は前のサービスに戻す
+          await _manager.setSelectedService(previousService);
+
+          String errorMessage = '${service.displayName}の連携に失敗しました';
+          if (service == MusicServiceType.appleMusic) {
+            errorMessage = 'Apple Musicの連携に失敗しました。Apple Musicのサブスクリプションが有効か確認してください。';
+          }
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('${service.displayName}の連携に失敗しました'),
+              content: Text(errorMessage),
               backgroundColor: const Color(0xFFE53935),
+              duration: const Duration(seconds: 4),
             ),
           );
           setState(() => _isLoading = false);
         }
       }
     } catch (e) {
+      // 例外時も前のサービスに戻す
+      await _manager.setSelectedService(previousService);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

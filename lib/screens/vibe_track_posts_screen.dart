@@ -59,7 +59,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
         backgroundColor: AppColors.background,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
@@ -104,6 +104,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
       ),
       body: PageView.builder(
         controller: _pageController,
+        scrollDirection: Axis.vertical,
         onPageChanged: (index) {
           setState(() {
             _currentPage = index;
@@ -121,16 +122,10 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                   currentUserId: widget.currentUserId,
                   currentUserIconUrl: _currentUserIconUrl,
                   audioService: _audioService,
-                  autoFlipAfterDelay: true, // すぐに裏返す
-                  onLike: () {
-                    // いいね処理（必要に応じて実装）
-                  },
-                  onComment: () {
-                    // コメント処理（必要に応じて実装）
-                  },
-                  onAdd: () {
-                    // 保存処理（必要に応じて実装）
-                  },
+                  autoFlipAfterDelay: true,
+                  onLike: () {},
+                  onComment: () {},
+                  onAdd: () {},
                 ),
               ),
             ),

@@ -1,39 +1,68 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
+import '../models/post_model.dart';
+import '../models/post_theme.dart';
+import '../widgets/post_card.dart';
+import '../widgets/post_card/post_card_constants.dart';
+import '../widgets/post_card_back_info.dart';
+import '../widgets/post_creation/lyrics_card_layouts.dart';
+import '../widgets/dialogs/dialogs.dart';
+import '../services/audio_player_service.dart';
+import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
+import '../services/lyrics_service.dart';
+import '../utils/color_extractor.dart';
 import '../utils/current_user_helper.dart';
 import '../utils/photo_helper.dart';
 import '../widgets/shared/user_info_badge.dart';
-import '../widgets/post_creation/lyrics_card_layouts.dart';
-import 'home_screen.dart';
 
 /// 投稿カード最終プレビュー画面
+/// PostPreviewScreenと同じカード仕様（フリップ・音楽再生）で表示する
 class PostFinalPreviewScreen extends StatefulWidget {
   final TrackModel track;
   final XFile? selectedImage;
+  final Offset imageOffset;
+  final double imageScale;
+  final Size? imageNaturalSize;
   final int selectedLayoutIndex;
   final Offset cardPosition;
   final double cardScale;
   final double cardRotation;
   final bool isVibe;
+  final String? vibeTopicId;
   final String? vibeTopicTitle;
+  final LyricsData? lyricsData;
+  final int audioStartMs;
+  final int audioDurationSec;
+  final Color? preExtractedGradientStart;
+  final Color? preExtractedGradientEnd;
 
   const PostFinalPreviewScreen({
     super.key,
     required this.track,
     this.selectedImage,
+    this.imageOffset = Offset.zero,
+    this.imageScale = 1.0,
+    this.imageNaturalSize,
     required this.selectedLayoutIndex,
     this.cardPosition = Offset.zero,
     this.cardScale = 1.0,
     this.cardRotation = 0.0,
     this.isVibe = false,
+    this.vibeTopicId,
     this.vibeTopicTitle,
+    this.lyricsData,
+    this.audioStartMs = 0,
+    this.audioDurationSec = 15,
+    this.preExtractedGradientStart,
+    this.preExtractedGradientEnd,
   });
 
   @override
@@ -41,11 +70,34 @@ class PostFinalPreviewScreen extends StatefulWidget {
       _PostFinalPreviewScreenState();
 }
 
-class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
+class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
+    with TickerProviderStateMixin {
+  // 音楽再生サービス
+  final AudioPlayerService _audioService = AudioPlayerService();
+  String? _cachedPreviewUrl;
+
+  // 投稿関連
   final PostService _postService = PostService();
   final StorageService _storageService = StorageService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   bool _isPosting = false;
+
+  // 反転アニメーション用（最終プレビューは常に裏面から開始）
+  late AnimationController _flipController;
+  late Animation<double> _flipAnimation;
+  bool _showFront = false;
+
+  // 再生ボタンアニメーション用
+  late AnimationController _playButtonAnimController;
+  late Animation<double> _playButtonScaleAnim;
+  late Animation<double> _playButtonOpacityAnim;
+
+  // アルバムアートから抽出した色（裏面のテーマ用）
+  Color? _extractedGradientStart;
+  Color? _extractedGradientEnd;
+  bool _isColorExtracting = false;
+
+  // 現在のユーザー情報
   String _currentUsername = '';
   String? _currentUserIconUrl;
 
@@ -53,6 +105,63 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
   void initState() {
     super.initState();
     _loadCurrentUserInfo();
+
+    // 最初から裏面を表示するため value: 1.0 で初期化
+    _flipController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+      value: 1.0,
+    );
+    _flipAnimation = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
+    );
+
+    // 再生ボタンアニメーション（PostCardと同一仕様）
+    _playButtonAnimController = AnimationController(
+      duration: PostCardConstants.playButtonAnimationDuration,
+      vsync: this,
+    );
+    _playButtonScaleAnim = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(_playButtonAnimController);
+    _playButtonOpacityAnim = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(_playButtonAnimController);
+
+    // 事前抽出された色があれば使用、なければ色抽出を実行
+    if (widget.preExtractedGradientStart != null &&
+        widget.preExtractedGradientEnd != null) {
+      _extractedGradientStart = widget.preExtractedGradientStart;
+      _extractedGradientEnd = widget.preExtractedGradientEnd;
+    } else {
+      _extractColorsFromAlbumArt();
+    }
+
+    // 最初から裏面表示なので、ビルド後すぐに音楽を再生
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _playMusicPreview();
+        _playButtonAnimController.forward(from: 0.0);
+      }
+    });
   }
 
   Future<void> _loadCurrentUserInfo() async {
@@ -65,9 +174,144 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
     }
   }
 
+  /// アルバムアートから色を抽出
+  Future<void> _extractColorsFromAlbumArt() async {
+    if (_isColorExtracting) return;
+    setState(() => _isColorExtracting = true);
+    try {
+      final imageUrl = widget.track.albumImageUrl;
+      if (imageUrl.isNotEmpty) {
+        final extractedColors =
+            await ColorExtractor.extractGradientColors(imageUrl);
+        if (mounted) {
+          setState(() {
+            _extractedGradientStart = extractedColors.$1;
+            _extractedGradientEnd = extractedColors.$2;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Color extraction error: $e');
+    } finally {
+      if (mounted) setState(() => _isColorExtracting = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _flipController.dispose();
+    _playButtonAnimController.dispose();
+    _audioService.stop();
+    super.dispose();
+  }
+
+  /// カードを反転
+  void _flipCard() {
+    if (_showFront) {
+      _flipController.forward().then((_) {
+        if (mounted && !_showFront) {
+          _playButtonAnimController.forward(from: 0.0);
+        }
+      });
+      _playMusicPreview();
+    } else {
+      _flipController.reverse();
+    }
+    setState(() {
+      _showFront = !_showFront;
+    });
+  }
+
+  /// 音楽のプレビューを再生
+  Future<void> _playMusicPreview() async {
+    var previewUrl = widget.track.previewUrl;
+
+    if (previewUrl == null || previewUrl.isEmpty) {
+      previewUrl = await _getPreviewUrlFromItunes();
+    }
+
+    if (previewUrl != null && previewUrl.isNotEmpty) {
+      _cachedPreviewUrl = previewUrl;
+      try {
+        await _audioService.playPreview(
+          previewUrl,
+          startFrom: Duration(milliseconds: widget.audioStartMs),
+          durationSeconds: widget.audioDurationSec,
+        );
+      } catch (e) {
+        print('❌ 音楽プレビュー再生エラー: $e');
+      }
+    }
+  }
+
+  /// iTunesからプレビューURLを取得
+  Future<String?> _getPreviewUrlFromItunes() async {
+    try {
+      final itunesService = ITunesSearchService();
+      final tracks = await itunesService.searchTracks(
+        '${widget.track.trackName} ${widget.track.artistName}',
+        limit: 1,
+      );
+      if (tracks.isNotEmpty && tracks.first.previewUrl != null) {
+        return tracks.first.previewUrl;
+      }
+    } catch (e) {
+      print('❌ iTunes API取得エラー: $e');
+    }
+    return null;
+  }
+
+  /// 裏面用の動的テーマを生成
+  PostTheme _getDynamicThemeForBack() {
+    if (_extractedGradientStart != null && _extractedGradientEnd != null) {
+      return ColorExtractor.createThemeFromColors(
+        _extractedGradientStart!,
+        _extractedGradientEnd!,
+      );
+    }
+    return PostTheme.defaultTheme;
+  }
+
+  /// ダミーのPostModelを作成（表面プレビュー用）
+  PostModel _createDummyPost() {
+    final now = DateTime.now();
+    return PostModel(
+      postId: 'preview_post',
+      userId: 'preview_user',
+      username: _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
+      userIconUrl: _currentUserIconUrl,
+      track: widget.track,
+      likeCount: 3,
+      commentCount: 3,
+      likedUserIds: [],
+      createdAt: now,
+      updatedAt: now,
+      theme: PostTheme.defaultTheme,
+    );
+  }
+
+  /// 再生ボタンタップ時の処理
+  Future<void> _handlePlayButtonTap() async {
+    _playButtonAnimController.forward(from: 0.0);
+
+    final isPlaying = _cachedPreviewUrl != null &&
+        _audioService.isPlayingUrl(_cachedPreviewUrl!);
+
+    if (isPlaying) {
+      _audioService.pause();
+    } else if (_audioService.isPaused && _cachedPreviewUrl != null) {
+      _audioService.resume();
+    } else {
+      await _playMusicPreview();
+    }
+  }
+
   /// 投稿を完了
   Future<void> _onPost() async {
     if (_isPosting) return;
+
+    final confirmed = await ActionDialog.showPostConfirm(context);
+    if (!confirmed) return;
 
     setState(() => _isPosting = true);
 
@@ -79,16 +323,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
           : currentUser?.displayName ?? 'ユーザー';
       final userIconUrl = _currentUserIconUrl;
 
-      print('📝 投稿作成開始...');
-      print('  ユーザーID: $userId');
-      print('  ユーザー名: $username');
-      print('  楽曲: ${widget.track.trackName} - ${widget.track.artistName}');
-      print('  選択された写真: ${widget.selectedImage != null ? "あり" : "なし"}');
-      if (widget.selectedImage != null) {
-        print('  写真パス: ${widget.selectedImage!.path}');
-      }
-
-      // 写真を処理（PhotoHelperを使用）
+      // 写真を処理
       String? photoUrl;
       if (widget.selectedImage != null) {
         try {
@@ -98,50 +333,64 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
             storageService: _storageService,
           );
         } catch (e) {
-          print('⚠️  写真の処理に失敗: $e');
-          // 写真の処理に失敗してもエラーにせず、photoUrl無しで投稿
+          print('⚠️ 写真の処理に失敗: $e');
           photoUrl = null;
         }
       }
 
+      // アルバムアートから色を抽出してテーマを生成
+      PostTheme? extractedTheme;
+      try {
+        extractedTheme = await ColorExtractor.extractThemeFromAlbumArt(
+          widget.track.albumImageUrl,
+        );
+      } catch (e) {
+        extractedTheme = null;
+      }
+
+      // 歌詞テキストを取得
+      String? lyricsText;
+      if (widget.lyricsData != null) {
+        final lyricsService = LyricsService();
+        lyricsText = lyricsService.truncateLyrics(
+          widget.lyricsData!.plainLyrics,
+          maxLines: 4,
+        );
+      }
+
       // 投稿を作成
-      print('📤 投稿データを保存中...');
-      print('  photoUrl: ${PhotoHelper.formatPhotoUrlForLog(photoUrl)}');
       final postId = await _postService.createPost(
         userId: userId,
         username: username,
         userIconUrl: userIconUrl,
         trackData: widget.track.toMap(),
         photoUrl: photoUrl,
+        imageOffsetX: widget.imageOffset.dx,
+        imageOffsetY: widget.imageOffset.dy,
+        imageScale: widget.imageScale,
+        imageNaturalWidth: widget.imageNaturalSize?.width ?? 0,
+        imageNaturalHeight: widget.imageNaturalSize?.height ?? 0,
         selectedLayoutIndex: widget.selectedLayoutIndex,
         cardPositionX: widget.cardPosition.dx,
         cardPositionY: widget.cardPosition.dy,
         cardScale: widget.cardScale,
         cardRotation: widget.cardRotation,
+        isVibe: widget.isVibe,
+        vibeTopicId: widget.vibeTopicId,
+        vibeTopicTitle: widget.vibeTopicTitle,
+        theme: extractedTheme,
+        lyricsText: lyricsText,
+        audioStartMs: widget.audioStartMs,
+        audioDurationSec: widget.audioDurationSec,
       );
 
       print('✅ 投稿を作成しました: $postId');
-      print('📤 Firestoreに保存されました');
 
-      // ホーム画面に戻る（全てのスタックをクリア）
       if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/home',
           (route) => false,
         );
-
-        // 投稿成功メッセージを表示
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('投稿しました'),
-                backgroundColor: Color(0xFF4CAF50),
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-        });
       }
     } catch (e) {
       print('投稿作成エラー: $e');
@@ -165,16 +414,40 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
         bottom: false,
         child: Column(
           children: [
-            // ヘッダー
             _buildHeader(),
-
-            // 投稿カードプレビュー（スクロール可能）
             Expanded(
               child: SingleChildScrollView(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   child: Center(
-                    child: _buildPostCard(),
+                    child: AnimatedBuilder(
+                      animation: _flipAnimation,
+                      builder: (context, child) {
+                        final angle = _flipAnimation.value * pi;
+                        final isFront = angle < pi / 2;
+
+                        return Transform(
+                          alignment: Alignment.center,
+                          transform: Matrix4.identity()
+                            ..setEntry(3, 2, 0.001)
+                            ..rotateY(angle),
+                          child: isFront
+                              ? PostCard(
+                                  post: _createDummyPost(),
+                                  audioService: _audioService,
+                                  showFrontOnly: true,
+                                  hideReactionCounts: true,
+                                  onCardTap: _flipCard,
+                                  preExtractedGradientStart:
+                                      _extractedGradientStart,
+                                  preExtractedGradientEnd:
+                                      _extractedGradientEnd,
+                                  externalPreviewUrl: _cachedPreviewUrl,
+                                )
+                              : _buildBackCard(),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -182,7 +455,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
           ],
         ),
       ),
-    );  
+    );
   }
 
   /// ヘッダー
@@ -192,15 +465,15 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 19),
       child: Row(
         children: [
-          // 閉じるボタン
+          // 戻るボタン（くの字）- ダイアログなし
           Expanded(
             child: Align(
               alignment: Alignment.centerLeft,
               child: GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: const Icon(
-                  Icons.close,
-                  color: Colors.white,
+                onTap: _isPosting ? null : () => Navigator.pop(context),
+                child: Icon(
+                  Icons.arrow_back_ios,
+                  color: _isPosting ? Colors.grey : Colors.white,
                   size: 27,
                 ),
               ),
@@ -221,18 +494,20 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
           Expanded(
             child: Align(
               alignment: Alignment.centerRight,
-              child: GestureDetector(
-                onTap: _isPosting ? null : _onPost,
-                child: _isPosting
-                    ? const SizedBox(
-                        width: 15,
-                        height: 15,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Color(0xFF5D8FFF),
+              child: _isPosting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFF5D8FFF),
                         ),
-                      )
-                    : const Text(
+                      ),
+                    )
+                  : GestureDetector(
+                      onTap: _onPost,
+                      child: const Text(
                         '投稿する',
                         style: TextStyle(
                           fontSize: 15,
@@ -240,7 +515,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
                           color: Color(0xFF5D8FFF),
                         ),
                       ),
-              ),
+                    ),
             ),
           ),
         ],
@@ -248,111 +523,214 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
     );
   }
 
-  /// 投稿カード
-  Widget _buildPostCard() {
-    return Container(
-      width: 363,
-      height: 644,
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFA0A0A0),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        children: [
-          // カード上部（写真 + 歌詞カード部分）
-          _buildPhotoSection(),
+  /// 投稿カード（裏面）
+  Widget _buildBackCard() {
+    const cardHeight = 644.0;
+    const photoHeight = 484.0;
 
-          // カード下部（楽曲情報部分）
-          _buildInfoSection(),
-        ],
-      ),
-    );
-  }
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.identity()..rotateY(pi),
+      child: GestureDetector(
+        onTap: _flipCard,
+        child: Container(
+          width: 363,
+          height: cardHeight,
+          decoration: BoxDecoration(
+            color: const Color(0xFF121212),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Stack(
+              children: [
+                // 上部エリア（写真部分）
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  width: 363,
+                  height: photoHeight,
+                  child: _buildPhotoSectionBack(),
+                ),
 
-  /// 写真セクション（歌詞カードオーバーレイ付き）
-  Widget _buildPhotoSection() {
-    return Container(
-      height: 484,
-      decoration: const BoxDecoration(
-        color: Color(0xFF121212),
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(18),
-          topRight: Radius.circular(18),
+                // 下部エリア（楽曲情報）
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _buildInfoSectionBack(),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
-      child: Stack(
-        children: [
-          // 白い枠
-          Positioned(
-            left: 7,
-            top: 9,
-            right: 7,
-            bottom: 17,
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: Colors.white,
-                  width: 1,
-                ),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Stack(
-                  children: [
-                    // 選択された写真を表示
-                    if (widget.selectedImage != null)
-                      Positioned.fill(
-                        child: kIsWeb
-                            ? Image.network(
-                                widget.selectedImage!.path,
-                                fit: BoxFit.cover,
-                              )
-                            : Image.file(
-                                File(widget.selectedImage!.path),
-                                fit: BoxFit.cover,
-                              ),
-                      )
-                    else
-                      // 写真が選択されていない場合
-                      Container(
-                        color: const Color(0xFF121212),
-                      ),
-
-                    // 暗いオーバーレイ
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-
-                    // 選択された歌詞カードレイアウトを表示
-                    _buildLyricsCardOverlay(),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // ユーザー情報
-          Positioned(
-            left: 15,
-            top: 15,
-            child: _buildUserInfo(),
-          ),
-        ],
-      ),
     );
   }
 
-  /// 歌詞カードオーバーレイ
-  Widget _buildLyricsCardOverlay() {
-    // 共通ウィジェットを使用してレイアウトを表示
-    final layoutType = LyricsCardLayout.getLayoutType(widget.selectedLayoutIndex);
+  /// 写真セクション（裏面）
+  Widget _buildPhotoSectionBack() {
+    const frameW = 363.0;
+    const frameH = 484.0;
 
-    // 歌詞カードを指定位置に配置（スケールと回転を適用）
+    // 画像表示サイズを事前計算
+    double? displayW, displayH;
+    if (widget.imageNaturalSize != null) {
+      final natW = widget.imageNaturalSize!.width;
+      final natH = widget.imageNaturalSize!.height;
+      if (natW > 0 && natH > 0) {
+        final baseScale = max(frameW / natW, frameH / natH);
+        displayW = natW * baseScale;
+        displayH = natH * baseScale;
+      }
+    }
+
+    return Stack(
+      children: [
+        // 白い枠
+        Positioned(
+          left: 0,
+          top: 0,
+          width: frameW,
+          height: frameH,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(18.0),
+                topRight: Radius.circular(18.0),
+              ),
+              child: Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  // 選択された写真
+                  if (widget.selectedImage != null && displayW != null)
+                    Positioned(
+                      left: widget.imageOffset.dx,
+                      top: widget.imageOffset.dy,
+                      child: Transform.scale(
+                        scale: widget.imageScale,
+                        alignment: Alignment.topLeft,
+                        child: SizedBox(
+                          width: displayW,
+                          height: displayH!,
+                          child: kIsWeb
+                              ? Image.network(
+                                  widget.selectedImage!.path,
+                                  fit: BoxFit.fill,
+                                )
+                              : Image.file(
+                                  File(widget.selectedImage!.path),
+                                  fit: BoxFit.fill,
+                                ),
+                        ),
+                      ),
+                    )
+                  else if (widget.selectedImage != null)
+                    Positioned.fill(
+                      child: kIsWeb
+                          ? Image.network(widget.selectedImage!.path,
+                              fit: BoxFit.cover)
+                          : Image.file(File(widget.selectedImage!.path),
+                              fit: BoxFit.cover),
+                    )
+                  else
+                    Positioned.fill(
+                      child: Container(color: const Color(0xFF121212)),
+                    ),
+
+                  // 歌詞カード（固定表示）
+                  _buildLyricsCardBack(),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // 再生ボタン（写真エリア中央）
+        Positioned(
+          left: (frameW - PostCardConstants.playButtonSize) / 2,
+          top: (frameH - PostCardConstants.playButtonSize) / 2,
+          child: _buildPlayButton(),
+        ),
+
+        // ユーザー情報（左上）
+        Positioned(
+          left: 15,
+          top: 15,
+          child: _buildUserInfoBack(),
+        ),
+      ],
+    );
+  }
+
+  /// 再生ボタン
+  Widget _buildPlayButton() {
+    return StreamBuilder<PlayerState>(
+      stream: _audioService.playerStateStream,
+      builder: (context, snapshot) {
+        final isPlaying = _cachedPreviewUrl != null &&
+            _audioService.isPlayingUrl(_cachedPreviewUrl!);
+
+        return GestureDetector(
+          onTap: _handlePlayButtonTap,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            width: PostCardConstants.playButtonSize,
+            height: PostCardConstants.playButtonSize,
+            color: Colors.transparent,
+            child: AnimatedBuilder(
+              animation: _playButtonAnimController,
+              builder: (context, child) {
+                return Opacity(
+                  opacity: _playButtonOpacityAnim.value,
+                  child: Transform.scale(
+                    scale: _playButtonScaleAnim.value,
+                    child: Container(
+                      width: PostCardConstants.playButtonSize,
+                      height: PostCardConstants.playButtonSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withOpacity(
+                            PostCardConstants.playButtonBackgroundOpacity),
+                        border: Border.all(
+                          color: Colors.white,
+                          width: PostCardConstants.playButtonBorderWidth,
+                        ),
+                      ),
+                      child: Icon(
+                        isPlaying ? Icons.pause : Icons.play_arrow,
+                        color: Colors.white,
+                        size: PostCardConstants.playButtonIconSize,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 歌詞カード（裏面・固定表示）
+  Widget _buildLyricsCardBack() {
+    final layoutType =
+        LyricsCardLayout.getLayoutType(widget.selectedLayoutIndex);
+
+    // 歌詞テキストを取得
+    String? lyricsText;
+    if (widget.lyricsData != null) {
+      final lyricsService = LyricsService();
+      lyricsText = lyricsService.truncateLyrics(
+        widget.lyricsData!.plainLyrics,
+        maxLines: 4,
+      );
+    }
+
     return Positioned(
       left: widget.cardPosition.dx,
       top: widget.cardPosition.dy,
@@ -365,204 +743,39 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen> {
           child: LyricsCardLayout(
             layoutType: layoutType,
             track: widget.track,
+            lyricsText: lyricsText,
           ),
         ),
       ),
     );
   }
 
-  /// ユーザー情報
-  Widget _buildUserInfo() {
+  /// ユーザー情報（裏面）
+  Widget _buildUserInfoBack() {
     return UserInfoBadge(
       username: _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
       iconUrl: _currentUserIconUrl,
       hashtagText: widget.isVibe && widget.vibeTopicTitle != null
           ? '#${widget.vibeTopicTitle}'
           : null,
+      showBackground: false,
     );
   }
 
-  /// 情報セクション
-  Widget _buildInfoSection() {
-    return Expanded(
-      child: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0x00030303),
-              Color(0xFF030303),
-            ],
-            stops: [0.0377, 1.0],
-          ),
-          borderRadius: BorderRadius.only(
-            bottomLeft: Radius.circular(18),
-            bottomRight: Radius.circular(18),
-          ),
-        ),
-        child: Column(
-          children: [
-            const SizedBox(height: 7),
-            // Apple Music クレジット
-            _buildAppleMusicCredit(),
+  /// 情報セクション（裏面）
+  Widget _buildInfoSectionBack() {
+    final theme = _getDynamicThemeForBack();
 
-            const Spacer(),
-
-            // 楽曲情報
-            _buildTrackInfo(),
-
-            const SizedBox(height: 4),
-
-            // リアクション欄
-            _buildReactions(),
-
-            const SizedBox(height: 7),
-
-            // コメント入力欄
-            _buildCommentInput(),
-
-            const SizedBox(height: 10),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Apple Music クレジット
-  Widget _buildAppleMusicCredit() {
-    return const Padding(
-      padding: EdgeInsets.only(left: 15),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          'Provided courtesy of Apple Music',
-          style: TextStyle(
-            fontSize: 10,
-            color: Color(0xFFB0B0B0),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 楽曲情報
-  Widget _buildTrackInfo() {
-    return Padding(
-      padding: const EdgeInsets.only(left: 12),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.track.trackName,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                height: 1.198,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              widget.track.artistName,
-              style: const TextStyle(
-                fontSize: 13,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// リアクション欄
-  Widget _buildReactions() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          // いいねボタン（カウント非表示）
-          Icon(
-            Icons.favorite_border,
-            color: Colors.white,
-            size: 25,
-          ),
-          const SizedBox(width: 12),
-
-          // コメントボタン（カウント非表示）
-          SvgPicture.asset(
-            'assets/icons/message_circle.svg',
-            width: 25,
-            height: 25,
-            colorFilter: const ColorFilter.mode(
-              Colors.white,
-              BlendMode.srcIn,
-            ),
-          ),
-          const SizedBox(width: 12),
-
-          // 追加ボタン
-          Container(
-            width: 23,
-            height: 23,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white,
-                width: 1,
-              ),
-            ),
-            child: const Icon(
-              Icons.add,
-              color: Colors.white,
-              size: 14,
-            ),
-          ),
-
-          const Spacer(),
-        ],
-      ),
-    );
-  }
-
-  /// コメント入力欄
-  Widget _buildCommentInput() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Container(
-        height: 43,
-        decoration: BoxDecoration(
-          color: const Color(0xFF313131),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Row(
-          children: [
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'コメントする',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-            // 送信ボタン
-            Padding(
-              padding: EdgeInsets.only(right: 10),
-              child: Icon(
-                Icons.send,
-                color: Colors.white,
-                size: 23,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return PostCardBackInfo(
+      track: widget.track,
+      theme: theme,
+      likeCount: 3,
+      commentCount: 3,
+      isLiked: false,
+      showCounts: false,
+      onLike: () {},
+      onComment: () {},
+      onAdd: () {},
     );
   }
 }

@@ -33,6 +33,7 @@ class AudioPlayerService {
   AudioPlayer? _audioPlayer;
   String? _currentUrl;
   StreamSubscription<Duration>? _positionSubscription;
+  StreamSubscription<PlayerState>? _stateSubscription;
   Duration _startFrom = Duration.zero;
   int _durationSeconds = 15;
 
@@ -45,10 +46,31 @@ class AudioPlayerService {
   /// ループ監視を開始（startFrom〜startFrom+duration区間）
   void _startLoopMonitor() {
     _positionSubscription?.cancel();
+    _stateSubscription?.cancel();
+
     final loopEnd = _startFrom + Duration(seconds: _durationSeconds);
+
+    // ポジションベースのループ（区間終端を超えたらシーク）
     _positionSubscription = _player.positionStream.listen((position) {
       if (position >= loopEnd && _player.playing) {
         _player.seek(_startFrom);
+      }
+    });
+
+    // ステートベースのループ（ファイル終端まで再生された場合の補完）
+    // loopEnd がファイル長と一致する場合（例: 最後の15秒を切り取った場合）、
+    // positionStream の更新前に playing=false になりループが発動しないため、
+    // processingState.completed を監視して確実にシーク＆再生する
+    _stateSubscription = _player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed &&
+          _currentUrl != null) {
+        _player.seek(_startFrom).then((_) {
+          if (_currentUrl != null) {
+            _player.play().catchError((e) {
+              print('❌ Loop re-play error: $e');
+            });
+          }
+        });
       }
     });
   }
@@ -101,9 +123,12 @@ class AudioPlayerService {
       // ループ監視を開始
       _startLoopMonitor();
 
-      // 再生開始
+      // 再生開始（awaitしない: ループはモニター内で管理するため、
+      // play()の完了を待つ必要はなく、即座にreturnして呼び出し元をブロックしない）
       print('▶️ Starting playback...');
-      await _player.play();
+      _player.play().catchError((e) {
+        print('❌ Play error: $e');
+      });
 
       print('✅ Successfully playing preview');
     } catch (e, stackTrace) {
@@ -149,10 +174,12 @@ class AudioPlayerService {
     try {
       _positionSubscription?.cancel();
       _positionSubscription = null;
-      await _player.stop();
-      _currentUrl = null;
+      _stateSubscription?.cancel();
+      _stateSubscription = null;
+      _currentUrl = null; // 先にnullにしてループ再開を防ぐ
       _startFrom = Duration.zero;
       _durationSeconds = 15;
+      await _player.stop();
       print('Stopped playback');
     } catch (e) {
       print('Error stopping playback: $e');
@@ -205,6 +232,8 @@ class AudioPlayerService {
   Future<void> dispose() async {
     _positionSubscription?.cancel();
     _positionSubscription = null;
+    _stateSubscription?.cancel();
+    _stateSubscription = null;
     await _audioPlayer?.dispose();
     _audioPlayer = null;
     _currentUrl = null;

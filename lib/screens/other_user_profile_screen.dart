@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
@@ -8,11 +7,11 @@ import '../services/user_service.dart';
 import '../services/post_service.dart';
 import '../services/audio_player_service.dart';
 import '../widgets/profile_widgets.dart';
+import 'follow_list_screen.dart';
 
 /// プロフィール画面（他人）
-/// Figmaデザインに基づいた他のユーザーのプロフィール画面
 class OtherUserProfileScreen extends StatefulWidget {
-  final String userId; // 表示するユーザーのID
+  final String userId;
 
   const OtherUserProfileScreen({
     super.key,
@@ -23,10 +22,12 @@ class OtherUserProfileScreen extends StatefulWidget {
   State<OtherUserProfileScreen> createState() => _OtherUserProfileScreenState();
 }
 
-class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
+class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
+    with SingleTickerProviderStateMixin {
   final UserService _userService = UserService();
   final PostService _postService = PostService();
   final AudioPlayerService _audioService = AudioPlayerService();
+  late TabController _tabController;
 
   // ダミーユーザーの定数
   static const List<String> _dummyUsernames = [
@@ -36,59 +37,70 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   ];
 
   UserModel? _userData;
-  List<PostModel> _todaysPosts = [];  // 今日の投稿
-  List<PostModel> _otherPosts = [];   // 今日以外の投稿
-  List<PostModel> _savedPosts = [];   // 保存済み投稿
+  List<PostModel> _otherPosts = [];
+  List<PostModel> _savedPosts = [];
   bool _isLoading = true;
   bool _isFollowing = false;
-  int _selectedTabIndex = 0; // 0: グリッド（自分の投稿）, 1: 保存した投稿
 
-  // プレビューURLキャッシュ（投稿IDをキーとする）
-  final Map<String, String> _previewUrlCache = {};
 
-  // ダミーユーザー用のフォロワー数オーバーライド
+  // ダミーユーザー用フォロワー数オーバーライド
   int? _followerCountOverride;
+
+  int get _followersCount =>
+      _followerCountOverride ?? _userData?.followersCount ?? 0;
+  int get _followingCount => _userData?.followingCount ?? 0;
+  int get _tracksCount => _otherPosts.length;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.index == 1) {
+        _loadSavedPosts();
+      }
+      setState(() {});
+    });
     _loadData();
     _loadSavedPosts();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _audioService.stop();
+    super.dispose();
   }
 
   /// データを読み込み
   Future<void> _loadData() async {
     try {
-      // 表示するユーザーのデータを取得
       final userData = await _userService.getUser(widget.userId);
 
-      // 現在のユーザーのデータを取得
       final currentUserId = FirebaseAuth.instance.currentUser?.uid;
       UserModel? currentUser;
       if (currentUserId != null) {
         currentUser = await _userService.getUser(currentUserId);
       }
 
-      // ユーザーの投稿を取得（今日と今日以外を分けて取得）
-      final todaysPosts = await _postService.getTodaysPosts(widget.userId);
-      final otherPosts = await _postService.getPostsExcludingToday(widget.userId, limit: 50);
+      final otherPosts =
+          await _postService.getPostsExcludingToday(widget.userId, limit: 50);
 
       if (mounted) {
-        // ダミーユーザーかどうかを判定
-        final isDummyUser = _dummyUsernames.contains(userData?.username ?? '');
+        final isDummyUser =
+            _dummyUsernames.contains(userData?.username ?? '');
 
-        // 48時間フィルタ: 他人のプロフィールでは48時間以上前の投稿のみ表示
+        // 48時間フィルタ
         final cutoff48h = DateTime.now().subtract(const Duration(hours: 48));
-        final visibleOtherPosts = otherPosts.where((p) => p.createdAt.isBefore(cutoff48h)).toList();
+        final visibleOtherPosts =
+            otherPosts.where((p) => p.createdAt.isBefore(cutoff48h)).toList();
 
         setState(() {
           _userData = userData;
-          _todaysPosts = todaysPosts;
           _otherPosts = visibleOtherPosts;
           _isFollowing = currentUser?.isFollowing(widget.userId) ?? false;
           _isLoading = false;
 
-          // ダミーユーザーの場合は初期フォロワー数を設定
           if (isDummyUser) {
             _followerCountOverride = userData?.followers.length ?? 0;
           }
@@ -106,8 +118,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   /// 保存済み投稿を読み込み
   Future<void> _loadSavedPosts() async {
     try {
-      final savedPosts = await _postService.getPostsSavedByUser(widget.userId);
-
+      final savedPosts =
+          await _postService.getPostsSavedByUser(widget.userId);
       if (mounted) {
         setState(() {
           _savedPosts = savedPosts;
@@ -122,106 +134,44 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
   /// フォロー/アンフォローを切り替え
   Future<void> _toggleFollow() async {
-    print('🔄 toggleFollow called, current state: $_isFollowing');
-
     final currentUsername = _userData?.username ?? '';
 
-    // ダミーユーザーの場合は、UIだけ変更（Firebase操作なし）
     if (_dummyUsernames.contains(currentUsername)) {
-      print('🎭 Dummy user detected: $currentUsername - UI only mode');
       setState(() {
         _isFollowing = !_isFollowing;
-
-        // フォロワー数を増減
-        if (_followerCountOverride == null) {
-          _followerCountOverride = _userData?.followers.length ?? 0;
-        }
+        _followerCountOverride ??= _userData?.followers.length ?? 0;
         _followerCountOverride = _isFollowing
             ? (_followerCountOverride! + 1)
             : (_followerCountOverride! - 1);
       });
-      print('✅ UI updated to: $_isFollowing (dummy user), followers: $_followerCountOverride');
       return;
     }
 
-    // 以下、通常のフォロー処理（実際のユーザー）
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    print('👤 currentUserId: $currentUserId');
+    if (currentUserId == null) return;
 
-    if (currentUserId == null) {
-      print('❌ No authenticated user');
-
-      // 認証されていない場合は、ダイアログを表示してログイン画面へ誘導
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: const Color(0xFF1E1E1E),
-            title: const Text(
-              '認証が必要です',
-              style: TextStyle(color: Colors.white),
-            ),
-            content: const Text(
-              'フォロー機能を使用するには、ログインが必要です。\n\nWeb環境では、電話番号認証画面で「00000000000」または「11111111111」を入力してください。',
-              style: TextStyle(color: Colors.white70),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('キャンセル'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pushNamed(context, '/');
-                },
-                child: const Text('ログイン画面へ'),
-              ),
-            ],
-          ),
-        );
-      }
-      return;
-    }
-
-    // 現在の状態を保存
     final previousState = _isFollowing;
-
-    // 楽観的UI更新
     setState(() {
       _isFollowing = !_isFollowing;
     });
-    print('✅ UI updated to: $_isFollowing');
 
     try {
       if (_isFollowing) {
-        print('📤 Calling followUser...');
         await _userService.followUser(
           currentUserId: currentUserId,
           targetUserId: widget.userId,
         );
-        print('✅ followUser completed');
       } else {
-        print('📤 Calling unfollowUser...');
         await _userService.unfollowUser(
           currentUserId: currentUserId,
           targetUserId: widget.userId,
         );
-        print('✅ unfollowUser completed');
       }
-
-      // フォロー/アンフォローが成功したら、状態はそのまま維持
-      // _loadData()は呼ばない（Firestoreインデックスエラーを回避）
-      print('✅ Operation successful, state maintained');
     } catch (e) {
-      // エラーが発生した場合は元に戻す
-      print('❌ Error occurred: $e');
       if (mounted) {
         setState(() {
           _isFollowing = previousState;
         });
-        print('🔙 Reverted to previous state: $_isFollowing');
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('エラーが発生しました: $e')),
         );
@@ -265,45 +215,33 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
-        child: Column(
-          children: [
-            // ヘッダー
-            _buildHeader(),
-
-            // メインコンテンツ
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    // プロフィール情報
-                    _buildProfileInfo(),
-
-                    const SizedBox(height: 16),
-
-                    // フォロー・メッセージボタン
-                    _buildActionButtons(),
-
-                    const SizedBox(height: 16),
-
-                    // 今日の楽曲（ダミーデータ）
-                    _buildTodaysTrack(),
-
-                    const SizedBox(height: 16),
-
-                    // タブ切り替え
-                    _buildTabSelector(),
-
-                    // 投稿グリッド or 保存済み投稿
-                    _selectedTabIndex == 0
-                        ? _buildPostsGrid()
-                        : _buildSavedPostsGrid(),
-                  ],
+        child: NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) {
+              return [
+                // ヘッダー
+                SliverToBoxAdapter(child: _buildHeader()),
+                // プロフィール情報
+                SliverToBoxAdapter(child: _buildProfileInfo()),
+                // フォローボタン
+                SliverToBoxAdapter(child: _buildActionButtons()),
+                // タブ切り替え（スクロール時に上に固定）
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _TabBarDelegate(
+                    child: _buildTabSelector(),
+                  ),
                 ),
-              ),
+              ];
+            },
+            body: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildPostsGridScrollable(),
+                _buildSavedPostsGridScrollable(),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
     );
   }
 
@@ -313,31 +251,33 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
     return Container(
       height: 45,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Stack(
         children: [
-          // 戻るボタン
-          IconButton(
-            icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-            onPressed: () {
-              Navigator.pop(context);
-            },
-          ),
-          // ユーザーID（中央寄せ）
-          Expanded(
-            child: Center(
-              child: Text(
-                username,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
+          // ユーザーID（中央）
+          Center(
+            child: Text(
+              username,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
-          // 右側のスペース（左右対称にするため）
-          const SizedBox(width: 48),
+          // 戻るボタン（左端）
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () {
+                _audioService.stop();
+                Navigator.pop(context);
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -375,7 +315,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                       Text(
                         bio,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
+                          color: Colors.white.withValues(alpha: 0.7),
                           fontSize: 12,
                         ),
                       ),
@@ -406,19 +346,38 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
           // 統計情報
           Row(
             children: [
-              ProfileStatItem(
-                count: '${_userData?.postsCount ?? 0}',
-                label: 'Tracks',
+              ProfileStatItem(count: '$_tracksCount', label: 'Tracks'),
+              const SizedBox(width: 32),
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => FollowListScreen(
+                        userId: widget.userId,
+                        showFollowers: true,
+                      ),
+                    ),
+                  );
+                },
+                child: ProfileStatItem(
+                    count: '$_followersCount', label: 'Followers'),
               ),
               const SizedBox(width: 32),
-              ProfileStatItem(
-                count: '${_followerCountOverride ?? _userData?.followersCount ?? 0}',
-                label: 'Followers',
-              ),
-              const SizedBox(width: 32),
-              ProfileStatItem(
-                count: '${_userData?.followingCount ?? 0}',
-                label: 'Following',
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => FollowListScreen(
+                        userId: widget.userId,
+                        showFollowers: false,
+                      ),
+                    ),
+                  );
+                },
+                child: ProfileStatItem(
+                    count: '$_followingCount', label: 'Following'),
               ),
             ],
           ),
@@ -426,7 +385,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       ),
     );
   }
-
 
   /// アクションボタン（フォロー）
   Widget _buildActionButtons() {
@@ -437,9 +395,13 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         child: Container(
           height: 30,
           decoration: BoxDecoration(
-            color: _isFollowing ? const Color(0xFF0095F6) : Colors.transparent,
+            color: _isFollowing
+                ? Colors.transparent
+                : const Color(0xFF0095F6),
             border: Border.all(
-              color: _isFollowing ? const Color(0xFF0095F6) : const Color(0xFF929292),
+              color: _isFollowing
+                  ? const Color(0xFF929292)
+                  : const Color(0xFF0095F6),
             ),
             borderRadius: BorderRadius.circular(4),
           ),
@@ -458,123 +420,74 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-  /// 今日の楽曲カード（スクロール可能なリスト表示）
-  Widget _buildTodaysTrack() {
-    // 今日の投稿がない場合は何も表示しない
-    if (_todaysPosts.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    // 最大5枚まで表示
-    final displayPosts = _todaysPosts.take(5).toList();
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 見出し
-          const Padding(
-            padding: EdgeInsets.only(left: 4, bottom: 12),
-            child: Text(
-              '今日の楽曲',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          // スクロール可能な楽曲リスト
-          SizedBox(
-            height: 300,
-            child: ListView.builder(
-              itemCount: displayPosts.length,
-              itemBuilder: (context, index) {
-                return Padding(
-                  padding: EdgeInsets.only(
-                    bottom: index < displayPosts.length - 1 ? 8 : 0,
-                  ),
-                  child: TodaysTrackCard(
-                    post: displayPosts[index],
-                    audioService: _audioService,
-                    previewUrlCache: _previewUrlCache,
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-
   /// タブ切り替え
   Widget _buildTabSelector() {
     return Container(
       height: 40,
       child: Row(
         children: [
-          // グリッドタブ（投稿）
+          // グリッドタブ
           Expanded(
             child: GestureDetector(
-              onTap: () => setState(() => _selectedTabIndex = 0),
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: _selectedTabIndex == 0
-                          ? Colors.white
-                          : Colors.transparent,
-                      width: 2,
-                    ),
+              onTap: () => _tabController.animateTo(0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Icon(
+                    Icons.grid_view,
+                    color: _tabController.index == 0
+                        ? Colors.white
+                        : Colors.grey,
+                    size: 24,
                   ),
-                ),
-                child: Icon(
-                  Icons.grid_view,
-                  color: _selectedTabIndex == 0 ? Colors.white : Colors.grey,
-                  size: 24,
-                ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: 60,
+                    height: 2,
+                    color: _tabController.index == 0
+                        ? Colors.white
+                        : Colors.transparent,
+                  ),
+                ],
               ),
             ),
           ),
           // 保存タブ
           Expanded(
             child: GestureDetector(
-              onTap: () {
-                setState(() => _selectedTabIndex = 1);
-                // 保存タブを選択したときに保存済み投稿を再読み込み
-                _loadSavedPosts();
-              },
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: _selectedTabIndex == 1
+              onTap: () => _tabController.animateTo(1),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Container(
+                    width: 25,
+                    height: 25,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: _tabController.index == 1
+                            ? Colors.white
+                            : Colors.grey,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.add,
+                      color: _tabController.index == 1
                           ? Colors.white
-                          : Colors.transparent,
-                      width: 2,
+                          : Colors.grey,
+                      size: 16,
                     ),
                   ),
-                ),
-                child: Container(
-                  width: 25,
-                  height: 25,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color:
-                          _selectedTabIndex == 1 ? Colors.white : Colors.grey,
-                      width: 1.5,
-                    ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: 60,
+                    height: 2,
+                    color: _tabController.index == 1
+                        ? Colors.white
+                        : Colors.transparent,
                   ),
-                  child: Icon(
-                    Icons.add,
-                    color: _selectedTabIndex == 1 ? Colors.white : Colors.grey,
-                    size: 16,
-                  ),
-                ),
+                ],
               ),
             ),
           ),
@@ -583,21 +496,22 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-  /// 投稿グリッド（今日の楽曲を除外）
-  Widget _buildPostsGrid() {
-    // 投稿がない場合は空のメッセージ
-    // _otherPosts は既にFirestoreレベルで今日以外の投稿のみを取得済み
+  /// 投稿グリッド（TabBarView内用）
+  Widget _buildPostsGridScrollable() {
     if (_otherPosts.isEmpty) {
-      return const SizedBox.shrink();
+      return const Center(
+        child: Text(
+          '投稿がありません',
+          style: TextStyle(color: Colors.white54, fontSize: 14),
+        ),
+      );
     }
 
     return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: EdgeInsets.zero,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        childAspectRatio: 131 / 200, // 185 → 200に変更してアイテムを縦長に
+        childAspectRatio: 131 / 192,
         crossAxisSpacing: 0,
         mainAxisSpacing: 5,
       ),
@@ -614,74 +528,60 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-  /// 保存済み投稿のグリッド
-  Widget _buildSavedPostsGrid() {
+  /// 保存済み投稿グリッド（TabBarView内用）
+  Widget _buildSavedPostsGridScrollable() {
     if (_savedPosts.isEmpty) {
       return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Text(
-            '保存済みの投稿がありません',
-            style: TextStyle(
-              color: Colors.white54,
-              fontSize: 14,
-            ),
-          ),
+        child: Text(
+          '保存済みの投稿がありません',
+          style: TextStyle(color: Colors.white54, fontSize: 14),
         ),
       );
     }
 
     return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: EdgeInsets.zero,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        childAspectRatio: 1.0,
-        crossAxisSpacing: 2,
-        mainAxisSpacing: 2,
+        childAspectRatio: 1,
+        crossAxisSpacing: 1,
+        mainAxisSpacing: 1,
       ),
       itemCount: _savedPosts.length,
       itemBuilder: (context, index) {
         final post = _savedPosts[index];
-        return _buildSavedPostItem(post);
-      },
-    );
-  }
-
-  /// 保存済み投稿アイテム（アルバムアートのみ）
-  Widget _buildSavedPostItem(PostModel post) {
-    final albumArt = post.track.albumImageUrl;
-
-    return GestureDetector(
-      onTap: () {
-        // 投稿詳細画面に遷移
-        Navigator.pushNamed(
-          context,
-          '/post-detail',
-          arguments: post,
+        return ProfilePostGridItem(
+          post: post,
+          allPosts: _savedPosts,
+          initialIndex: index,
+          disableInteractions: true,
         );
       },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.grey[900],
-        ),
-        child: CachedNetworkImage(
-          imageUrl: albumArt,
-          fit: BoxFit.cover,
-          errorWidget: (context, url, error) {
-            return Container(
-              color: Colors.grey[800],
-              child: const Icon(
-                Icons.music_note,
-                color: Colors.white54,
-                size: 40,
-              ),
-            );
-          },
-        ),
-      ),
+    );
+  }
+}
+
+/// タブバーをスクロール時に上部に固定するためのデリゲート
+class _TabBarDelegate extends SliverPersistentHeaderDelegate {
+  final Widget child;
+
+  _TabBarDelegate({required this.child});
+
+  @override
+  double get minExtent => 40;
+
+  @override
+  double get maxExtent => 40;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: const Color(0xFF121212),
+      child: child,
     );
   }
 
+  @override
+  bool shouldRebuild(covariant _TabBarDelegate oldDelegate) => true;
 }

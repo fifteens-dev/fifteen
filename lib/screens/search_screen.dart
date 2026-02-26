@@ -238,7 +238,7 @@ class _SearchScreenState extends State<SearchScreen> {
           // 検索フィールド
           Expanded(
             child: Container(
-              height: 30,
+              height: 36,
               decoration: BoxDecoration(
                 color: const Color(0xFF2D2D2D),
                 borderRadius: BorderRadius.circular(5),

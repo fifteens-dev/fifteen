@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/app_colors.dart';
@@ -37,15 +39,22 @@ class _HomeScreenState extends State<HomeScreen>
   final SpotifyService _spotifyService = SpotifyService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
+  final ValueNotifier<double> _bellOpacity = ValueNotifier<double>(1.0);
 
   // ホーム画面専用の音楽再生サービス（全てのPostCardで共有）
   final AudioPlayerService _homeAudioService = AudioPlayerService();
 
-  // 各PostCardのGlobalKey（可視性チェック用）
-  final Map<String, GlobalKey> _postCardKeys = {};
+  // 各PostCardのGlobalKey（可視性チェック・flipToFront用）
+  final Map<String, GlobalKey<PostCardState>> _postCardKeys = {};
 
   // 現在再生中の投稿ID
   String? _playingPostId;
+
+  // VibeBarのキー（高さ計測用）
+  final GlobalKey _vibeBarKey = GlobalKey();
+  double? _vibeBarHeight;
+  bool _isSnapping = false;
+  Timer? _snapTimer;
 
   @override
   bool get wantKeepAlive => true;
@@ -101,11 +110,27 @@ class _HomeScreenState extends State<HomeScreen>
         _hasPostedToday = await _postService.hasUserPostedToday(currentUser.uid);
       }
 
+      // フォロー中のユーザーIDを取得（自分を含む）
+      List<String> followingIds = [];
+      if (currentUser != null) {
+        try {
+          final userModel = await _userService.getUser(currentUser.uid);
+          followingIds = userModel?.following ?? [];
+        } catch (e) {
+          print('⚠️ フォロー一覧取得エラー: $e');
+        }
+      }
+      final allTargetIds = currentUser != null
+          ? [...followingIds, currentUser.uid]
+          : followingIds;
+
       List<PostModel> firestorePosts = [];
 
-      // Firestoreから投稿を取得（認証の有無に関わらず試みる）
+      // フォロー中ユーザーの投稿のみを取得
       try {
-        firestorePosts = await _postService.getPosts(limit: 50);
+        firestorePosts = allTargetIds.isEmpty
+            ? []
+            : await _postService.getPostsForFollowing(allTargetIds, limit: 50);
         print('📥 Firestoreから取得した投稿数: ${firestorePosts.length}');
       } catch (e) {
         print('⚠️ Firestore取得エラー（権限エラーの可能性）: $e');
@@ -159,6 +184,7 @@ class _HomeScreenState extends State<HomeScreen>
           _cachedPosts = updatedPosts;
         });
         print('🔄 setState()完了');
+        _prefetchBacksideImages(updatedPosts);
       } else {
         print('⚠️ mountedがfalseのため、setStateをスキップ');
       }
@@ -172,8 +198,44 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  /// 全投稿の裏面画像を3件ずつバッチでバックグラウンドプリフェッチ
+  Future<void> _prefetchBacksideImages(List<PostModel> posts) async {
+    const batchSize = 3;
+    for (int i = 0; i < posts.length; i += batchSize) {
+      if (!mounted) return;
+      final batch = posts.skip(i).take(batchSize);
+      final futures = <Future<void>>[];
+      for (final post in batch) {
+        // アルバムアート
+        final albumUrl = post.track.albumImageUrl;
+        if (albumUrl.isNotEmpty && albumUrl.startsWith('http')) {
+          futures.add(precacheImage(CachedNetworkImageProvider(albumUrl), context));
+        }
+        // ユーザーアイコン
+        final iconUrl = post.userIconUrl;
+        if (iconUrl != null && iconUrl.isNotEmpty && iconUrl.startsWith('http')) {
+          futures.add(precacheImage(CachedNetworkImageProvider(iconUrl), context));
+        }
+        // 投稿写真
+        final photoUrl = post.photoUrl;
+        if (photoUrl != null && photoUrl.isNotEmpty && photoUrl.startsWith('http')) {
+          futures.add(precacheImage(CachedNetworkImageProvider(photoUrl), context));
+        }
+        // いいねユーザーアイコン
+        for (final likedIconUrl in post.likedByUserIconUrls) {
+          if (likedIconUrl.isNotEmpty && likedIconUrl.startsWith('http')) {
+            futures.add(precacheImage(CachedNetworkImageProvider(likedIconUrl), context));
+          }
+        }
+      }
+      // バッチ内の全画像が完了するまで待ってから次の3件へ
+      await Future.wait(futures, eagerError: false);
+    }
+  }
+
   @override
   void dispose() {
+    _snapTimer?.cancel();
     _scrollController.dispose();
     _bellOpacity.dispose();
     super.dispose();
@@ -182,11 +244,8 @@ class _HomeScreenState extends State<HomeScreen>
   /// スクロール時に再生中のカードが完全に画面外に出たら音楽を停止
   void _checkPlayingCardVisibility() {
     if (!_homeAudioService.isPlaying && !_homeAudioService.isPaused) return;
-    if (_playingPostId == null) {
-      // playingPostIdが不明だが再生中 → 安全のため停止
-      _homeAudioService.stop();
-      return;
-    }
+    // _playingPostId == null の場合、別画面の音楽が再生中の可能性があるため干渉しない
+    if (_playingPostId == null) return;
 
     final key = _postCardKeys[_playingPostId];
     if (key == null) {
@@ -197,7 +256,6 @@ class _HomeScreenState extends State<HomeScreen>
 
     final currentContext = key.currentContext;
     if (currentContext == null) {
-      // ウィジェットがSliverListに破棄された → 画面外
       _homeAudioService.stop();
       _playingPostId = null;
       return;
@@ -214,10 +272,76 @@ class _HomeScreenState extends State<HomeScreen>
     final size = renderBox.size;
     final screenHeight = MediaQuery.of(context).size.height;
 
-    // カードが完全に画面外に出たら停止
     if (position.dy + size.height <= 0 || position.dy >= screenHeight) {
       _homeAudioService.stop();
+      key.currentState?.flipToFront();
       _playingPostId = null;
+    }
+  }
+
+  /// スクロール量に応じてベルアイコンの透明度を更新
+  void _updateBellOpacity() {
+    if (!_scrollController.hasClients) return;
+    final offset = _scrollController.offset;
+    _bellOpacity.value = (1.0 - (offset / 80.0)).clamp(0.0, 1.0);
+  }
+
+  /// スクロール終了時に最近傍の投稿カードへスナップ
+  void _snapToNearestPost() {
+    if (_isSnapping) return;
+    if (!_scrollController.hasClients) return;
+    if (_cachedPosts == null || _cachedPosts!.isEmpty) return;
+
+    // VibeBarの高さを毎回計測
+    final renderBox = _vibeBarKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox != null) _vibeBarHeight = renderBox.size.height;
+    if (_vibeBarHeight == null) return;
+
+    final topPadding = MediaQuery.of(context).padding.top;
+    final headerHeight = 48.0 + topPadding;
+    const itemHeight = 660.0; // 644 card + 16 bottom padding
+    const cardHeight = 644.0;
+
+    final postListStart = headerHeight + _vibeBarHeight! + 9.0;
+    final offset = _scrollController.offset;
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    final maxExtent = _scrollController.position.maxScrollExtent;
+    final firstPostTargetOffset = (postListStart + cardHeight / 2 - screenHeight / 2).clamp(0.0, maxExtent);
+
+    if (offset < firstPostTargetOffset) {
+      // Vibe area: snap to top (offset=0) or first post
+      final targetOffset = offset < firstPostTargetOffset / 2 ? 0.0 : firstPostTargetOffset;
+      if ((offset - targetOffset).abs() > 2.0) {
+        _isSnapping = true;
+        _scrollController.animateTo(
+          targetOffset,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        ).whenComplete(() {
+          if (mounted) _isSnapping = false;
+        });
+      }
+      return;
+    }
+
+    final docCenter = offset + screenHeight / 2;
+    final nearestIndex = ((docCenter - postListStart - cardHeight / 2) / itemHeight)
+        .round()
+        .clamp(0, _cachedPosts!.length - 1);
+
+    final targetOffset = (postListStart + nearestIndex * itemHeight + cardHeight / 2 - screenHeight / 2)
+        .clamp(0.0, _scrollController.position.maxScrollExtent);
+
+    if ((offset - targetOffset).abs() > 2.0) {
+      _isSnapping = true;
+      _scrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      ).whenComplete(() {
+        if (mounted) _isSnapping = false;
+      });
     }
   }
 
@@ -261,17 +385,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  // ベルアイコンの透明度（スクロールに応じてフェードアウト）
-  final ValueNotifier<double> _bellOpacity = ValueNotifier<double>(1.0);
-
-  /// スクロール量に応じてベルアイコンの透明度を更新
-  void _updateBellOpacity() {
-    if (!_scrollController.hasClients) return;
-    final offset = _scrollController.offset;
-    // 0〜80pxのスクロールで1.0→0.0にフェードアウト
-    _bellOpacity.value = (1.0 - (offset / 80.0)).clamp(0.0, 1.0);
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixinのために必要
@@ -291,29 +404,47 @@ class _HomeScreenState extends State<HomeScreen>
                   onNotification: (notification) {
                     _checkPlayingCardVisibility();
                     _updateBellOpacity();
+                    if (notification.depth == 0 && _scrollController.hasClients) {
+                      final offset = _scrollController.offset;
+                      // オーバースクロール中（offset < 0）はスナップを停止
+                      if (offset < 0) {
+                        _snapTimer?.cancel();
+                        return false;
+                      }
+                      if (!_isSnapping) {
+                        // debounceタイマーでスナップ
+                        _snapTimer?.cancel();
+                        _snapTimer = Timer(const Duration(milliseconds: 150), () {
+                          if (mounted) _snapToNearestPost();
+                        });
+                      }
+                    }
                     return false;
                   },
                   child: CustomScrollView(
                     controller: _scrollController,
+                    physics: const BouncingScrollPhysics(),
                     slivers: [
-                    // ヘッダー分のスペース（固定ヘッダーの下にコンテンツが隠れないように）
-                    SliverToBoxAdapter(
-                      child: SizedBox(height: headerHeight),
-                    ),
-                    SliverToBoxAdapter(
-                      child: VibeBarSection(
-                        vibeDataFuture: _loadVibeData(),
-                        onRankingItemTap: _handleRankingItemTap,
-                        onPostTap: _navigateToVibePost,
+                      SliverToBoxAdapter(
+                        child: SizedBox(height: headerHeight),
                       ),
-                    ),
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: 9),
-                    ),
-                    _buildTimelineSliver(),
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: 80),
-                    ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          key: _vibeBarKey,
+                          child: VibeBarSection(
+                            vibeDataFuture: _loadVibeData(),
+                            onRankingItemTap: _handleRankingItemTap,
+                            onPostTap: _navigateToVibePost,
+                          ),
+                        ),
+                      ),
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: 9),
+                      ),
+                      _buildTimelineSliver(),
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: 80),
+                      ),
                     ],
                   ),
                 ),
@@ -332,7 +463,6 @@ class _HomeScreenState extends State<HomeScreen>
                 top: 0,
                 child: Container(
                   height: headerHeight,
-                  color: AppColors.background,
                   padding: EdgeInsets.only(left: 16, right: 16, top: topPadding),
                   child: Stack(
                     children: [
@@ -473,14 +603,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// タイムライン（投稿カードリスト）- Sliver版
-  ///
-  /// キャッシュされた投稿リストを使用してスクロール位置を確実に保持します。
   Widget _buildTimelineSliver() {
-    print('🎨 _buildTimelineSliver()呼び出し: _cachedPosts = ${_cachedPosts?.length ?? "null"}');
-
-    // キャッシュされた投稿リストがない場合はローディング表示
     if (_cachedPosts == null) {
-      print('⏳ ローディング表示中...');
       return const SliverToBoxAdapter(
         child: Center(
           child: Padding(
@@ -492,7 +616,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     final posts = _cachedPosts!;
-    print('📋 ${posts.length}件の投稿を表示します');
     final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
 
     return SliverPadding(
@@ -502,56 +625,40 @@ class _HomeScreenState extends State<HomeScreen>
           (context, index) {
             final post = posts[index];
 
-            // コメント数といいね数のオーバーライドを適用
             var displayPost = post;
-
-            // コメント数のオーバーライド
             if (_commentCounts.containsKey(post.postId)) {
-              displayPost = displayPost.copyWith(
-                  commentCount: _commentCounts[post.postId]);
+              displayPost = displayPost.copyWith(commentCount: _commentCounts[post.postId]);
             }
-
-            // いいね数のオーバーライド
             if (_likeCounts.containsKey(post.postId)) {
-              displayPost =
-                  displayPost.copyWith(likeCount: _likeCounts[post.postId]);
+              displayPost = displayPost.copyWith(likeCount: _likeCounts[post.postId]);
             }
-
-            // いいね状態のオーバーライド
             if (_likedPostIds.contains(post.postId)) {
-              // ユーザーがいいねしている場合、likedUserIdsにユーザーIDを追加
-              final updatedLikedUserIds =
-                  List<String>.from(displayPost.likedUserIds);
+              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
               if (!updatedLikedUserIds.contains(currentUserId)) {
                 updatedLikedUserIds.add(currentUserId);
-                displayPost =
-                    displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+                displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
               }
             } else if (_likeCounts.containsKey(post.postId)) {
-              // いいね解除した場合、likedUserIdsからユーザーIDを削除
-              final updatedLikedUserIds =
-                  List<String>.from(displayPost.likedUserIds);
+              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
               updatedLikedUserIds.remove(currentUserId);
-              displayPost =
-                  displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+              displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
             }
 
-            // PostCardにGlobalKeyを割り当て（可視性チェック用）
-            _postCardKeys.putIfAbsent(post.postId, () => GlobalKey());
+            _postCardKeys.putIfAbsent(post.postId, () => GlobalKey<PostCardState>());
             final cardKey = _postCardKeys[post.postId]!;
 
             return Padding(
-              key: cardKey,
               padding: const EdgeInsets.only(bottom: 16),
               child: PostCard(
-                key: ValueKey(post.postId), // 投稿IDをkeyにして状態を保持
+                key: cardKey,
                 post: displayPost,
                 currentUserId: currentUserId,
                 currentUserIconUrl: _currentUserIconUrl,
-                audioService: _homeAudioService, // ホーム画面専用の音楽再生サービスを渡す
+                audioService: _homeAudioService,
                 onLike: () => _handleLike(post),
                 onComment: () => _handleComment(post),
                 onAdd: () => _handleAdd(post),
+                onDelete: post.userId == currentUserId ? () => _handleDelete(post) : null,
                 isSaved: _savedPostIds.contains(post.postId),
                 backSideEnabled: _hasPostedToday,
                 onPlayStarted: () {
@@ -683,6 +790,42 @@ class _HomeScreenState extends State<HomeScreen>
       });
 
       _showMessage('投稿の保存に失敗しました');
+    }
+  }
+
+  /// 削除ボタンが押されたときの処理
+  Future<void> _handleDelete(PostModel post) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text('投稿を削除', style: TextStyle(color: Colors.white)),
+        content: const Text('この投稿を削除しますか？', style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('キャンセル', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('削除', style: TextStyle(color: Color(0xFFE53935))),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _postService.deletePost(post.postId);
+      if (mounted) {
+        setState(() {
+          _cachedPosts?.removeWhere((p) => p.postId == post.postId);
+        });
+        _showMessage('投稿を削除しました');
+      }
+    } catch (e) {
+      if (mounted) _showMessage('削除に失敗しました');
     }
   }
 

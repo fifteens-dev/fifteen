@@ -22,6 +22,7 @@ import 'profile_widgets.dart';
 import 'post_creation/lyrics_card_layouts.dart';
 import 'post_card/post_card_constants.dart';
 import 'post_card/marquee_text.dart';
+import 'dialogs/restriction_notification.dart';
 
 /// 投稿カードウィジェット（表裏反転アニメーション付き）
 class PostCard extends StatefulWidget {
@@ -29,6 +30,7 @@ class PostCard extends StatefulWidget {
   final VoidCallback? onLike;
   final VoidCallback? onComment;
   final VoidCallback? onAdd;
+  final VoidCallback? onDelete;
   final String? currentUserId;
   final String? currentUserIconUrl; // 現在のユーザーのアイコンURL（楽観的UI用）
   final AudioPlayerService audioService; // 音楽再生サービス（外部から注入）
@@ -44,6 +46,8 @@ class PostCard extends StatefulWidget {
   final String? externalPreviewUrl; // 外部から渡されるプレビューURL（waveform用）
   final bool backSideEnabled; // falseの場合、裏面に反転しない
   final bool disableInteractions; // trueの場合、いいね・コメント無効（カウントのみ表示）
+  final bool autoPlay; // trueの場合、裏面スタート時に自動で音楽を再生
+  final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
 
   const PostCard({
     super.key,
@@ -51,6 +55,7 @@ class PostCard extends StatefulWidget {
     this.onLike,
     this.onComment,
     this.onAdd,
+    this.onDelete,
     this.currentUserId,
     this.currentUserIconUrl,
     required this.audioService, // 必須パラメータ
@@ -66,13 +71,15 @@ class PostCard extends StatefulWidget {
     this.externalPreviewUrl, // 外部プレビューURL（オプション）
     this.backSideEnabled = true, // デフォルトは裏面反転可能
     this.disableInteractions = false, // デフォルトはインタラクション有効
+    this.autoPlay = false, // デフォルトは自動再生なし
+    this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
   });
 
   @override
-  State<PostCard> createState() => _PostCardState();
+  State<PostCard> createState() => PostCardState();
 }
 
-class _PostCardState extends State<PostCard>
+class PostCardState extends State<PostCard>
     with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
@@ -132,6 +139,9 @@ class _PostCardState extends State<PostCard>
   final BpmService _bpmService = BpmService();
   double? _tempo;
 
+  // 音楽再生の二重呼び出し防止フラグ
+  bool _isPlayAudioInProgress = false;
+
   // スクロール時にウィジェットの状態を保持
   @override
   bool get wantKeepAlive => true;
@@ -148,6 +158,17 @@ class _PostCardState extends State<PostCard>
     if (widget.startFromBack) {
       _showFront = false;
       _flipController.value = 1.0; // アニメーションなしで裏面を表示
+    }
+
+    // 自動再生が有効な場合、裏面スタートでビルド後に音楽を再生
+    // （外部制御モードの場合はPostCardが音楽を再生しない）
+    if (widget.startFromBack && widget.autoPlay && !widget.audioManagedExternally) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          widget.onPlayStarted?.call(); // 再生開始を親に通知（スクロール管理用）
+          _playAudioAsync();
+        }
+      });
     }
 
     // 自動反転が有効な場合、0.5秒後に裏返す
@@ -346,6 +367,13 @@ class _PostCardState extends State<PostCard>
     super.dispose();
   }
 
+  /// 表面に戻す（外部から呼び出し可能）
+  void flipToFront() {
+    if (!mounted || _showFront) return;
+    setState(() { _showFront = true; });
+    _flipController.reverse();
+  }
+
   /// カードをタップして裏返す
   void _flipCard() async {
     // 表面のみ表示モードの場合は外部ハンドラを呼ぶ
@@ -356,6 +384,7 @@ class _PostCardState extends State<PostCard>
 
     // 裏面無効の場合、表面→裏面への反転をブロック
     if (!widget.backSideEnabled && _showFront) {
+      RestrictionNotification.show(context, message: 'カードを裏返せません');
       return;
     }
 
@@ -375,22 +404,18 @@ class _PostCardState extends State<PostCard>
           _playButtonAnimationController.forward(from: 0.0);
         }
       });
-      if (kDebugMode) {
-        print('=== Flipping to back ===');
-        print('Track: ${widget.post.track.trackName} - ${widget.post.track.artistName}');
+
+      // 外部制御モードでない場合のみPostCardが音楽を再生
+      if (!widget.audioManagedExternally) {
+        widget.onPlayStarted?.call();
+        _playAudioAsync();
       }
-
-      // 再生開始を即座に通知（スクロール検知用）
-      widget.onPlayStarted?.call();
-
-      // 音楽再生は非同期で実行（UIブロックしない）
-      _playAudioAsync();
     } else {
       // 表面に反転
       _flipController.reverse();
 
-      // startFromBackモード: 表面に戻った時に音楽再生
-      if (widget.startFromBack) {
+      // startFromBackモード: 外部制御でない場合のみ音楽再生
+      if (widget.startFromBack && !widget.audioManagedExternally) {
         widget.onPlayStarted?.call();
         _playAudioAsync();
       }
@@ -399,82 +424,94 @@ class _PostCardState extends State<PostCard>
 
   /// 音楽を非同期で再生（UIをブロックしない）
   Future<void> _playAudioAsync() async {
-    // キャッシュまたは動的に取得したpreview URLを使用
-    String? previewUrl = _cachedPreviewUrl;
+    // 二重呼び出し防止（自動再生とフリップが競合するケース）
+    if (_isPlayAudioInProgress) return;
+    _isPlayAudioInProgress = true;
 
-    // キャッシュがない場合、iTunes APIから取得
-    if (previewUrl == null) {
-      if (kDebugMode) {
-        print('🍎 Fetching preview URL from iTunes (keeping Spotify album art)...');
-      }
-      final result = await _itunesService.getPreviewUrlWithArt(
-        trackName: widget.post.track.trackName,
-        artistName: widget.post.track.artistName,
-      );
+    try {
+      String? previewUrl = _cachedPreviewUrl;
 
-      if (result != null) {
-        previewUrl = result['previewUrl'];
+      // キャッシュがない場合、iTunes APIから取得
+      if (previewUrl == null) {
+        if (kDebugMode) print('🍎 Fetching preview URL from iTunes...');
+        final result = await _itunesService.getPreviewUrlWithArt(
+          trackName: widget.post.track.trackName,
+          artistName: widget.post.track.artistName,
+        );
+        if (!mounted) return;
 
-        // キャッシュに保存（preview URLのみ、アルバムアートはSpotifyのものを維持）
-        _cachedPreviewUrl = previewUrl;
-
-        if (kDebugMode) {
-          print('✅ iTunes preview URL obtained and cached');
+        if (result != null) {
+          previewUrl = result['previewUrl'];
+          // setState で更新し、波形ウィジェットにURLを反映
+          setState(() { _cachedPreviewUrl = previewUrl; });
+          if (kDebugMode) print('✅ iTunes preview URL obtained and cached');
+        } else {
+          // 1回目が失敗した場合、1秒後にリトライ
+          if (kDebugMode) print('⚠️ iTunes returned null, retrying in 1s...');
+          await Future.delayed(const Duration(seconds: 1));
+          if (!mounted) return;
+          final retryResult = await _itunesService.getPreviewUrlWithArt(
+            trackName: widget.post.track.trackName,
+            artistName: widget.post.track.artistName,
+          );
+          if (!mounted) return;
+          if (retryResult != null) {
+            previewUrl = retryResult['previewUrl'];
+            setState(() { _cachedPreviewUrl = previewUrl; });
+            if (kDebugMode) print('✅ iTunes retry succeeded');
+          } else {
+            if (kDebugMode) print('❌ iTunes retry also failed');
+          }
         }
       } else {
-        if (kDebugMode) {
-          print('❌ No preview URL found from iTunes');
-        }
+        if (kDebugMode) print('📦 Using cached preview URL');
       }
-    } else {
-      if (kDebugMode) {
-        print('📦 Using cached preview URL');
-      }
-    }
 
-    // プレビューURLがあれば再生
-    if (previewUrl != null && previewUrl.isNotEmpty) {
-      if (kDebugMode) {
-        print('▶️  Starting playback...');
-      }
-      try {
-        await widget.audioService.playPreview(
-          previewUrl,
-          startFrom: Duration(milliseconds: widget.post.audioStartMs),
-          durationSeconds: widget.post.audioDurationSec,
-        );
-      } catch (e) {
-        if (kDebugMode) {
-          print('❌ Playback error: $e');
+      if (!mounted) return;
+
+      // プレビューURLがあれば再生
+      if (previewUrl != null && previewUrl.isNotEmpty) {
+        if (kDebugMode) print('▶️  Starting playback...');
+        try {
+          await widget.audioService.playPreview(
+            previewUrl,
+            startFrom: Duration(milliseconds: widget.post.audioStartMs),
+            durationSeconds: widget.post.audioDurationSec,
+          );
+        } catch (e) {
+          if (kDebugMode) print('❌ Playback error: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('音楽の再生に失敗しました: ${e.toString()}'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
         }
+      } else {
+        if (kDebugMode) print('⚠️  No preview URL available');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('音楽の再生に失敗しました: ${e.toString()}'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
+            const SnackBar(
+              content: Text('この曲のプレビューURLが見つかりません'),
+              duration: Duration(seconds: 2),
             ),
           );
         }
       }
-    } else {
-      if (kDebugMode) {
-        print('⚠️  No preview URL available');
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('この曲のプレビューURLが見つかりません'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+    } finally {
+      _isPlayAudioInProgress = false;
     }
   }
 
   /// いいねボタンが押された時の処理（楽観的UI更新）
   void _handleLikeTap() {
-    if (widget.disableInteractions) return;
+    if (widget.disableInteractions) {
+      RestrictionNotification.show(context, message: 'いいねができません');
+      return;
+    }
     if (widget.onLike != null) {
       setState(() {
         final currentIsLiked = _isLikedOptimistic ??
@@ -661,19 +698,32 @@ class _PostCardState extends State<PostCard>
                       child: _buildUserInfo(theme),
                     ),
 
-                    // 曲名とアーティスト名 - Figma: bottom: 185px → top: 109px (294-185), left: 11px, right: 66px
+                    // 曲名とアーティスト名 - ボタン有無で right を動的調整
+                    // share(36) + gap(6) + delete(36) + rightMargin(11) = 89px → 余裕を持って96px
+                    // ボタンなし（他人の投稿）は 12px
                     Positioned(
                       left: cardWidth * (11 / 363),
                       top: contentHeight * (63 / 294),
-                      right: cardWidth * (66 / 363),
+                      right: (widget.currentUserId != null && widget.post.userId == widget.currentUserId)
+                          ? cardWidth * (84 / 363)
+                          : cardWidth * (12 / 363),
                       child: _buildTrackInfo(theme),
                     ),
 
-                    // シェアボタン - Figma: bottom: 195px → top: 99px (294-195), left: 314px
+                    // シェア・削除ボタン（自分の投稿のみ）
+                    if (widget.currentUserId != null && widget.post.userId == widget.currentUserId)
                     Positioned(
-                      left: cardWidth * (314 / 363),
+                      right: cardWidth * (11 / 363),
                       top: contentHeight * (63 / 294),
-                      child: _buildShareButton(theme),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildShareButton(theme),
+                          if (widget.onDelete != null) ...[
+                            _buildDeleteButton(theme),
+                          ],
+                        ],
+                      ),
                     ),
 
                     // リアクション - Figma: bottom: 141px → top: 153px (294-141), left: 12px, right: 12px
@@ -806,11 +856,13 @@ class _PostCardState extends State<PostCard>
                   ),
                 ),
 
-                // 曲名とアーティスト名 - Figma: bottom area
+                // 曲名とアーティスト名 - ボタン有無で right を動的調整（表面と同じ構造）
                 Positioned(
-                  left: cardWidth * (12 / 363),
-                  right: cardWidth * (66 / 363),
-                  bottom: cardHeight * (110 / 644), //
+                  left: cardWidth * (11 / 363),
+                  right: (widget.currentUserId != null && widget.post.userId == widget.currentUserId)
+                      ? cardWidth * (84 / 363)
+                      : cardWidth * (12 / 363),
+                  bottom: cardHeight * (110 / 644),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
@@ -823,7 +875,9 @@ class _PostCardState extends State<PostCard>
                           fontWeight: FontWeight.bold,
                           color: theme.textColor,
                         ),
-                        width: cardWidth * (285 / 363), // 利用可能な幅
+                        width: (widget.currentUserId != null && widget.post.userId == widget.currentUserId)
+                            ? cardWidth * (268 / 363)
+                            : cardWidth * (340 / 363),
                       ),
                       const SizedBox(height: 1.198),
                       Text(
@@ -872,7 +926,9 @@ class _PostCardState extends State<PostCard>
                       // コメント
                       _buildCommentReactionBack(
                         count: widget.post.commentCount,
-                        onTap: widget.onComment,
+                        onTap: widget.disableInteractions
+                            ? () => RestrictionNotification.show(context, message: 'コメントができません')
+                            : widget.onComment,
                         theme: theme,
                       ),
                       SizedBox(width: cardWidth * (15 / 363)),
@@ -910,13 +966,20 @@ class _PostCardState extends State<PostCard>
                   ),
                 ),
 
-                // 共有ボタン（右下）- Figma: left: 314px, bottom area
-                // Stackの最後に配置して最前面に表示
+                // シェア・削除ボタン（自分の投稿のみ）- 表面と同じ構造
+                if (widget.currentUserId != null && widget.post.userId == widget.currentUserId)
                 Positioned(
-                  right: cardWidth *
-                      (13 / 363), // 363 - 314 - 36 = 13px from right
-                  bottom: cardHeight * (120 / 644), // 底部からの位置
-                  child: _buildShareButtonBack(theme),
+                  right: cardWidth * (11 / 363),
+                  bottom: cardHeight * (110 / 644),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildShareButton(theme),
+                      if (widget.onDelete != null) ...[
+                        _buildDeleteButton(theme),
+                      ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -1388,7 +1451,33 @@ class _PostCardState extends State<PostCard>
   /// コメントボタン
   Widget _buildCommentButton(PostTheme theme) {
     if (widget.disableInteractions) {
-      return const SizedBox.shrink();
+      // 制限中：グレーアウト表示してタップ時に通知
+      return GestureDetector(
+        onTap: () => RestrictionNotification.show(context, message: 'コメントができません'),
+        child: Opacity(
+          opacity: 0.35,
+          child: Container(
+            height: 43,
+            decoration: BoxDecoration(
+              color: theme.commentButtonColor,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 12),
+                Text(
+                  'コメントする',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: theme.textColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
     }
     return GestureDetector(
       onTap: widget.onComment,
@@ -1689,44 +1778,39 @@ class _PostCardState extends State<PostCard>
         borderRadius: BorderRadius.circular(18),
       ),
       child: IconButton(
-        icon: Icon(
-          Icons.ios_share,
-          color: theme.iconColor,
-          size: 20,
-        ),
+        icon: Icon(Icons.ios_share, color: theme.iconColor, size: 20),
         onPressed: () {
           // TODO: シェア機能の実装
-          if (kDebugMode) {
-            print('Share post: ${widget.post.track.trackName}');
-          }
         },
         padding: EdgeInsets.zero,
       ),
     );
   }
 
-  /// シェアボタン（裏面用）
-  Widget _buildShareButtonBack(PostTheme theme) {
-    return Container(
-      width: 36,
+  /// 削除メニューボタン（縦3点）
+  Widget _buildDeleteButton(PostTheme theme) {
+    return SizedBox(
+      width: 32,
       height: 36,
-      decoration: BoxDecoration(
-        color: theme.iconColor.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: IconButton(
-        icon: Icon(
-          Icons.ios_share,
-          color: theme.iconColor,
-          size: 20,
-        ),
-        onPressed: () {
-          // TODO: シェア機能の実装
-          if (kDebugMode) {
-            print('Share post (back): ${widget.post.track.trackName}');
-          }
-        },
+      child: PopupMenuButton<String>(
         padding: EdgeInsets.zero,
+        icon: Icon(Icons.more_vert, color: theme.iconColor, size: 22),
+        color: const Color(0xFF2D2D2D),
+        onSelected: (value) {
+          if (value == 'delete') widget.onDelete?.call();
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'delete',
+            child: Row(
+              children: [
+                Icon(Icons.delete_outline, color: Color(0xFFE53935), size: 20),
+                SizedBox(width: 8),
+                Text('削除', style: TextStyle(color: Color(0xFFE53935))),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

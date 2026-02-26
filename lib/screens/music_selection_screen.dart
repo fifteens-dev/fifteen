@@ -13,6 +13,8 @@ import '../services/vibe_topic_service.dart';
 import '../services/lyrics_service.dart';
 import '../utils/test_data.dart';
 import '../utils/color_extractor.dart';
+import '../services/audio_player_service.dart';
+import '../services/itunes_search_service.dart';
 import 'post_preview_screen.dart';
 
 /// 投稿用楽曲選択画面
@@ -34,6 +36,8 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   final MusicServiceManager _musicServiceManager = MusicServiceManager();
   final PostService _postService = PostService();
   final VibeTopicService _vibeTopicService = VibeTopicService();
+  final AudioPlayerService _audioService = AudioPlayerService();
+  final ITunesSearchService _itunesService = ITunesSearchService();
 
   // 選択された楽曲
   TrackModel? _selectedTrack;
@@ -59,6 +63,9 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   // ローディング状態
   bool _isLoading = false;
 
+  // 音楽サービス未連携状態
+  bool _notConnected = false;
+
   // 検索フォーカス状態
   bool _isSearchFocused = false;
 
@@ -81,6 +88,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   @override
   void dispose() {
+    _audioService.stop();
     _searchController.dispose();
     _searchFocusNode.removeListener(_onSearchFocusChanged);
     _searchFocusNode.dispose();
@@ -146,9 +154,18 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// 最近聞いた曲を読み込み
   Future<void> _loadRecentlyPlayedTracks() async {
-    setState(() => _isLoading = true);
+    setState(() { _isLoading = true; _notConnected = false; });
 
     try {
+      final isAuthenticated = await _musicServiceManager.isAuthenticated();
+
+      if (!isAuthenticated) {
+        if (mounted) {
+          setState(() { _tracks = []; _isLoading = false; _notConnected = true; });
+        }
+        return;
+      }
+
       final tracks = await _musicServiceManager.getRecentlyPlayedTracks(limit: 30);
 
       if (mounted) {
@@ -170,7 +187,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// 初期楽曲を読み込み（おすすめ = 日本の人気曲）
   Future<void> _loadInitialTracks() async {
-    setState(() => _isLoading = true);
+    setState(() { _isLoading = true; _notConnected = false; });
 
     try {
       // Apple Music日本トップチャートからおすすめ楽曲を取得
@@ -218,15 +235,19 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// My Playlistの楽曲を読み込み
   Future<void> _loadMyPlaylistTracks() async {
-    setState(() => _isLoading = true);
+    setState(() { _isLoading = true; _notConnected = false; });
 
     try {
       final isAuthenticated = await _musicServiceManager.isAuthenticated();
 
-      List<TrackModel> tracks = [];
-      if (isAuthenticated) {
-        tracks = await _musicServiceManager.getSavedTracks(limit: 50);
+      if (!isAuthenticated) {
+        if (mounted) {
+          setState(() { _tracks = []; _isLoading = false; _notConnected = true; });
+        }
+        return;
       }
+
+      final tracks = await _musicServiceManager.getSavedTracks(limit: 50);
 
       if (mounted) {
         setState(() {
@@ -284,7 +305,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// 保存済み曲を読み込み
   Future<void> _loadSavedTracks() async {
-    setState(() => _isLoading = true);
+    setState(() { _isLoading = true; _notConnected = false; });
 
     try {
       final currentUser = FirebaseAuth.instance.currentUser;
@@ -348,19 +369,40 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       return;
     }
 
-    setState(() {
-      if (_selectedTrack?.trackId == track.trackId) {
-        _selectedTrack = null;
-      } else {
+    if (_selectedTrack?.trackId == track.trackId) {
+      setState(() { _selectedTrack = null; });
+      _audioService.stop();
+    } else {
+      setState(() {
         _selectedTrack = track;
         // 検索履歴に追加
         _addToRecentMusicSearches(track);
-        // デバッグ: 選択した楽曲のpreviewURLを確認
-        print('🎵 選択した楽曲: ${track.trackName} by ${track.artistName}');
-        print('   previewUrl: "${track.previewUrl ?? "null"}"');
-        print('   previewUrl.isEmpty: ${track.previewUrl?.isEmpty ?? true}');
+      });
+      _playTrackPreview(track);
+    }
+  }
+
+  /// 楽曲のプレビューを再生
+  Future<void> _playTrackPreview(TrackModel track) async {
+    await _audioService.stop();
+
+    String? previewUrl = track.previewUrl;
+
+    if (previewUrl == null || previewUrl.isEmpty) {
+      final result = await _itunesService.getPreviewUrlWithArt(
+        trackName: track.trackName,
+        artistName: track.artistName,
+      );
+      previewUrl = result?['previewUrl'];
+    }
+
+    if (previewUrl != null && previewUrl.isNotEmpty && mounted) {
+      try {
+        await _audioService.playPreview(previewUrl, durationSeconds: 15);
+      } catch (e) {
+        print('Preview playback error: $e');
       }
-    });
+    }
   }
 
   /// 次へ進む
@@ -478,19 +520,21 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                               color: Color(0xFF5D8FFF),
                             ),
                           )
-                        : _tracks.isEmpty
-                            ? const Center(
-                                child: Text(
-                                  '楽曲が見つかりませんでした',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Color(0xFF9F9F9F),
-                                  ),
-                                ),
-                              )
-                            : _isGridView
-                                ? _buildTrackGrid()
-                                : _buildTrackList(),
+                        : _notConnected
+                            ? _buildNotConnectedView()
+                            : _tracks.isEmpty
+                                ? const Center(
+                                    child: Text(
+                                      '楽曲が見つかりませんでした',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF9F9F9F),
+                                      ),
+                                    ),
+                                  )
+                                : _isGridView
+                                    ? _buildTrackGrid()
+                                    : _buildTrackList(),
 
                   // カテゴリー未選択時のオーバーレイ
                   if (_selectedCategoryType == null)
@@ -810,15 +854,17 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
           // グリッド/リスト切り替えボタン
           GestureDetector(
             onTap: () => setState(() => _isGridView = !_isGridView),
-            child: SvgPicture.asset(
-              'assets/icons/grid.svg',
-              width: 25,
-              height: 25,
-              colorFilter: const ColorFilter.mode(
-                Colors.white,
-                BlendMode.srcIn,
-              ),
-            ),
+            child: _isGridView
+                ? const Icon(Icons.menu, color: Colors.white, size: 25)
+                : SvgPicture.asset(
+                    'assets/icons/grid.svg',
+                    width: 25,
+                    height: 25,
+                    colorFilter: const ColorFilter.mode(
+                      Colors.white,
+                      BlendMode.srcIn,
+                    ),
+                  ),
           ),
         ],
       ),
@@ -1169,6 +1215,38 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 音楽サービス未連携時のビュー
+  Widget _buildNotConnectedView() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.music_off,
+            color: Color(0xFF9F9F9F),
+            size: 48,
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            '音楽サービスと連携してください',
+            style: TextStyle(
+              fontSize: 14,
+              color: Color(0xFF9F9F9F),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '設定 → 音楽サービス連携 から連携できます',
+            style: TextStyle(
+              fontSize: 12,
+              color: Color(0xFF6F6F6F),
+            ),
           ),
         ],
       ),

@@ -176,9 +176,8 @@ class ProfilePostGridItem extends StatelessWidget {
     return GestureDetector(
       onLongPressStart: onDelete != null ? (details) => _showDeleteMenu(context, details) : null,
       onTap: () {
-        AudioPlayerService().stop();
         if (allPosts != null && initialIndex != null) {
-          // インスタ式：縦スクロール投稿一覧に遷移
+          // インスタ式：縦スクロール投稿一覧に遷移（裏面スタート＋音楽自動再生）
           Navigator.push(
             context,
             MaterialPageRoute(

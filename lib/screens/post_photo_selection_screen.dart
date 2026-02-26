@@ -547,7 +547,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
       return;
     }
 
-    final result = await Navigator.push<Map<String, dynamic>>(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => MusicTrimScreen(
@@ -563,10 +563,6 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
         ),
       ),
     );
-
-    if (result != null && mounted) {
-      Navigator.pop(context, result);
-    }
   }
 
   @override

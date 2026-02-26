@@ -169,23 +169,6 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
     await _audioService.stop();
   }
 
-  void _toggleDuration(int seconds) {
-    if (_durationSeconds == seconds) return;
-    setState(() {
-      _durationSeconds = seconds;
-      _playbackProgress = 0.0;
-      _pausedProgress = 0.0;
-      // 選択区間が範囲外にならないように調整
-      final maxStart = 1.0 - (seconds / _totalDuration.inSeconds);
-      if (_startPosition > maxStart) {
-        _startPosition = maxStart.clamp(0.0, 1.0);
-      }
-    });
-
-    if (_isPlaying) {
-      _playFromCurrentPosition();
-    }
-  }
 
   /// ドラッグ開始: 音楽を停止、進捗リセット
   void _onDragStart() {
@@ -219,7 +202,7 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
 
     final audioStartMs = (_startPosition * _totalDuration.inMilliseconds).round();
 
-    final result = await Navigator.push<Map<String, dynamic>>(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => LyricsCardSelectionScreen(
@@ -232,16 +215,11 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
           isVibe: widget.isVibe,
           vibeTopicId: widget.vibeTopicId,
           vibeTopicTitle: widget.vibeTopicTitle,
+          audioStartMs: audioStartMs,
+          audioDurationSec: _durationSeconds,
         ),
       ),
     );
-
-    if (result != null && mounted) {
-      // audioStartMs, audioDurationSec を結果に追加
-      result['audioStartMs'] = audioStartMs;
-      result['audioDurationSec'] = _durationSeconds;
-      Navigator.pop(context, result);
-    }
   }
 
   @override
@@ -482,11 +460,9 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
     );
   }
 
-  /// 再生時間ボタン
+  /// 再生時間ボタン（15秒固定）
   Widget _buildDurationButton(int seconds) {
-    return GestureDetector(
-      onTap: () => _toggleDuration(seconds == 15 ? 30 : 15),
-      child: Container(
+    return Container(
         width: 36,
         height: 36,
         decoration: BoxDecoration(
@@ -503,7 +479,6 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
             ),
           ),
         ),
-      ),
     );
   }
 

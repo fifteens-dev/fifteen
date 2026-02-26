@@ -3,6 +3,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/notification_model.dart';
 import '../services/notification_service.dart';
 import '../services/auth_service.dart';
+import '../services/post_service.dart';
+import 'other_user_profile_screen.dart';
+import 'post_detail_screen.dart';
 
 /// 通知一覧画面
 class NotificationListScreen extends StatefulWidget {
@@ -15,6 +18,7 @@ class NotificationListScreen extends StatefulWidget {
 class _NotificationListScreenState extends State<NotificationListScreen> {
   final NotificationService _notificationService = NotificationService();
   final AuthService _authService = AuthService();
+  final PostService _postService = PostService();
 
   @override
   Widget build(BuildContext context) {
@@ -627,19 +631,35 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       await _notificationService.markAsRead(notification.notificationId);
     }
 
-    // TODO: 通知タイプに応じて画面遷移
-    // 現時点では画面遷移を実装しない（後のフェーズで実装可能）
-    // switch (notification.type) {
-    //   case NotificationType.follow:
-    //     // プロフィール画面に遷移
-    //     break;
-    //   case NotificationType.like:
-    //   case NotificationType.comment:
-    //     // 投稿詳細画面に遷移
-    //     break;
-    //   case NotificationType.official:
-    //     // actionUrlがあれば遷移
-    //     break;
-    // }
+    if (!mounted) return;
+
+    switch (notification.type) {
+      case NotificationType.follow:
+        // フォローした人のプロフィールへ遷移
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => OtherUserProfileScreen(userId: notification.senderId),
+          ),
+        );
+        break;
+      case NotificationType.like:
+      case NotificationType.comment:
+        // 対象の投稿へ遷移
+        if (notification.postId != null) {
+          final post = await _postService.getPost(notification.postId!);
+          if (mounted && post != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PostDetailScreen(post: post),
+              ),
+            );
+          }
+        }
+        break;
+      default:
+        break;
+    }
   }
 }

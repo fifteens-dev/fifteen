@@ -33,20 +33,10 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   // 保存済み投稿
   List<PostModel> _savedPosts = [];
 
-  // 今日の投稿
-  List<PostModel> _todaysPosts = [];
-
-  // 今日以外の投稿
+  // 投稿
   List<PostModel> _otherPosts = [];
 
-  // 各カードのプレビューURLキャッシュ
-  final Map<String, String> _previewUrlCache = {};
-
-  // スクロール時の音楽停止用
-  final Map<String, GlobalKey> _trackCardKeys = {};
-  String? _playingPostId;
-
-  int get _tracksCount => _todaysPosts.length + _otherPosts.length;
+  int get _tracksCount => _otherPosts.length;
   int get _followersCount => _userData?.followersCount ?? 0;
   int get _followingCount => _userData?.followingCount ?? 0;
 
@@ -70,44 +60,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     _tabController.dispose();
     _audioService.stop();
     super.dispose();
-  }
-
-  /// 再生中のカードが画面外にスクロールしたら音楽を停止
-  void _checkPlayingCardVisibility() {
-    if (!mounted) return;
-    if (!_audioService.isPlaying && !_audioService.isPaused) return;
-    if (_playingPostId == null) return;
-
-    final key = _trackCardKeys[_playingPostId];
-    if (key == null) {
-      _audioService.stop();
-      _playingPostId = null;
-      return;
-    }
-
-    final currentContext = key.currentContext;
-    if (currentContext == null) {
-      _audioService.stop();
-      _playingPostId = null;
-      return;
-    }
-
-    final renderBox = currentContext.findRenderObject() as RenderBox?;
-    if (renderBox == null || !renderBox.attached) {
-      _audioService.stop();
-      _playingPostId = null;
-      return;
-    }
-
-    final position = renderBox.localToGlobal(Offset.zero);
-    final size = renderBox.size;
-    final screenHeight = MediaQuery.of(context).size.height;
-
-    // カードが完全に画面外に出たら停止
-    if (position.dy + size.height <= 0 || position.dy >= screenHeight) {
-      _audioService.stop();
-      _playingPostId = null;
-    }
   }
 
   /// ユーザーデータを読み込み
@@ -145,15 +97,10 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     final userId = currentUser?.uid ?? 'test_user_temp';
 
     try {
-      // 今日の投稿を取得
-      final todaysPosts = await _postService.getTodaysPosts(userId);
-
-      // 今日以外の投稿を取得
       final otherPosts = await _postService.getPostsExcludingToday(userId, limit: 50);
 
       if (mounted) {
         setState(() {
-          _todaysPosts = todaysPosts;
           _otherPosts = otherPosts;
         });
       }
@@ -252,7 +199,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       if (mounted) {
         setState(() {
           _otherPosts.removeWhere((p) => p.postId == post.postId);
-          _todaysPosts.removeWhere((p) => p.postId == post.postId);
         });
       }
     } catch (e) {
@@ -278,20 +224,13 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
-        child: NotificationListener<ScrollNotification>(
-          onNotification: (notification) {
-            _checkPlayingCardVisibility();
-            return false;
-          },
-          child: NestedScrollView(
+        child: NestedScrollView(
           headerSliverBuilder: (context, innerBoxIsScrolled) {
             return [
               // ヘッダー
               SliverToBoxAdapter(child: _buildHeader()),
               // プロフィール情報
               SliverToBoxAdapter(child: _buildProfileInfo()),
-              // 今日の楽曲カード
-              SliverToBoxAdapter(child: _buildTodaysTrack()),
               // タブ切り替え（スクロール時に上に固定）
               SliverPersistentHeader(
                 pinned: true,
@@ -309,7 +248,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             ],
           ),
         ),
-        ),
       ),
     );
   }
@@ -326,13 +264,13 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
           // ユーザーID（中央）
           Center(
             child: Text(
-            username,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
+              username,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
           ),
           // 設定アイコン（右端）
           Positioned(
@@ -462,61 +400,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       ),
     );
   }
-
-
-  /// 今日の楽曲カード（スクロール可能なリスト表示）
-  Widget _buildTodaysTrack() {
-    // 今日の投稿がない場合は何も表示しない
-    if (_todaysPosts.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    // 最大5枚まで表示
-    final displayPosts = _todaysPosts.take(5).toList();
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 見出し
-          const Padding(
-            padding: EdgeInsets.only(left: 4, bottom: 12),
-            child: Text(
-              '今日の楽曲',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          // 楽曲リスト（投稿数に応じた高さ）
-          ...displayPosts.asMap().entries.map((entry) {
-            final index = entry.key;
-            final post = entry.value;
-            _trackCardKeys.putIfAbsent(post.postId, () => GlobalKey());
-            final cardKey = _trackCardKeys[post.postId]!;
-            return Padding(
-              key: cardKey,
-              padding: EdgeInsets.only(
-                bottom: index < displayPosts.length - 1 ? 6 : 0,
-              ),
-              child: TodaysTrackCard(
-                post: post,
-                audioService: _audioService,
-                previewUrlCache: _previewUrlCache,
-                onPlayStarted: () {
-                  _playingPostId = post.postId;
-                },
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
 
   /// タブ切り替え
   Widget _buildTabSelector() {

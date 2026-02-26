@@ -37,24 +37,18 @@ class AppleMusicService {
     _developerToken = await _storage.read(key: _developerTokenKey);
   }
 
-  /// 認証状態を確認
-  Future<bool> isAuthenticated() async {
-    // Developer Tokenを常にロード（API呼び出しに必要）
+  /// Developer Tokenが利用可能かチェック（検索・カタログAPI用）
+  Future<bool> _checkDeveloperToken() async {
     await _ensureDeveloperToken();
-
-    // User Token認証をチェック（個人データアクセス用）
-    if (_userToken != null) {
-      return true;
-    }
-
-    // ストレージからUser Tokenを読み込み
-    _userToken = await _storage.read(key: _userTokenKey);
-    if (_userToken != null) {
-      return true;
-    }
-
-    // Developer Tokenがあれば基本的な検索は可能
     return _developerToken != null && _developerToken!.isNotEmpty;
+  }
+
+  /// ユーザー認証状態を確認（User Token必要なAPI用）
+  /// User Tokenが存在する場合のみtrueを返す
+  Future<bool> isAuthenticated() async {
+    if (_userToken != null) return true;
+    _userToken = await _storage.read(key: _userTokenKey);
+    return _userToken != null;
   }
 
   /// User Token認証（MusicKit使用）
@@ -127,7 +121,7 @@ class AppleMusicService {
   Future<List<TrackModel>> searchTracks(String query, {int limit = 20}) async {
     if (query.isEmpty) return [];
 
-    if (!await isAuthenticated()) {
+    if (!await _checkDeveloperToken()) {
       print('Apple Music Developer Tokenが設定されていません');
       return [];
     }
@@ -194,7 +188,7 @@ class AppleMusicService {
   /// キュレーションプレイリストから楽曲を取得
   Future<List<TrackModel>> getPlaylistTracks(String playlistId,
       {int limit = 50}) async {
-    if (!await isAuthenticated()) {
+    if (!await _checkDeveloperToken()) {
       print('Apple Music Developer Tokenが設定されていません');
       return [];
     }
@@ -255,7 +249,7 @@ class AppleMusicService {
 
   /// 日本のトップチャートを取得
   Future<List<TrackModel>> getTopCharts({int limit = 50}) async {
-    if (!await isAuthenticated()) {
+    if (!await _checkDeveloperToken()) {
       print('Apple Music Developer Tokenが設定されていません');
       return [];
     }
@@ -476,7 +470,7 @@ class AppleMusicService {
       return null;
     }
 
-    if (!await isAuthenticated()) {
+    if (!await _checkDeveloperToken()) {
       print('Apple Music Developer Tokenが設定されていません');
       return null;
     }

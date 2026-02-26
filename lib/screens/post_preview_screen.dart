@@ -4,7 +4,6 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
@@ -13,17 +12,11 @@ import '../widgets/post_card.dart';
 import '../widgets/post_card/post_card_constants.dart';
 import '../widgets/post_card_back_info.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
-import '../widgets/dialogs/dialogs.dart';
 import '../services/audio_player_service.dart';
-import '../services/bpm_service.dart';
-import '../services/post_service.dart';
-import '../services/storage_service.dart';
 import '../services/lyrics_service.dart';
 import '../services/itunes_search_service.dart';
 import '../utils/color_extractor.dart';
 import '../utils/current_user_helper.dart';
-import '../utils/photo_helper.dart';
-import '../widgets/animated_waveform.dart';
 import '../widgets/shared/user_info_badge.dart';
 import 'post_photo_selection_screen.dart';
 
@@ -55,7 +48,6 @@ class PostPreviewScreen extends StatefulWidget {
 }
 
 class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProviderStateMixin {
-  final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
   Offset _imageOffset = Offset.zero;
   double _imageScale = 1.0;
@@ -63,15 +55,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
   // 音楽再生サービス
   final AudioPlayerService _audioService = AudioPlayerService();
-  final BpmService _bpmService = BpmService();
   String? _cachedPreviewUrl; // 再生ボタン用にキャッシュ
-  double? _tempo; // BPM
-
-  // 投稿関連サービス
-  final PostService _postService = PostService();
-  final StorageService _storageService = StorageService();
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  bool _isPosting = false;
 
   // 歌詞カード関連
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
@@ -110,9 +94,6 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
     // 現在のユーザー情報を取得
     _loadCurrentUserInfo();
-
-    // BPM取得
-    _fetchTempo();
 
     // 歌詞データの初期化
     _lyricsData = widget.lyricsData;
@@ -202,26 +183,6 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
   }
 
   /// BPMを非同期で取得
-  Future<void> _fetchTempo() async {
-    final track = widget.track;
-    if (track.tempo != null) {
-      _tempo = track.tempo;
-      return;
-    }
-    try {
-      final tempo = await _bpmService.getTempo(
-        trackId: track.trackId,
-        trackName: track.trackName,
-        artistName: track.artistName,
-      );
-      if (mounted && tempo != null) {
-        setState(() {
-          _tempo = tempo;
-        });
-      }
-    } catch (_) {}
-  }
-
   /// 音楽のプレビューを再生
   Future<void> _playMusicPreview() async {
     var previewUrl = widget.track.previewUrl;
@@ -371,14 +332,14 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
   Future<void> _pickImage() async {
     print('📷 写真選択画面へ遷移');
 
-    // 写真選択画面へ遷移
-    final result = await Navigator.push<Map<String, dynamic>>(
+    // 写真選択フロー（PostPhotoSelectionScreen → MusicTrimScreen → LyricsCardSelectionScreen → PostFinalPreviewScreen）
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => PostPhotoSelectionScreen(
           track: widget.track,
-          lyricsData: _lyricsData, // 現在保持している歌詞データを渡す
-          lyricsFuture: _lyricsFuture, // バックグラウンド取得Futureを渡す
+          lyricsData: _lyricsData,
+          lyricsFuture: _lyricsFuture,
           isVibe: widget.isVibe,
           vibeTopicId: widget.vibeTopicId,
           vibeTopicTitle: widget.vibeTopicTitle,
@@ -386,238 +347,14 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
       ),
     );
 
-    // 写真選択画面から戻ったら音楽を再開
-    _playMusicPreview();
-
-    print('📷 写真選択画面から戻りました');
-    print('  - result: $result');
-
-    // 選択された写真と歌詞カード情報を設定
-    if (result != null) {
-      print('✅ 写真が選択されました');
-      setState(() {
-        _selectedImage = result['image'] as XFile?;
-        _imageOffset = result['imageOffset'] as Offset? ?? Offset.zero;
-        _imageScale = result['imageScale'] as double? ?? 1.0;
-        _imageNaturalSize = result['imageNaturalSize'] as Size?;
-        _selectedLayoutIndex = result['layoutIndex'] as int? ?? 0;
-        final cardPosition = result['cardPosition'] as Offset? ?? Offset.zero;
-        final cardScale = result['cardScale'] as double? ?? 1.0;
-        _cardRotation = result['cardRotation'] as double? ?? 0.0;
-
-        // 歌詞データを保存
-        if (result.containsKey('lyricsData')) {
-          _lyricsData = result['lyricsData'] as LyricsData?;
-          print('  - lyricsData: ${_lyricsData != null ? "取得済み (${_lyricsData!.source})" : "なし"}');
-        }
-
-        // 音楽カット設定を保存
-        _audioStartMs = result['audioStartMs'] as int? ?? 0;
-        _audioDurationSec = result['audioDurationSec'] as int? ?? 15;
-
-        // rectを更新（位置とスケールから計算）
-        final baseSize = _getCardSizeBack();
-        _rect = Rect.fromLTWH(
-          cardPosition.dx,
-          cardPosition.dy,
-          baseSize.width * cardScale,
-          baseSize.height * cardScale,
-        );
-      });
-      print('  - layoutIndex: $_selectedLayoutIndex');
-      print('  - rect: $_rect');
-      print('  - cardRotation: $_cardRotation');
-      print('  - image: ${_selectedImage != null ? "あり" : "なし"}');
-    } else {
-      print('❌ 写真の選択がキャンセルされました');
-    }
+    // フローから戻ったら音楽を再開
+    if (mounted) _playMusicPreview();
   }
 
-  /// 閉じるボタンタップ時のダイアログを表示
-  Future<void> _showCloseConfirmDialog() async {
-    final shouldCancel = await ActionDialog.showCancelConfirm(
-      context,
-      title: 'どうしますか？',
-      cancelActionLabel: '投稿をキャンセル',
-      continueActionLabel: 'このまま続ける',
-    );
-
-    if (shouldCancel && mounted) {
-      // 投稿をキャンセル → ホーム画面に戻る
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/home',
-        (route) => false,
-      );
-    }
-  }
-
-  /// 投稿確認ダイアログを表示
-  Future<bool> _showPostConfirmDialog() async {
-    return await ActionDialog.showPostConfirm(context);
-  }
-
-  /// 投稿を完了
-  Future<void> _onPost() async {
-    print('🚀 _onPost()が呼ばれました');
-
-    // 確認ダイアログを表示
-    print('📋 確認ダイアログを表示中...');
-    final confirmed = await _showPostConfirmDialog();
-    print('✅ ダイアログ結果: $confirmed');
-
-    if (!confirmed) {
-      print('❌ ユーザーがキャンセルしました');
-      return;
-    }
-
-    if (_isPosting) {
-      print('⚠️ 既に投稿処理中です');
-      return;
-    }
-
-    print('📝 投稿処理を開始します');
-    setState(() {
-      _isPosting = true;
-    });
-
-    try {
-      final currentUser = _auth.currentUser;
-      final userId = currentUser?.uid ?? 'test_user_temp';
-      // _loadCurrentUserInfoで取得済みのユーザー情報を使用
-      final username = _currentUsername.isNotEmpty
-          ? _currentUsername
-          : currentUser?.displayName ?? 'ユーザー';
-      final userIconUrl = _currentUserIconUrl;
-      print('👤 ユーザー情報: userId=$userId, username=$username, userIconUrl=$userIconUrl');
-
-      // 写真を処理（PhotoHelperを使用）
-      String? photoUrl;
-      if (_selectedImage != null) {
-        try {
-          photoUrl = await PhotoHelper.processPhoto(
-            image: _selectedImage!,
-            userId: userId,
-            storageService: _storageService,
-          );
-        } catch (e) {
-          print('❌ 写真処理エラー: $e');
-          print('⚠️ 写真なしで投稿を続行します');
-          photoUrl = null;
-        }
-      } else {
-        print('⚠️ 写真が選択されていません');
-      }
-
-      // TrackModelをMapに変換
-      print('🎵 楽曲データを変換中...');
-      final trackData = widget.track.toMap();
-      print('📋 楽曲データ: $trackData');
-
-      // アルバムアートから色を抽出してテーマを生成
-      PostTheme? extractedTheme;
-      try {
-        print('🎨 アルバムアートから色を抽出中...');
-        final albumArtUrl = widget.track.albumImageUrl;
-        extractedTheme = await ColorExtractor.extractThemeFromAlbumArt(albumArtUrl);
-
-        if (extractedTheme != null) {
-          print('✅ 色抽出完了: ${extractedTheme.gradientStart} → ${extractedTheme.gradientEnd}');
-          print('   textColor: ${extractedTheme.textColor}, iconColor: ${extractedTheme.iconColor}');
-        }
-      } catch (e) {
-        print('⚠️  色抽出エラー（デフォルトテーマを使用）: $e');
-        extractedTheme = null; // エラー時はnull（Firestoreでデフォルトテーマが使われる）
-      }
-
-      // 投稿を作成
-      print('💾 Firestoreに投稿を保存中...');
-      print('  - userId: $userId');
-      print('  - username: $username');
-      print('  - photoUrl: ${PhotoHelper.formatPhotoUrlForLog(photoUrl)}');
-      print('  - layoutIndex: $_selectedLayoutIndex');
-      print('  - rect: $_rect');
-
-      // rectからスケールを計算
-      final baseSize = _getCardSizeBack();
-      final cardScale = _rect.width / baseSize.width;
-
-      // 歌詞テキストを取得
-      String? lyricsText;
-      if (_lyricsData != null) {
-        final lyricsService = LyricsService();
-        lyricsText = lyricsService.truncateLyrics(
-          _lyricsData!.plainLyrics,
-          maxLines: 4,
-        );
-      }
-
-      print('📝 投稿データ: isVibe=${widget.isVibe}, vibeTopicId=${widget.vibeTopicId}, vibeTopicTitle=${widget.vibeTopicTitle}');
-      print('  - lyricsText: ${lyricsText != null ? "${lyricsText.length}文字" : "なし"}');
-      final postId = await _postService.createPost(
-        userId: userId,
-        username: username,
-        userIconUrl: userIconUrl,
-        trackData: trackData,
-        photoUrl: photoUrl,
-        imageOffsetX: _imageOffset.dx,
-        imageOffsetY: _imageOffset.dy,
-        imageScale: _imageScale,
-        imageNaturalWidth: _imageNaturalSize?.width ?? 0,
-        imageNaturalHeight: _imageNaturalSize?.height ?? 0,
-        selectedLayoutIndex: _selectedLayoutIndex,
-        cardPositionX: _rect.left,
-        cardPositionY: _rect.top,
-        cardScale: cardScale,
-        cardRotation: _cardRotation,
-        isVibe: widget.isVibe,
-        vibeTopicId: widget.vibeTopicId,
-        vibeTopicTitle: widget.vibeTopicTitle,
-        theme: extractedTheme, // 抽出した色テーマを保存
-        lyricsText: lyricsText, // 歌詞テキスト
-        audioStartMs: _audioStartMs,
-        audioDurationSec: _audioDurationSec,
-      );
-      print('✅ 投稿作成完了: postId=$postId');
-
-      if (mounted) {
-        print('🎉 投稿成功！ホーム画面に戻ります');
-        setState(() {
-          _isPosting = false;
-        });
-
-        // ホーム画面に戻る
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/home',
-          (route) => false,
-        );
-      }
-    } catch (e, stackTrace) {
-      print('❌ 投稿エラー: $e');
-      print('📍 スタックトレース: $stackTrace');
-
-      if (mounted) {
-        setState(() {
-          _isPosting = false;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('投稿に失敗しました: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     print('🎨 PostPreviewScreen build()呼び出し');
-    print('  - _selectedImage: ${_selectedImage != null ? "選択済み" : "未選択"}');
-    print('  - _isPosting: $_isPosting');
-    print('  - _selectedLayoutIndex: $_selectedLayoutIndex');
-    print('  - _rect: $_rect');
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
@@ -672,25 +409,21 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
   /// ヘッダー
   Widget _buildHeader() {
-    // 写真が選択されているかチェック
-    final bool isPhotoSelected = _selectedImage != null;
-    final bool canPost = isPhotoSelected && !_isPosting;
-
     return Container(
       height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 19),
       child: Row(
         children: [
-          // 閉じるボタン（バツマーク）- 投稿中は無効化
+          // 閉じるボタン（バツマーク）
           Expanded(
             child: Align(
               alignment: Alignment.centerLeft,
               child: GestureDetector(
-                onTap: _isPosting ? null : _showCloseConfirmDialog,
-                child: Icon(
-                  Icons.close,
-                  color: _isPosting ? Colors.grey : Colors.white,
-                  size: 27,
+                onTap: () => Navigator.of(context).pop(),
+                child: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: Colors.white,
+                  size: 22,
                 ),
               ),
             ),
@@ -706,49 +439,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
             ),
           ),
 
-          // 投稿するボタン
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: _isPosting
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Color(0xFF5D8FFF),
-                        ),
-                      ),
-                    )
-                  : GestureDetector(
-                      onTap: canPost
-                          ? () {
-                              print('🔘 投稿するボタンがタップされました');
-                              print('  - isPhotoSelected: $isPhotoSelected');
-                              print('  - _isPosting: $_isPosting');
-                              print('  - canPost: $canPost');
-                              _onPost();
-                            }
-                          : () {
-                              print('⚠️ 投稿ボタンが無効です');
-                              print('  - isPhotoSelected: $isPhotoSelected');
-                              print('  - _isPosting: $_isPosting');
-                              print('  - canPost: $canPost');
-                            },
-                      child: Text(
-                        '投稿する',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: canPost
-                              ? const Color(0xFF5D8FFF)
-                              : Colors.grey,
-                        ),
-                      ),
-                    ),
-            ),
-          ),
+          // 右側スペーサー（投稿は最終プレビュー画面で行う）
+          const Expanded(child: SizedBox.shrink()),
         ],
       ),
     );
@@ -897,10 +589,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
               borderRadius: BorderRadius.circular(18),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(18.0),
-                topRight: Radius.circular(18.0),
-              ),
+              borderRadius: BorderRadius.circular(18),
               child: Stack(
                 clipBehavior: Clip.hardEdge,
                 children: [
@@ -1019,6 +708,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
       hashtagText: widget.isVibe && widget.vibeTopicTitle != null
           ? '#${widget.vibeTopicTitle}'
           : null,
+      showBackground: false,
     );
   }
 

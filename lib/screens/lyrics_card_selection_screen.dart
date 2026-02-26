@@ -11,6 +11,7 @@ import '../services/lyrics_service.dart';
 import '../utils/current_user_helper.dart';
 import '../widgets/shared/user_info_badge.dart';
 import 'package:image_picker/image_picker.dart';
+import 'post_final_preview_screen.dart';
 
 /// 歌詞カード選択画面
 class LyricsCardSelectionScreen extends StatefulWidget {
@@ -23,6 +24,8 @@ class LyricsCardSelectionScreen extends StatefulWidget {
   final bool isVibe;
   final String? vibeTopicId;
   final String? vibeTopicTitle;
+  final int audioStartMs;
+  final int audioDurationSec;
 
   const LyricsCardSelectionScreen({
     super.key,
@@ -35,6 +38,8 @@ class LyricsCardSelectionScreen extends StatefulWidget {
     this.isVibe = false,
     this.vibeTopicId,
     this.vibeTopicTitle,
+    this.audioStartMs = 0,
+    this.audioDurationSec = 15,
   });
 
   @override
@@ -168,24 +173,27 @@ class _LyricsCardSelectionScreenState
             // ヘッダー
             _buildHeader(),
 
-            const SizedBox(height: 20),
-
-            // メインコンテンツ
+            // コンテンツ（最終プレビュー画面と同じ padding に合わせる）
             Expanded(
-              child: Stack(
-                children: [
-                  // 背景の投稿カードプレビュー
-                  _buildBackgroundPreview(),
-                ],
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 16),
+
+                    // 背景の投稿カードプレビュー（垂直中央ではなく上揃え）
+                    _buildBackgroundPreview(),
+
+                    const SizedBox(height: 36),
+
+                    // レイアウト選択ツールバー（Figma仕様: 写真から36px）
+                    _buildLayoutOptions(),
+
+                    const SizedBox(height: 30),
+                  ],
+                ),
               ),
             ),
-
-            const SizedBox(height: 10),
-
-            // 下部のレイアウト選択ツールバー
-            _buildLayoutOptions(),
-
-            const SizedBox(height: 20),
           ],
         ),
       ),
@@ -248,23 +256,15 @@ class _LyricsCardSelectionScreenState
       }
     }
 
-    return Center(
-      child: Container(
-        width: frameW,
-        height: photoHeight,
-        decoration: BoxDecoration(
-          color: const Color(0xFF121212),
-          border: Border.all(color: Colors.white, width: 0.5),
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(18),
-            topRight: Radius.circular(18),
-          ),
-        ),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(18),
-            topRight: Radius.circular(18),
-          ),
+    return Container(
+      width: frameW,
+      height: photoHeight,
+      decoration: BoxDecoration(
+        color: const Color(0xFF121212),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
           child: Stack(
             clipBehavior: Clip.hardEdge,
             children: [
@@ -362,12 +362,12 @@ class _LyricsCardSelectionScreenState
                   hashtagText: widget.isVibe && widget.vibeTopicTitle != null
                       ? '#${widget.vibeTopicTitle}'
                       : null,
+                  showBackground: false,
                 ),
               ),
             ],
           ),
         ),
-      ),
     );
   }
 
@@ -487,6 +487,14 @@ class _LyricsCardSelectionScreenState
     _isTwoFingerAccepted = false;
     _activeSnapAngles = {};
     _prevSnapAngles = {};
+
+    // 中心スナップ（40px以内なら吸着）
+    const center = Offset(_photoWidth / 2, _photoHeight / 2);
+    if ((_cardCenter - center).distance <= 40.0) {
+      _cardCenter = center;
+      HapticFeedback.lightImpact();
+    }
+
     _gestureNotifier.value++;
   }
 
@@ -895,13 +903,15 @@ class _LyricsCardSelectionScreenState
   Widget _buildLayoutOptions() {
     return Column(
       children: [
-        // レイアウトオプション
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(5, (index) {
-            final isSelected = _selectedLayoutIndex == index;
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 15),
+        // レイアウトオプション（Figma: 左右37px余白、アイコン間gap30px）
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 37),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (index) {
+              final isSelected = _selectedLayoutIndex == index;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 15),
               child: GestureDetector(
                 onTap: () {
                   setState(() {
@@ -921,9 +931,11 @@ class _LyricsCardSelectionScreenState
               ),
             );
           }),
+          ),
         ),
 
-        const SizedBox(height: 20),
+        // Figma: icons bottom から105px底スペース内にチェックマークを中央配置 → (105-45)/2 = 30px
+        const SizedBox(height: 30),
 
         // 確認ボタン
         GestureDetector(
@@ -935,17 +947,28 @@ class _LyricsCardSelectionScreenState
               _cardCenter.dx - cardSize.width * _cardScale / 2,
               _cardCenter.dy - cardSize.height * _cardScale / 2,
             );
-            Navigator.pop(context, {
-              'image': widget.selectedImage,
-              'imageOffset': widget.imageOffset,
-              'imageScale': widget.imageScale,
-              'imageNaturalSize': widget.imageNaturalSize,
-              'layoutIndex': _selectedLayoutIndex,
-              'cardPosition': adjustedOffset,
-              'cardScale': _cardScale,
-              'cardRotation': _cardRotation,
-              'lyricsData': _lyricsData,
-            });
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PostFinalPreviewScreen(
+                  track: widget.track,
+                  selectedImage: widget.selectedImage,
+                  imageOffset: widget.imageOffset,
+                  imageScale: widget.imageScale,
+                  imageNaturalSize: widget.imageNaturalSize,
+                  selectedLayoutIndex: _selectedLayoutIndex,
+                  cardPosition: adjustedOffset,
+                  cardScale: _cardScale,
+                  cardRotation: _cardRotation,
+                  isVibe: widget.isVibe,
+                  vibeTopicId: widget.vibeTopicId,
+                  vibeTopicTitle: widget.vibeTopicTitle,
+                  lyricsData: _lyricsData,
+                  audioStartMs: widget.audioStartMs,
+                  audioDurationSec: widget.audioDurationSec,
+                ),
+              ),
+            );
           },
           child: Container(
             width: 45,

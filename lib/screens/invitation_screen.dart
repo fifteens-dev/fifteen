@@ -1,13 +1,49 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/user_service.dart';
 
 /// 招待画面
-class InvitationScreen extends StatelessWidget {
+class InvitationScreen extends StatefulWidget {
   const InvitationScreen({super.key});
 
-  // ダミーデータ（実際にはFirebaseから取得）
-  final String _invitationCode = 'TEST123';
-  final int _remainingInvitations = 2;
+  @override
+  State<InvitationScreen> createState() => _InvitationScreenState();
+}
+
+class _InvitationScreenState extends State<InvitationScreen> {
+  final UserService _userService = UserService();
+  String? _inviteCode;
+  int _usedCount = 0;
+  bool _isLoading = true;
+  static const int _maxInvites = 3;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInviteCode();
+  }
+
+  Future<void> _loadInviteCode() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      setState(() { _isLoading = false; });
+      return;
+    }
+    try {
+      final code = await _userService.ensureInviteCode(uid);
+      final used = await _userService.getInviteCodeUsedCount(code);
+      if (mounted) {
+        setState(() {
+          _inviteCode = code;
+          _usedCount = used;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() { _isLoading = false; });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +63,6 @@ class InvitationScreen extends StatelessWidget {
                   child: Column(
                     children: [
                       const SizedBox(height: 17),
-
                       // 招待コードカード
                       _buildInvitationCard(context),
                     ],
@@ -48,12 +83,10 @@ class InvitationScreen extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
-          // 戻るボタン
           IconButton(
             icon: const Icon(Icons.chevron_left, color: Colors.white, size: 28),
             onPressed: () => Navigator.pop(context),
           ),
-          // タイトル
           const Expanded(
             child: Text(
               '招待',
@@ -65,7 +98,6 @@ class InvitationScreen extends StatelessWidget {
               ),
             ),
           ),
-          // スペーサー（バランス用）
           const SizedBox(width: 48),
         ],
       ),
@@ -84,39 +116,49 @@ class InvitationScreen extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(15),
-          onTap: () => _copyInvitationCode(context),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // 招待コード（コピーアイコン付き）
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // コピーアイコン
-                  _buildCopyIcon(),
-                  const SizedBox(width: 8),
-                  // 招待コード
-                  Text(
-                    _invitationCode,
-                    style: const TextStyle(
+          onTap: _isLoading || _inviteCode == null || _usedCount >= _maxInvites
+              ? null
+              : () => _copyInvitationCode(context),
+          child: _isLoading
+              ? const Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
                       color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
+                      strokeWidth: 2,
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              // 残り人数
-              Text(
-                '残り：$_remainingInvitations人',
-                style: const TextStyle(
-                  color: Colors.grey,
-                  fontSize: 12,
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildCopyIcon(),
+                        const SizedBox(width: 8),
+                        Text(
+                          _inviteCode ?? '------',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '残り：${_maxInvites - _usedCount}人',
+                      style: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -129,7 +171,6 @@ class InvitationScreen extends StatelessWidget {
       height: 20,
       child: Stack(
         children: [
-          // 後ろの紙
           Positioned(
             left: 0,
             top: 0,
@@ -142,7 +183,6 @@ class InvitationScreen extends StatelessWidget {
               ),
             ),
           ),
-          // 前の紙
           Positioned(
             right: 0,
             bottom: 0,
@@ -163,7 +203,7 @@ class InvitationScreen extends StatelessWidget {
 
   /// 招待コードをコピー
   void _copyInvitationCode(BuildContext context) {
-    Clipboard.setData(ClipboardData(text: _invitationCode));
+    Clipboard.setData(ClipboardData(text: _inviteCode!));
     _showCopiedToast(context);
   }
 
@@ -212,7 +252,6 @@ class _CopiedToastState extends State<_CopiedToast>
 
     _controller.forward();
 
-    // 2秒後に自動で消える
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         _controller.reverse().then((_) {
@@ -246,7 +285,6 @@ class _CopiedToastState extends State<_CopiedToast>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // チェックマークアイコン
                 Container(
                   width: 22,
                   height: 22,
@@ -261,7 +299,6 @@ class _CopiedToastState extends State<_CopiedToast>
                   ),
                 ),
                 const SizedBox(width: 12),
-                // テキスト
                 const Text(
                   'コピーしました',
                   style: TextStyle(

@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
@@ -9,6 +10,28 @@ class UserService {
   final String _usersCollection = 'users';
   final NotificationService _notificationService = NotificationService();
 
+  final String _inviteCodesCollection = 'invite_codes';
+  static const int _maxInviteUses = 3;
+
+  /// 7文字のランダムな英数字招待コードを生成
+  String _generateInviteCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 紛らわしい文字(O,0,I,1)を除外
+    final random = Random.secure();
+    return List.generate(7, (_) => chars[random.nextInt(chars.length)]).join();
+  }
+
+  /// invite_codesコレクションにエントリを作成（maxUses: 3）
+  Future<void> _createInviteCodeEntry(String code, String ownerUid, WriteBatch batch) async {
+    final inviteDoc = _firestore.collection(_inviteCodesCollection).doc(code);
+    batch.set(inviteDoc, {
+      'code': code,
+      'maxUses': _maxInviteUses,
+      'usedCount': 0,
+      'ownerUid': ownerUid,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   // ユーザーデータを作成
   Future<void> createUser({
     required String uid,
@@ -18,24 +41,83 @@ class UserService {
     String? profileImageUrl,
   }) async {
     try {
-      final userDoc = _firestore.collection(_usersCollection).doc(uid);
+      final inviteCode = _generateInviteCode();
+      final batch = _firestore.batch();
 
-      final userData = {
+      // ユーザードキュメント
+      final userDoc = _firestore.collection(_usersCollection).doc(uid);
+      batch.set(userDoc, {
         'uid': uid,
         'phoneNumber': phoneNumber,
         'name': name,
         'username': username,
         'profileImageUrl': profileImageUrl,
+        'inviteCode': inviteCode,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-      };
+      });
 
-      await userDoc.set(userData);
+      // 招待コードエントリ（maxUses: 3）
+      await _createInviteCodeEntry(inviteCode, uid, batch);
+
+      await batch.commit();
     } catch (e) {
       if (kDebugMode) {
         print('Error creating user: $e');
       }
       rethrow;
+    }
+  }
+
+  /// 既存ユーザーの招待コードを取得（なければ生成して保存）
+  /// invite_codesエントリも同期する
+  Future<String> ensureInviteCode(String uid) async {
+    try {
+      final doc = await _firestore.collection(_usersCollection).doc(uid).get();
+      final data = doc.data();
+      final existing = data?['inviteCode'] as String?;
+
+      if (existing != null && existing.isNotEmpty) {
+        // invite_codesエントリが存在しない場合は作成
+        final inviteDoc = await _firestore
+            .collection(_inviteCodesCollection)
+            .doc(existing)
+            .get();
+        if (!inviteDoc.exists) {
+          final batch = _firestore.batch();
+          await _createInviteCodeEntry(existing, uid, batch);
+          await batch.commit();
+        }
+        return existing;
+      }
+
+      // コードを新規生成
+      final code = _generateInviteCode();
+      final batch = _firestore.batch();
+      batch.update(_firestore.collection(_usersCollection).doc(uid), {
+        'inviteCode': code,
+      });
+      await _createInviteCodeEntry(code, uid, batch);
+      await batch.commit();
+      return code;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error ensuring invite code: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 招待コードの使用回数を取得
+  Future<int> getInviteCodeUsedCount(String code) async {
+    try {
+      final doc = await _firestore
+          .collection(_inviteCodesCollection)
+          .doc(code)
+          .get();
+      return (doc.data()?['usedCount'] as int?) ?? 0;
+    } catch (e) {
+      return 0;
     }
   }
 

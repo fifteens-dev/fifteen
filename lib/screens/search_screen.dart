@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -32,6 +33,11 @@ class _SearchScreenState extends State<SearchScreen> {
   // 最近の検索履歴
   List<Map<String, String>> _recentSearches = [];
 
+  // 招待コード
+  String? _inviteCode;
+  int _inviteUsedCount = 0;
+  static const int _maxInvites = 3;
+
   // デバウンス時間（ミリ秒）
   static const int _debounceDuration = 500;
   static const String _recentSearchesKey = 'recent_searches';
@@ -41,6 +47,34 @@ class _SearchScreenState extends State<SearchScreen> {
     super.initState();
     _searchFocusNode.addListener(_onFocusChanged);
     _loadRecentSearches();
+    _loadInviteCode();
+  }
+
+  Future<void> _loadInviteCode() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final code = await _userService.ensureInviteCode(uid);
+      final used = await _userService.getInviteCodeUsedCount(code);
+      if (mounted) {
+        setState(() {
+          _inviteCode = code;
+          _inviteUsedCount = used;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _copyInviteCode() {
+    if (_inviteCode == null) return;
+    Clipboard.setData(ClipboardData(text: _inviteCode!));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('招待コードをコピーしました'),
+        duration: Duration(seconds: 2),
+        backgroundColor: Color(0xFF4CAF50),
+      ),
+    );
   }
 
   @override
@@ -201,6 +235,10 @@ class _SearchScreenState extends State<SearchScreen> {
             // 検索バー
             _buildSearchBar(),
 
+            // 招待コードカード（未フォーカス時のみ表示）
+            if (!_isFocused && _currentQuery.isEmpty)
+              _buildInviteCodeCard(),
+
             // メインコンテンツエリア
             Expanded(
               child: _buildContent(),
@@ -295,6 +333,105 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  /// 招待コードカード
+  Widget _buildInviteCodeCard() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Container(
+        height: 75,
+        decoration: BoxDecoration(
+          color: Colors.grey[800],
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(15),
+            onTap: _inviteCode == null || _inviteUsedCount >= _maxInvites
+                ? null
+                : _copyInviteCode,
+            child: _inviteCode == null
+                ? const Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  )
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _buildCopyIcon(),
+                          const SizedBox(width: 8),
+                          Text(
+                            _inviteCode!,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 2,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '残り：${_maxInvites - _inviteUsedCount}人',
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCopyIcon() {
+    return SizedBox(
+      width: 20,
+      height: 20,
+      child: Stack(
+        children: [
+          Positioned(
+            left: 0,
+            top: 0,
+            child: Container(
+              width: 14,
+              height: 16,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 1.5),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: 14,
+              height: 16,
+              decoration: BoxDecoration(
+                color: Colors.grey[800],
+                border: Border.all(color: Colors.white, width: 1.5),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
         ],
       ),
     );

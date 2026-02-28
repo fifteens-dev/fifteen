@@ -341,6 +341,37 @@ class UserService {
     }
   }
 
+  // フォロワーを削除する（自分のフォロワーリストから指定ユーザーを除去）
+  Future<void> removeFollower({
+    required String currentUserId,
+    required String followerUserId,
+  }) async {
+    try {
+      final batch = _firestore.batch();
+
+      // 自分のfollowersリストから削除
+      final currentUserDoc = _firestore.collection(_usersCollection).doc(currentUserId);
+      batch.update(currentUserDoc, {
+        'followers': FieldValue.arrayRemove([followerUserId]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 相手のfollowingリストから自分を削除
+      final followerUserDoc = _firestore.collection(_usersCollection).doc(followerUserId);
+      batch.update(followerUserDoc, {
+        'following': FieldValue.arrayRemove([currentUserId]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error removing follower: $e');
+      }
+      rethrow;
+    }
+  }
+
   // フォロワー一覧を取得
   Future<List<UserModel>> getFollowers(String uid) async {
     try {

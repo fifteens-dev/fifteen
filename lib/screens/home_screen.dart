@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../models/vibe_ranking_item.dart';
@@ -80,12 +82,43 @@ class _HomeScreenState extends State<HomeScreen>
   // 現在のユーザーが今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
 
+  // 一度裏面を見た投稿IDのセット（永続化済み）
+  Set<String> _revealedPostIds = {};
+
   @override
   void initState() {
     super.initState();
     print('🏠 ホーム画面: initState()が呼ばれました');
+    _loadRevealedPostIds();
     _loadPosts();
     _loadCurrentUserIconUrl();
+  }
+
+  /// 一度裏面を見た投稿IDをSharedPreferencesから読み込む
+  Future<void> _loadRevealedPostIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentUserId = _auth.currentUser?.uid;
+    if (currentUserId == null) return;
+    final key = 'revealed_posts_$currentUserId';
+    final ids = prefs.getStringList(key) ?? [];
+    if (mounted) {
+      setState(() {
+        _revealedPostIds = ids.toSet();
+      });
+    }
+  }
+
+  /// 投稿IDを「裏面閲覧済み」として記録・永続化する
+  Future<void> _markPostRevealed(String postId) async {
+    if (_revealedPostIds.contains(postId)) return;
+    setState(() {
+      _revealedPostIds.add(postId);
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final currentUserId = _auth.currentUser?.uid;
+    if (currentUserId == null) return;
+    final key = 'revealed_posts_$currentUserId';
+    await prefs.setStringList(key, _revealedPostIds.toList());
   }
 
   /// 現在のユーザーのアイコンURLを取得
@@ -421,9 +454,15 @@ class _HomeScreenState extends State<HomeScreen>
                     }
                     return false;
                   },
-                  child: CustomScrollView(
+                  child: RefreshIndicator(
+                    onRefresh: _loadPosts,
+                    color: Colors.white,
+                    backgroundColor: const Color(0xFF1E1E1E),
+                    child: CustomScrollView(
                     controller: _scrollController,
-                    physics: const BouncingScrollPhysics(),
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
                     slivers: [
                       SliverToBoxAdapter(
                         child: SizedBox(height: headerHeight),
@@ -446,6 +485,7 @@ class _HomeScreenState extends State<HomeScreen>
                         child: SizedBox(height: 80),
                       ),
                     ],
+                  ),
                   ),
                 ),
                 // index 1: 検索
@@ -660,7 +700,8 @@ class _HomeScreenState extends State<HomeScreen>
                 onAdd: () => _handleAdd(post),
                 onDelete: post.userId == currentUserId ? () => _handleDelete(post) : null,
                 isSaved: _savedPostIds.contains(post.postId),
-                backSideEnabled: _hasPostedToday,
+                backSideEnabled: _hasPostedToday || _revealedPostIds.contains(post.postId),
+                onFlipToBack: () => _markPostRevealed(post.postId),
                 onPlayStarted: () {
                   _playingPostId = post.postId;
                 },
@@ -795,20 +836,24 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// 削除ボタンが押されたときの処理
   Future<void> _handleDelete(PostModel post) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showCupertinoDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text('投稿を削除', style: TextStyle(color: Colors.white)),
-        content: const Text('この投稿を削除しますか？', style: TextStyle(color: Colors.white70)),
+      barrierDismissible: true,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('投稿を削除'),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 4),
+          child: Text('この投稿を削除しますか？'),
+        ),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル', style: TextStyle(color: Colors.white54)),
+            child: const Text('キャンセル'),
           ),
-          TextButton(
+          CupertinoDialogAction(
+            isDestructiveAction: true,
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除', style: TextStyle(color: Color(0xFFE53935))),
+            child: const Text('削除'),
           ),
         ],
       ),

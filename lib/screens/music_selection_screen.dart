@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -76,10 +77,41 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   List<Map<String, String>> _recentMusicSearches = [];
   static const String _recentMusicSearchesKey = 'recent_music_searches';
 
+  // Vibeおすすめ楽曲（常時表示の大カード）
+  List<TrackModel> _recommendedTracks = [];
+  bool _isLoadingRecommended = false;
+
+  // 感情カテゴリー用ランダム検索ワード候補
+  static const List<String> _emotionKeywords = [
+    '恋愛ソング',
+    '失恋バラード',
+    'シティポップ',
+    'ドライブBGM',
+    '夜に聴く曲',
+    'テンション上がる曲',
+    '泣ける名曲',
+    '夏ヒット',
+    'カフェBGM',
+    '懐かしいJPOP',
+    '日本語ラップ',
+    'ロック邦楽',
+    'アニソン人気',
+    'J-R&B',
+    'エモい曲',
+    '朝に聴く曲',
+    '応援ソング',
+    'K-POP人気',
+    'EDM人気',
+    'チルミュージック',
+  ];
+
+  // 現在選択中の感情キーワード（ヘッダー表示用）
+  String? _currentEmotionKeyword;
+
   @override
   void initState() {
     super.initState();
-    _selectedCategoryType = widget.initialCategoryType;
+    _selectedCategoryType = widget.initialCategoryType ?? 'vibe';
     _searchFocusNode.addListener(_onSearchFocusChanged);
     _loadRecentMusicSearches();
     _loadRecentlyPlayedTracks();
@@ -227,9 +259,46 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             _selectedVibeCategory = topic.title;
           }
         });
+        // トピック取得後におすすめ楽曲を検索
+        _loadRecommendedTracks();
       }
     } catch (e) {
       print('Error loading today\'s topic: $e');
+    }
+  }
+
+  /// おすすめ楽曲（上部大カード用）を読み込み
+  Future<void> _loadRecommendedTracks() async {
+    if (mounted) setState(() => _isLoadingRecommended = true);
+    try {
+      List<TrackModel> tracks = [];
+
+      if (_selectedCategoryType == 'vibe' && _todaysTopic != null) {
+        // Vibeカテゴリー: トピック名で検索
+        tracks = await _musicServiceManager.searchTracks(_todaysTopic!.title, limit: 6);
+      } else if (_selectedCategoryType != 'vibe') {
+        // 感情カテゴリー: ランダムキーワードで検索
+        final keyword = _emotionKeywords[Random().nextInt(_emotionKeywords.length)];
+        if (mounted) setState(() => _currentEmotionKeyword = keyword);
+        tracks = await _musicServiceManager.searchTracks(keyword, limit: 6);
+      }
+
+      // フォールバック
+      if (tracks.isEmpty) {
+        tracks = await _musicServiceManager.getRecommendedTracks(limit: 6);
+      }
+      if (tracks.isEmpty) {
+        tracks = await _musicServiceManager.searchTracks('J-POP 人気', limit: 6);
+      }
+
+      if (mounted) {
+        setState(() {
+          _recommendedTracks = tracks.take(3).toList();
+          _isLoadingRecommended = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingRecommended = false);
     }
   }
 
@@ -497,62 +566,54 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                 child: _buildRecentMusicSearches(),
               ),
             ] else ...[
-              // Vibe/感情選択ボタン
-              _buildCategoryButtons(),
-
-              // タブバー
-              _buildTabBar(),
-
-              // 区切り線
-              Container(
-                height: 1,
-                color: const Color(0xFF2D2D2D),
-              ),
-
-              // 楽曲リスト or グリッド
               Expanded(
-                child: Stack(
-                  children: [
-                    // 楽曲リスト/グリッド
-                    _isLoading
-                        ? const Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFF5D8FFF),
-                            ),
-                          )
-                        : _notConnected
-                            ? _buildNotConnectedView()
-                            : _tracks.isEmpty
-                                ? const Center(
-                                    child: Text(
-                                      '楽曲が見つかりませんでした',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: Color(0xFF9F9F9F),
-                                      ),
-                                    ),
-                                  )
-                                : _isGridView
-                                    ? _buildTrackGrid()
-                                    : _buildTrackList(),
-
-                  // カテゴリー未選択時のオーバーレイ
-                  if (_selectedCategoryType == null)
-                    Positioned.fill(
-                      child: Container(
-                        color: Colors.black.withOpacity(0.7),
-                        child: const Center(
-                          child: Text(
-                            'VibeまたはEmotionを選択してください',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
+                child: CustomScrollView(
+                  slivers: [
+                    // カテゴリーボタン（スクロールで消える）
+                    SliverToBoxAdapter(child: _buildCategoryButtons()),
+                    // セクションヘッダー（スクロールで消える）
+                    SliverToBoxAdapter(child: _buildSectionHeader()),
+                    // おすすめ楽曲（スクロールで消える）
+                    SliverToBoxAdapter(child: _buildRecommendedSection()),
+                    // タブバー＋区切り線（検索バー直下にピン留め）
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _TabBarSliverDelegate(
+                        height: 53,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildTabBar(),
+                            Container(height: 1, color: const Color(0xFF2D2D2D)),
+                          ],
                         ),
                       ),
                     ),
+                    // 楽曲リスト or グリッド
+                    if (_isLoading)
+                      const SliverFillRemaining(
+                        child: Center(
+                          child: CircularProgressIndicator(color: Color(0xFF5D8FFF)),
+                        ),
+                      )
+                    else if (_notConnected)
+                      SliverFillRemaining(child: _buildNotConnectedView())
+                    else if (_tracks.isEmpty)
+                      const SliverFillRemaining(
+                        child: Center(
+                          child: Text(
+                            '楽曲が見つかりませんでした',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF9F9F9F),
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (_isGridView)
+                      _buildTrackGridSliver()
+                    else
+                      _buildTrackListSliver(),
                   ],
                 ),
               ),
@@ -709,7 +770,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   /// Vibe/感情選択ボタン
   Widget _buildCategoryButtons() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 23, vertical: 16),
+      padding: const EdgeInsets.only(left: 23, right: 23, top: 16, bottom: 5),
       child: Row(
         children: [
           // Vibeボタン
@@ -724,6 +785,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                   _selectedCategoryType = 'vibe';
                   _selectedVibeCategory = _todaysTopic?.title;
                 });
+                _loadRecommendedTracks();
               },
             ),
           ),
@@ -740,6 +802,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                   _selectedCategoryType = 'emotion';
                   _selectedVibeCategory = null;
                 });
+                _loadRecommendedTracks();
               },
             ),
           ),
@@ -1029,9 +1092,22 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       itemBuilder: (context, index) {
         final track = _tracks[index];
         final isSelected = _selectedTrack?.trackId == track.trackId;
-
         return _buildTrackItem(track, isSelected);
       },
+    );
+  }
+
+  /// 楽曲リスト（Sliver版 - CustomScrollView用）
+  Widget _buildTrackListSliver() {
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          final track = _tracks[index];
+          final isSelected = _selectedTrack?.trackId == track.trackId;
+          return _buildTrackItem(track, isSelected);
+        },
+        childCount: _tracks.length,
+      ),
     );
   }
 
@@ -1049,9 +1125,31 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       itemBuilder: (context, index) {
         final track = _tracks[index];
         final isSelected = _selectedTrack?.trackId == track.trackId;
-
         return _buildGridTrackItem(track, isSelected);
       },
+    );
+  }
+
+  /// 楽曲グリッド（Sliver版 - CustomScrollView用）
+  Widget _buildTrackGridSliver() {
+    return SliverPadding(
+      padding: const EdgeInsets.all(16),
+      sliver: SliverGrid(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          childAspectRatio: 0.75,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final track = _tracks[index];
+            final isSelected = _selectedTrack?.trackId == track.trackId;
+            return _buildGridTrackItem(track, isSelected);
+          },
+          childCount: _tracks.length,
+        ),
+      ),
     );
   }
 
@@ -1221,6 +1319,177 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     );
   }
 
+  /// セクションヘッダー（Vibe時は "Vibe【#topic】", 感情時は "今の気分で選ぶ"）
+  Widget _buildSectionHeader() {
+    final isVibe = _selectedCategoryType == 'vibe';
+    return SizedBox(
+      width: double.infinity,
+      child: Padding(
+      padding: const EdgeInsets.only(left: 21, right: 21, top: 0, bottom: 5),
+      child: isVibe && _todaysTopic != null
+          ? Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(
+                    text: 'Vibe',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  TextSpan(
+                    text: '【#${_todaysTopic!.title}】',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : const Text(
+              '今の気分で選ぶ',
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+      ),
+    );
+  }
+
+  /// おすすめ楽曲セクション（大カード横並び）
+  Widget _buildRecommendedSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // "🎧 おすすめ" ラベル（感情カテゴリー時はキーワードも表示）
+        Padding(
+          padding: const EdgeInsets.only(left: 21, bottom: 10),
+          child: Row(
+            children: [
+              const Icon(Icons.headphones, color: Colors.white, size: 16),
+              const SizedBox(width: 6),
+              const Text(
+                'おすすめ',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+              if (_selectedCategoryType != 'vibe' && _currentEmotionKeyword != null) ...[
+                const SizedBox(width: 8),
+                Text(
+                  '#$_currentEmotionKeyword',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF5D8FFF),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        // 大カード横スクロール
+        SizedBox(
+          height: 165,
+          child: _isLoadingRecommended
+              ? const Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      color: Color(0xFF5D8FFF),
+                      strokeWidth: 2,
+                    ),
+                  ),
+                )
+              : _recommendedTracks.isEmpty
+                  ? const SizedBox.shrink()
+                  : ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 21),
+                      itemCount: _recommendedTracks.length,
+                      itemBuilder: (context, index) {
+                        return _buildRecommendedCard(_recommendedTracks[index]);
+                      },
+                    ),
+        ),
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+
+  /// おすすめ大カード
+  Widget _buildRecommendedCard(TrackModel track) {
+    final isSelected = _selectedTrack?.trackId == track.trackId;
+    return GestureDetector(
+      onTap: () => _toggleTrackSelection(track),
+      child: Container(
+        width: 130,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: track.albumImageUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: track.albumImageUrl,
+                          width: 130,
+                          height: 130,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => _buildGridPlaceholderImage(),
+                        )
+                      : _buildGridPlaceholderImage(),
+                ),
+                if (isSelected)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4CAF50),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                      child: const Icon(Icons.check, color: Colors.white, size: 14),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 5),
+            Text(
+              track.trackName,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: Colors.white,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              track.artistName,
+              style: const TextStyle(fontSize: 10, color: Color(0xFF9F9F9F)),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 音楽サービス未連携時のビュー
   Widget _buildNotConnectedView() {
     return Center(
@@ -1286,4 +1555,29 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       ),
     );
   }
+}
+
+/// タブバー固定用 SliverPersistentHeaderDelegate
+class _TabBarSliverDelegate extends SliverPersistentHeaderDelegate {
+  final Widget child;
+  final double height;
+
+  _TabBarSliverDelegate({required this.child, required this.height});
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: const Color(0xFF121212),
+      child: child,
+    );
+  }
+
+  @override
+  bool shouldRebuild(_TabBarSliverDelegate oldDelegate) => true;
 }

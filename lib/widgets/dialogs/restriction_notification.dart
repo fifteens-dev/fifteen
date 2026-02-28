@@ -91,18 +91,20 @@ class _RestrictionToastState extends State<_RestrictionToast>
                     ),
                   ],
                 ),
-                child: Row(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(widget.icon, color: Colors.white38, size: 15),
-                    const SizedBox(width: 8),
+                    Icon(widget.icon, color: Colors.white38, size: 18),
+                    const SizedBox(height: 8),
                     Text(
                       widget.message,
+                      textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white54,
                         fontSize: 13,
                         fontWeight: FontWeight.w400,
                         decoration: TextDecoration.none,
+                        height: 1.6,
                       ),
                     ),
                   ],

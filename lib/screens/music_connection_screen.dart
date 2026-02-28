@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../services/settings_service.dart';
 import '../services/music_service_manager.dart';
+import '../services/apple_music_service.dart';
 import '../models/music_service_type.dart';
+import '../widgets/dialogs/bottom_sheet_dialog.dart';
 import 'home_screen.dart';
 
 /// 音楽ライブラリ接続画面
@@ -204,6 +206,7 @@ class MusicConnectionScreen extends StatelessWidget {
   void _handleAppleMusicConnection(BuildContext context) async {
     final musicServiceManager = MusicServiceManager();
     final settingsService = SettingsService();
+    final appleMusicService = AppleMusicService();
 
     // Apple Musicを一時的に選択（login()がgetSelectedService()を参照するため）
     await musicServiceManager.setSelectedService(MusicServiceType.appleMusic);
@@ -220,14 +223,24 @@ class MusicConnectionScreen extends StatelessWidget {
         appleMusicConnected: true,
       );
 
-      // 成功メッセージ
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Apple Musicと連携しました'),
-          backgroundColor: Color(0xFF4CAF50),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      // サブスクリプション確認
+      final hasSubscription = await appleMusicService.checkSubscriptionAccess();
+
+      if (!context.mounted) return;
+
+      if (!hasSubscription) {
+        // 未加入ダイアログを表示してからホームへ
+        await BottomSheetDialog.showAppleMusicNoSubscription(context);
+        if (!context.mounted) return;
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Apple Musicと連携しました'),
+            backgroundColor: Color(0xFF4CAF50),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
 
       // ホーム画面へ遷移
       Navigator.pushReplacementNamed(context, '/home');

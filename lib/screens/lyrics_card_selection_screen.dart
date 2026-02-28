@@ -150,12 +150,23 @@ class _LyricsCardSelectionScreenState
     }
 
     if (_lyricsData != null) {
-      // 取得した歌詞を4行に短縮
-      final lyricsService = LyricsService();
-      return lyricsService.truncateLyrics(
-        _lyricsData!.plainLyrics,
-        maxLines: 4,
-      );
+      final lines = _lyricsData!.lines;
+
+      // タイムスタンプ付き歌詞がある場合: 15秒ウィンドウ内の行のみ抽出
+      if (lines != null && lines.isNotEmpty) {
+        final startMs = widget.audioStartMs;
+        final endMs = startMs + widget.audioDurationSec * 1000;
+        final windowLines = lines
+            .where((l) => l.timestampMs >= startMs && l.timestampMs < endMs)
+            .map((l) => l.text)
+            .toList();
+        if (windowLines.isNotEmpty) {
+          return windowLines.join('\n');
+        }
+      }
+
+      // タイムスタンプなし: plainLyricsをそのまま全部表示
+      return _lyricsData!.plainLyrics;
     }
 
     // 歌詞が見つからなかった場合

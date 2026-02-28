@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// ボトムシートダイアログ
 /// モーダルボトムシート形式のダイアログを表示するための共通ウィジェット
@@ -77,6 +78,184 @@ class BottomSheetDialog extends StatelessWidget {
       cancelLabel: 'キャンセル',
       confirmLabel: '解除',
       isConfirmDestructive: true,
+    );
+  }
+
+  /// Apple Music未加入ダイアログを表示
+  static Future<void> showAppleMusicNoSubscription(
+    BuildContext context,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey[800],
+          borderRadius: BorderRadius.circular(36),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // アイコン＋タイトル
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFA2D48), Color(0xFFFA6E58)],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.music_note, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Apple Music未加入',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // 説明
+            Text(
+              'Apple Musicのサブスクリプションに加入していないため、以下の機能は利用できません。',
+              style: TextStyle(
+                color: Colors.grey[300],
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // 制限される機能リスト
+            _buildLimitItem('最近聴いた曲の取得'),
+            _buildLimitItem('ライブラリ・お気に入りの取得'),
+            const SizedBox(height: 12),
+
+            // 利用できる機能
+            Text(
+              '引き続き利用できること',
+              style: TextStyle(
+                color: Colors.grey[400],
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildAvailableItem('楽曲を検索して投稿に使う'),
+            _buildAvailableItem('投稿のプレビュー再生'),
+            const SizedBox(height: 24),
+
+            // ボタン
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      height: 45,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[700],
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'このまま続行',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () async {
+                      Navigator.pop(context);
+                      final uri = Uri.parse('https://music.apple.com/subscribe');
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    child: Container(
+                      height: 45,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFA2D48), Color(0xFFFA6E58)],
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                        ),
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'Apple Musicに加入',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildLimitItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          const Icon(Icons.remove_circle_outline, color: Color(0xFFE53935), size: 16),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _buildAvailableItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_outline, color: Color(0xFF4CAF50), size: 16),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ],
+      ),
     );
   }
 

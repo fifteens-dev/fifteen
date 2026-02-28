@@ -51,20 +51,50 @@ class LyricsCardLayout extends StatelessWidget {
     }
   }
 
+  /// 歌詞テキストの高さを TextPainter で計測して動的カード高さを返す
+  static double _calcStandardHeight(String lyrics) {
+    const cardWidth = 196.0;
+    const padding = 11.0;
+    const trackInfoHeight = 50.0; // 下部トラック情報エリアの固定高さ
+
+    final tp = TextPainter(
+      text: TextSpan(
+        text: lyrics,
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.bold,
+          height: 1.2,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    tp.layout(maxWidth: cardWidth - padding * 2);
+
+    final lyricsAreaHeight = tp.height + padding * 2;
+    // 最小90px・最大480px でクランプ
+    return (lyricsAreaHeight + trackInfoHeight).clamp(90.0, 480.0);
+  }
+
   /// レイアウト1：標準（歌詞 + トラック情報）
   Widget _buildStandardLayout() {
+    final lyrics = lyricsText ?? '歌詞が見つかりませんでした';
+    final cardHeight = _calcStandardHeight(lyrics);
+    const cardWidth = 196.0;
+    const trackInfoHeight = 50.0;
+    final lyricsAreaHeight = cardHeight - trackInfoHeight;
+
     return Container(
-      width: 196,
-      height: 126,
+      width: cardWidth,
+      height: cardHeight,
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.52),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         children: [
-          // 上部：歌詞エリア
-          Expanded(
-            flex: 60,
+          // 上部：歌詞エリア（高さは歌詞量に応じて可変）
+          SizedBox(
+            height: lyricsAreaHeight,
             child: Container(
               decoration: const BoxDecoration(
                 color: Color.fromRGBO(0, 0, 0, 0.29),
@@ -74,9 +104,10 @@ class LyricsCardLayout extends StatelessWidget {
                 ),
               ),
               padding: const EdgeInsets.all(11),
-              child: Center(
+              child: Align(
+                alignment: Alignment.centerLeft,
                 child: Text(
-                  lyricsText ?? '歌詞が見つかりませんでした',
+                  lyrics,
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
@@ -89,9 +120,9 @@ class LyricsCardLayout extends StatelessWidget {
             ),
           ),
 
-          // 下部：トラック情報エリア
-          Expanded(
-            flex: 40,
+          // 下部：トラック情報エリア（固定高さ）
+          SizedBox(
+            height: trackInfoHeight,
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.52),

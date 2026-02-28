@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dialogs/glass_popup.dart';
@@ -140,27 +141,24 @@ class ProfilePostGridItem extends StatelessWidget {
   }
 
   void _showDeleteConfirm(BuildContext context) {
-    showDialog<bool>(
+    showCupertinoDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          '本当に投稿を削除しますか？',
-          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        content: const Text(
-          'この操作は取り消せません。',
-          style: TextStyle(color: Colors.white70, fontSize: 14),
+      barrierDismissible: true,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('投稿を削除'),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 4),
+          child: Text('この操作は取り消せません。'),
         ),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル', style: TextStyle(color: Colors.white70)),
+            child: const Text('キャンセル'),
           ),
-          TextButton(
+          CupertinoDialogAction(
+            isDestructiveAction: true,
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+            child: const Text('削除'),
           ),
         ],
       ),

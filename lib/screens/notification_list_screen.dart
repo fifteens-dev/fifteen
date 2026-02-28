@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/notification_model.dart';
 import '../services/notification_service.dart';
 import '../services/auth_service.dart';
 import '../services/post_service.dart';
+import '../services/user_service.dart';
 import 'other_user_profile_screen.dart';
 import 'post_detail_screen.dart';
 
@@ -19,6 +21,51 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   final NotificationService _notificationService = NotificationService();
   final AuthService _authService = AuthService();
   final PostService _postService = PostService();
+  final UserService _userService = UserService();
+
+  // senderId → 最新アイコンURL のキャッシュ
+  final Map<String, String?> _freshIconUrls = {};
+  List<NotificationModel> _latestNotifications = [];
+  Timer? _iconRefreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // 5分ごとにアイコンURLを再取得
+    _iconRefreshTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => _refreshIcons(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _iconRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  /// 通知送信者の最新アイコンURLをまとめて取得
+  Future<void> _refreshIcons() async {
+    if (_latestNotifications.isEmpty) return;
+
+    // system など固定送信者は除外
+    final senderIds = _latestNotifications
+        .map((n) => n.senderId)
+        .where((id) => id.isNotEmpty && id != 'system')
+        .toSet();
+
+    final updated = <String, String?>{};
+    for (final id in senderIds) {
+      final user = await _userService.getUser(id);
+      updated[id] = user?.profileImageUrl;
+    }
+
+    if (mounted) {
+      setState(() {
+        _freshIconUrls.addAll(updated);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -79,9 +126,19 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                   }
 
                   final notifications = snapshot.data!;
+
+                  // 通知リストが変わったらアイコンを更新
+                  if (_latestNotifications.length != notifications.length ||
+                      _latestNotifications.isEmpty) {
+                    _latestNotifications = notifications;
+                    WidgetsBinding.instance.addPostFrameCallback(
+                      (_) => _refreshIcons(),
+                    );
+                  }
+
                   return RefreshIndicator(
                     onRefresh: () async {
-                      setState(() {}); // Force rebuild
+                      await _refreshIcons();
                     },
                     child: ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -179,7 +236,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       height: 59,
       child: Row(
         children: [
-          _buildUserIcon(notification.senderIconUrl),
+          _buildUserIcon(notification.senderIconUrl, senderId: notification.senderId),
           const SizedBox(width: 20),
           Expanded(
             child: Column(
@@ -245,7 +302,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
               ),
             )
           else
-            _buildUserIcon(notification.senderIconUrl),
+            _buildUserIcon(notification.senderIconUrl, senderId: notification.senderId),
           const SizedBox(width: 20),
           Expanded(
             child: Column(
@@ -353,7 +410,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       height: 59,
       child: Row(
         children: [
-          _buildUserIcon(notification.senderIconUrl),
+          _buildUserIcon(notification.senderIconUrl, senderId: notification.senderId),
           const SizedBox(width: 20),
           Expanded(
             child: Column(
@@ -407,7 +464,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.only(top: 9),
-            child: _buildUserIcon(notification.senderIconUrl),
+            child: _buildUserIcon(notification.senderIconUrl, senderId: notification.senderId),
           ),
           const SizedBox(width: 20),
           Expanded(
@@ -563,21 +620,26 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     );
   }
 
-  Widget _buildUserIcon(String? imageUrl) {
+  // senderId を渡して最新URLを優先表示
+  Widget _buildUserIcon(String? fallbackUrl, {String? senderId}) {
+    final url = (senderId != null && _freshIconUrls.containsKey(senderId))
+        ? _freshIconUrls[senderId]
+        : fallbackUrl;
+
     return Container(
       width: 42,
       height: 42,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: const Color(0xFF2D2D2D),
-        image: imageUrl != null && imageUrl.isNotEmpty
+        image: url != null && url.isNotEmpty
             ? DecorationImage(
-                image: CachedNetworkImageProvider(imageUrl),
+                image: CachedNetworkImageProvider(url),
                 fit: BoxFit.cover,
               )
             : null,
       ),
-      child: imageUrl == null || imageUrl.isEmpty
+      child: url == null || url.isEmpty
           ? const Icon(
               Icons.person,
               color: Color(0x40FFFFFF),
@@ -645,8 +707,9 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         break;
       case NotificationType.like:
       case NotificationType.comment:
+      case NotificationType.post:
         // 対象の投稿へ遷移
-        if (notification.postId != null) {
+        if (notification.postId != null && notification.postId!.isNotEmpty) {
           final post = await _postService.getPost(notification.postId!);
           if (mounted && post != null) {
             Navigator.push(

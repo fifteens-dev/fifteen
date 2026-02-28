@@ -1,6 +1,8 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../services/music_service_manager.dart';
+import '../services/apple_music_service.dart';
 import '../models/music_service_type.dart';
 import '../widgets/dialogs/dialogs.dart';
 
@@ -327,25 +329,22 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
     // Web環境では認証機能を無効化
     if (kIsWeb) {
       if (mounted) {
-        showDialog(
+        showCupertinoDialog(
           context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: Colors.grey[900],
-            title: const Text(
-              '音楽サービス連携',
-              style: TextStyle(color: Colors.white),
-            ),
-            content: const Text(
-              'Web環境では音楽サービス連携機能は利用できません。\n\niOS/Androidデバイスまたはエミュレータでアプリを実行してください。',
-              style: TextStyle(color: Colors.white70),
+          barrierDismissible: true,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('音楽サービス連携'),
+            content: const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'Web環境では音楽サービス連携機能は利用できません。\n\niOS/Androidデバイスまたはエミュレータでアプリを実行してください。',
+              ),
             ),
             actions: [
-              TextButton(
+              CupertinoDialogAction(
+                isDefaultAction: true,
                 onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  'OK',
-                  style: TextStyle(color: Color(0xFF5D8FFF)),
-                ),
+                child: const Text('OK'),
               ),
             ],
           ),
@@ -368,12 +367,28 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
 
       if (mounted) {
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${service.displayName}に連携しました'),
-              backgroundColor: const Color(0xFF4CAF50),
-            ),
-          );
+          // Apple Musicの場合はサブスクリプション確認
+          if (service == MusicServiceType.appleMusic) {
+            final hasSubscription =
+                await AppleMusicService().checkSubscriptionAccess();
+            if (mounted && !hasSubscription) {
+              await BottomSheetDialog.showAppleMusicNoSubscription(context);
+            } else if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${service.displayName}に連携しました'),
+                  backgroundColor: const Color(0xFF4CAF50),
+                ),
+              );
+            }
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${service.displayName}に連携しました'),
+                backgroundColor: const Color(0xFF4CAF50),
+              ),
+            );
+          }
           await _loadSettings();
         } else {
           // 失敗時は前のサービスに戻す

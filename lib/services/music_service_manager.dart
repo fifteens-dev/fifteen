@@ -172,6 +172,23 @@ class MusicServiceManager {
     }
   }
 
+  /// プレイリスト名で検索してトラックを取得
+  Future<List<TrackModel>> searchPlaylistTracks(String playlistName,
+      {int limit = 20}) async {
+    final service = await getSelectedService();
+
+    switch (service) {
+      case MusicServiceType.spotify:
+        return await _spotifyService.searchPlaylistTracks(playlistName,
+            limit: limit);
+      case MusicServiceType.appleMusic:
+        return await _appleMusicService.searchPlaylistTracks(playlistName,
+            limit: limit);
+      case MusicServiceType.none:
+        return [];
+    }
+  }
+
   /// ユーザーの最近再生した楽曲を取得
   Future<List<TrackModel>> getRecentlyPlayedTracks({int limit = 30}) async {
     final service = await getSelectedService();

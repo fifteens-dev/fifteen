@@ -333,7 +333,7 @@ exports.getBpm = onCall({ secrets: [getsongbpmApiKey] }, async (request) => {
  * 投稿通知を送信するヘルパー
  * Firestore通知書き込み + FCM直接送信（リアルタイム）
  */
-async function sendPostNotification(recipientId, senderId, senderUsername, senderIconUrl, message) {
+async function sendPostNotification(recipientId, senderId, senderUsername, senderIconUrl, message, postId) {
   const db = admin.firestore();
 
   // notifications コレクションに通知を作成（アプリ内通知）
@@ -343,6 +343,7 @@ async function sendPostNotification(recipientId, senderId, senderUsername, sende
     senderId: senderId,
     senderUsername: senderUsername,
     senderIconUrl: senderIconUrl || null,
+    postId: postId || null,
     body: message,
     isRead: false,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -363,7 +364,7 @@ async function sendPostNotification(recipientId, senderId, senderUsername, sende
     },
     data: {
       notificationType: 'post',
-      postId: '',
+      postId: postId || '',
       click_action: 'FLUTTER_NOTIFICATION_CLICK',
     },
     tokens: tokens,
@@ -402,6 +403,7 @@ async function sendPostNotification(recipientId, senderId, senderUsername, sende
 exports.onPostCreated = onDocumentCreated(
   { document: 'posts/{postId}', timeoutSeconds: 300 },
   async (event) => {
+    const postDocId = event.data.id;
     const post = event.data.data();
     const posterId = post.userId;
     const posterUsername = post.username || 'Unknown';
@@ -440,7 +442,7 @@ exports.onPostCreated = onDocumentCreated(
         const batch = followers.slice(i, i + batchSize);
         await Promise.all(
           batch.map((followerId) =>
-            sendPostNotification(followerId, posterId, posterUsername, posterIconUrl, message)
+            sendPostNotification(followerId, posterId, posterUsername, posterIconUrl, message, postDocId)
               .catch((err) => {
                 console.error(`Error notifying ${followerId}:`, err);
               })

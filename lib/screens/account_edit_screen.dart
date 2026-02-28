@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
@@ -470,8 +471,9 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
 
   /// 編集ダイアログ
   void _showEditDialog(String title, TextEditingController targetController) {
-    showDialog<String>(
+    showCupertinoDialog<String>(
       context: context,
+      barrierDismissible: true,
       builder: (dialogContext) => _EditDialog(
         title: title,
         initialValue: targetController.text,
@@ -517,41 +519,26 @@ class _EditDialogState extends State<_EditDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: Colors.grey[900],
-      title: Text(
-        widget.title,
-        style: const TextStyle(color: Colors.white),
-      ),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          hintText: '${widget.title}を入力',
-          hintStyle: TextStyle(color: Colors.grey[600]),
-          enabledBorder: const UnderlineInputBorder(
-            borderSide: BorderSide(color: Colors.white54),
-          ),
-          focusedBorder: const UnderlineInputBorder(
-            borderSide: BorderSide(color: Color(0xFF5D8FFF)),
-          ),
+    return CupertinoAlertDialog(
+      title: Text(widget.title),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: CupertinoTextField(
+          controller: _controller,
+          autofocus: true,
+          placeholder: '${widget.title}を入力',
+          clearButtonMode: OverlayVisibilityMode.editing,
         ),
       ),
       actions: [
-        TextButton(
+        CupertinoDialogAction(
           onPressed: () => Navigator.pop(context),
-          child: const Text(
-            'キャンセル',
-            style: TextStyle(color: Colors.white70),
-          ),
+          child: const Text('キャンセル'),
         ),
-        TextButton(
+        CupertinoDialogAction(
+          isDefaultAction: true,
           onPressed: () => Navigator.pop(context, _controller.text),
-          child: const Text(
-            '保存',
-            style: TextStyle(color: Color(0xFF5D8FFF)),
-          ),
+          child: const Text('保存'),
         ),
       ],
     );

@@ -91,13 +91,13 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     }
   }
 
-  /// ユーザーの投稿を読み込み（今日の投稿と今日以外の投稿）
+  /// ユーザーの全投稿を読み込み
   Future<void> _loadUserPosts() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     final userId = currentUser?.uid ?? 'test_user_temp';
 
     try {
-      final otherPosts = await _postService.getPostsExcludingToday(userId, limit: 50);
+      final otherPosts = await _postService.getPostsByUserId(userId, limit: 50);
 
       if (mounted) {
         setState(() {

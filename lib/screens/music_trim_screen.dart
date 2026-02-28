@@ -86,6 +86,18 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
     final random = Random(widget.track.trackName.hashCode);
     _waveformData = List.generate(60, (_) => 0.15 + random.nextDouble() * 0.85);
 
+    // デフォルト開始位置をサビ（波形最大値）に設定
+    int peakIndex = 0;
+    double peakValue = 0.0;
+    for (int i = 0; i < _waveformData.length; i++) {
+      if (_waveformData[i] > peakValue) {
+        peakValue = _waveformData[i];
+        peakIndex = i;
+      }
+    }
+    final maxStart = 1.0 - _durationSeconds / _totalDuration.inSeconds;
+    _startPosition = (peakIndex / _waveformData.length).clamp(0.0, maxStart);
+
     // 再生位置の監視
     _positionSubscription = _audioService.positionStream.listen((position) {
       if (!mounted || !_isPlaying || _isDragging) return;

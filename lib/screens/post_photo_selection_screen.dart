@@ -69,7 +69,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   File? _previewImageFile; // キャッシュ済みプレビュー画像
 
   // プレビュー表示/非表示アニメーション
-  bool _showPreview = true;
+  bool _showPreview = false;
   static const double _albumBarHeight = 44.0;
   static const double _previewHeight = 484.0 + 16.0 + 7.0 + _albumBarHeight;
   late final AnimationController _previewAnimController;
@@ -153,6 +153,17 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     _overscrollUpCount = 0;
     _isOverscrolling = false;
     _previewAnimController.reverse(from: 1.0);
+    // スクロール位置が黒い空白内にある場合はグリッド最上部へスナップ
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_showPreview && _scrollController.hasClients &&
+          _scrollController.position.pixels < _previewHeight) {
+        _scrollController.animateTo(
+          _previewHeight,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   /// スクロール検知（追加読み込み用）
@@ -180,8 +191,8 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
         _scrolledDown = true;
       }
 
-      // iOS: 最上部で上に引っ張った時（負のオフセット）
-      if (pixels < -20 && !_showPreview) {
+      // 黒い空白を除いたグリッド最上部で上方向スクロールを検知
+      if (delta < 0 && !_showPreview && pixels <= _previewHeight) {
         if (!_isOverscrolling) {
           _isOverscrolling = true;
           _overscrollUpCount++;
@@ -196,6 +207,18 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     // 指が離れたらoverscroll中フラグをリセット
     if (notification is ScrollEndNotification) {
       _isOverscrolling = false;
+      // プレビュー非表示時、黒い空白が見えていたらグリッド最上部へスナップ
+      if (!_showPreview && notification.metrics.pixels < _previewHeight) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_showPreview && _scrollController.hasClients) {
+            _scrollController.animateTo(
+              _previewHeight,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      }
     }
 
     // Android: ClampingScrollPhysicsではOverscrollNotificationが発生
@@ -363,6 +386,11 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     if (_albums.isEmpty) _albums = [albums.first]; // フォールバック
     _selectedAlbum = _albums.first;
     await _loadAlbumAssets(_selectedAlbum!);
+
+    // 最新写真（インデックス0）を自動選択
+    if (mounted && _galleryAssets.isNotEmpty) {
+      await _selectAsset(0);
+    }
   }
 
   /// アルバムの写真を読み込む
@@ -456,8 +484,9 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     // グリッドの利用可能幅からアイテムサイズを計算
     // Container padding: horizontal 1 each side = 2
     final gridWidth = MediaQuery.of(context).size.width - 2;
-    final itemSize = (gridWidth - 2) / 3; // crossAxisSpacing: 1 × 2箇所
-    final itemTop = row * (itemSize + 1); // mainAxisSpacing: 1
+    final itemSize = (gridWidth - 3) / 4; // crossAxisSpacing: 1 × 3箇所
+    // GridViewのtopPadding(_previewHeight)を加算した実際のスクロール座標
+    final itemTop = _previewHeight + row * (itemSize + 1); // mainAxisSpacing: 1
 
     final currentOffset = _scrollController.offset;
 
@@ -902,8 +931,9 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
       child: GridView.builder(
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(top: _previewHeight),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
+          crossAxisCount: 4,
           mainAxisSpacing: 1,
           crossAxisSpacing: 1,
         ),
@@ -926,7 +956,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
+          crossAxisCount: 4,
           mainAxisSpacing: 1,
           crossAxisSpacing: 1,
         ),

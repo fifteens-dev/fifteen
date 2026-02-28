@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/vibe_topic_model.dart';
@@ -111,13 +112,18 @@ class _VibeTopicVotingScreenState extends State<VibeTopicVotingScreen> {
   }
 
   void _showErrorDialog(String message) {
-    showDialog(
+    showCupertinoDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      barrierDismissible: true,
+      builder: (context) => CupertinoAlertDialog(
         title: const Text('エラー'),
-        content: Text(message),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(message),
+        ),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
+            isDefaultAction: true,
             onPressed: () => Navigator.pop(context),
             child: const Text('OK'),
           ),

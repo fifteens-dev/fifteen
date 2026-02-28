@@ -117,6 +117,37 @@ class AppleMusicService {
     await _storage.delete(key: _userTokenKey);
   }
 
+  /// Apple Music有料サブスクリプションの利用可能状態を確認
+  /// 個人データAPIを試し、403が返れば未加入と判定
+  Future<bool> checkSubscriptionAccess() async {
+    if (_userToken == null) {
+      _userToken = await _storage.read(key: _userTokenKey);
+    }
+    if (_userToken == null) return false;
+
+    await _ensureDeveloperToken();
+    if (_developerToken == null || _developerToken!.isEmpty) return false;
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.music.apple.com/v1/me/recent/played/tracks?limit=1'),
+        headers: {
+          'Authorization': 'Bearer $_developerToken',
+          'Music-User-Token': _userToken!,
+        },
+      );
+      // 403はサブスクリプション未加入
+      final hasSubscription = response.statusCode != 403;
+      print(hasSubscription
+          ? '✅ Apple Music サブスクリプション確認: 加入済み'
+          : '⚠️ Apple Music サブスクリプション確認: 未加入 (${response.statusCode})');
+      return hasSubscription;
+    } catch (e) {
+      print('❌ Subscription check error: $e');
+      return false;
+    }
+  }
+
   /// 楽曲を検索
   Future<List<TrackModel>> searchTracks(String query, {int limit = 20}) async {
     if (query.isEmpty) return [];
@@ -248,6 +279,34 @@ class AppleMusicService {
   }
 
   /// 日本のトップチャートを取得
+  /// プレイリスト名で検索してトラックを取得
+  Future<List<TrackModel>> searchPlaylistTracks(String playlistName,
+      {int limit = 20}) async {
+    if (!await _checkDeveloperToken()) return [];
+
+    try {
+      final encodedQuery = Uri.encodeComponent(playlistName);
+      final searchResponse = await http.get(
+        Uri.parse(
+            'https://api.music.apple.com/v1/catalog/jp/search?term=$encodedQuery&types=playlists&limit=1'),
+        headers: {'Authorization': 'Bearer $_developerToken'},
+      );
+
+      if (searchResponse.statusCode == 200) {
+        final data = json.decode(searchResponse.body);
+        final playlists =
+            data['results']?['playlists']?['data'] as List?;
+        if (playlists == null || playlists.isEmpty) return [];
+        final playlistId = playlists[0]['id'] as String;
+        return await getPlaylistTracks(playlistId, limit: limit);
+      }
+      return [];
+    } catch (e) {
+      print('Error searching Apple Music playlist: $e');
+      return [];
+    }
+  }
+
   Future<List<TrackModel>> getTopCharts({int limit = 50}) async {
     if (!await _checkDeveloperToken()) {
       print('Apple Music Developer Tokenが設定されていません');

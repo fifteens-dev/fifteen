@@ -455,6 +455,34 @@ class SpotifyService {
     }
   }
 
+  /// プレイリスト名で検索してトラックを取得
+  Future<List<TrackModel>> searchPlaylistTracks(String playlistName,
+      {int limit = 20}) async {
+    final token = await _getAccessToken();
+    if (token == null) return [];
+
+    try {
+      final encodedQuery = Uri.encodeComponent(playlistName);
+      final searchResponse = await http.get(
+        Uri.parse(
+            'https://api.spotify.com/v1/search?q=$encodedQuery&type=playlist&limit=1'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (searchResponse.statusCode == 200) {
+        final data = json.decode(searchResponse.body);
+        final items = data['playlists']?['items'] as List?;
+        if (items == null || items.isEmpty) return [];
+        final playlistId = items[0]['id'] as String;
+        return await getPlaylistTracks(playlistId, limit: limit);
+      }
+      return [];
+    } catch (e) {
+      print('Error searching Spotify playlist: $e');
+      return [];
+    }
+  }
+
   /// ユーザーの最近再生した楽曲を取得
   /// OAuth認証が必要（user-read-recently-playedスコープ）
   Future<List<TrackModel>> getRecentlyPlayedTracks({int limit = 30}) async {

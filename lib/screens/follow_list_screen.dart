@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../services/user_service.dart';
@@ -21,23 +22,37 @@ class FollowListScreen extends StatefulWidget {
 
 class _FollowListScreenState extends State<FollowListScreen> {
   final UserService _userService = UserService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   List<UserModel> _users = [];
   bool _isLoading = true;
+  String? _currentUserId;
+  Set<String> _followingIds = {};
+  final Set<String> _loadingIds = {};
+  final Set<String> _removedIds = {};
 
   @override
   void initState() {
     super.initState();
-    _loadUsers();
+    _currentUserId = _auth.currentUser?.uid;
+    _loadData();
   }
 
-  Future<void> _loadUsers() async {
+  Future<void> _loadData() async {
     try {
       final users = widget.showFollowers
           ? await _userService.getFollowers(widget.userId)
           : await _userService.getFollowing(widget.userId);
+
+      Set<String> followingIds = {};
+      if (_currentUserId != null) {
+        final userModel = await _userService.getUser(_currentUserId!);
+        followingIds = Set<String>.from(userModel?.following ?? []);
+      }
+
       if (mounted) {
         setState(() {
           _users = users;
+          _followingIds = followingIds;
           _isLoading = false;
         });
       }
@@ -46,6 +61,141 @@ class _FollowListScreenState extends State<FollowListScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Future<void> _toggleFollow(String targetUserId) async {
+    if (_currentUserId == null) return;
+    final isFollowing = _followingIds.contains(targetUserId);
+
+    setState(() {
+      if (isFollowing) {
+        _followingIds.remove(targetUserId);
+      } else {
+        _followingIds.add(targetUserId);
+      }
+      _loadingIds.add(targetUserId);
+    });
+
+    try {
+      if (isFollowing) {
+        await _userService.unfollowUser(
+          currentUserId: _currentUserId!,
+          targetUserId: targetUserId,
+        );
+      } else {
+        await _userService.followUser(
+          currentUserId: _currentUserId!,
+          targetUserId: targetUserId,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          if (isFollowing) {
+            _followingIds.add(targetUserId);
+          } else {
+            _followingIds.remove(targetUserId);
+          }
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loadingIds.remove(targetUserId));
+    }
+  }
+
+  Future<void> _removeFollower(String followerUid) async {
+    if (_currentUserId == null) return;
+    setState(() => _loadingIds.add(followerUid));
+    try {
+      await _userService.removeFollower(
+        currentUserId: _currentUserId!,
+        followerUserId: followerUid,
+      );
+      if (mounted) {
+        setState(() {
+          _removedIds.add(followerUid);
+          _users.removeWhere((u) => u.uid == followerUid);
+        });
+      }
+    } catch (_) {
+      // エラー時は何もしない（ロールバック不要）
+    } finally {
+      if (mounted) setState(() => _loadingIds.remove(followerUid));
+    }
+  }
+
+  Widget _buildRemoveButton(String uid) {
+    final isLoading = _loadingIds.contains(uid);
+    return GestureDetector(
+      onTap: isLoading ? null : () => _removeFollower(uid),
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: isLoading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white54,
+                  ),
+                )
+              : const Text(
+                  '削除',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFollowButton(String uid) {
+    if (uid == _currentUserId) return const SizedBox.shrink();
+    final isFollowing = _followingIds.contains(uid);
+    final isLoading = _loadingIds.contains(uid);
+
+    return GestureDetector(
+      onTap: isLoading ? null : () => _toggleFollow(uid),
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: isFollowing ? Colors.transparent : const Color(0xFF5D8FFF),
+          borderRadius: BorderRadius.circular(23),
+          border: isFollowing
+              ? Border.all(color: Colors.grey, width: 1)
+              : null,
+        ),
+        child: Center(
+          child: isLoading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Text(
+                  isFollowing ? 'フォロー中' : 'フォロー',
+                  style: TextStyle(
+                    color: isFollowing ? Colors.grey : Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -74,38 +224,26 @@ class _FollowListScreenState extends State<FollowListScreen> {
                   ),
                 )
               : ListView.builder(
-                  itemCount: _users.length,
+                  itemCount: _users.length + (widget.showFollowers ? 1 : 0),
                   itemBuilder: (context, index) {
-                    final user = _users[index];
-                    return ListTile(
-                      leading: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.grey[800],
-                        ),
-                        child: ClipOval(
-                          child: ProfileImage(
-                            imageUrl: user.profileImageUrl,
-                            size: 44,
+                    if (widget.showFollowers && index == 0) {
+                      return const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
+                        child: Text(
+                          'すべてのフォロワー',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ),
-                      title: Text(
-                        user.name ?? user.username ?? 'ユーザー',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      subtitle: Text(
-                        '@${user.username}',
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 13,
-                        ),
-                      ),
+                      );
+                    }
+                    final user = _users[widget.showFollowers ? index - 1 : index];
+                    final isOwnPage = widget.userId == _currentUserId;
+                    final isFollowingBack = _followingIds.contains(user.uid);
+
+                    return GestureDetector(
                       onTap: () {
                         Navigator.push(
                           context,
@@ -116,6 +254,107 @@ class _FollowListScreenState extends State<FollowListScreen> {
                           ),
                         );
                       },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.grey[800],
+                              ),
+                              child: ClipOval(
+                                child: ProfileImage(
+                                  imageUrl: user.profileImageUrl,
+                                  size: 48,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // フォロワー欄: username + フォローバックバッジ
+                                  if (widget.showFollowers)
+                                    Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            user.username ?? 'ユーザー',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 14,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (!isFollowingBack &&
+                                            user.uid != _currentUserId) ...[
+                                          const SizedBox(width: 6),
+                                          const Text(
+                                            '· ',
+                                            style: TextStyle(
+                                              color: Colors.white54,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          GestureDetector(
+                                            onTap: () =>
+                                                _toggleFollow(user.uid),
+                                            child: const Text(
+                                              'フォローバック',
+                                              style: TextStyle(
+                                                color: Color(0xFF5D8FFF),
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    )
+                                  else
+                                    Text(
+                                      user.username ?? 'ユーザー',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  if (user.name != null &&
+                                      user.name!.isNotEmpty &&
+                                      user.name != user.username)
+                                    Text(
+                                      user.name!,
+                                      style: const TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 13,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            if (widget.showFollowers)
+                              if (isOwnPage && user.uid != _currentUserId)
+                                _buildRemoveButton(user.uid)
+                              else
+                                const SizedBox.shrink()
+                            else
+                              _buildFollowButton(user.uid),
+                          ],
+                        ),
+                      ),
                     );
                   },
                 ),

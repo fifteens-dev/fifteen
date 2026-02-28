@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/music_service_type.dart';
 import '../services/music_service_manager.dart';
+import '../services/apple_music_service.dart';
+import '../widgets/dialogs/bottom_sheet_dialog.dart';
 
 /// 音楽サービス選択画面
 class MusicServiceSelectionScreen extends StatefulWidget {
@@ -50,12 +52,28 @@ class _MusicServiceSelectionScreenState
 
       if (mounted) {
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${service.displayName}に連携しました'),
-              backgroundColor: const Color(0xFF4CAF50),
-            ),
-          );
+          // Apple Musicの場合はサブスクリプション確認
+          if (service == MusicServiceType.appleMusic) {
+            final hasSubscription =
+                await AppleMusicService().checkSubscriptionAccess();
+            if (mounted && !hasSubscription) {
+              await BottomSheetDialog.showAppleMusicNoSubscription(context);
+            } else if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${service.displayName}に連携しました'),
+                  backgroundColor: const Color(0xFF4CAF50),
+                ),
+              );
+            }
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${service.displayName}に連携しました'),
+                backgroundColor: const Color(0xFF4CAF50),
+              ),
+            );
+          }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

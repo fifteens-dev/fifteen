@@ -55,6 +55,7 @@ class PostCard extends StatefulWidget {
   final bool autoPlay; // trueの場合、裏面スタート時に自動で音楽を再生
   final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
   final VoidCallback? onFlipToBack; // 初めて裏面に反転したときのコールバック（閲覧済み記録用）
+  final bool persistentPlayButton; // trueの場合、停止中は再生ボタンを常時表示・再生中は非表示
 
   const PostCard({
     super.key,
@@ -81,6 +82,7 @@ class PostCard extends StatefulWidget {
     this.autoPlay = false, // デフォルトは自動再生なし
     this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
     this.onFlipToBack, // 裏面反転コールバック（オプション）
+    this.persistentPlayButton = false, // デフォルトはアニメーション表示
   });
 
   @override
@@ -97,6 +99,10 @@ class PostCardState extends State<PostCard>
   late AnimationController _playButtonAnimationController;
   late Animation<double> _playButtonScaleAnimation;
   late Animation<double> _playButtonOpacityAnimation;
+
+  // persistentPlayButton モード用の状態管理
+  bool _lastPersistentPlayingState = false;
+  IconData _persistentTransitionIcon = Icons.play_arrow;
 
   // 裏面無効タップ時のリジェクトシェイク用
   late AnimationController _rejectController;
@@ -411,6 +417,13 @@ class PostCardState extends State<PostCard>
     _flipController.reverse();
   }
 
+  /// 裏面に戻す（外部から呼び出し可能）
+  void flipToBack() {
+    if (!mounted || !_showFront) return;
+    setState(() { _showFront = false; });
+    _flipController.forward();
+  }
+
   /// カードをタップして裏返す
   void _flipCard() async {
     // 表面のみ表示モードの場合は外部ハンドラを呼ぶ
@@ -420,10 +433,15 @@ class PostCardState extends State<PostCard>
     }
 
     // 裏面無効の場合、表面→裏面への反転をブロック（カチカチシェイクで拒否を表現）
+    // 音楽は再生する
     if (!widget.backSideEnabled && _showFront) {
       HapticFeedback.lightImpact();
       _rejectController.forward(from: 0.0);
       RestrictionNotification.show(context, message: '投稿して表示\nあなたのVibeをシェアして\n友達の投稿をみよう');
+      if (!widget.audioManagedExternally) {
+        widget.onPlayStarted?.call();
+        _playAudioAsync();
+      }
       return;
     }
 
@@ -910,7 +928,7 @@ class PostCardState extends State<PostCard>
                     text: widget.post.track.trackName,
                     style: TextStyle(
                       fontSize: 22,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: _w(widget.post.track.trackName, FontWeight.w700),
                       color: theme.textColor,
                     ),
                     width: (widget.currentUserId != null && widget.post.userId == widget.currentUserId)
@@ -922,6 +940,7 @@ class PostCardState extends State<PostCard>
                     widget.post.track.artistName,
                     style: TextStyle(
                       fontSize: 13,
+                      fontWeight: _w(widget.post.track.artistName, FontWeight.w400),
                       color: theme.secondaryTextColor,
                     ),
                     maxLines: 1,
@@ -1235,9 +1254,9 @@ class PostCardState extends State<PostCard>
                   // ユーザー名
                   Text(
                     widget.post.username,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: _w(widget.post.username, FontWeight.w600),
                       color: Colors.white,
                     ),
                   ),
@@ -1329,8 +1348,10 @@ class PostCardState extends State<PostCard>
 
   /// 再生ボタンタップ時の処理
   Future<void> _handlePlayButtonTap(bool isPlaying, String? previewUrl) async {
-    // アニメーションを開始
-    _playButtonAnimationController.forward(from: 0.0);
+    // 通常モードのみタップ時アニメーション（persistentモードは状態変化で制御）
+    if (!widget.persistentPlayButton) {
+      _playButtonAnimationController.forward(from: 0.0);
+    }
 
     // 再生/一時停止処理
     if (isPlaying) {
@@ -1350,12 +1371,27 @@ class PostCardState extends State<PostCard>
     }
   }
 
+  /// 日本語文字を含む場合、指定した FontWeight より 1段階（+100）重い値を返す
+  /// 英字フォントと日本語フォントの視覚的な太さの差を補正するため
+  static FontWeight _w(String text, FontWeight base) {
+    final hasJapanese = RegExp(r'[\u3040-\u30FF\u4E00-\u9FFF\uF900-\uFAFF]').hasMatch(text);
+    if (!hasJapanese) return base;
+    const weights = [
+      FontWeight.w100, FontWeight.w200, FontWeight.w300, FontWeight.w400,
+      FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800, FontWeight.w900,
+    ];
+    final idx = weights.indexOf(base);
+    return (idx >= 0 && idx < weights.length - 1) ? weights[idx + 1] : base;
+  }
+
   /// 再生ボタン（裏面用 - タップ時のみ表示）
   Widget _buildPlayButton() {
     return StreamBuilder<PlayerState>(
       stream: widget.audioService.playerStateStream,
       builder: (context, snapshot) {
-        final previewUrl = _cachedPreviewUrl;
+        // audioManagedExternally の場合 _cachedPreviewUrl は null のまま
+        // なので externalPreviewUrl を fallback として使用する
+        final previewUrl = _cachedPreviewUrl ?? widget.externalPreviewUrl;
         final isThisTrackPlaying = previewUrl != null &&
             widget.audioService.isPlayingUrl(previewUrl);
 
@@ -1366,34 +1402,113 @@ class PostCardState extends State<PostCard>
             width: PostCardConstants.playButtonSize,
             height: PostCardConstants.playButtonSize,
             color: Colors.transparent,
-            child: AnimatedBuilder(
-              animation: _playButtonAnimationController,
-              builder: (context, child) {
-                return Opacity(
-                  opacity: _playButtonOpacityAnimation.value,
-                  child: Transform.scale(
-                    scale: _playButtonScaleAnimation.value,
-                    child: Container(
-                      width: PostCardConstants.playButtonSize,
-                      height: PostCardConstants.playButtonSize,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black.withOpacity(PostCardConstants.playButtonBackgroundOpacity),
-                        border: Border.all(
-                          color: Colors.white,
-                          width: PostCardConstants.playButtonBorderWidth,
+            child: widget.persistentPlayButton
+                // 常時表示モード:
+                //   停止中 → ▶ を常に表示
+                //   再生開始時 → ‖ がポップアップ後に非表示
+                //   停止時 → ▶ がポップアップ後に常に表示
+                ? Builder(
+                    builder: (context) {
+                      // 再生状態の変化を検知してアニメーションを制御
+                      if (_lastPersistentPlayingState != isThisTrackPlaying) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
+                          if (_lastPersistentPlayingState == isThisTrackPlaying) return;
+                          setState(() {
+                            _lastPersistentPlayingState = isThisTrackPlaying;
+                            _persistentTransitionIcon =
+                                isThisTrackPlaying ? Icons.pause : Icons.play_arrow;
+                          });
+                          _playButtonAnimationController.forward(from: 0.0);
+                        });
+                      }
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // 停止中は ▶ を常に表示
+                          AnimatedOpacity(
+                            opacity: isThisTrackPlaying ? 0.0 : 1.0,
+                            duration: const Duration(milliseconds: 300),
+                            child: Container(
+                              width: PostCardConstants.playButtonSize,
+                              height: PostCardConstants.playButtonSize,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black.withOpacity(PostCardConstants.playButtonBackgroundOpacity),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: PostCardConstants.playButtonBorderWidth,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow,
+                                color: Colors.white,
+                                size: PostCardConstants.playButtonIconSize,
+                              ),
+                            ),
+                          ),
+                          // 状態変化時のポップアニメーション（▶ or ‖）
+                          AnimatedBuilder(
+                            animation: _playButtonAnimationController,
+                            builder: (context, child) {
+                              return Opacity(
+                                opacity: _playButtonOpacityAnimation.value,
+                                child: Transform.scale(
+                                  scale: _playButtonScaleAnimation.value,
+                                  child: Container(
+                                    width: PostCardConstants.playButtonSize,
+                                    height: PostCardConstants.playButtonSize,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.black.withOpacity(PostCardConstants.playButtonBackgroundOpacity),
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: PostCardConstants.playButtonBorderWidth,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      _persistentTransitionIcon,
+                                      color: Colors.white,
+                                      size: PostCardConstants.playButtonIconSize,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      );
+                    },
+                  )
+                // アニメーションモード（通常）
+                : AnimatedBuilder(
+                    animation: _playButtonAnimationController,
+                    builder: (context, child) {
+                      return Opacity(
+                        opacity: _playButtonOpacityAnimation.value,
+                        child: Transform.scale(
+                          scale: _playButtonScaleAnimation.value,
+                          child: Container(
+                            width: PostCardConstants.playButtonSize,
+                            height: PostCardConstants.playButtonSize,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.black.withOpacity(PostCardConstants.playButtonBackgroundOpacity),
+                              border: Border.all(
+                                color: Colors.white,
+                                width: PostCardConstants.playButtonBorderWidth,
+                              ),
+                            ),
+                            child: Icon(
+                              isThisTrackPlaying ? Icons.pause : Icons.play_arrow,
+                              color: Colors.white,
+                              size: PostCardConstants.playButtonIconSize,
+                            ),
+                          ),
                         ),
-                      ),
-                      child: Icon(
-                        isThisTrackPlaying ? Icons.pause : Icons.play_arrow,
-                        color: Colors.white,
-                        size: PostCardConstants.playButtonIconSize,
-                      ),
-                    ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         );
       },
@@ -1556,7 +1671,7 @@ class PostCardState extends State<PostCard>
           text: widget.post.track.trackName,
           style: TextStyle(
             fontSize: 25,
-            fontWeight: FontWeight.bold,
+            fontWeight: _w(widget.post.track.trackName, FontWeight.w700),
             color: theme.textColor,
           ),
           width: availableWidth,
@@ -1566,6 +1681,7 @@ class PostCardState extends State<PostCard>
           widget.post.track.artistName,
           style: TextStyle(
             fontSize: 13,
+            fontWeight: _w(widget.post.track.artistName, FontWeight.w400),
             color: theme.textColor,
           ),
           maxLines: 1,
@@ -1779,7 +1895,7 @@ class PostCardState extends State<PostCard>
             widget.post.username,
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
+              fontWeight: _w(widget.post.username, FontWeight.w600),
               color: theme.textColor,
             ),
           ),

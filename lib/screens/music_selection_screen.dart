@@ -47,7 +47,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   VibeTopicModel? _todaysTopic;
 
   // タブ選択状態: 0 = 最近聞いた曲, 1 = おすすめ, 2 = My Playlist, 3 = 保存済み
-  int _selectedTab = 0;
+  int _selectedTab = 1;
 
   // 表示モード: true = グリッド, false = リスト
   bool _isGridView = false;
@@ -114,7 +114,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     _selectedCategoryType = widget.initialCategoryType ?? 'vibe';
     _searchFocusNode.addListener(_onSearchFocusChanged);
     _loadRecentMusicSearches();
-    _loadRecentlyPlayedTracks();
+    _loadInitialTracks();
     _loadTodaysTopic();
   }
 

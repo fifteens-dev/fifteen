@@ -52,11 +52,6 @@ class _HomeScreenState extends State<HomeScreen>
   // 現在再生中の投稿ID
   String? _playingPostId;
 
-  // VibeBarのキー（高さ計測用）
-  final GlobalKey _vibeBarKey = GlobalKey();
-  double? _vibeBarHeight;
-  bool _isSnapping = false;
-  Timer? _snapTimer;
 
   @override
   bool get wantKeepAlive => true;
@@ -268,7 +263,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
-    _snapTimer?.cancel();
     _scrollController.dispose();
     _bellOpacity.dispose();
     super.dispose();
@@ -319,64 +313,6 @@ class _HomeScreenState extends State<HomeScreen>
     _bellOpacity.value = (1.0 - (offset / 80.0)).clamp(0.0, 1.0);
   }
 
-  /// スクロール終了時に最近傍の投稿カードへスナップ
-  void _snapToNearestPost() {
-    if (_isSnapping) return;
-    if (!_scrollController.hasClients) return;
-    if (_cachedPosts == null || _cachedPosts!.isEmpty) return;
-
-    // VibeBarの高さを毎回計測
-    final renderBox = _vibeBarKey.currentContext?.findRenderObject() as RenderBox?;
-    if (renderBox != null) _vibeBarHeight = renderBox.size.height;
-    if (_vibeBarHeight == null) return;
-
-    final topPadding = MediaQuery.of(context).padding.top;
-    final headerHeight = 48.0 + topPadding;
-    const itemHeight = 660.0; // 644 card + 16 bottom padding
-    const cardHeight = 644.0;
-
-    final postListStart = headerHeight + _vibeBarHeight! + 9.0;
-    final offset = _scrollController.offset;
-    final screenHeight = MediaQuery.of(context).size.height;
-
-    final maxExtent = _scrollController.position.maxScrollExtent;
-    final firstPostTargetOffset = (postListStart + cardHeight / 2 - screenHeight / 2).clamp(0.0, maxExtent);
-
-    if (offset < firstPostTargetOffset) {
-      // Vibe area: snap to top (offset=0) or first post
-      final targetOffset = offset < firstPostTargetOffset / 2 ? 0.0 : firstPostTargetOffset;
-      if ((offset - targetOffset).abs() > 2.0) {
-        _isSnapping = true;
-        _scrollController.animateTo(
-          targetOffset,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        ).whenComplete(() {
-          if (mounted) _isSnapping = false;
-        });
-      }
-      return;
-    }
-
-    final docCenter = offset + screenHeight / 2;
-    final nearestIndex = ((docCenter - postListStart - cardHeight / 2) / itemHeight)
-        .round()
-        .clamp(0, _cachedPosts!.length - 1);
-
-    final targetOffset = (postListStart + nearestIndex * itemHeight + cardHeight / 2 - screenHeight / 2)
-        .clamp(0.0, _scrollController.position.maxScrollExtent);
-
-    if ((offset - targetOffset).abs() > 2.0) {
-      _isSnapping = true;
-      _scrollController.animateTo(
-        targetOffset,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      ).whenComplete(() {
-        if (mounted) _isSnapping = false;
-      });
-    }
-  }
 
   // ボトムナビゲーションのタップ処理
   /// Vibeの「投稿する」ボタンから楽曲選択画面へ遷移（Vibe事前選択済み）
@@ -437,21 +373,6 @@ class _HomeScreenState extends State<HomeScreen>
                   onNotification: (notification) {
                     _checkPlayingCardVisibility();
                     _updateBellOpacity();
-                    if (notification.depth == 0 && _scrollController.hasClients) {
-                      final offset = _scrollController.offset;
-                      // オーバースクロール中（offset < 0）はスナップを停止
-                      if (offset < 0) {
-                        _snapTimer?.cancel();
-                        return false;
-                      }
-                      if (!_isSnapping) {
-                        // debounceタイマーでスナップ
-                        _snapTimer?.cancel();
-                        _snapTimer = Timer(const Duration(milliseconds: 150), () {
-                          if (mounted) _snapToNearestPost();
-                        });
-                      }
-                    }
                     return false;
                   },
                   child: RefreshIndicator(
@@ -468,13 +389,10 @@ class _HomeScreenState extends State<HomeScreen>
                         child: SizedBox(height: headerHeight),
                       ),
                       SliverToBoxAdapter(
-                        child: SizedBox(
-                          key: _vibeBarKey,
-                          child: VibeBarSection(
-                            vibeDataFuture: _loadVibeData(),
-                            onRankingItemTap: _handleRankingItemTap,
-                            onPostTap: _navigateToVibePost,
-                          ),
+                        child: VibeBarSection(
+                          vibeDataFuture: _loadVibeData(),
+                          onRankingItemTap: _handleRankingItemTap,
+                          onPostTap: _navigateToVibePost,
                         ),
                       ),
                       const SliverToBoxAdapter(

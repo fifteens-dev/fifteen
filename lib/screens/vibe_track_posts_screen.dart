@@ -123,11 +123,14 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
     }
   }
 
-  /// ページが変わったら音楽を新しいカードに切り替え、前のカードを表面に戻す
+  /// ページが変わったら音楽を新しいカードに切り替え、前のカードを裏面に戻す
   void _onPageChanged(int index) {
-    // 前のカードを表面に戻す
     if (_playingPageIndex != null && _playingPageIndex != index) {
-      _cardKeys[_playingPageIndex]?.currentState?.flipToFront();
+      if (_hasPostedToday) {
+        // 投稿済みユーザー: 前のカードを裏面に戻す（表面にいた場合のみ）
+        _cardKeys[_playingPageIndex]?.currentState?.flipToBack();
+      }
+      // 未投稿ユーザー: カードは常に表面なので何もしない
     }
     _playingPageIndex = index;
     setState(() {
@@ -217,10 +220,10 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                   currentUserId: widget.currentUserId,
                   currentUserIconUrl: _currentUserIconUrl,
                   audioService: _audioService,
-                  startFromBack: false,
+                  startFromBack: _hasPostedToday, // 投稿済みなら最初から裏面（アニメなし）
                   audioManagedExternally: true,
                   externalPreviewUrl: _previewUrlCache[index],
-                  backSideEnabled: _hasPostedToday,
+                  backSideEnabled: _hasPostedToday, // 未投稿者は裏面不可
                   onLike: () {},
                   onComment: () {},
                   onAdd: () {},

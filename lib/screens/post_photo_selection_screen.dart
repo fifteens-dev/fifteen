@@ -479,7 +479,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
 
     // グリッド内のインデックス（カメラボタン分+1）
     final gridIndex = assetIndex + 1;
-    final row = gridIndex ~/ 3;
+    final row = gridIndex ~/ 4; // 4列グリッド
 
     // グリッドの利用可能幅からアイテムサイズを計算
     // Container padding: horizontal 1 each side = 2

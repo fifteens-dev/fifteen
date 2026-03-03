@@ -34,12 +34,12 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
   final ITunesSearchService _itunesService = ITunesSearchService();
   final UserService _userService = UserService();
   final PostService _postService = PostService();
-  late PageController _pageController;
+  final ScrollController _scrollController = ScrollController();
   String? _currentUserIconUrl;
   String? _currentUserId;
-  int? _playingPageIndex;
+  int? _playingIndex;
 
-  // 各PostCardのGlobalKey（flipToFront呼び出し用）
+  // 各PostCardのGlobalKey（flipToBack呼び出し用）
   final Map<int, GlobalKey<PostCardState>> _cardKeys = {};
 
   // 保存状態
@@ -50,43 +50,45 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
 
   // プレビューURLキャッシュ（インデックス → URL）
   final Map<int, String?> _previewUrlCache = {};
-
-  // 最後にリクエストしたページ（スクロール連打対応）
   int? _requestedPageIndex;
+
+  static const double _cardItemHeight = 660.0; // 644 card + 16 bottom padding
 
   @override
   void initState() {
     super.initState();
     _posts = List.from(widget.posts);
     _currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    _pageController = PageController(initialPage: widget.initialIndex);
     _loadCurrentUserIconUrl();
     _loadSaveStates();
 
-    // 裏面スタートの場合、最初のカードの音楽を再生（fire-and-forget）
-    if (widget.showBackFirst) {
-      _playingPageIndex = widget.initialIndex;
+    _scrollController.addListener(_checkCardVisibility);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // 初期インデックスへスクロール
+      if (_scrollController.hasClients && widget.initialIndex > 0) {
+        _scrollController.jumpTo(widget.initialIndex * _cardItemHeight);
+      }
+      // 初期カードの音楽を再生
+      _playingIndex = widget.initialIndex;
       _playMusicForPage(widget.initialIndex);
-    }
+    });
   }
 
-  /// 指定ページの音楽を再生する（画面側が音楽を一括管理）
+  /// 指定インデックスの音楽を再生する（画面側が音楽を一括管理）
   Future<void> _playMusicForPage(int index) async {
     if (index < 0 || index >= _posts.length) return;
     _requestedPageIndex = index;
     final post = _posts[index];
 
-    // キャッシュ済みURLがあればすぐ再生
     String? url = _previewUrlCache[index];
 
     if (url == null) {
-      // iTunes APIからプレビューURLを取得
       final result = await _itunesService.getPreviewUrlWithArt(
         trackName: post.track.trackName,
         artistName: post.track.artistName,
       );
       if (!mounted) return;
-      // スクロールで別ページに移動済みなら中断
       if (_requestedPageIndex != index) return;
 
       if (result != null) {
@@ -102,14 +104,35 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
 
     if (url != null && url.isNotEmpty) {
       try {
-        // playPreview内部で別URLが再生中なら自動停止してから再生
         await _audioService.playPreview(
           url,
           startFrom: Duration(milliseconds: post.audioStartMs),
           durationSeconds: post.audioDurationSec,
         );
-      } catch (_) {
-        // 再生エラーは無視
+      } catch (_) {}
+    }
+  }
+
+  /// スクロール時に各カードの可視性を確認し、画面外に出たら裏面に戻す＆音楽停止
+  void _checkCardVisibility() {
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    for (final entry in _cardKeys.entries) {
+      final index = entry.key;
+      final key = entry.value;
+      final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+      if (renderBox == null || !renderBox.attached) continue;
+
+      final position = renderBox.localToGlobal(Offset.zero);
+      final size = renderBox.size;
+      final isOffScreen = position.dy + size.height <= 0 || position.dy >= screenHeight;
+
+      if (isOffScreen) {
+        key.currentState?.flipToBack();
+        if (_playingIndex == index) {
+          _audioService.stop();
+          _playingIndex = null;
+        }
       }
     }
   }
@@ -190,14 +213,11 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
     try {
       await _postService.deletePost(post.postId);
       if (mounted) {
-        final idx = _posts.indexWhere((p) => p.postId == post.postId);
         setState(() {
           _posts.removeWhere((p) => p.postId == post.postId);
         });
         if (_posts.isEmpty) {
           Navigator.pop(context);
-        } else if (idx >= _posts.length) {
-          _pageController.jumpToPage(_posts.length - 1);
         }
       }
     } catch (e) {
@@ -212,75 +232,81 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
   @override
   void dispose() {
     _audioService.stop();
-    _pageController.dispose();
+    _scrollController.removeListener(_checkCardVisibility);
+    _scrollController.dispose();
     super.dispose();
-  }
-
-  /// ページが変わったら音楽を新しいカードに切り替え、前のカードを表面に戻す
-  void _onPageChanged(int index) {
-    // 前のカードを表面に戻す
-    if (_playingPageIndex != null && _playingPageIndex != index) {
-      _cardKeys[_playingPageIndex]?.currentState?.flipToFront();
-    }
-    _playingPageIndex = index;
-
-    // 新しいページの音楽を再生（playPreview内部で前の音楽を自動停止）
-    _playMusicForPage(index);
   }
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+    final headerAreaHeight = topPadding + 16.0 + 40.0 + 8.0; // status + top + button + gap
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: Stack(
         children: [
-          PageView.builder(
-            controller: _pageController,
-            scrollDirection: Axis.vertical,
-            onPageChanged: _onPageChanged,
-            itemCount: _posts.length,
-            itemBuilder: (context, index) {
-              final post = _posts[index];
-              _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
-              return Center(
-                child: PostCard(
-                  key: _cardKeys[index],
-                  post: post,
-                  currentUserId: _currentUserId,
-                  currentUserIconUrl: _currentUserIconUrl,
-                  audioService: _audioService,
-                  startFromBack: widget.showBackFirst,
-                  audioManagedExternally: widget.showBackFirst, // 音楽制御をこの画面に委譲
-                  externalPreviewUrl: _previewUrlCache[index], // 波形表示用のURL
-                  disableInteractions: widget.disableInteractions,
-                  isSaved: _savedPostIds.contains(post.postId),
-                  onAdd: () => _handleSave(post),
-                  onDelete: (_currentUserId != null && post.userId == _currentUserId)
-                      ? () => _handleDelete(post)
-                      : null,
-                ),
-              );
+          // インスタ式ListView
+          NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              _checkCardVisibility();
+              return false;
             },
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: EdgeInsets.only(top: headerAreaHeight, bottom: 80),
+              itemCount: _posts.length,
+              itemBuilder: (context, index) {
+                final post = _posts[index];
+                _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Center(
+                    child: PostCard(
+                      key: _cardKeys[index],
+                      post: post,
+                      currentUserId: _currentUserId,
+                      currentUserIconUrl: _currentUserIconUrl,
+                      audioService: _audioService,
+                      startFromBack: true, // 常に裏面スタート
+                      audioManagedExternally: true,
+                      externalPreviewUrl: _previewUrlCache[index],
+                      disableInteractions: widget.disableInteractions,
+                      persistentPlayButton: true,
+                      onPlayStarted: () => setState(() { _playingIndex = index; }),
+                      isSaved: _savedPostIds.contains(post.postId),
+                      onAdd: () => _handleSave(post),
+                      onDelete: (_currentUserId != null && post.userId == _currentUserId)
+                          ? () => _handleDelete(post)
+                          : null,
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
-          // 投稿ロゴ（中央上部・背景なし）
+          // 投稿タイトル（中央上部）
           Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
+            top: topPadding + 16,
             left: 0,
             right: 0,
-            child: const Center(
-              child: Text(
-                '投稿',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
+            child: const SizedBox(
+              height: 40,
+              child: Center(
+                child: Text(
+                  '投稿',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
           ),
           // 閉じるボタン（左上）
           Positioned(
-            top: MediaQuery.of(context).padding.top + 16,
+            top: topPadding + 16,
             left: 16,
             child: GestureDetector(
               onTap: () {

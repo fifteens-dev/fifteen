@@ -37,6 +37,7 @@ class _SearchScreenState extends State<SearchScreen> {
   String? _inviteCode;
   int _inviteUsedCount = 0;
   static const int _maxInvites = 3;
+  String? _currentUserProfileImageUrl;
 
   // デバウンス時間（ミリ秒）
   static const int _debounceDuration = 500;
@@ -56,10 +57,12 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       final code = await _userService.ensureInviteCode(uid);
       final used = await _userService.getInviteCodeUsedCount(code);
+      final user = await _userService.getUser(uid);
       if (mounted) {
         setState(() {
           _inviteCode = code;
           _inviteUsedCount = used;
+          _currentUserProfileImageUrl = user?.profileImageUrl;
         });
       }
     } catch (_) {}
@@ -338,101 +341,90 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /// 招待コードカード
+  /// 招待コードカード（BeReal風コンパクトレイアウト）
   Widget _buildInviteCodeCard() {
+    final isExhausted = _inviteUsedCount >= _maxInvites;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(8, 10, 8, 4),
       child: Container(
-        height: 75,
         decoration: BoxDecoration(
-          color: Colors.grey[800],
-          borderRadius: BorderRadius.circular(15),
+          color: const Color(0xFF282828),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(15),
-            onTap: _inviteCode == null || _inviteUsedCount >= _maxInvites
-                ? null
-                : _copyInviteCode,
-            child: _inviteCode == null
-                ? const Center(
-                    child: SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    ),
-                  )
-                : Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          _buildCopyIcon(),
-                          const SizedBox(width: 8),
-                          Text(
-                            _inviteCode!,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 2,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '残り：${_maxInvites - _inviteUsedCount}人',
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 12,
+            borderRadius: BorderRadius.circular(12),
+            onTap: _inviteCode == null || isExhausted ? null : _copyInviteCode,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: _inviteCode == null
+                  ? const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
                         ),
                       ),
-                    ],
-                  ),
+                    )
+                  : Row(
+                      children: [
+                        // 左: ユーザーアバター
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.grey[700],
+                          ),
+                          child: ClipOval(
+                            child: ProfileImage(
+                              imageUrl: _currentUserProfileImageUrl,
+                              size: 40,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // 中央: テキスト
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                isExhausted ? '招待枠が上限に達しました' : '友達を招待する',
+                                style: TextStyle(
+                                  color: isExhausted ? Colors.grey : Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                isExhausted
+                                    ? '残り0人'
+                                    : '招待コード: ${_inviteCode!}　残り${_maxInvites - _inviteUsedCount}人',
+                                style: const TextStyle(
+                                  color: Color(0xFF9F9F9F),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // 右: コピーアイコン
+                        Icon(
+                          Icons.copy,
+                          color: isExhausted ? Colors.grey[600] : Colors.white,
+                          size: 20,
+                        ),
+                      ],
+                    ),
+            ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildCopyIcon() {
-    return SizedBox(
-      width: 20,
-      height: 20,
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            top: 0,
-            child: Container(
-              width: 14,
-              height: 16,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.white, width: 1.5),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Container(
-              width: 14,
-              height: 16,
-              decoration: BoxDecoration(
-                color: Colors.grey[800],
-                border: Border.all(color: Colors.white, width: 1.5),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

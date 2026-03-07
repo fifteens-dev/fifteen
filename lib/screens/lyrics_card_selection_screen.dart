@@ -52,7 +52,7 @@ class _LyricsCardSelectionScreenState
   String _currentUsername = '';
   String? _currentUserIconUrl;
 
-  int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
+  int _selectedLayoutIndex = 1; // 選択されたレイアウト (1-4、0=歌詞カードは非表示)
   Offset _cardCenter = const Offset(180, 200); // カード中央座標
   double _cardScale = 1.0; // 拡大率
   double _cardRotation = 0.0; // 回転角度（ラジアン）
@@ -142,34 +142,16 @@ class _LyricsCardSelectionScreenState
     }
   }
 
-  /// 歌詞カードに表示する歌詞テキストを取得
+  /// 歌詞カードに表示する歌詞テキストを取得（プレビュー画面と同じロジック）
   String get _displayLyrics {
     if (_isLoadingLyrics) {
-      // 歌詞取得中
       return '歌詞を取得中...';
     }
 
     if (_lyricsData != null) {
-      final lines = _lyricsData!.lines;
-
-      // タイムスタンプ付き歌詞がある場合: 15秒ウィンドウ内の行のみ抽出
-      if (lines != null && lines.isNotEmpty) {
-        final startMs = widget.audioStartMs;
-        final endMs = startMs + widget.audioDurationSec * 1000;
-        final windowLines = lines
-            .where((l) => l.timestampMs >= startMs && l.timestampMs < endMs)
-            .map((l) => l.text)
-            .toList();
-        if (windowLines.isNotEmpty) {
-          return windowLines.join('\n');
-        }
-      }
-
-      // タイムスタンプなし: plainLyricsをそのまま全部表示
       return _lyricsData!.plainLyrics;
     }
 
-    // 歌詞が見つからなかった場合
     return '歌詞が見つかりませんでした';
   }
 
@@ -919,7 +901,8 @@ class _LyricsCardSelectionScreenState
           padding: const EdgeInsets.symmetric(horizontal: 37),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(5, (index) {
+            children: List.generate(4, (i) {
+              final index = i + 1; // layout 0（歌詞カード）をスキップ
               final isSelected = _selectedLayoutIndex == index;
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 15),

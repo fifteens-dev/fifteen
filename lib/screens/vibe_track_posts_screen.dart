@@ -35,6 +35,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
 
   // 今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
+  bool _hasPostedTodayLoaded = false; // ロード完了前は PageView を表示しない
 
   // 音楽制御用（ProfilePostsListScreen と同じパターン）
   int? _playingPageIndex;
@@ -59,6 +60,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
     if (mounted) {
       setState(() {
         _hasPostedToday = hasPosted;
+        _hasPostedTodayLoaded = true;
       });
     }
   }
@@ -202,37 +204,50 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
           ),
         ],
       ),
-      body: PageView.builder(
-        controller: _pageController,
-        scrollDirection: Axis.vertical,
-        onPageChanged: _onPageChanged,
-        itemCount: widget.posts.length,
-        itemBuilder: (context, index) {
-          final post = widget.posts[index];
-          _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
-          return Center(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: PostCard(
-                  key: _cardKeys[index],
-                  post: post,
-                  currentUserId: widget.currentUserId,
-                  currentUserIconUrl: _currentUserIconUrl,
-                  audioService: _audioService,
-                  startFromBack: _hasPostedToday, // 投稿済みなら最初から裏面（アニメなし）
-                  audioManagedExternally: true,
-                  externalPreviewUrl: _previewUrlCache[index],
-                  backSideEnabled: _hasPostedToday, // 未投稿者は裏面不可
-                  onLike: () {},
-                  onComment: () {},
-                  onAdd: () {},
+      body: !_hasPostedTodayLoaded
+          // 投稿状態の確認が完了するまでローディング表示
+          // （startFromBack の値が確定してから PostCard を生成するため）
+          ? const Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  color: Colors.white54,
+                  strokeWidth: 2,
                 ),
               ),
+            )
+          : PageView.builder(
+              controller: _pageController,
+              scrollDirection: Axis.vertical,
+              onPageChanged: _onPageChanged,
+              itemCount: widget.posts.length,
+              itemBuilder: (context, index) {
+                final post = widget.posts[index];
+                _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
+                return Center(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: PostCard(
+                        key: _cardKeys[index],
+                        post: post,
+                        currentUserId: widget.currentUserId,
+                        currentUserIconUrl: _currentUserIconUrl,
+                        audioService: _audioService,
+                        startFromBack: _hasPostedToday,
+                        audioManagedExternally: true,
+                        externalPreviewUrl: _previewUrlCache[index],
+                        backSideEnabled: _hasPostedToday,
+                        onLike: () {},
+                        onComment: () {},
+                        onAdd: () {},
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
-          );
-        },
-      ),
     );
   }
 }

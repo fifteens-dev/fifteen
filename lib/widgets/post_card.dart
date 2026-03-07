@@ -925,26 +925,24 @@ class PostCardState extends State<PostCard>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   MarqueeText(
-                    text: widget.post.track.trackName,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: _w(widget.post.track.trackName, FontWeight.w700),
-                      color: theme.textColor,
+                    textSpan: _buildWeightAdjustedSpan(
+                      widget.post.track.trackName,
+                      baseStyle: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: theme.textColor,
+                      ),
                     ),
                     width: (widget.currentUserId != null && widget.post.userId == widget.currentUserId)
                         ? cardWidth * (268 / 363)
                         : cardWidth * (340 / 363),
                   ),
                   const SizedBox(height: 1.198),
-                  Text(
+                  _buildWeightAdjustedText(
                     widget.post.track.artistName,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: _w(widget.post.track.artistName, FontWeight.w400),
-                      color: theme.secondaryTextColor,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    fontSize: 13,
+                    baseWeight: FontWeight.w400,
+                    color: theme.secondaryTextColor,
                   ),
                 ],
               ),
@@ -1252,13 +1250,11 @@ class PostCardState extends State<PostCard>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // ユーザー名
-                  Text(
+                  _buildWeightAdjustedText(
                     widget.post.username,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: _w(widget.post.username, FontWeight.w600),
-                      color: Colors.white,
-                    ),
+                    fontSize: 14,
+                    baseWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
 
                   // ハッシュタグ/質問テキスト（感情タグの場合は非表示）
@@ -1371,17 +1367,110 @@ class PostCardState extends State<PostCard>
     }
   }
 
-  /// 日本語文字を含む場合、指定した FontWeight より 1段階（+100）重い値を返す
-  /// 英字フォントと日本語フォントの視覚的な太さの差を補正するため
-  static FontWeight _w(String text, FontWeight base) {
-    final hasJapanese = RegExp(r'[\u3040-\u30FF\u4E00-\u9FFF\uF900-\uFAFF]').hasMatch(text);
-    if (!hasJapanese) return base;
-    const weights = [
+  /// MarqueeText 用: 文字単位で日本語 +200 補正を行った InlineSpan を返す
+  static InlineSpan _buildWeightAdjustedSpan(
+    String text, {
+    required TextStyle baseStyle,
+  }) {
+    const allWeights = [
       FontWeight.w100, FontWeight.w200, FontWeight.w300, FontWeight.w400,
       FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800, FontWeight.w900,
     ];
-    final idx = weights.indexOf(base);
-    return (idx >= 0 && idx < weights.length - 1) ? weights[idx + 1] : base;
+    final base = baseStyle.fontWeight ?? FontWeight.w400;
+    final idx = allWeights.indexOf(base);
+    final jaWeight = idx >= 0
+        ? allWeights[(idx + 2).clamp(0, allWeights.length - 1)]
+        : base;
+
+    final japaneseRegex = RegExp(r'[\u3040-\u30FF\u4E00-\u9FFF\uF900-\uFAFF\u3000-\u303F]+');
+    final spans = <InlineSpan>[];
+    int lastEnd = 0;
+
+    for (final match in japaneseRegex.allMatches(text)) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: text.substring(lastEnd, match.start),
+          style: TextStyle(fontWeight: base),
+        ));
+      }
+      spans.add(TextSpan(
+        text: match.group(0),
+        style: TextStyle(fontWeight: jaWeight),
+      ));
+      lastEnd = match.end;
+    }
+    if (lastEnd < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastEnd),
+        style: TextStyle(fontWeight: base),
+      ));
+    }
+
+    if (spans.isEmpty) return TextSpan(text: text, style: baseStyle);
+    return TextSpan(style: baseStyle, children: spans);
+  }
+
+  /// RichText 用: 日本語ランと英語ランを分割し、文字単位で fontWeight を補正する
+  /// 日本語部分は baseWeight +200、英語部分は baseWeight をそのまま適用
+  static Widget _buildWeightAdjustedText(
+    String text, {
+    required double fontSize,
+    required FontWeight baseWeight,
+    required Color color,
+    int maxLines = 1,
+    TextOverflow overflow = TextOverflow.ellipsis,
+  }) {
+    const allWeights = [
+      FontWeight.w100, FontWeight.w200, FontWeight.w300, FontWeight.w400,
+      FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800, FontWeight.w900,
+    ];
+    final idx = allWeights.indexOf(baseWeight);
+    final jaWeight = idx >= 0
+        ? allWeights[(idx + 2).clamp(0, allWeights.length - 1)]
+        : baseWeight;
+
+    final japaneseRegex = RegExp(r'[\u3040-\u30FF\u4E00-\u9FFF\uF900-\uFAFF\u3000-\u303F]+');
+    final spans = <TextSpan>[];
+    int lastEnd = 0;
+
+    for (final match in japaneseRegex.allMatches(text)) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: text.substring(lastEnd, match.start),
+          style: TextStyle(fontWeight: baseWeight),
+        ));
+      }
+      spans.add(TextSpan(
+        text: match.group(0),
+        style: TextStyle(fontWeight: jaWeight),
+      ));
+      lastEnd = match.end;
+    }
+    if (lastEnd < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastEnd),
+        style: TextStyle(fontWeight: baseWeight),
+      ));
+    }
+
+    // 日本語なし → 通常の Text で返す
+    if (spans.isEmpty || spans.length == 1 && spans.first.style?.fontWeight == baseWeight) {
+      return Text(
+        text,
+        style: TextStyle(fontSize: fontSize, fontWeight: baseWeight, color: color),
+        maxLines: maxLines,
+        overflow: overflow,
+      );
+    }
+
+    return Text.rich(
+      TextSpan(
+        style: TextStyle(fontSize: fontSize, color: color),
+        children: spans,
+      ),
+      maxLines: maxLines,
+      overflow: overflow,
+    );
   }
 
   /// 再生ボタン（裏面用 - タップ時のみ表示）
@@ -1668,24 +1757,22 @@ class PostCardState extends State<PostCard>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         MarqueeText(
-          text: widget.post.track.trackName,
-          style: TextStyle(
-            fontSize: 25,
-            fontWeight: _w(widget.post.track.trackName, FontWeight.w700),
-            color: theme.textColor,
+          textSpan: _buildWeightAdjustedSpan(
+            widget.post.track.trackName,
+            baseStyle: TextStyle(
+              fontSize: 25,
+              fontWeight: FontWeight.w700,
+              color: theme.textColor,
+            ),
           ),
           width: availableWidth,
         ),
         const SizedBox(height: 4),
-        Text(
+        _buildWeightAdjustedText(
           widget.post.track.artistName,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: _w(widget.post.track.artistName, FontWeight.w400),
-            color: theme.textColor,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+          fontSize: 13,
+          baseWeight: FontWeight.w400,
+          color: theme.textColor,
         ),
       ],
     );
@@ -1891,13 +1978,11 @@ class PostCardState extends State<PostCard>
           const SizedBox(width: 12),
 
           // ユーザー名
-          Text(
+          _buildWeightAdjustedText(
             widget.post.username,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: _w(widget.post.username, FontWeight.w600),
-              color: theme.textColor,
-            ),
+            fontSize: 14,
+            baseWeight: FontWeight.w600,
+            color: theme.textColor,
           ),
         ],
       ),

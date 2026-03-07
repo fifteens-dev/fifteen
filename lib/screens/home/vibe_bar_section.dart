@@ -41,7 +41,7 @@ class VibeBarSection extends StatelessWidget {
             children: [
               _buildHeader(topic),
               SizedBox(
-                height: ranking.isEmpty ? 40 : 97,
+                height: ranking.isEmpty ? 40 : 100,
                 child: ranking.isEmpty
                     ? _buildNoRankingMessage()
                     : ListView.builder(

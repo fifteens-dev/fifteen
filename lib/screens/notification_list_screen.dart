@@ -27,6 +27,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   final Map<String, String?> _freshIconUrls = {};
   List<NotificationModel> _latestNotifications = [];
   Timer? _iconRefreshTimer;
+  bool _isNavigating = false;
 
   @override
   void initState() {
@@ -688,41 +689,54 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   }
 
   Future<void> _handleNotificationTap(NotificationModel notification) async {
-    // 既読にする
-    if (!notification.isRead) {
-      await _notificationService.markAsRead(notification.notificationId);
-    }
+    if (_isNavigating) return;
+    _isNavigating = true;
 
-    if (!mounted) return;
+    try {
+      // 既読にする（awaitしない — ナビゲーションと並行して実行。エラーは握りつぶす）
+      if (!notification.isRead) {
+        _notificationService.markAsRead(notification.notificationId).catchError((_) {});
+      }
 
-    switch (notification.type) {
-      case NotificationType.follow:
-        // フォローした人のプロフィールへ遷移
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => OtherUserProfileScreen(userId: notification.senderId),
-          ),
-        );
-        break;
-      case NotificationType.like:
-      case NotificationType.comment:
-      case NotificationType.post:
-        // 対象の投稿へ遷移
-        if (notification.postId != null && notification.postId!.isNotEmpty) {
-          final post = await _postService.getPost(notification.postId!);
-          if (mounted && post != null) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => PostDetailScreen(post: post),
-              ),
-            );
+      if (!mounted) return;
+
+      switch (notification.type) {
+        case NotificationType.follow:
+          // フォローした人のプロフィールへ遷移
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OtherUserProfileScreen(userId: notification.senderId),
+            ),
+          );
+          break;
+        case NotificationType.like:
+        case NotificationType.comment:
+        case NotificationType.post:
+          // 対象の投稿へ遷移
+          if (notification.postId != null && notification.postId!.isNotEmpty) {
+            final post = await _postService.getPost(notification.postId!);
+            if (mounted && post != null) {
+              final currentUserId = _authService.currentUser?.uid ?? '';
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PostDetailScreen(
+                    post: post,
+                    currentUserId: currentUserId,
+                  ),
+                ),
+              );
+            }
           }
-        }
-        break;
-      default:
-        break;
+          break;
+        default:
+          break;
+      }
+    } finally {
+      if (mounted) {
+        _isNavigating = false;
+      }
     }
   }
 }

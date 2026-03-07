@@ -475,6 +475,30 @@ class PostService {
     });
   }
 
+  /// 特定ユーザーが指定した日に投稿しているかチェック
+  Future<bool> hasUserPostedOnDate(String userId, DateTime date) async {
+    try {
+      final startOfDay = DateTime(date.year, date.month, date.day);
+      final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
+
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      return snapshot.docs.isNotEmpty;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error checking if user posted on date: $e');
+      }
+      return false;
+    }
+  }
+
   /// 特定ユーザーが今日投稿しているかチェック
   Future<bool> hasUserPostedToday(String userId) async {
     try {

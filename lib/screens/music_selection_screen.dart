@@ -1397,7 +1397,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         ),
         // 大カード横スクロール
         SizedBox(
-          height: 165,
+          height: 168,
           child: _isLoadingRecommended
               ? const Center(
                   child: SizedBox(

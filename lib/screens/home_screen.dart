@@ -52,6 +52,12 @@ class _HomeScreenState extends State<HomeScreen>
   // 現在再生中の投稿ID
   String? _playingPostId;
 
+  // Vibeデータのキャッシュ（buildごとに再取得しないよう）
+  Future<Map<String, dynamic>>? _vibeDataFuture;
+
+  // スクロールイベントのスロットル用
+  DateTime? _lastScrollCheckAt;
+
 
   @override
   bool get wantKeepAlive => true;
@@ -84,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     print('🏠 ホーム画面: initState()が呼ばれました');
+    _vibeDataFuture = _loadVibeData();
     _loadRevealedPostIds();
     _loadPosts();
     _loadCurrentUserIconUrl();
@@ -249,8 +256,8 @@ class _HomeScreenState extends State<HomeScreen>
         if (photoUrl != null && photoUrl.isNotEmpty && photoUrl.startsWith('http')) {
           futures.add(precacheImage(CachedNetworkImageProvider(photoUrl), context));
         }
-        // いいねユーザーアイコン
-        for (final likedIconUrl in post.likedByUserIconUrls) {
+        // いいねユーザーアイコン（表示上限の3件のみ）
+        for (final likedIconUrl in post.likedByUserIconUrls.take(3)) {
           if (likedIconUrl.isNotEmpty && likedIconUrl.startsWith('http')) {
             futures.add(precacheImage(CachedNetworkImageProvider(likedIconUrl), context));
           }
@@ -371,8 +378,15 @@ class _HomeScreenState extends State<HomeScreen>
                 // index 0: ホーム
                 NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
-                    _checkPlayingCardVisibility();
-                    _updateBellOpacity();
+                    if (notification is ScrollUpdateNotification) {
+                      final now = DateTime.now();
+                      if (_lastScrollCheckAt == null ||
+                          now.difference(_lastScrollCheckAt!) >= const Duration(milliseconds: 100)) {
+                        _lastScrollCheckAt = now;
+                        _checkPlayingCardVisibility();
+                        _updateBellOpacity();
+                      }
+                    }
                     return false;
                   },
                   child: RefreshIndicator(
@@ -390,7 +404,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       SliverToBoxAdapter(
                         child: VibeBarSection(
-                          vibeDataFuture: _loadVibeData(),
+                          vibeDataFuture: _vibeDataFuture!,
                           onRankingItemTap: _handleRankingItemTap,
                           onPostTap: _navigateToVibePost,
                         ),
@@ -591,14 +605,15 @@ class _HomeScreenState extends State<HomeScreen>
               displayPost = displayPost.copyWith(likeCount: _likeCounts[post.postId]);
             }
             if (_likedPostIds.contains(post.postId)) {
-              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
-              if (!updatedLikedUserIds.contains(currentUserId)) {
-                updatedLikedUserIds.add(currentUserId);
+              if (!displayPost.likedUserIds.contains(currentUserId)) {
+                final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds)
+                  ..add(currentUserId);
                 displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
               }
-            } else if (_likeCounts.containsKey(post.postId)) {
-              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
-              updatedLikedUserIds.remove(currentUserId);
+            } else if (_likeCounts.containsKey(post.postId) &&
+                displayPost.likedUserIds.contains(currentUserId)) {
+              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds)
+                ..remove(currentUserId);
               displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
             }
 
@@ -607,22 +622,24 @@ class _HomeScreenState extends State<HomeScreen>
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 16),
-              child: PostCard(
-                key: cardKey,
-                post: displayPost,
-                currentUserId: currentUserId,
-                currentUserIconUrl: _currentUserIconUrl,
-                audioService: _homeAudioService,
-                onLike: () => _handleLike(post),
-                onComment: () => _handleComment(post),
-                onAdd: () => _handleAdd(post),
-                onDelete: post.userId == currentUserId ? () => _handleDelete(post) : null,
-                isSaved: _savedPostIds.contains(post.postId),
-                backSideEnabled: _hasPostedToday || _revealedPostIds.contains(post.postId),
-                onFlipToBack: () => _markPostRevealed(post.postId),
-                onPlayStarted: () {
-                  _playingPostId = post.postId;
-                },
+              child: RepaintBoundary(
+                child: PostCard(
+                  key: cardKey,
+                  post: displayPost,
+                  currentUserId: currentUserId,
+                  currentUserIconUrl: _currentUserIconUrl,
+                  audioService: _homeAudioService,
+                  onLike: () => _handleLike(post),
+                  onComment: () => _handleComment(post),
+                  onAdd: () => _handleAdd(post),
+                  onDelete: post.userId == currentUserId ? () => _handleDelete(post) : null,
+                  isSaved: _savedPostIds.contains(post.postId),
+                  backSideEnabled: _hasPostedToday || _revealedPostIds.contains(post.postId),
+                  onFlipToBack: () => _markPostRevealed(post.postId),
+                  onPlayStarted: () {
+                    _playingPostId = post.postId;
+                  },
+                ),
               ),
             );
           },

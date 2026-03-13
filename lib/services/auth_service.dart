@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  String? _verificationId;
 
   // 現在のユーザーを取得
   User? get currentUser => _auth.currentUser;
@@ -44,12 +43,9 @@ class AuthService {
           onError(errorMessage);
         },
         codeSent: (String verificationId, int? resendToken) {
-          _verificationId = verificationId;
           onCodeSent(verificationId);
         },
-        codeAutoRetrievalTimeout: (String verificationId) {
-          _verificationId = verificationId;
-        },
+        codeAutoRetrievalTimeout: (String verificationId) {},
       );
       return true;
     } catch (e) {
@@ -88,27 +84,6 @@ class AuthService {
     } catch (e) {
       if (kDebugMode) {
         print('Error in signInWithVerificationCode: $e');
-      }
-      throw Exception('予期しないエラーが発生しました');
-    }
-  }
-
-  // テスト用：匿名認証でサインイン（開発用）
-  Future<UserCredential?> signInAnonymouslyForTesting() async {
-    try {
-      final userCredential = await _auth.signInAnonymously();
-      if (kDebugMode) {
-        print('✅ Test user signed in anonymously: ${userCredential.user?.uid}');
-      }
-      return userCredential;
-    } on FirebaseAuthException catch (e) {
-      if (kDebugMode) {
-        print('FirebaseAuthException in signInAnonymously: ${e.code} - ${e.message}');
-      }
-      throw Exception('匿名認証に失敗しました');
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error in signInAnonymouslyForTesting: $e');
       }
       throw Exception('予期しないエラーが発生しました');
     }

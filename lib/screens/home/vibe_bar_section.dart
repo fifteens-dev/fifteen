@@ -172,6 +172,8 @@ class VibeBarSection extends StatelessWidget {
                 child: CachedNetworkImage(
                   imageUrl: item.track.albumImageUrl,
                   fit: BoxFit.cover,
+                  memCacheWidth: 140,
+                  memCacheHeight: 140,
                   errorWidget: (context, url, error) {
                     return Container(
                       color: Colors.grey[800],
@@ -210,20 +212,6 @@ class VibeBarSection extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  /// ランク別の色
-  Color _getRankColor(int rank) {
-    switch (rank) {
-      case 1:
-        return const Color(0xFFFFD700); // ゴールド
-      case 2:
-        return const Color(0xFFC0C0C0); // シルバー
-      case 3:
-        return const Color(0xFFCD7F32); // ブロンズ
-      default:
-        return const Color(0xFF5D8FFF);
-    }
   }
 
   /// スケルトン（ローディング）

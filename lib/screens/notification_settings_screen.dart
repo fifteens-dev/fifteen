@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/settings_service.dart';
 
 /// 通知設定画面
@@ -48,12 +50,22 @@ class _NotificationSettingsScreenState
   Future<void> _saveSettings() async {
     setState(() => _isSaving = true);
 
+    // SharedPreferencesに保存（クライアント側チェック用）
     await _settingsService.saveAllNotificationSettings(
       vibeNotification: _vibeNotification,
       likeCommentNotification: _likeCommentNotification,
       followNotification: _followNotification,
       officialNotification: _officialNotification,
     );
+
+    // Firestoreにも保存（Cloud Functionが参照できるように）
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId != null) {
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'notifVibeEnabled': _vibeNotification,
+        'notifOfficialEnabled': _officialNotification,
+      });
+    }
 
     if (mounted) {
       setState(() => _isSaving = false);

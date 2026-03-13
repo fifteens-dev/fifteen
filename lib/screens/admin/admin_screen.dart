@@ -6,6 +6,7 @@ import 'vibe_topic_management_tab.dart';
 import 'vibe_posts_viewer_tab.dart';
 import 'dev_tools_tab.dart';
 import 'invitation_stats_tab.dart';
+import 'reports_tab.dart';
 
 /// 管理者画面
 /// 一斉通知とVibeお題管理のタブを持つ
@@ -26,7 +27,7 @@ class _AdminScreenState extends State<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _checkAdminStatus();
   }
 
@@ -94,6 +95,8 @@ class _AdminScreenState extends State<AdminScreen>
         iconTheme: const IconThemeData(color: Colors.white),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           indicatorColor: AppColors.accentBlue,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.grey,
@@ -118,6 +121,10 @@ class _AdminScreenState extends State<AdminScreen>
               icon: Icon(Icons.people),
               text: '招待統計',
             ),
+            Tab(
+              icon: Icon(Icons.flag_outlined),
+              text: '通報',
+            ),
           ],
         ),
       ),
@@ -129,6 +136,7 @@ class _AdminScreenState extends State<AdminScreen>
           VibePostsViewerTab(),
           DevToolsTab(),
           InvitationStatsTab(),
+          ReportsTab(),
         ],
       ),
     );

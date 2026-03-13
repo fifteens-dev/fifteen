@@ -3,7 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../constants/app_colors.dart';
 import '../../models/post_model.dart';
-import '../../services/post_service.dart';
 import '../../services/user_service.dart';
 import '../../services/vibe_topic_service.dart';
 
@@ -16,7 +15,6 @@ class VibePostsViewerTab extends StatefulWidget {
 }
 
 class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
-  final PostService _postService = PostService();
   final UserService _userService = UserService();
   final VibeTopicService _vibeTopicService = VibeTopicService();
 

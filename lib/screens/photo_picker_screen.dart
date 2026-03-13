@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, Uint8List;
+import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 import '../constants/app_colors.dart';
 
 /// 写真選択画面
@@ -17,7 +16,6 @@ class PhotoPickerScreen extends StatefulWidget {
 
 class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
   final ImagePicker _picker = ImagePicker();
-  XFile? _selectedImage;
   Uint8List? _imageBytes;
 
   void _handleCancel() {
@@ -37,7 +35,6 @@ class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
       if (image != null) {
         final bytes = await image.readAsBytes();
         setState(() {
-          _selectedImage = image;
           _imageBytes = bytes;
         });
       }

@@ -254,21 +254,6 @@ class ITunesSearchService {
     return best['result'] as Map<String, dynamic>;
   }
 
-  /// 楽曲名とアーティスト名の類似度をチェック
-  /// より正確なマッチングのための補助関数（将来の改善用）
-  bool _isSimilarTrack(String searchTrack, String resultTrack) {
-    final search = searchTrack.toLowerCase().trim();
-    final result = resultTrack.toLowerCase().trim();
-
-    // 完全一致
-    if (search == result) return true;
-
-    // 含まれているか
-    if (result.contains(search) || search.contains(result)) return true;
-
-    return false;
-  }
-
   /// 楽曲を検索
   ///
   /// [query] 検索クエリ

@@ -3,10 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:firebase_auth/firebase_auth.dart';
-import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../services/storage_service.dart';
-import '../models/user_model.dart';
 import '../constants/app_colors.dart';
 import '../widgets/dialogs/glass_popup.dart';
 
@@ -19,7 +17,6 @@ class AccountEditScreen extends StatefulWidget {
 }
 
 class _AccountEditScreenState extends State<AccountEditScreen> {
-  final AuthService _authService = AuthService();
   final UserService _userService = UserService();
   final StorageService _storageService = StorageService();
 
@@ -77,10 +74,8 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
     }
   }
 
-  // 便利メソッド：TextControllerからStringを取得
-  String get _name => _nameController.text;
+  // ヘッダーのユーザー名表示用
   String get _username => _usernameController.text;
-  String get _bio => _bioController.text;
 
   /// 写真オプションダイアログを表示
   Future<void> _showPhotoOptionsDialog() async {

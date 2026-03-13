@@ -259,8 +259,6 @@ class PostCardBackInfo extends StatelessWidget {
 
   /// コメントボタン
   Widget _buildCommentButton(PostTheme theme) {
-    const cardWidth = 363.0;
-
     return GestureDetector(
       onTap: onComment,
       child: Container(

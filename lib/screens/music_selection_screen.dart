@@ -10,9 +10,9 @@ import '../models/track_model.dart';
 import '../models/vibe_topic_model.dart';
 import '../services/music_service_manager.dart';
 import '../services/post_service.dart';
+import '../services/user_service.dart';
 import '../services/vibe_topic_service.dart';
 import '../services/lyrics_service.dart';
-import '../utils/test_data.dart';
 import '../utils/color_extractor.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
@@ -36,6 +36,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   final FocusNode _searchFocusNode = FocusNode();
   final MusicServiceManager _musicServiceManager = MusicServiceManager();
   final PostService _postService = PostService();
+  final UserService _userService = UserService();
   final VibeTopicService _vibeTopicService = VibeTopicService();
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
@@ -54,9 +55,6 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   // カテゴリー選択状態: null = 未選択, 'vibe' = Vibe, 'emotion' = 感情
   String? _selectedCategoryType;
-
-  // 選択されたVibeカテゴリー（例: 「ドライブで聴きたい曲」）
-  String? _selectedVibeCategory;
 
   // 楽曲リスト（Spotify APIから取得）
   List<TrackModel> _tracks = [];
@@ -152,7 +150,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       'trackId': track.trackId,
       'trackName': track.trackName,
       'artistName': track.artistName,
-      'albumImageUrl': track.albumImageUrl ?? '',
+      'albumImageUrl': track.albumImageUrl,
     };
 
     _recentMusicSearches.removeWhere((e) => e['trackId'] == track.trackId);
@@ -254,10 +252,6 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       if (mounted) {
         setState(() {
           _todaysTopic = topic;
-          // 初期カテゴリーがvibeの場合、トピックタイトルも設定
-          if (_selectedCategoryType == 'vibe' && topic != null) {
-            _selectedVibeCategory = topic.title;
-          }
         });
         // トピック取得後におすすめ楽曲を検索
         _loadRecommendedTracks();
@@ -378,10 +372,13 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
     try {
       final currentUser = FirebaseAuth.instance.currentUser;
-      final userId = currentUser?.uid ?? 'test_user_temp';
+      if (currentUser == null) {
+        if (mounted) setState(() { _tracks = []; _isLoading = false; });
+        return;
+      }
 
-      // TestDataから保存済み投稿IDリストを取得
-      final savedPostIds = await TestData.getSavedPosts(userId);
+      final userData = await _userService.getUser(currentUser.uid);
+      final savedPostIds = userData?.savedPosts ?? [];
 
       if (savedPostIds.isEmpty) {
         if (mounted) {
@@ -393,35 +390,23 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         return;
       }
 
-      // Firestoreから投稿を取得
       final firestorePosts = await _postService.getPosts(limit: 50);
+      final savedPosts = firestorePosts
+          .where((post) => savedPostIds.contains(post.postId))
+          .toList();
 
-      // TestDataの投稿も取得
-      final testPosts = TestData.generateTestPosts();
-
-      // すべての投稿を結合
-      final allPosts = [...firestorePosts, ...testPosts];
-
-      // 保存済み投稿のみをフィルタリング
-      final savedPosts =
-          allPosts.where((post) => savedPostIds.contains(post.postId)).toList();
-
-      // 投稿から曲を抽出（重複を除外）
       final Map<String, TrackModel> uniqueTracks = {};
       for (final post in savedPosts) {
         uniqueTracks[post.track.trackId] = post.track;
       }
 
-      final tracks = uniqueTracks.values.toList();
-
       if (mounted) {
         setState(() {
-          _tracks = tracks;
+          _tracks = uniqueTracks.values.toList();
           _isLoading = false;
         });
       }
     } catch (e) {
-      print('Error loading saved tracks: $e');
       if (mounted) {
         setState(() {
           _tracks = [];
@@ -783,7 +768,6 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
               onTap: () {
                 setState(() {
                   _selectedCategoryType = 'vibe';
-                  _selectedVibeCategory = _todaysTopic?.title;
                 });
                 _loadRecommendedTracks();
               },
@@ -800,7 +784,6 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
               onTap: () {
                 setState(() {
                   _selectedCategoryType = 'emotion';
-                  _selectedVibeCategory = null;
                 });
                 _loadRecommendedTracks();
               },
@@ -1085,18 +1068,6 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     );
   }
 
-  /// 楽曲リスト
-  Widget _buildTrackList() {
-    return ListView.builder(
-      itemCount: _tracks.length,
-      itemBuilder: (context, index) {
-        final track = _tracks[index];
-        final isSelected = _selectedTrack?.trackId == track.trackId;
-        return _buildTrackItem(track, isSelected);
-      },
-    );
-  }
-
   /// 楽曲リスト（Sliver版 - CustomScrollView用）
   Widget _buildTrackListSliver() {
     return SliverList(
@@ -1108,25 +1079,6 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         },
         childCount: _tracks.length,
       ),
-    );
-  }
-
-  /// 楽曲グリッド
-  Widget _buildTrackGrid() {
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 0.75,
-      ),
-      itemCount: _tracks.length,
-      itemBuilder: (context, index) {
-        final track = _tracks[index];
-        final isSelected = _selectedTrack?.trackId == track.trackId;
-        return _buildGridTrackItem(track, isSelected);
-      },
     );
   }
 
@@ -1167,17 +1119,15 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             // アルバムアート
             ClipRRect(
               borderRadius: BorderRadius.circular(3),
-              child: track.albumImageUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: track.albumImageUrl!,
-                      width: 47,
-                      height: 47,
-                      fit: BoxFit.cover,
-                      errorWidget: (context, url, error) {
-                        return _buildPlaceholderImage();
-                      },
-                    )
-                  : _buildPlaceholderImage(),
+              child: CachedNetworkImage(
+                    imageUrl: track.albumImageUrl,
+                    width: 47,
+                    height: 47,
+                    fit: BoxFit.cover,
+                    errorWidget: (context, url, error) {
+                      return _buildPlaceholderImage();
+                    },
+                  ),
             ),
             const SizedBox(width: 11),
 
@@ -1254,17 +1204,15 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(5),
-                  child: track.albumImageUrl != null
-                      ? CachedNetworkImage(
-                          imageUrl: track.albumImageUrl!,
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.cover,
-                          errorWidget: (context, url, error) {
-                            return _buildGridPlaceholderImage();
-                          },
-                        )
-                      : _buildGridPlaceholderImage(),
+                  child: CachedNetworkImage(
+                        imageUrl: track.albumImageUrl,
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                        errorWidget: (context, url, error) {
+                          return _buildGridPlaceholderImage();
+                        },
+                      ),
                 ),
                 // 選択インジケーター
                 if (isSelected)

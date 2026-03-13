@@ -26,7 +26,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final UserService _userService = UserService();
   final AdminService _adminService = AdminService();
   UserModel? _userData;
-  bool _isLoading = true;
   bool _isAdmin = false;
 
   @override
@@ -39,12 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadUserData() async {
     final currentUser = FirebaseAuth.instance.currentUser;
 
-    if (currentUser == null) {
-      setState(() {
-        _isLoading = false;
-      });
-      return;
-    }
+    if (currentUser == null) return;
 
     try {
       final userData = await _userService.getUser(currentUser.uid);
@@ -53,16 +47,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _userData = userData;
           _isAdmin = isAdmin;
-          _isLoading = false;
         });
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
+    } catch (_) {}
   }
 
   @override

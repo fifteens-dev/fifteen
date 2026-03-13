@@ -10,7 +10,6 @@ import '../models/track_model.dart';
 import '../services/audio_player_service.dart';
 import '../services/lyrics_service.dart';
 import '../widgets/dialogs/glass_popup.dart';
-import 'lyrics_card_selection_screen.dart';
 import 'music_trim_screen.dart';
 
 /// 投稿用写真選択画面

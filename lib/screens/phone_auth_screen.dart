@@ -33,23 +33,6 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
     // 電話番号のバリデーション
     final phoneNumber = _phoneController.text.replaceAll(RegExp(r'\D'), '');
 
-    // テストモード: 00000000000 で全認証フローをスキップしてホーム画面へ
-    if (phoneNumber == '00000000000') {
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
-      return;
-    }
-
-    // テストモード: 11111111111 で招待コード画面へスキップ（認証なし）
-    if (phoneNumber == '11111111111') {
-      if (mounted) {
-        // Web開発用：認証をスキップして招待コード画面へ直接遷移
-        Navigator.pushReplacementNamed(context, '/invite-code');
-      }
-      return;
-    }
-
     if (phoneNumber.length != 11) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

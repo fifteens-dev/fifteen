@@ -380,15 +380,11 @@ class UserService {
         return [];
       }
 
-      final List<UserModel> followers = [];
-      for (final followerId in user.followers) {
-        final follower = await getUser(followerId);
-        if (follower != null) {
-          followers.add(follower);
-        }
-      }
-
-      return followers;
+      // 逐次ではなく並列取得でN+1問題を解消
+      final results = await Future.wait(
+        user.followers.map((followerId) => getUser(followerId)),
+      );
+      return results.whereType<UserModel>().toList();
     } catch (e) {
       if (kDebugMode) {
         print('Error getting followers: $e');
@@ -405,15 +401,11 @@ class UserService {
         return [];
       }
 
-      final List<UserModel> following = [];
-      for (final followingId in user.following) {
-        final followingUser = await getUser(followingId);
-        if (followingUser != null) {
-          following.add(followingUser);
-        }
-      }
-
-      return following;
+      // 逐次ではなく並列取得でN+1問題を解消
+      final results = await Future.wait(
+        user.following.map((followingId) => getUser(followingId)),
+      );
+      return results.whereType<UserModel>().toList();
     } catch (e) {
       if (kDebugMode) {
         print('Error getting following: $e');
@@ -479,6 +471,37 @@ class UserService {
     } catch (e) {
       if (kDebugMode) {
         print('Error toggling save post: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// アカウント削除: Firestoreのユーザーデータを削除
+  Future<void> deleteUserData(String userId) async {
+    try {
+      final batch = _firestore.batch();
+
+      // ユーザードキュメントを削除
+      final userDoc = _firestore.collection(_usersCollection).doc(userId);
+      batch.delete(userDoc);
+
+      // FCMトークンを削除
+      final fcmDoc = _firestore.collection('user_fcm_tokens').doc(userId);
+      batch.delete(fcmDoc);
+
+      await batch.commit();
+
+      // 投稿を削除（件数が多い可能性があるため個別に処理）
+      final postsSnapshot = await _firestore
+          .collection('posts')
+          .where('userId', isEqualTo: userId)
+          .get();
+      for (final doc in postsSnapshot.docs) {
+        await doc.reference.delete();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error deleting user data: $e');
       }
       rethrow;
     }

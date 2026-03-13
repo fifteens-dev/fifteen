@@ -13,7 +13,6 @@ import 'screens/music_connection_screen.dart';
 import 'screens/first_timeline_screen.dart';
 import 'screens/terms_of_service_screen.dart';
 import 'screens/privacy_policy_screen.dart';
-import 'screens/dev_tools_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/create_post_screen.dart';
 import 'screens/photo_picker_screen.dart';
@@ -115,7 +114,6 @@ class FifteenApp extends StatelessWidget {
         '/first-timeline': (context) => const FirstTimelineScreen(),
         '/terms-of-service': (context) => const TermsOfServiceScreen(),
         '/privacy-policy': (context) => const PrivacyPolicyScreen(),
-        '/dev-tools': (context) => const DevToolsScreen(),
         '/home': (context) => const HomeScreen(),
         '/create-post': (context) => const CreatePostScreen(),
         '/photo-picker': (context) => const PhotoPickerScreen(),

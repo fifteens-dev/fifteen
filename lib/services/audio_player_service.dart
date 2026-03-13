@@ -2,9 +2,6 @@ import 'dart:async';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 
-/// プレビュー再生の長さ
-const _previewDuration = Duration(seconds: 15);
-
 /// 音楽再生を管理するサービス（Singleton）
 class AudioPlayerService {
   // Singleton instance

@@ -1,18 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
-import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'animated_waveform.dart';
-import '../services/bpm_service.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/post_model.dart';
@@ -29,6 +24,7 @@ import 'post_creation/lyrics_card_layouts.dart';
 import 'post_card/post_card_constants.dart';
 import 'post_card/marquee_text.dart';
 import 'dialogs/restriction_notification.dart';
+import 'dialogs/report_dialog.dart';
 
 /// 投稿カードウィジェット（表裏反転アニメーション付き）
 class PostCard extends StatefulWidget {
@@ -113,8 +109,10 @@ class PostCardState extends State<PostCard>
   int? _likeCountOptimistic;
   List<String>? _likedByUserIconUrlsOptimistic;
 
-  // iTunes検索サービス
+  // サービス
   final ITunesSearchService _itunesService = ITunesSearchService();
+  final LyricsService _lyricsService = LyricsService();
+  final PostService _postService = PostService();
 
   // 動的に取得したpreview URLをキャッシュ
   String? _cachedPreviewUrl;
@@ -156,7 +154,6 @@ class PostCardState extends State<PostCard>
   bool _lyricsFetchAttempted = false;
 
   // BPM
-  final BpmService _bpmService = BpmService();
   double? _tempo;
 
   // 音楽再生の二重呼び出し防止フラグ
@@ -172,7 +169,7 @@ class PostCardState extends State<PostCard>
 
     _initializeAnimations();
     _initializeColors();
-    _fetchTempo();
+    _tempo = widget.post.track.tempo;
 
     // 裏面から開始モード
     if (widget.startFromBack) {
@@ -269,29 +266,6 @@ class PostCardState extends State<PostCard>
     ]).animate(_rejectController);
   }
 
-  /// BPMを非同期で取得
-  Future<void> _fetchTempo() async {
-    final track = widget.post.track;
-    // TrackModelに既にtempoがある場合はそれを使う
-    if (track.tempo != null) {
-      _tempo = track.tempo;
-      return;
-    }
-    try {
-      final tempo = await _bpmService.getTempo(
-        trackId: track.trackId,
-        trackName: track.trackName,
-        artistName: track.artistName,
-      );
-      if (mounted && tempo != null) {
-        setState(() {
-          _tempo = tempo;
-        });
-      }
-    } catch (e) {
-      // BPM取得失敗は無視（デフォルトBPMが使われる）
-    }
-  }
 
   /// 色テーマの初期化
   void _initializeColors() {
@@ -364,14 +338,13 @@ class PostCardState extends State<PostCard>
     });
 
     try {
-      final lyricsService = LyricsService();
-      final lyricsData = await lyricsService.getLyrics(
+      final lyricsData = await _lyricsService.getLyrics(
         trackName: widget.post.track.trackName,
         artistName: widget.post.track.artistName,
       );
 
       if (mounted && lyricsData != null) {
-        final truncatedLyrics = lyricsService.truncateLyrics(
+        final truncatedLyrics = _lyricsService.truncateLyrics(
           lyricsData.plainLyrics,
           maxLines: 4,
         );
@@ -383,8 +356,7 @@ class PostCardState extends State<PostCard>
         // Firebaseに保存（テスト投稿以外の場合）
         final postId = widget.post.postId;
         if (!postId.startsWith('test_post_') && !postId.startsWith('preview_')) {
-          final postService = PostService();
-          await postService.updateLyricsText(
+          await _postService.updateLyricsText(
             postId: postId,
             lyricsText: truncatedLyrics,
           );
@@ -760,23 +732,22 @@ class PostCardState extends State<PostCard>
                     ),
 
                     // 曲名とアーティスト名 - ボタン有無で right を動的調整
-                    // delete(32) + rightMargin(11) = 43px
-                    // ボタンなし（他人の投稿、またはdeleteなし）は 12px
+                    // menu(32) + rightMargin(11) = 43px
                     Positioned(
                       left: cardWidth * (11 / 363),
                       top: contentHeight * (63 / 294),
-                      right: (widget.currentUserId != null && widget.post.userId == widget.currentUserId && widget.onDelete != null)
+                      right: _showMoreButton
                           ? cardWidth * (43 / 363)
                           : cardWidth * (12 / 363),
                       child: _buildTrackInfo(theme),
                     ),
 
-                    // 削除ボタン（自分の投稿のみ）※表面ではシェアボタンは非表示
-                    if (widget.currentUserId != null && widget.post.userId == widget.currentUserId && widget.onDelete != null)
+                    // 3点メニューボタン
+                    if (_showMoreButton)
                     Positioned(
                       right: cardWidth * (11 / 363),
                       top: contentHeight * (63 / 294),
-                      child: _buildDeleteButton(theme),
+                      child: _buildMoreButton(theme),
                     ),
 
                     // リアクション - Figma: bottom: 141px → top: 153px (294-141), left: 12px, right: 12px
@@ -1015,12 +986,12 @@ class PostCardState extends State<PostCard>
               ),
             ),
 
-            // 削除ボタン（自分の投稿のみ）※シェアボタンは今後追加予定
-            if (widget.currentUserId != null && widget.post.userId == widget.currentUserId && widget.onDelete != null)
+            // 3点メニューボタン（裏面）
+            if (_showMoreButton)
             Positioned(
               right: cardWidth * (11 / 363),
               bottom: cardHeight * (110 / 644),
-              child: _buildDeleteButton(theme),
+              child: _buildMoreButton(theme),
             ),
           ],
         ),
@@ -1738,12 +1709,14 @@ class PostCardState extends State<PostCard>
   /// 音楽波形
   /// 大、小、大のパターン（各投稿でpostIdをシードとして微妙に異なるパターン）
   Widget _buildWaveform(PostTheme theme) {
-    return AnimatedWaveform(
-      postId: widget.post.postId,
-      barColor: theme.iconColor,
-      audioService: widget.audioService,
-      previewUrl: _cachedPreviewUrl ?? widget.externalPreviewUrl,
-      tempo: _tempo,
+    return RepaintBoundary(
+      child: AnimatedWaveform(
+        postId: widget.post.postId,
+        barColor: theme.iconColor,
+        audioService: widget.audioService,
+        previewUrl: _cachedPreviewUrl ?? widget.externalPreviewUrl,
+        tempo: _tempo,
+      ),
     );
   }
 
@@ -1989,100 +1962,17 @@ class PostCardState extends State<PostCard>
     );
   }
 
-  /// シェアボタン
-  /// 裏面をスクリーンショットしてネイティブ共有シートで共有
-  Future<void> _shareCard() async {
-    if (!mounted) return;
-    try {
-      // 3D Transform の外でオフスクリーンレンダリングしてキャプチャ
-      final image = await _captureBackFaceImage();
-      if (!mounted || image == null) return;
+  /// 3点メニューボタン（削除 or 通報）
+  bool get _showMoreButton =>
+      widget.currentUserId != null &&
+      (widget.post.userId != widget.currentUserId ||
+          widget.onDelete != null);
 
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) return;
-      final pngBytes = byteData.buffer.asUint8List();
+  bool get _isOwner =>
+      widget.currentUserId != null &&
+      widget.post.userId == widget.currentUserId;
 
-      // 一時ファイルに書き出し
-      final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/fifteen_post.png');
-      await file.writeAsBytes(pngBytes);
-
-      if (!mounted) return;
-      // ネイティブ共有シートを呼び出す
-      await Share.shareXFiles(
-        [XFile(file.path, mimeType: 'image/png')],
-        text: '${widget.post.track.trackName} / ${widget.post.track.artistName}',
-      );
-    } catch (e, st) {
-      debugPrint('[Share] Error: $e\n$st');
-    }
-  }
-
-  /// Overlay を使い 3D Transform の外でカード裏面をオフスクリーンレンダリングしキャプチャ
-  Future<ui.Image?> _captureBackFaceImage() async {
-    if (!mounted) return null;
-    final completer = Completer<ui.Image?>();
-    final captureKey = GlobalKey();
-    late OverlayEntry entry;
-
-    entry = OverlayEntry(
-      builder: (_) => Positioned(
-        top: -644.0 * 2, // 画面外（上）に配置
-        left: 0,
-        width: 363.0,
-        height: 644.0,
-        child: Material(
-          color: Colors.transparent,
-          child: RepaintBoundary(
-            key: captureKey,
-            child: _buildBackCardBody(363.0, 644.0, _getDynamicTheme()),
-          ),
-        ),
-      ),
-    );
-
-    Overlay.of(context).insert(entry);
-
-    // 次フレームでレンダリング完了後にキャプチャ
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      try {
-        final boundary = captureKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-        if (boundary == null) {
-          debugPrint('[Share] Capture boundary is null');
-          completer.complete(null);
-          return;
-        }
-        final img = await boundary.toImage(pixelRatio: 3.0);
-        completer.complete(img);
-      } catch (e, st) {
-        debugPrint('[Share] Capture error: $e\n$st');
-        completer.complete(null);
-      } finally {
-        entry.remove();
-      }
-    });
-
-    return completer.future;
-  }
-
-  Widget _buildShareButton(PostTheme theme) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: theme.iconColor.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: IconButton(
-        icon: Icon(Icons.ios_share, color: theme.iconColor, size: 20),
-        onPressed: _shareCard,
-        padding: EdgeInsets.zero,
-      ),
-    );
-  }
-
-  /// 削除メニューボタン（縦3点）
-  Widget _buildDeleteButton(PostTheme theme) {
+  Widget _buildMoreButton(PostTheme theme) {
     return SizedBox(
       width: 32,
       height: 36,
@@ -2090,20 +1980,40 @@ class PostCardState extends State<PostCard>
         padding: EdgeInsets.zero,
         icon: Icon(Icons.more_vert, color: theme.iconColor, size: 22),
         color: const Color(0xFF2D2D2D),
-        onSelected: (value) {
-          if (value == 'delete') widget.onDelete?.call();
+        onSelected: (value) async {
+          if (value == 'delete') {
+            widget.onDelete?.call();
+          } else if (value == 'report') {
+            await showReportDialog(
+              context,
+              reportedUserId: widget.post.userId,
+              postId: widget.post.postId,
+            );
+          }
         },
         itemBuilder: (context) => [
-          const PopupMenuItem(
-            value: 'delete',
-            child: Row(
-              children: [
-                Icon(Icons.delete_outline, color: Color(0xFFE53935), size: 20),
-                SizedBox(width: 8),
-                Text('削除', style: TextStyle(color: Color(0xFFE53935))),
-              ],
+          if (_isOwner && widget.onDelete != null)
+            const PopupMenuItem(
+              value: 'delete',
+              child: Row(
+                children: [
+                  Icon(Icons.delete_outline, color: Color(0xFFE53935), size: 20),
+                  SizedBox(width: 8),
+                  Text('削除', style: TextStyle(color: Color(0xFFE53935))),
+                ],
+              ),
             ),
-          ),
+          if (!_isOwner)
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.flag_outlined, color: Color(0xFFE53935), size: 20),
+                  SizedBox(width: 8),
+                  Text('通報', style: TextStyle(color: Color(0xFFE53935))),
+                ],
+              ),
+            ),
         ],
       ),
     );

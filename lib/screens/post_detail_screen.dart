@@ -8,13 +8,17 @@ import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../services/user_service.dart';
 import '../utils/current_user_helper.dart';
+import 'comment_screen.dart';
 
 /// 投稿カード単体表示画面（通知タップ時など）
+/// VibeTrackPostsScreen と同じ見え方・音楽挙動に統一
 class PostDetailScreen extends StatefulWidget {
   final PostModel post;
   final String? currentUserId;
   final bool autoFlipAfterDelay;
   final bool disableInteractions;
+  /// true のとき hasUserPostedOnDate チェックをスキップして常にカード裏面を表示
+  final bool alwaysShowBack;
 
   const PostDetailScreen({
     super.key,
@@ -22,6 +26,7 @@ class PostDetailScreen extends StatefulWidget {
     this.currentUserId,
     this.autoFlipAfterDelay = false,
     this.disableInteractions = false,
+    this.alwaysShowBack = false,
   });
 
   @override
@@ -29,6 +34,7 @@ class PostDetailScreen extends StatefulWidget {
 }
 
 class _PostDetailScreenState extends State<PostDetailScreen> {
+  // VibeTrackPostsScreen と同じパターン: 画面側で音楽を管理
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
   final PostService _postService = PostService();
@@ -42,6 +48,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   bool _hasPostedToday = false;
   bool _hasPostedTodayLoaded = false;
 
+  // 再生リクエストの競合防止
+  bool _playRequested = false;
+
   String get _currentUserId =>
       widget.currentUserId ?? FirebaseAuth.instance.currentUser?.uid ?? '';
 
@@ -50,11 +59,21 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     super.initState();
     _loadCurrentUserIconUrl();
     _checkSaveState();
-    _fetchPreviewUrl();
     _loadHasPostedToday();
+    // VibeTrackPostsScreen と同様に開いた瞬間に音楽取得＆自動再生
+    _fetchAndPlayMusic();
   }
 
   Future<void> _loadHasPostedToday() async {
+    // 通知からの遷移など alwaysShowBack が true の場合はチェック不要
+    if (widget.alwaysShowBack) {
+      setState(() {
+        _hasPostedToday = true;
+        _hasPostedTodayLoaded = true;
+      });
+      return;
+    }
+
     final userId = _currentUserId;
     if (userId.isEmpty) {
       setState(() {
@@ -74,7 +93,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
 
     // 他人の投稿: その投稿日に自分も投稿していたか確認
-    final hasPosted = await _postService.hasUserPostedOnDate(userId, widget.post.createdAt);
+    final hasPosted = await _postService.hasUserPostedOnDate(
+        _currentUserId, widget.post.createdAt);
     if (mounted) {
       setState(() {
         _hasPostedToday = hasPosted;
@@ -92,7 +112,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
-  Future<void> _fetchPreviewUrl() async {
+  /// VibeTrackPostsScreen._playMusicForPage と同パターンで音楽を取得＆自動再生
+  Future<void> _fetchAndPlayMusic() async {
+    _playRequested = true;
     final post = widget.post;
     String? url;
 
@@ -107,10 +129,19 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       url = result?['previewUrl'];
     }
 
-    if (mounted && url != null) {
-      setState(() {
-        _previewUrl = url;
-      });
+    if (!mounted || !_playRequested) return;
+
+    if (url != null) {
+      setState(() => _previewUrl = url);
+      try {
+        await _audioService.playPreview(
+          url,
+          startFrom: Duration(milliseconds: post.audioStartMs),
+          durationSeconds: post.audioDurationSec,
+        );
+      } catch (_) {
+        // 再生エラーは無視
+      }
     }
   }
 
@@ -118,19 +149,19 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final userId = _currentUserId;
     if (userId.isEmpty) return;
 
-    setState(() {
-      _isSaved = !_isSaved;
-    });
+    setState(() => _isSaved = !_isSaved);
 
     try {
-      await _userService.toggleSavePost(userId: userId, postId: widget.post.postId);
+      await _userService.toggleSavePost(
+          userId: userId, postId: widget.post.postId);
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isSaved = !_isSaved;
-        });
-      }
+      if (mounted) setState(() => _isSaved = !_isSaved);
     }
+  }
+
+  Future<void> _handleComment() async {
+    // VibeTrackPostsScreen は音楽を継続したままコメント画面を表示
+    await CommentScreen.show(context, post: widget.post);
   }
 
   Future<void> _loadCurrentUserIconUrl() async {
@@ -144,6 +175,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   void dispose() {
+    _playRequested = false;
     _audioService.stop();
     super.dispose();
   }
@@ -200,6 +232,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 ),
               ),
             )
+          // VibeTrackPostsScreen と同じレイアウト
           : Center(
               child: SingleChildScrollView(
                 child: Padding(
@@ -209,14 +242,15 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     currentUserId: _currentUserId,
                     currentUserIconUrl: _currentUserIconUrl,
                     audioService: _audioService,
-                    autoFlipAfterDelay: widget.autoFlipAfterDelay,
-                    disableInteractions: widget.disableInteractions,
-                    isSaved: _isSaved,
+                    // VibeTrackPostsScreen と同様に画面側で音楽を管理
+                    audioManagedExternally: true,
                     externalPreviewUrl: _previewUrl,
                     startFromBack: _hasPostedToday,
                     backSideEnabled: _hasPostedToday,
+                    isSaved: _isSaved,
+                    disableInteractions: widget.disableInteractions,
                     onLike: () {},
-                    onComment: () {},
+                    onComment: _handleComment,
                     onAdd: _handleSave,
                   ),
                 ),

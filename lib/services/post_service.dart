@@ -15,6 +15,10 @@ class PostService {
   final NotificationService _notificationService = NotificationService();
   final UserService _userService = UserService();
 
+  // ユーザー情報のインメモリキャッシュ（TTL: 30分）
+  static final Map<String, ({String? username, String? iconUrl, DateTime fetchedAt})> _userInfoCache = {};
+  static const Duration _userCacheTtl = Duration(minutes: 30);
+
   /// 投稿を作成
   Future<String> createPost({
     required String userId,
@@ -159,12 +163,22 @@ class PostService {
     }
 
     final userMap = <String, ({String? username, String? iconUrl})>{};
+    final now = DateTime.now();
 
-    // 全ユーザー情報を並列取得
+    // 全ユーザー情報を並列取得（キャッシュ済みの場合はFirestoreスキップ）
     final futures = allUserIds.map((uid) async {
+      final cached = _userInfoCache[uid];
+      if (cached != null && now.difference(cached.fetchedAt) < _userCacheTtl) {
+        return MapEntry(uid, (username: cached.username, iconUrl: cached.iconUrl));
+      }
       try {
         final user = await _userService.getUser(uid);
         if (user != null) {
+          _userInfoCache[uid] = (
+            username: user.username,
+            iconUrl: user.profileImageUrl,
+            fetchedAt: DateTime.now(),
+          );
           return MapEntry(uid, (username: user.username, iconUrl: user.profileImageUrl));
         }
       } catch (_) {}
@@ -286,6 +300,42 @@ class PostService {
     }
   }
 
+  /// ユーザーの投稿をカーソルページネーション付きで取得
+  Future<({List<PostModel> posts, DocumentSnapshot? lastDoc, bool hasMore})>
+      getPostsByUserIdPaged(
+    String userId, {
+    int limit = 20,
+    DocumentSnapshot? startAfter,
+  }) async {
+    try {
+      var query = _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .orderBy('createdAt', descending: true)
+          .limit(limit);
+
+      if (startAfter != null) {
+        query = query.startAfterDocument(startAfter);
+      }
+
+      final snapshot = await query.get();
+      final posts = snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+
+      return (
+        posts: await _applyLatestUserInfo(posts),
+        lastDoc: snapshot.docs.isNotEmpty ? snapshot.docs.last : null,
+        hasMore: snapshot.docs.length == limit,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting posts by userId paged: $e');
+      }
+      return (posts: <PostModel>[], lastDoc: null, hasMore: false);
+    }
+  }
+
   /// 特定のユーザーが保存した投稿を取得
   Future<List<PostModel>> getPostsSavedByUser(String userId, {int limit = 50}) async {
     try {
@@ -337,7 +387,6 @@ class PostService {
       final postRef = _firestore.collection(_postsCollection).doc(postId);
 
       String? postOwnerId;
-      String? postOwnerUsername;
       String? albumArtUrl;
       String? trackName;
       bool wasLiked = false;
@@ -362,7 +411,6 @@ class PostService {
         // いいね追加時のみ投稿者情報を保存（通知用）
         if (!isLiked) {
           postOwnerId = data['userId'];
-          postOwnerUsername = data['username'];
           final trackData = data['track'] as Map<String, dynamic>?;
           albumArtUrl = trackData?['albumArtUrl'];
           trackName = trackData?['trackName'];

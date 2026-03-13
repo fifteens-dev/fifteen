@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'privacy_policy_screen.dart';
 import 'terms_of_service_screen.dart';
 
@@ -46,12 +45,6 @@ class BasicInfoScreen extends StatelessWidget {
                       const SizedBox(height: 8),
                       _buildLegalInfoCard(context),
 
-                      const SizedBox(height: 24),
-
-                      // クレジットセクション
-                      _buildSectionLabel('クレジット'),
-                      const SizedBox(height: 8),
-                      _buildCreditCard(),
                     ],
                   ),
                 ),
@@ -228,39 +221,6 @@ class BasicInfoScreen extends StatelessWidget {
     );
   }
 
-  /// クレジットカード
-  Widget _buildCreditCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.grey[800],
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(15),
-          onTap: () async {
-            final url = Uri.parse('https://getsongbpm.com');
-            if (await canLaunchUrl(url)) {
-              await launchUrl(url, mode: LaunchMode.externalApplication);
-            }
-          },
-          child: Container(
-            height: 50,
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'BPM data provided by GetSongBPM',
-              style: TextStyle(
-                color: Colors.grey[400],
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   /// 区切り線
   Widget _buildDivider() {

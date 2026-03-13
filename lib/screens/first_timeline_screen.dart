@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_dimensions.dart';
-import '../widgets/post_card.dart';
-import '../services/audio_player_service.dart';
-import '../utils/test_data.dart';
 import '../utils/current_user_helper.dart';
 
 /// 初回タイムライン画面
@@ -19,8 +16,6 @@ class FirstTimelineScreen extends StatefulWidget {
 }
 
 class _FirstTimelineScreenState extends State<FirstTimelineScreen> {
-  // 音楽再生サービス
-  final AudioPlayerService _audioService = AudioPlayerService();
   String? _currentUserIconUrl;
 
   @override
@@ -177,49 +172,14 @@ class _FirstTimelineScreenState extends State<FirstTimelineScreen> {
     );
   }
 
-  /// タイムライン（テスト用のダミー投稿カードを表示）
+  /// タイムライン（空の状態）
   Widget _buildTimeline(BuildContext context) {
-    final testPosts = TestData.generateTestPosts();
-    const currentUserId = 'test_user_temp'; // テスト用のユーザーID
-
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 16),
-      itemCount: testPosts.length,
-      itemBuilder: (context, index) {
-        final post = testPosts[index];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: PostCard(
-            key: ValueKey(post.postId),
-            post: post,
-            currentUserId: currentUserId,
-            currentUserIconUrl: _currentUserIconUrl,
-            audioService: _audioService,
-            onLike: () => _handleLike(post),
-            onComment: () => _handleComment(post),
-            onAdd: () => _handleAdd(post),
-          ),
-        );
-      },
+    return const Center(
+      child: Text(
+        '最初の投稿を作ってみましょう',
+        style: TextStyle(color: Colors.white54, fontSize: 14),
+      ),
     );
-  }
-
-  /// いいねボタンが押されたときの処理（テストモード）
-  void _handleLike(dynamic post) {
-    // テストモード: コンソールにログ出力
-    debugPrint('Like pressed for post: ${post.postId}');
-  }
-
-  /// コメントボタンが押されたときの処理（テストモード）
-  void _handleComment(dynamic post) {
-    // テストモード: コンソールにログ出力
-    debugPrint('Comment pressed for post: ${post.postId}');
-  }
-
-  /// 追加ボタンが押されたときの処理（テストモード）
-  void _handleAdd(dynamic post) {
-    // テストモード: コンソールにログ出力
-    debugPrint('Add pressed for post: ${post.postId}');
   }
 
   /// ボトムナビゲーション

@@ -54,6 +54,8 @@ class ProfileImage extends StatelessWidget {
         imageUrl: imageUrl!,
         width: size,
         height: size,
+        memCacheWidth: (size * 2).toInt(),
+        memCacheHeight: (size * 2).toInt(),
         fit: BoxFit.cover,
         errorWidget: (context, url, error) {
           return Icon(
@@ -222,6 +224,8 @@ class ProfilePostGridItem extends StatelessWidget {
                           imageUrl: post.track.albumImageUrl,
                           width: double.infinity,
                           height: double.infinity,
+                          memCacheWidth: 200,
+                          memCacheHeight: 200,
                           fit: BoxFit.cover,
                           errorWidget: (context, url, error) {
                             return const Icon(
@@ -335,8 +339,6 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
 
                   // preview URLがまだ取得されていない場合は取得
                   if (urlToPlay == null) {
-                    print(
-                        '🍎 Fetching preview URL for ${widget.post.track.trackName}...');
                     urlToPlay = await _itunesService.getPreviewUrl(
                       trackName: widget.post.track.trackName,
                       artistName: widget.post.track.artistName,
@@ -346,9 +348,7 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
                       setState(() {
                         widget.previewUrlCache[widget.post.postId] = urlToPlay!;
                       });
-                      print('✅ Preview URL obtained and cached');
                     } else {
-                      print('❌ Failed to obtain preview URL');
                       return;
                     }
                   }
@@ -479,6 +479,8 @@ class TodaysTrackCard extends StatelessWidget {
                           imageUrl: post.track.albumImageUrl,
                           width: 60,
                           height: 60,
+                          memCacheWidth: 120,
+                          memCacheHeight: 120,
                           fit: BoxFit.cover,
                           errorWidget: (context, url, error) {
                             return const Icon(

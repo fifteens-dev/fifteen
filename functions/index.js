@@ -1,10 +1,7 @@
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
-const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
-
-const getsongbpmApiKey = defineSecret('GETSONGBPM_API_KEY');
 
 admin.initializeApp();
 
@@ -164,13 +161,20 @@ exports.sendOfficialNotification = onCall(async (request) => {
     console.log(`Creating notifications for ${usersSnapshot.docs.length} users`);
 
     // バッチで通知を作成（500件ずつ）
+    // notifOfficialEnabled が false のユーザーはスキップ
     const batchSize = 500;
     const batches = [];
     let currentBatch = admin.firestore().batch();
     let operationCount = 0;
+    const enabledUserIds = [];
 
     for (const userDoc of usersSnapshot.docs) {
+      const userData = userDoc.data();
+      // フィールドが未設定の場合はデフォルトで通知あり（true）
+      if (userData.notifOfficialEnabled === false) continue;
+
       const userId = userDoc.id;
+      enabledUserIds.push(userId);
 
       const notificationRef = admin.firestore().collection('notifications').doc();
       currentBatch.set(notificationRef, {
@@ -202,128 +206,42 @@ exports.sendOfficialNotification = onCall(async (request) => {
     }
 
     await Promise.all(batches);
-    console.log(`Created notifications for ${usersSnapshot.docs.length} users`);
+    console.log(`Created notifications for ${enabledUserIds.length} / ${usersSnapshot.docs.length} users`);
 
-    // FCMプッシュ通知を送信（トピック購読方式）
-    const message = {
-      notification: {
-        title: title,
-        body: body,
-      },
-      data: {
-        type: 'official',
-        actionUrl: actionUrl || '',
-        click_action: 'FLUTTER_NOTIFICATION_CLICK',
-      },
-      topic: 'all_users',
-    };
-
-    // 画像URLがある場合は追加
-    if (imageUrl) {
-      message.notification.imageUrl = imageUrl;
+    // FCMプッシュ通知を通知有効ユーザーにのみ個別送信
+    if (enabledUserIds.length > 0) {
+      const tokenDocs = await Promise.all(
+        enabledUserIds.map(uid => admin.firestore().collection('user_fcm_tokens').doc(uid).get())
+      );
+      const allTokens = [];
+      for (const tokenDoc of tokenDocs) {
+        if (tokenDoc.exists && tokenDoc.data().tokens) {
+          allTokens.push(...tokenDoc.data().tokens.map(t => t.token));
+        }
+      }
+      const tokenChunkSize = 500;
+      for (let i = 0; i < allTokens.length; i += tokenChunkSize) {
+        const chunk = allTokens.slice(i, i + tokenChunkSize);
+        const fcmMsg = {
+          tokens: chunk,
+          notification: { title, body },
+          data: { type: 'official', actionUrl: actionUrl || '', click_action: 'FLUTTER_NOTIFICATION_CLICK' },
+        };
+        if (imageUrl) fcmMsg.notification.imageUrl = imageUrl;
+        await admin.messaging().sendEachForMulticast(fcmMsg);
+      }
+      console.log(`Official FCM sent to ${allTokens.length} tokens`);
     }
-
-    const fcmResponse = await admin.messaging().send(message);
-    console.log('FCM topic message sent:', fcmResponse);
 
     return {
       success: true,
-      notificationCount: usersSnapshot.docs.length,
-      message: `${usersSnapshot.docs.length}人のユーザーに公式通知を送信しました`,
+      notificationCount: enabledUserIds.length,
+      message: `${enabledUserIds.length}人のユーザーに公式通知を送信しました`,
     };
 
   } catch (error) {
     console.error('Error sending official notification:', error);
     throw new HttpsError('internal', `公式通知の送信に失敗しました: ${error.message}`);
-  }
-});
-
-/**
- * BPM取得Cloud Function
- *
- * GetSongBPM APIをサーバー側から呼び出してBPMを取得する
- * Cloudflare保護をバイパスするためCloud Function経由で実行
- *
- * パラメータ:
- * - trackName: 楽曲名（必須）
- * - artistName: アーティスト名（オプション）
- *
- * レスポンス:
- * - tempo: BPM値（数値 or null）
- */
-exports.getBpm = onCall({ secrets: [getsongbpmApiKey] }, async (request) => {
-  const { trackName, artistName } = request.data;
-
-  if (!trackName) {
-    throw new HttpsError('invalid-argument', 'trackName is required');
-  }
-
-  const apiKey = getsongbpmApiKey.value();
-  if (!apiKey) {
-    throw new HttpsError('failed-precondition', 'GETSONGBPM_API_KEY is not configured');
-  }
-
-  try {
-    // 1. 楽曲を検索
-    const lookup = encodeURIComponent(trackName);
-    const searchUrl = `https://api.getsong.co/search/?api_key=${apiKey}&type=song&lookup=${lookup}`;
-
-    const searchRes = await fetch(searchUrl, {
-      headers: { 'Accept': 'application/json' },
-    });
-
-    if (!searchRes.ok) {
-      console.error(`GetSongBPM search error: ${searchRes.status}`);
-      return { tempo: null };
-    }
-
-    const searchData = await searchRes.json();
-    const results = searchData.search;
-    if (!Array.isArray(results) || results.length === 0) {
-      console.log(`No results for: ${trackName}`);
-      return { tempo: null };
-    }
-
-    // アーティスト名でマッチング
-    let songId = null;
-    if (artistName) {
-      const artistLower = artistName.toLowerCase();
-      for (const r of results) {
-        const name = (r.artist?.name || '').toLowerCase();
-        if (name.includes(artistLower) || artistLower.includes(name)) {
-          songId = r.id;
-          break;
-        }
-      }
-    }
-    if (!songId) {
-      songId = results[0].id;
-    }
-
-    // 2. BPMを取得
-    const songUrl = `https://api.getsong.co/song/?api_key=${apiKey}&id=${songId}`;
-    const songRes = await fetch(songUrl, {
-      headers: { 'Accept': 'application/json' },
-    });
-
-    if (!songRes.ok) {
-      console.error(`GetSongBPM song error: ${songRes.status}`);
-      return { tempo: null };
-    }
-
-    const songData = await songRes.json();
-    const tempo = songData.song?.tempo;
-    if (!tempo) {
-      return { tempo: null };
-    }
-
-    const bpm = parseFloat(tempo);
-    console.log(`BPM for "${trackName}": ${bpm}`);
-    return { tempo: isNaN(bpm) ? null : bpm };
-
-  } catch (error) {
-    console.error('getBpm error:', error);
-    return { tempo: null };
   }
 });
 
@@ -626,14 +544,22 @@ exports.dailyVibeNotification = onSchedule(
       const notificationBody = `${topicTitle}は？`; // 例: "夜に聴きたい曲は？"
 
       // 全ユーザーに通知を作成（バッチ処理、500件ずつ）
+      // notifVibeEnabled が false のユーザーはスキップ
       const usersSnapshot = await db.collection('users').get();
 
       const batchSize = 500;
       let currentBatch = db.batch();
       let operationCount = 0;
       const batches = [];
+      const enabledUserIds = [];
 
       for (const userDoc of usersSnapshot.docs) {
+        const userData = userDoc.data();
+        // フィールドが未設定の場合はデフォルトで通知あり（true）
+        if (userData.notifVibeEnabled === false) continue;
+
+        enabledUserIds.push(userDoc.id);
+
         const notificationRef = db.collection('notifications').doc();
         currentBatch.set(notificationRef, {
           type: 'vibe',
@@ -661,23 +587,30 @@ exports.dailyVibeNotification = onSchedule(
       }
 
       await Promise.all(batches);
-      console.log(`Created vibe notifications for ${usersSnapshot.size} users`);
+      console.log(`Created vibe notifications for ${enabledUserIds.length} / ${usersSnapshot.size} users`);
 
-      // FCMプッシュ通知を送信（トピック購読方式）
-      const fcmMessage = {
-        notification: {
-          title: notificationTitle,
-          body: notificationBody,
-        },
-        data: {
-          notificationType: 'vibe',
-          click_action: 'FLUTTER_NOTIFICATION_CLICK',
-        },
-        topic: 'all_users',
-      };
-
-      const fcmResponse = await admin.messaging().send(fcmMessage);
-      console.log('Vibe FCM topic message sent:', fcmResponse);
+      // FCMプッシュ通知を通知有効ユーザーにのみ個別送信
+      if (enabledUserIds.length > 0) {
+        const tokenDocs = await Promise.all(
+          enabledUserIds.map(uid => db.collection('user_fcm_tokens').doc(uid).get())
+        );
+        const allTokens = [];
+        for (const tokenDoc of tokenDocs) {
+          if (tokenDoc.exists && tokenDoc.data().tokens) {
+            allTokens.push(...tokenDoc.data().tokens.map(t => t.token));
+          }
+        }
+        const tokenChunkSize = 500;
+        for (let i = 0; i < allTokens.length; i += tokenChunkSize) {
+          const chunk = allTokens.slice(i, i + tokenChunkSize);
+          await admin.messaging().sendEachForMulticast({
+            tokens: chunk,
+            notification: { title: notificationTitle, body: notificationBody },
+            data: { notificationType: 'vibe', click_action: 'FLUTTER_NOTIFICATION_CLICK' },
+          });
+        }
+        console.log(`Vibe FCM sent to ${allTokens.length} tokens`);
+      }
 
       console.log('dailyVibeNotification: completed');
     } catch (error) {

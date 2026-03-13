@@ -101,7 +101,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
         if (_requestedPageIndex != index) return;
 
         if (result != null) {
-          url = result['previewUrl'] as String?;
+          url = result['previewUrl'];
           if (url != null) {
             setState(() { _previewUrlCache[index] = url; });
           }

@@ -130,7 +130,6 @@ class FCMHandlerService {
     final notificationType = message.data['type'] as String?;
     final postId = message.data['postId'] as String?;
     final userId = message.data['userId'] as String?;
-    final actionUrl = message.data['actionUrl'] as String?;
 
     // TODO: NavigatorKeyを使用して画面遷移を実装
     // 例:

@@ -39,20 +39,20 @@ class _FollowListScreenState extends State<FollowListScreen> {
 
   Future<void> _loadData() async {
     try {
-      final users = widget.showFollowers
-          ? await _userService.getFollowers(widget.userId)
-          : await _userService.getFollowing(widget.userId);
+      // フォロワー/フォロー中の取得と自分のフォロー状態を並列で取得
+      final usersFuture = widget.showFollowers
+          ? _userService.getFollowers(widget.userId)
+          : _userService.getFollowing(widget.userId);
+      final currentUserFuture = _currentUserId != null
+          ? _userService.getUser(_currentUserId!)
+          : Future<UserModel?>.value(null);
 
-      Set<String> followingIds = {};
-      if (_currentUserId != null) {
-        final userModel = await _userService.getUser(_currentUserId!);
-        followingIds = Set<String>.from(userModel?.following ?? []);
-      }
+      final (users, currentUserModel) = await (usersFuture, currentUserFuture).wait;
 
       if (mounted) {
         setState(() {
           _users = users;
-          _followingIds = followingIds;
+          _followingIds = Set<String>.from(currentUserModel?.following ?? []);
           _isLoading = false;
         });
       }

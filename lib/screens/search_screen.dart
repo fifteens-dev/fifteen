@@ -55,9 +55,12 @@ class _SearchScreenState extends State<SearchScreen> {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
     try {
-      final code = await _userService.ensureInviteCode(uid);
+      // 招待コード取得とユーザー情報取得を並列実行
+      final (code, user) = await (
+        _userService.ensureInviteCode(uid),
+        _userService.getUser(uid),
+      ).wait;
       final used = await _userService.getInviteCodeUsedCount(code);
-      final user = await _userService.getUser(uid);
       if (mounted) {
         setState(() {
           _inviteCode = code;

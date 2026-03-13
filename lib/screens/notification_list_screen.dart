@@ -45,25 +45,31 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     super.dispose();
   }
 
-  /// 通知送信者の最新アイコンURLをまとめて取得
+  /// 通知送信者の最新アイコンURLをまとめて取得（並列・未取得分のみ）
   Future<void> _refreshIcons() async {
     if (_latestNotifications.isEmpty) return;
 
-    // system など固定送信者は除外
+    // system など固定送信者を除外し、キャッシュ済みのIDはスキップ
     final senderIds = _latestNotifications
         .map((n) => n.senderId)
-        .where((id) => id.isNotEmpty && id != 'system')
-        .toSet();
+        .where((id) => id.isNotEmpty && id != 'system' && !_freshIconUrls.containsKey(id))
+        .toSet()
+        .toList();
 
-    final updated = <String, String?>{};
-    for (final id in senderIds) {
-      final user = await _userService.getUser(id);
-      updated[id] = user?.profileImageUrl;
-    }
+    if (senderIds.isEmpty) return;
+
+    final results = await Future.wait(
+      senderIds.map((id) async {
+        final user = await _userService.getUser(id);
+        return MapEntry(id, user?.profileImageUrl);
+      }),
+    );
 
     if (mounted) {
       setState(() {
-        _freshIconUrls.addAll(updated);
+        for (final entry in results) {
+          _freshIconUrls[entry.key] = entry.value;
+        }
       });
     }
   }
@@ -604,6 +610,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                 fit: BoxFit.cover,
                 height: 120,
                 width: double.infinity,
+                memCacheHeight: 240,
                 errorWidget: (context, url, error) {
                   return Container(
                     height: 120,
@@ -630,36 +637,48 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     return Container(
       width: 42,
       height: 42,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         shape: BoxShape.circle,
-        color: const Color(0xFF2D2D2D),
-        image: url != null && url.isNotEmpty
-            ? DecorationImage(
-                image: CachedNetworkImageProvider(url),
-                fit: BoxFit.cover,
-              )
-            : null,
+        color: Color(0xFF2D2D2D),
       ),
-      child: url == null || url.isEmpty
-          ? const Icon(
+      child: url != null && url.isNotEmpty
+          ? ClipOval(
+              child: CachedNetworkImage(
+                imageUrl: url,
+                width: 42,
+                height: 42,
+                memCacheWidth: 84,
+                memCacheHeight: 84,
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => const Icon(
+                  Icons.person,
+                  color: Color(0x40FFFFFF),
+                  size: 24,
+                ),
+              ),
+            )
+          : const Icon(
               Icons.person,
               color: Color(0x40FFFFFF),
               size: 24,
-            )
-          : null,
+            ),
     );
   }
 
   Widget _buildAlbumArt(String imageUrl) {
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: const Color(0xFF2D2D2D),
-        image: DecorationImage(
-          image: CachedNetworkImageProvider(imageUrl),
-          fit: BoxFit.cover,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: CachedNetworkImage(
+        imageUrl: imageUrl,
+        width: 42,
+        height: 42,
+        memCacheWidth: 84,
+        memCacheHeight: 84,
+        fit: BoxFit.cover,
+        errorWidget: (_, __, ___) => Container(
+          width: 42,
+          height: 42,
+          color: const Color(0xFF2D2D2D),
         ),
       ),
     );
@@ -713,7 +732,9 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         case NotificationType.like:
         case NotificationType.comment:
         case NotificationType.post:
-          // 対象の投稿へ遷移
+        case NotificationType.vibe:
+        case NotificationType.official:
+          // postId があれば投稿カードへ遷移（日付チェックをスキップして常に閲覧可能）
           if (notification.postId != null && notification.postId!.isNotEmpty) {
             final post = await _postService.getPost(notification.postId!);
             if (mounted && post != null) {
@@ -724,13 +745,24 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                   builder: (context) => PostDetailScreen(
                     post: post,
                     currentUserId: currentUserId,
+                    alwaysShowBack: true,
                   ),
                 ),
               );
+            } else if (mounted) {
+              // 既存のスナックバーをクリアしてから表示（連打による重複防止）
+              ScaffoldMessenger.of(context)
+                ..clearSnackBars()
+                ..showSnackBar(
+                  const SnackBar(
+                    content: Text('投稿が見つかりませんでした'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              // スナックバー表示中は _isNavigating を true に保ち連打を無効化
+              await Future.delayed(const Duration(seconds: 2));
             }
           }
-          break;
-        default:
           break;
       }
     } finally {

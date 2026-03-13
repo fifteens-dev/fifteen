@@ -48,15 +48,13 @@ class NotificationService {
         return;
       }
 
-      // ユーザーの通知設定を確認（公式通知は除く）
-      if (type != NotificationType.official) {
-        final shouldNotify = await _checkUserNotificationSettings(type);
-        if (!shouldNotify) {
-          if (kDebugMode) {
-            print('通知スキップ: ユーザー設定で無効化 (type: $type)');
-          }
-          return;
+      // ユーザーの通知設定を確認
+      final shouldNotify = await _checkUserNotificationSettings(type);
+      if (!shouldNotify) {
+        if (kDebugMode) {
+          print('通知スキップ: ユーザー設定で無効化 (type: $type)');
         }
+        return;
       }
 
       // 通知を作成

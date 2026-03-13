@@ -36,14 +36,13 @@ class _VibeTopicVotingScreenState extends State<VibeTopicVotingScreen> {
     try {
       final userId = _auth.currentUser?.uid;
 
-      // 投票中のお題候補を取得
-      final topics = await _vibeTopicService.getVotingTopics();
+      // お題候補とユーザーの投票状況を並列取得
+      final topicsFuture = _vibeTopicService.getVotingTopics();
+      final votedFuture = userId != null
+          ? _vibeTopicService.getUserVote(userId)
+          : Future<String?>.value(null);
 
-      // ユーザーの投票状況を取得
-      String? votedTopicId;
-      if (userId != null) {
-        votedTopicId = await _vibeTopicService.getUserVote(userId);
-      }
+      final (topics, votedTopicId) = await (topicsFuture, votedFuture).wait;
 
       if (mounted) {
         setState(() {
@@ -53,7 +52,6 @@ class _VibeTopicVotingScreenState extends State<VibeTopicVotingScreen> {
         });
       }
     } catch (e) {
-      print('Error loading voting data: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -70,9 +68,11 @@ class _VibeTopicVotingScreenState extends State<VibeTopicVotingScreen> {
 
     setState(() => _isVoting = true);
 
+    // catch ブロックでも参照できるよう try の外で宣言
+    final previousVote = _userVotedTopicId;
+
     try {
       // 楽観的UI更新
-      final previousVote = _userVotedTopicId;
       setState(() {
         _userVotedTopicId = topicId;
         // voteCountを更新
@@ -98,10 +98,19 @@ class _VibeTopicVotingScreenState extends State<VibeTopicVotingScreen> {
         );
       }
     } catch (e) {
-      print('Error voting: $e');
-      // エラー時は元に戻す
-      await _loadVotingData();
+      // エラー時は楽観的更新を逆算して元に戻す（全体再読み込みを避ける）
       if (mounted) {
+        setState(() {
+          _userVotedTopicId = previousVote;
+          _votingTopics = _votingTopics.map((topic) {
+            if (topic.topicId == topicId) {
+              return topic.copyWith(voteCount: topic.voteCount - 1);
+            } else if (topic.topicId == previousVote) {
+              return topic.copyWith(voteCount: topic.voteCount + 1);
+            }
+            return topic;
+          }).toList();
+        });
         _showErrorDialog('投票に失敗しました');
       }
     } finally {
@@ -283,7 +292,6 @@ class _VibeTopicVotingScreenState extends State<VibeTopicVotingScreen> {
         );
       }
     } catch (e) {
-      print('Error creating and voting for topic: $e');
       if (mounted) {
         _showErrorDialog('投票に失敗しました');
       }

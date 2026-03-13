@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/user_service.dart';
 import '../services/post_service.dart';
 import '../services/audio_player_service.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
-import '../utils/test_data.dart';
 import '../widgets/profile_widgets.dart';
 import 'settings_screen.dart';
 import 'post_detail_screen.dart';
@@ -33,8 +33,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   // 保存済み投稿
   List<PostModel> _savedPosts = [];
 
-  // 投稿
+  // 投稿（ページネーション）
   List<PostModel> _otherPosts = [];
+  DocumentSnapshot? _lastPostDoc;
+  bool _hasMorePosts = true;
+  bool _isLoadingMore = false;
 
   int get _tracksCount => _otherPosts.length;
   int get _followersCount => _userData?.followersCount ?? 0;
@@ -45,14 +48,14 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
-      if (_tabController.index == 1) {
+      // 保存済みタブが初めて選択されたときのみ読み込む
+      if (_tabController.index == 1 && _savedPosts.isEmpty) {
         _loadSavedPosts();
       }
-      setState(() {});
     });
     _loadUserData();
     _loadUserPosts();
-    _loadSavedPosts();
+    // 保存済み投稿はタブ選択時に遅延読み込みするため initState では呼ばない
   }
 
   @override
@@ -91,21 +94,55 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     }
   }
 
-  /// ユーザーの全投稿を読み込み
+  /// ユーザーの投稿を読み込み（初回）
   Future<void> _loadUserPosts() async {
     final currentUser = FirebaseAuth.instance.currentUser;
-    final userId = currentUser?.uid ?? 'test_user_temp';
+    if (currentUser == null) return;
 
     try {
-      final otherPosts = await _postService.getPostsByUserId(userId, limit: 50);
+      final result = await _postService.getPostsByUserIdPaged(
+        currentUser.uid,
+        limit: 20,
+      );
 
       if (mounted) {
         setState(() {
-          _otherPosts = otherPosts;
+          _otherPosts = result.posts;
+          _lastPostDoc = result.lastDoc;
+          _hasMorePosts = result.hasMore;
         });
       }
     } catch (e) {
       print('ユーザー投稿の読み込みエラー: $e');
+    }
+  }
+
+  /// 追加投稿を読み込み（もっと見る）
+  Future<void> _loadMorePosts() async {
+    if (_isLoadingMore || !_hasMorePosts || _lastPostDoc == null) return;
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+
+    setState(() => _isLoadingMore = true);
+
+    try {
+      final result = await _postService.getPostsByUserIdPaged(
+        currentUser.uid,
+        limit: 20,
+        startAfter: _lastPostDoc,
+      );
+
+      if (mounted) {
+        setState(() {
+          _otherPosts.addAll(result.posts);
+          _lastPostDoc = result.lastDoc;
+          _hasMorePosts = result.hasMore;
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      print('追加投稿の読み込みエラー: $e');
+      if (mounted) setState(() => _isLoadingMore = false);
     }
   }
 
@@ -114,72 +151,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   Future<void> _loadSavedPosts() async {
     final currentUser = FirebaseAuth.instance.currentUser;
 
-    // ダミーユーザーの場合はTestDataから保存済み投稿を読み込み
-    if (currentUser == null) {
-      try {
-        const userId = 'test_user_temp';
-
-        // TestDataから保存済み投稿IDリストを取得
-        final savedPostIds = await TestData.getSavedPosts(userId);
-
-        print('🔍 保存済み投稿ID: $savedPostIds');
-
-        if (savedPostIds.isEmpty) {
-          print('⚠️ 保存済み投稿が0件です');
-          if (mounted) {
-            setState(() {
-              _savedPosts = [];
-            });
-          }
-          return;
-        }
-
-        // Firestoreから投稿を取得
-        final firestorePosts = await _postService.getPosts(limit: 50);
-
-        // TestDataの投稿も取得
-        final testPosts = TestData.generateTestPosts();
-
-        // すべての投稿を結合
-        final allPosts = [...firestorePosts, ...testPosts];
-
-        print('📦 全投稿数: ${allPosts.length}');
-        print('📋 投稿ID一覧: ${allPosts.map((p) => p.postId).toList()}');
-
-        // 保存済み投稿のみをフィルタリング
-        final savedPosts = allPosts
-            .where((post) => savedPostIds.contains(post.postId))
-            .toList();
-
-        print('✅ フィルタリング後の保存済み投稿数: ${savedPosts.length}');
-
-        if (mounted) {
-          setState(() {
-            _savedPosts = savedPosts;
-          });
-        }
-      } catch (e) {
-        print('保存済み投稿の読み込みエラー: $e');
-      }
-      return;
-    }
+    if (currentUser == null) return;
 
     try {
-      // ユーザーデータを取得して保存済み投稿IDリストを取得
-      final userData = await _userService.getUser(currentUser.uid);
-      if (userData == null || userData.savedPosts.isEmpty) {
-        if (mounted) {
-          setState(() {
-            _savedPosts = [];
-          });
-        }
-        return;
-      }
-
-      // 保存済み投稿IDから投稿データを並列取得
-      final futures = userData.savedPosts.map((postId) => _postService.getPost(postId)).toList();
-      final results = await Future.wait(futures);
-      final posts = results.whereType<PostModel>().toList();
+      // savedByUserIds フィールドを使った単一クエリで取得
+      final posts = await _postService.getPostsSavedByUser(currentUser.uid);
 
       if (mounted) {
         setState(() {
@@ -403,74 +379,80 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
   /// タブ切り替え
   Widget _buildTabSelector() {
-    return Container(
-      height: 40,
-      child: Row(
-        children: [
-          // グリッドタブ
-          Expanded(
-            child: GestureDetector(
-              onTap: () => _tabController.animateTo(0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Icon(
-                    Icons.grid_view,
-                    color: _tabController.index == 0 ? Colors.white : Colors.grey,
-                    size: 24,
-                  ),
-                  const SizedBox(height: 4),
-                  // インジケーター（短い横棒）
-                  Container(
-                    width: 60,
-                    height: 2,
-                    color: _tabController.index == 0
-                        ? Colors.white
-                        : Colors.transparent,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // 保存タブ
-          Expanded(
-            child: GestureDetector(
-              onTap: () => _tabController.animateTo(1),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    width: 25,
-                    height: 25,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color:
-                            _tabController.index == 1 ? Colors.white : Colors.grey,
-                        width: 1.5,
+    return AnimatedBuilder(
+      animation: _tabController,
+      builder: (context, _) {
+        return SizedBox(
+          height: 40,
+          child: Row(
+            children: [
+              // グリッドタブ
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _tabController.animateTo(0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Icon(
+                        Icons.grid_view,
+                        color: _tabController.index == 0 ? Colors.white : Colors.grey,
+                        size: 24,
                       ),
-                    ),
-                    child: Icon(
-                      Icons.add,
-                      color: _tabController.index == 1 ? Colors.white : Colors.grey,
-                      size: 16,
-                    ),
+                      const SizedBox(height: 4),
+                      Container(
+                        width: 60,
+                        height: 2,
+                        color: _tabController.index == 0
+                            ? Colors.white
+                            : Colors.transparent,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  // インジケーター（短い横棒）
-                  Container(
-                    width: 60,
-                    height: 2,
-                    color: _tabController.index == 1
-                        ? Colors.white
-                        : Colors.transparent,
-                  ),
-                ],
+                ),
               ),
-            ),
+              // 保存タブ
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _tabController.animateTo(1),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Container(
+                        width: 25,
+                        height: 25,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: _tabController.index == 1
+                                ? Colors.white
+                                : Colors.grey,
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.add,
+                          color: _tabController.index == 1
+                              ? Colors.white
+                              : Colors.grey,
+                          size: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        width: 60,
+                        height: 2,
+                        color: _tabController.index == 1
+                            ? Colors.white
+                            : Colors.transparent,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -485,25 +467,58 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       );
     }
 
-    return GridView.builder(
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 131 / 192,
-        crossAxisSpacing: 0,
-        mainAxisSpacing: 5,
-      ),
-      itemCount: _otherPosts.length,
-      itemBuilder: (context, index) {
-        final post = _otherPosts[index];
-        return ProfilePostGridItem(
-          post: post,
-          allPosts: _otherPosts,
-          initialIndex: index,
-          onDelete: () => _deletePost(post),
-          disableInteractions: true,
-        );
-      },
+    // グリッドアイテム数 + もっと見るボタン用の1行分
+    final gridItemCount = _otherPosts.length;
+    final showLoadMore = _hasMorePosts || _isLoadingMore;
+
+    return CustomScrollView(
+      slivers: [
+        SliverGrid(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            childAspectRatio: 131 / 192,
+            crossAxisSpacing: 0,
+            mainAxisSpacing: 5,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, index) {
+              final post = _otherPosts[index];
+              return ProfilePostGridItem(
+                post: post,
+                allPosts: _otherPosts,
+                initialIndex: index,
+                onDelete: () => _deletePost(post),
+                disableInteractions: true,
+              );
+            },
+            childCount: gridItemCount,
+          ),
+        ),
+        if (showLoadMore)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: _isLoadingMore
+                  ? const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white54,
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    )
+                  : TextButton(
+                      onPressed: _loadMorePosts,
+                      child: const Text(
+                        'もっと見る',
+                        style: TextStyle(color: Colors.white54, fontSize: 13),
+                      ),
+                    ),
+            ),
+          ),
+      ],
     );
   }
 

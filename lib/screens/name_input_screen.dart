@@ -19,7 +19,41 @@ class _NameInputScreenState extends State<NameInputScreen> {
   final TextEditingController _nameController = TextEditingController();
   final UserService _userService = UserService();
   final AuthService _authService = AuthService();
-  bool _isLoading = false;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAndSkipIfAlreadySet();
+  }
+
+  /// 既にデータが設定されている場合はスキップ
+  Future<void> _checkAndSkipIfAlreadySet() async {
+    final currentUser = _authService.currentUser;
+    if (currentUser == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    try {
+      final user = await _userService.getUser(currentUser.uid);
+      if (!mounted) return;
+      if (user?.username != null && user!.username!.isNotEmpty) {
+        // username まで設定済み → ホームへ
+        Navigator.pushReplacementNamed(context, '/home');
+        return;
+      }
+      if (user?.name != null && user!.name!.isNotEmpty) {
+        // 名前は設定済みだが username 未設定 → username 入力へ
+        Navigator.pushReplacementNamed(
+          context,
+          '/username-creation',
+          arguments: {'name': user.name},
+        );
+        return;
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _isLoading = false);
+  }
 
   @override
   void dispose() {
@@ -71,7 +105,7 @@ class _NameInputScreenState extends State<NameInputScreen> {
           _isLoading = false;
         });
         // ユーザーネーム作成画面へ遷移（名前を渡す）
-        Navigator.pushReplacementNamed(
+        Navigator.pushNamed(
           context,
           '/username-creation',
           arguments: {'name': name},
@@ -83,8 +117,8 @@ class _NameInputScreenState extends State<NameInputScreen> {
           _isLoading = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('名前の保存に失敗しました'),
+          SnackBar(
+            content: Text('名前の保存に失敗しました: $e'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -94,6 +128,13 @@ class _NameInputScreenState extends State<NameInputScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(

@@ -8,129 +8,121 @@ class ITunesSearchService {
   factory ITunesSearchService() => _instance;
   ITunesSearchService._internal();
 
-  /// 楽曲名から不要な情報を除去して検索用にクリーンアップ
-  String _cleanTrackName(String trackName) {
-    String cleaned = trackName;
-
-    // 括弧内の情報を除去（アニメタイトル、カバー情報など）
-    cleaned = cleaned.replaceAll(RegExp(r'\[.*?\]'), ''); // [チェンソーマン]等
-    cleaned = cleaned.replaceAll(RegExp(r'\(.*?[原曲|カバー|Cover|CV|feat].*?\)', caseSensitive: false), ''); // (原曲:...)等
-    cleaned = cleaned.replaceAll(RegExp(r'\（.*?\）'), ''); // 全角括弧
-
-    // カバー/リミックス情報を除去
-    cleaned = cleaned.replaceAll(RegExp(r'\s*-?\s*(cover|remix|acoustic|live|instrumental|8bit|16bit).*$', caseSensitive: false), '');
-
-    // "より" "から" などの助詞を除去
-    cleaned = cleaned.replaceAll(RegExp(r'より$'), '');
-    cleaned = cleaned.replaceAll(RegExp(r'から$'), '');
-
-    // 複数のスペースを1つに
-    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
-
-    return cleaned;
-  }
-
-  /// アーティスト名をクリーンアップ（原曲情報から抽出を試みる）
-  String _extractOriginalArtist(String trackName, String artistName) {
-    // 「(原曲:米津玄師)」のようなパターンから元のアーティストを抽出
-    final originalArtistMatch = RegExp(r'\(原曲[：:]\s*([^)]+)\)').firstMatch(trackName);
-    if (originalArtistMatch != null) {
-      final extracted = originalArtistMatch.group(1)?.trim();
-      if (extracted != null && extracted.isNotEmpty) {
-        print('📝 Extracted original artist: $extracted');
-        return extracted;
-      }
-    }
-
-    return artistName;
-  }
-
   /// 楽曲のプレビューURLとアルバムアートを取得
   ///
-  /// [trackName] 楽曲名
-  /// [artistName] アーティスト名
-  /// 戻り値: {previewUrl: String?, albumArtUrl: String?} または null
+  /// Step1: 「曲名 + アーティスト名」で検索
+  /// Step2: 曲名のみで検索（アーティスト名フィルターあり）
+  /// Step3: サブタイトル除去した曲名 + アーティスト名で再検索
   Future<Map<String, String?>?> getPreviewUrlWithArt({
     required String trackName,
     required String artistName,
   }) async {
-    try {
-      // 楽曲名とアーティスト名をクリーンアップ
-      final cleanedTrackName = _cleanTrackName(trackName);
-      final cleanedArtistName = _extractOriginalArtist(trackName, artistName);
+    // Step1: 曲名 + アーティスト名で検索
+    final result1 = await _searchAndMatch('$trackName $artistName', trackName, artistName: artistName);
+    if (result1 != null) return result1;
 
-      print('🧹 Cleaned: "$trackName" → "$cleanedTrackName"');
-      if (cleanedArtistName != artistName) {
-        print('🧹 Artist: "$artistName" → "$cleanedArtistName"');
+    // Step2: 曲名のみで検索（アーティスト名フィルターは維持）
+    print('🍎 Step2: 曲名のみで検索 "$trackName"');
+    final result2 = await _searchAndMatch(trackName, trackName, artistName: artistName);
+    if (result2 != null) return result2;
+
+    // Step3: サブタイトル（括弧・バージョン情報等）を除去して再検索
+    final baseName = _stripSubtitle(trackName);
+    if (baseName != null) {
+      print('🍎 Step3: サブタイトル除去して再検索 "$baseName $artistName"');
+      return await _searchAndMatch('$baseName $artistName', baseName, artistName: artistName);
+    }
+
+    return null;
+  }
+
+  /// 括弧・記号で囲まれたサブタイトルを末尾から除去した曲名を返す
+  /// サブタイトルが見つからない場合は null を返す
+  String? _stripSubtitle(String trackName) {
+    final patterns = [
+      RegExp(r'\s*[\(（][^\)）]*[\)）]\s*$'),  // (xxx) または （xxx）
+      RegExp(r'\s*[\[【][^\]】]*[\]】]\s*$'),   // [xxx] または 【xxx】
+      RegExp(r'\s*〜[^〜]+〜\s*$'),             // 〜xxx〜
+      RegExp(r'\s*～[^～]+～\s*$'),             // ～xxx～
+      RegExp(r'\s+-\s+.+$'),                    // - subtitle
+    ];
+
+    for (final pattern in patterns) {
+      final cleaned = trackName.replaceFirst(pattern, '').trim();
+      if (cleaned.isNotEmpty && cleaned != trackName) {
+        print('🍎 サブタイトル除去: "$trackName" → "$cleaned"');
+        return cleaned;
       }
+    }
+    return null;
+  }
 
-      // 検索クエリを構築（楽曲名 + アーティスト名）
-      final query = '$cleanedTrackName $cleanedArtistName'.trim();
+  /// iTunes を検索し、[trackName] と一致する最初の結果を返す
+  Future<Map<String, String?>?> _searchAndMatch(
+    String query,
+    String trackName, {
+    String? artistName,
+  }) async {
+    try {
       final encodedQuery = Uri.encodeComponent(query);
-
-      // iTunes Search API エンドポイント（検索結果を増やして最適な版を選ぶ）
       final url = Uri.parse(
-        'https://itunes.apple.com/search?term=$encodedQuery&country=JP&media=music&entity=song&limit=20'
+        'https://itunes.apple.com/search?term=$encodedQuery&country=JP&media=music&entity=song&limit=30'
       );
 
       print('🍎 iTunes Search API request: $query');
-
       final response = await http.get(url);
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final results = data['results'] as List;
-
-        if (results.isEmpty) {
-          print('🍎 iTunes: No results found for "$query"');
-          return null;
-        }
-
-        print('🔍 Analyzing ${results.length} results for best version...');
-
-        // メインバージョンを優先的に選択
-        final bestResult = _selectBestVersion(results, trackName, artistName);
-
-        if (bestResult == null) {
-          print('🍎 iTunes: No suitable result found');
-          return null;
-        }
-
-        print('✅ Best version selected from ${results.length} candidates');
-
-        final previewUrl = bestResult['previewUrl'];
-        final albumArtUrl = bestResult['artworkUrl100']; // 100x100のアルバムアート
-        final albumArtUrlLarge = bestResult['artworkUrl600']; // より高解像度
-
-        // HTTPをHTTPSに変換（Mixed Content対策 - モバイルWeb対応）
-        final securePreviewUrl = previewUrl != null && previewUrl.toString().isNotEmpty
-            ? previewUrl.toString().replaceFirst('http://', 'https://')
-            : null;
-
-        // アルバムアートもHTTPSに変換（高解像度を優先）
-        String? secureAlbumArtUrl;
-        if (albumArtUrlLarge != null && albumArtUrlLarge.toString().isNotEmpty) {
-          secureAlbumArtUrl = albumArtUrlLarge.toString().replaceFirst('http://', 'https://');
-        } else if (albumArtUrl != null && albumArtUrl.toString().isNotEmpty) {
-          secureAlbumArtUrl = albumArtUrl.toString().replaceFirst('http://', 'https://');
-        }
-
-        print('🍎 iTunes: Found for "${bestResult['trackName']}" (Collection: ${bestResult['collectionName']})');
-        if (securePreviewUrl != null) {
-          print('🔒 Preview URL: $securePreviewUrl');
-        }
-        if (secureAlbumArtUrl != null) {
-          print('🖼️ Album Art: $secureAlbumArtUrl');
-        }
-
-        return {
-          'previewUrl': securePreviewUrl,
-          'albumArtUrl': secureAlbumArtUrl,
-        };
-      } else {
+      if (response.statusCode != 200) {
         print('🍎 iTunes Search API error: ${response.statusCode}');
         return null;
       }
+
+      final results = json.decode(response.body)['results'] as List;
+      if (results.isEmpty) {
+        print('🍎 iTunes: No results found for "$query"');
+        return null;
+      }
+
+      // 選択した曲名と一致するものだけに絞り込む
+      final trackNameLower = trackName.toLowerCase();
+      final matches = results.where((r) {
+        final name = (r['trackName'] ?? '').toString().toLowerCase();
+        return name.contains(trackNameLower);
+      }).toList();
+
+      if (matches.isEmpty) {
+        print('🍎 iTunes: 曲名一致なし for "$trackName" in "$query" results');
+        return null;
+      }
+
+      // アーティスト名が一致する候補を優先。一致なければ全候補を使う
+      List<dynamic> candidates = matches;
+      if (artistName != null && artistName.isNotEmpty) {
+        final artistLower = artistName.toLowerCase();
+        final artistMatches = matches.where((r) {
+          final artist = (r['artistName'] ?? '').toString().toLowerCase();
+          return artist.contains(artistLower);
+        }).toList();
+        if (artistMatches.isNotEmpty) candidates = artistMatches;
+      }
+
+      // 候補からプレビューURLを持つ最初のものを選ぶ
+      final best = candidates.firstWhere(
+        (r) => r['previewUrl'] != null && r['previewUrl'].toString().isNotEmpty,
+        orElse: () => candidates.first,
+      );
+
+      print('✅ iTunes: "${best['trackName']}" を選択');
+
+      final previewUrl = best['previewUrl']?.toString();
+      final artLarge = best['artworkUrl600']?.toString();
+      final artSmall = best['artworkUrl100']?.toString();
+      final albumArtUrl = (artLarge?.isNotEmpty == true ? artLarge : artSmall);
+
+      return {
+        'previewUrl': previewUrl?.replaceFirst('http://', 'https://'),
+        'albumArtUrl': albumArtUrl?.replaceFirst('http://', 'https://'),
+      };
     } catch (e) {
       print('🍎 iTunes Search API exception: $e');
       return null;
@@ -151,107 +143,6 @@ class ITunesSearchService {
       artistName: artistName,
     );
     return result?['previewUrl'];
-  }
-
-  /// 検索結果から最適なバージョンを選択
-  /// 特別版（Live、Remix、Acoustic等）を除外し、メインバージョンを優先
-  Map<String, dynamic>? _selectBestVersion(
-    List<dynamic> results,
-    String trackName,
-    String artistName,
-  ) {
-    // 除外するキーワード（特別版や一時的な版）
-    final excludeKeywords = [
-      'live',
-      'remix',
-      'acoustic',
-      'instrumental',
-      'karaoke',
-      'cover',
-      'tribute',
-      'version',
-      'ver.',
-      'remaster',
-      'demo',
-      'session',
-      'edit',
-      'mix',
-      'deluxe',
-      'special',
-      'limited',
-      'bonus',
-      '限定',
-      'ライブ',
-      'リミックス',
-      'アコースティック',
-    ];
-
-    // スコアリング: より標準的なバージョンほど高スコア
-    final scoredResults = results.map((result) {
-      final resultTrackName = (result['trackName'] ?? '').toString().toLowerCase();
-      final resultCollectionName = (result['collectionName'] ?? '').toString().toLowerCase();
-      final resultArtistName = (result['artistName'] ?? '').toString().toLowerCase();
-
-      int score = 100; // 基本スコア
-
-      // 除外キーワードが含まれている場合はスコアを大幅に減点
-      for (final keyword in excludeKeywords) {
-        if (resultTrackName.contains(keyword) || resultCollectionName.contains(keyword)) {
-          score -= 50;
-        }
-      }
-
-      // トラック名の類似度でスコア加算
-      if (resultTrackName.contains(trackName.toLowerCase())) {
-        score += 30;
-      }
-
-      // アーティスト名の類似度でスコア加算
-      if (resultArtistName.contains(artistName.toLowerCase())) {
-        score += 20;
-      }
-
-      // プレビューURLがある場合は加点
-      if (result['previewUrl'] != null && result['previewUrl'].toString().isNotEmpty) {
-        score += 10;
-      }
-
-      return {
-        'result': result,
-        'score': score,
-      };
-    }).toList();
-
-    // スコアでソート（降順）
-    scoredResults.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
-
-    if (scoredResults.isEmpty) {
-      print('⚠️ No scored results available');
-      return null;
-    }
-
-    // スコアが0以上の最良の結果を返す
-    final best = scoredResults.firstWhere(
-      (item) => (item['score'] as int) > 0,
-      orElse: () => scoredResults.first, // 見つからない場合は最初の結果
-    );
-
-    final selectedTrack = best['result']['trackName'];
-    final selectedCollection = best['result']['collectionName'] ?? 'Unknown Album';
-    final selectedScore = best['score'];
-
-    print('🏆 Selected version with score $selectedScore:');
-    print('   Track: $selectedTrack');
-    print('   Album: $selectedCollection');
-
-    // トップ3のスコアも表示（デバッグ用）
-    print('📊 Top 3 candidates:');
-    for (int i = 0; i < 3 && i < scoredResults.length; i++) {
-      final item = scoredResults[i];
-      print('   ${i + 1}. ${item['result']['trackName']} (${item['result']['collectionName']}) - Score: ${item['score']}');
-    }
-
-    return best['result'] as Map<String, dynamic>;
   }
 
   /// 楽曲を検索

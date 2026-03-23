@@ -1,9 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../constants/app_dimensions.dart';
 import '../../widgets/primary_button.dart';
-import '../../services/invite_code_service.dart';
 
 /// 開発者ツールタブ（管理者パネル内）
 class DevToolsTab extends StatefulWidget {
@@ -14,11 +16,54 @@ class DevToolsTab extends StatefulWidget {
 }
 
 class _DevToolsTabState extends State<DevToolsTab> {
-  final InviteCodeService _inviteCodeService = InviteCodeService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TextEditingController _codeController = TextEditingController();
   final TextEditingController _maxUsesController = TextEditingController(text: '10');
   bool _isLoading = false;
   String _statusMessage = '';
+
+  // 管理者招待コードの追跡データ
+  List<Map<String, dynamic>> _adminCodes = [];
+  bool _isLoadingAdminCodes = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAdminCodes();
+  }
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    _maxUsesController.dispose();
+    super.dispose();
+  }
+
+  /// 管理者が作成した招待コードを読み込み
+  Future<void> _loadAdminCodes() async {
+    setState(() => _isLoadingAdminCodes = true);
+    try {
+      final snap = await _firestore
+          .collection('invite_codes')
+          .where('isAdminCode', isEqualTo: true)
+          .get();
+      if (mounted) {
+        setState(() {
+          _adminCodes = snap.docs
+              .map((d) => {'id': d.id, ...d.data()})
+              .toList()
+            ..sort((a, b) {
+              final aUsed = (a['usedCount'] as int?) ?? 0;
+              final bUsed = (b['usedCount'] as int?) ?? 0;
+              return bUsed.compareTo(aUsed);
+            });
+          _isLoadingAdminCodes = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingAdminCodes = false);
+    }
+  }
 
   Future<void> _executeAction({
     required String loadingMessage,
@@ -103,8 +148,8 @@ class _DevToolsTabState extends State<DevToolsTab> {
               const SizedBox(height: AppDimensions.paddingLarge),
             ],
 
-            // 招待コード作成セクション
-            const Text('招待コード作成', style: AppTextStyles.heading),
+            // ── 管理者招待コード作成 ──
+            const Text('管理者招待コード作成', style: AppTextStyles.heading),
             const SizedBox(height: AppDimensions.paddingMedium),
             TextField(
               controller: _codeController,
@@ -128,6 +173,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
               controller: _maxUsesController,
               style: const TextStyle(color: AppColors.textPrimary),
               keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: InputDecoration(
                 labelText: '使用可能回数',
                 labelStyle: const TextStyle(color: AppColors.textSecondary),
@@ -144,8 +190,8 @@ class _DevToolsTabState extends State<DevToolsTab> {
             const SizedBox(height: AppDimensions.paddingMedium),
             PrimaryButton(
               text: '招待コードを作成',
-              onPressed: () {
-                final code = _codeController.text.trim();
+              onPressed: () async {
+                final code = _codeController.text.trim().toUpperCase();
                 final maxUses = int.tryParse(_maxUsesController.text.trim()) ?? 10;
                 if (code.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -156,15 +202,112 @@ class _DevToolsTabState extends State<DevToolsTab> {
                   );
                   return;
                 }
-                _executeAction(
+                final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                await _executeAction(
                   loadingMessage: '招待コード「$code」を作成中...',
                   successMessage: '✅ 招待コード「$code」を作成しました（$maxUses回使用可能）',
                   snackBarMessage: '招待コード「$code」が作成されました',
-                  action: () => _inviteCodeService.createInviteCodeWithMaxUses(code, maxUses),
+                  action: () async {
+                    await _firestore.collection('invite_codes').doc(code).set({
+                      'code': code,
+                      'maxUses': maxUses,
+                      'usedCount': 0,
+                      'isAdminCode': true,
+                      'ownerUid': adminUid,
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
+                  },
                 );
+                await _loadAdminCodes();
               },
               isLoading: _isLoading,
             ),
+
+            const SizedBox(height: AppDimensions.paddingXLarge),
+
+            // ── 管理者招待コード追跡 ──
+            Row(
+              children: [
+                const Text('管理者コード追跡', style: AppTextStyles.heading),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+                  onPressed: _loadAdminCodes,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _isLoadingAdminCodes
+                ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                : _adminCodes.isEmpty
+                    ? const Text('管理者作成コードがありません', style: TextStyle(color: Colors.grey))
+                    : Column(
+                        children: _adminCodes.map((code) {
+                          final usedCount = (code['usedCount'] as int?) ?? 0;
+                          final maxUses = (code['maxUses'] as int?) ?? 0;
+                          final isFull = usedCount >= maxUses;
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1E2E),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isFull ? Colors.red.withOpacity(0.5) : Colors.green.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        code['id'] as String,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'monospace',
+                                          letterSpacing: 1.5,
+                                        ),
+                                      ),
+                                      Text(
+                                        isFull ? '上限達成' : '残り ${maxUses - usedCount} 回',
+                                        style: TextStyle(
+                                          color: isFull ? Colors.red[300] : Colors.grey,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isFull
+                                        ? Colors.red.withOpacity(0.2)
+                                        : Colors.green.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isFull ? Colors.red : Colors.green,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '$usedCount / $maxUses',
+                                    style: TextStyle(
+                                      color: isFull ? Colors.red : Colors.green,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+
             const SizedBox(height: AppDimensions.paddingXLarge),
           ],
         ),

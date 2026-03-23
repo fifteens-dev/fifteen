@@ -187,7 +187,7 @@ class AdminService {
         topicId: topicRef.id,
         title: title,
         date: date,
-        status: VibeTopicStatus.voting,
+        status: VibeTopicStatus.active,
         createdAt: now,
         updatedAt: now,
       );

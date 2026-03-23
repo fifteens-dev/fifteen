@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Vibeお題のステータス
 enum VibeTopicStatus {
-  voting,   // 投票受付中（翌日のお題候補）
   active,   // アクティブ（今日のお題）
   archived, // アーカイブ済み
 }
@@ -13,7 +12,6 @@ class VibeTopicModel {
   final String title; // 例: "ドライブで聴きたい曲"
   final DateTime date; // このお題がアクティブな日付
   final VibeTopicStatus status;
-  final int voteCount;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -21,8 +19,7 @@ class VibeTopicModel {
     required this.topicId,
     required this.title,
     required this.date,
-    this.status = VibeTopicStatus.voting,
-    this.voteCount = 0,
+    this.status = VibeTopicStatus.active,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -35,8 +32,7 @@ class VibeTopicModel {
       topicId: doc.id,
       title: data['title'] ?? '',
       date: (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      status: _statusFromString(data['status'] ?? 'voting'),
-      voteCount: data['voteCount'] ?? 0,
+      status: _statusFromString(data['status'] ?? 'active'),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -48,7 +44,6 @@ class VibeTopicModel {
       'title': title,
       'date': Timestamp.fromDate(date),
       'status': status.name,
-      'voteCount': voteCount,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -60,7 +55,6 @@ class VibeTopicModel {
     String? title,
     DateTime? date,
     VibeTopicStatus? status,
-    int? voteCount,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -69,7 +63,6 @@ class VibeTopicModel {
       title: title ?? this.title,
       date: date ?? this.date,
       status: status ?? this.status,
-      voteCount: voteCount ?? this.voteCount,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -78,13 +71,11 @@ class VibeTopicModel {
   // ステータス文字列からEnumに変換
   static VibeTopicStatus _statusFromString(String status) {
     switch (status) {
-      case 'active':
-        return VibeTopicStatus.active;
       case 'archived':
         return VibeTopicStatus.archived;
-      case 'voting':
+      case 'active':
       default:
-        return VibeTopicStatus.voting;
+        return VibeTopicStatus.active;
     }
   }
 }
@@ -93,8 +84,6 @@ class VibeTopicModel {
 extension VibeTopicStatusExtension on VibeTopicStatus {
   String get displayName {
     switch (this) {
-      case VibeTopicStatus.voting:
-        return '投票受付中';
       case VibeTopicStatus.active:
         return 'アクティブ';
       case VibeTopicStatus.archived:

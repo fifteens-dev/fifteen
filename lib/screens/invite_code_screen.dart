@@ -1,3 +1,5 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
@@ -5,6 +7,7 @@ import '../constants/app_dimensions.dart';
 import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
 import '../services/invite_code_service.dart';
+import '../services/user_service.dart';
 
 /// 招待コード入力画面
 class InviteCodeScreen extends StatefulWidget {
@@ -17,7 +20,42 @@ class InviteCodeScreen extends StatefulWidget {
 class _InviteCodeScreenState extends State<InviteCodeScreen> {
   final TextEditingController _inviteCodeController = TextEditingController();
   final InviteCodeService _inviteCodeService = InviteCodeService();
-  bool _isLoading = false;
+  final UserService _userService = UserService();
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAndSkipIfAlreadySet();
+  }
+
+  /// 登録が既に完了している場合はスキップ
+  Future<void> _checkAndSkipIfAlreadySet() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    try {
+      final user = await _userService.getUser(uid);
+      if (!mounted) return;
+      if (user?.username != null && user!.username!.isNotEmpty) {
+        // username まで設定済み → ホームへ
+        Navigator.pushReplacementNamed(context, '/home');
+        return;
+      }
+      if (user?.name != null && user!.name!.isNotEmpty) {
+        // 名前は設定済みだが username 未設定 → username 入力へ
+        Navigator.pushReplacementNamed(
+          context,
+          '/username-creation',
+          arguments: {'name': user.name},
+        );
+        return;
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _isLoading = false);
+  }
 
   @override
   void dispose() {
@@ -82,12 +120,32 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
         return;
       }
 
+      // 招待コードを使用済みにし、コードオーナーをフォロー
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        await _inviteCodeService.markInviteCodeAsUsed(inviteCode, uid);
+        // 招待コードのownerUidを取得してフォロー
+        try {
+          final codeDoc = await FirebaseFirestore.instance
+              .collection('invite_codes')
+              .doc(inviteCode)
+              .get();
+          final ownerUid = codeDoc.data()?['ownerUid'] as String?;
+          if (ownerUid != null && ownerUid.isNotEmpty && ownerUid != uid) {
+            _userService.followUser(
+              currentUserId: uid,
+              targetUserId: ownerUid,
+            ).catchError((_) {});
+          }
+        } catch (_) {}
+      }
+
       // 招待コードが有効な場合、名前入力画面へ遷移
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        Navigator.pushReplacementNamed(context, '/name-input');
+        Navigator.pushNamed(context, '/name-input');
       }
     } catch (e) {
       if (mounted) {
@@ -106,6 +164,13 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(

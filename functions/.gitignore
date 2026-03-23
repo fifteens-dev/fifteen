@@ -14,3 +14,10 @@ firebase-debug.*.log*
 # Environment files
 .env
 .env.*
+
+# Service account keys (secret)
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+
+# One-time scripts
+cleanup_fcm_tokens.js

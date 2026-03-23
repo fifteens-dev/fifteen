@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 設定サービス
@@ -17,10 +18,29 @@ class SettingsService {
   SettingsService._internal();
 
   SharedPreferences? _prefs;
+  String? _userId;
+
+  /// ログイン後にユーザーIDを設定する（Firestore同期に使用）
+  void configure(String userId) {
+    _userId = userId;
+  }
 
   /// 初期化
   Future<void> init() async {
     _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  /// Cloud Functionが参照するFirestoreの通知設定フィールドを更新する
+  Future<void> _syncNotifFieldToFirestore(String field, bool value) async {
+    if (_userId == null || _userId!.isEmpty) return;
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(_userId!).update({
+        field: value,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {
+      // Firestore同期失敗はローカル設定に影響しない
+    }
   }
 
   /// SharedPreferencesインスタンスを取得
@@ -43,6 +63,7 @@ class SettingsService {
   Future<void> setVibeNotification(bool value) async {
     final prefs = await _getPrefs();
     await prefs.setBool(_keyVibeNotification, value);
+    await _syncNotifFieldToFirestore('notifVibeEnabled', value);
   }
 
   /// いいね・コメント通知設定を取得
@@ -79,6 +100,7 @@ class SettingsService {
   Future<void> setOfficialNotification(bool value) async {
     final prefs = await _getPrefs();
     await prefs.setBool(_keyOfficialNotification, value);
+    await _syncNotifFieldToFirestore('notifOfficialEnabled', value);
   }
 
   /// 投稿通知設定を取得
@@ -91,6 +113,7 @@ class SettingsService {
   Future<void> setPostNotification(bool value) async {
     final prefs = await _getPrefs();
     await prefs.setBool(_keyPostNotification, value);
+    await _syncNotifFieldToFirestore('notifPostEnabled', value);
   }
 
   /// 全ての通知設定を一括取得
@@ -110,11 +133,13 @@ class SettingsService {
     required bool likeCommentNotification,
     required bool followNotification,
     required bool officialNotification,
+    required bool postNotification,
   }) async {
     await setVibeNotification(vibeNotification);
     await setLikeCommentNotification(likeCommentNotification);
     await setFollowNotification(followNotification);
     await setOfficialNotification(officialNotification);
+    await setPostNotification(postNotification);
   }
 
   // ========== 連携サービス設定 ==========

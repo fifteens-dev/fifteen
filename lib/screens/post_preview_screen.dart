@@ -210,7 +210,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
     }
   }
 
-  /// iTunesからプレビューURLを取得
+  /// iTunesからプレビューURLを取得（スコアリングで最適なバージョンを選択）
   Future<String?> _getPreviewUrlFromItunes() async {
     try {
       final itunesService = ITunesSearchService();
@@ -219,14 +219,14 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
       print('🍎 iTunes APIからプレビューURL取得: $trackName - $artistName');
 
-      final tracks = await itunesService.searchTracks(
-        '$trackName $artistName',
-        limit: 1,
+      final result = await itunesService.getPreviewUrlWithArt(
+        trackName: trackName,
+        artistName: artistName,
       );
 
-      if (tracks.isNotEmpty && tracks.first.previewUrl != null) {
+      if (result?['previewUrl'] != null) {
         print('✅ iTunes APIからプレビューURL取得成功');
-        return tracks.first.previewUrl;
+        return result!['previewUrl'];
       } else {
         print('❌ iTunes APIでプレビューURLが見つかりませんでした');
         return null;
@@ -336,6 +336,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
     await Navigator.push(
       context,
       MaterialPageRoute(
+        fullscreenDialog: true,
         builder: (context) => PostPhotoSelectionScreen(
           track: widget.track,
           lyricsData: _lyricsData,
@@ -368,36 +369,51 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
             // 投稿カードプレビュー（スクロール可能）
             Expanded(
               child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Center(
-                    child: AnimatedBuilder(
-                      animation: _flipAnimation,
-                      builder: (context, child) {
-                        final angle = _flipAnimation.value * pi;
-                        final isFront = angle < pi / 2;
+                child: Builder(
+                  builder: (context) {
+                    final cardW = MediaQuery.of(context).size.width - 2;
+                    final cardH = cardW * (644.0 / 363.0);
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                      child: SizedBox(
+                        width: cardW,
+                        height: cardH,
+                        child: FittedBox(
+                          fit: BoxFit.fill,
+                          child: SizedBox(
+                            width: 363.0,
+                            height: 644.0,
+                            child: AnimatedBuilder(
+                              animation: _flipAnimation,
+                              builder: (context, child) {
+                                final angle = _flipAnimation.value * pi;
+                                final isFront = angle < pi / 2;
 
-                        return Transform(
-                          alignment: Alignment.center,
-                          transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.001)
-                            ..rotateY(angle),
-                          child: isFront
-                              ? PostCard(
-                                  post: _createDummyPost(),
-                                  audioService: _audioService,
-                                  showFrontOnly: true, // 表面のみ表示
-                                  hideReactionCounts: true, // プレビューではカウント非表示
-                                  onCardTap: _flipCard, // プレビュー画面の反転処理を実行
-                                  preExtractedGradientStart: _extractedGradientStart,
-                                  preExtractedGradientEnd: _extractedGradientEnd,
-                                  externalPreviewUrl: _cachedPreviewUrl,
-                                )
-                              : _buildBackCard(),
-                        );
-                      },
-                    ),
-                  ),
+                                return Transform(
+                                  alignment: Alignment.center,
+                                  transform: Matrix4.identity()
+                                    ..setEntry(3, 2, 0.001)
+                                    ..rotateY(angle),
+                                  child: isFront
+                                      ? PostCard(
+                                          post: _createDummyPost(),
+                                          audioService: _audioService,
+                                          showFrontOnly: true,
+                                          hideReactionCounts: true,
+                                          onCardTap: _flipCard,
+                                          preExtractedGradientStart: _extractedGradientStart,
+                                          preExtractedGradientEnd: _extractedGradientEnd,
+                                          externalPreviewUrl: _cachedPreviewUrl,
+                                        )
+                                      : _buildBackCard(),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
@@ -409,39 +425,61 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
   /// ヘッダー
   Widget _buildHeader() {
-    return Container(
-      height: 62,
-      padding: const EdgeInsets.symmetric(horizontal: 19),
-      child: Row(
-        children: [
-          // 閉じるボタン（バツマーク）
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: GestureDetector(
-                onTap: () => Navigator.of(context).pop(),
-                child: const Icon(
-                  Icons.arrow_back_ios_new,
-                  color: Colors.white,
-                  size: 22,
-                ),
+    return Hero(
+      tag: 'post_flow_header',
+      flightShuttleBuilder: (_, __, ___, ____, _____) => const Material(
+        color: Colors.transparent,
+        child: SizedBox(
+          height: 50,
+          child: Center(
+            child: Text(
+              '新規投稿',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
           ),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 19),
+          child: Row(
+            children: [
+              // 戻るボタン
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: const Icon(
+                      Icons.arrow_back_ios_new,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ),
 
-          // タイトル
-          const Text(
-            '新規投稿',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
+              // タイトル
+              const Text(
+                '新規投稿',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+
+              // 右側スペーサー
+              const Expanded(child: SizedBox.shrink()),
+            ],
           ),
-
-          // 右側スペーサー（投稿は最終プレビュー画面で行う）
-          const Expanded(child: SizedBox.shrink()),
-        ],
+        ),
       ),
     );
   }

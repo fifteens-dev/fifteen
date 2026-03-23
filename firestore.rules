@@ -1,9 +1,187 @@
-  rules_version = '2';
-  service cloud.firestore {
-    match /databases/{database}/documents {
-      // 開発中は全てのアクセスを許可（一時的）
-      match /{document=**} {
-        allow read, write: if true;
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── ヘルパー関数 ──────────────────────────────────────────
+    // ログイン済みユーザーか
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // 本人か
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // 管理者か（users/{uid}.isAdmin == true）
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // ── users コレクション ───────────────────────────────────
+    match /users/{userId} {
+      // 読み取り：ログイン済みなら誰でも可（プロフィール表示用）
+      allow read: if isAuthenticated();
+
+      // 作成：本人のみ（新規登録時）または管理者
+      allow create: if isOwner(userId) || isAdmin();
+
+      // 更新：管理者は全フィールド変更可
+      // 本人はisAdmin以外変更可、他ユーザーはfollowers/following/updatedAtのみ変更可
+      allow update: if isAdmin() || (
+        isAuthenticated() && (
+          (isOwner(userId) &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin']))
+          ||
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['followers', 'following', 'updatedAt'])
+        )
+      );
+
+      // 削除：本人または管理者
+      allow delete: if isOwner(userId) || isAdmin();
+
+      // ── users/{userId}/notifications サブコレクション ────────
+      // 管理者からの一斉通知書き込み用サブコレクション
+      match /notifications/{notificationId} {
+        // 読み取り：本人のみ
+        allow read: if isOwner(userId);
+        // 作成：本人 または 管理者（一斉通知送信）
+        allow create: if isAuthenticated();
+        // 更新：本人のみ（既読フラグ更新）
+        allow update: if isOwner(userId);
+        // 削除：本人または管理者
+        allow delete: if isOwner(userId) || isAdmin();
       }
     }
+
+    // ── posts コレクション ───────────────────────────────────
+    match /posts/{postId} {
+      // 読み取り：ログイン済みなら誰でも可
+      allow read: if isAuthenticated();
+
+      // 作成：ログイン済み、かつ userId が自分のUID
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+
+      // 更新：投稿者本人 or 管理者
+      // 他ユーザーはいいね・コメント数関連フィールドのみ更新可
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin() ||
+        // 他ユーザーはいいね・コメント数・歌詞関連フィールドのみ変更可
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['likedUserIds', 'likedByUserIconUrls', 'likeCount',
+                    'commentCount', 'savedByUserIds', 'savedByUserIconUrls',
+                    'lyricsText', 'updatedAt'])
+      );
+
+      // 削除：投稿者本人または管理者
+      allow delete: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // ── comments コレクション ────────────────────────────────
+    match /comments/{commentId} {
+      // 読み取り：ログイン済みなら誰でも可
+      allow read: if isAuthenticated();
+
+      // 作成：ログイン済み、かつ userId が自分のUID
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+
+      // 更新・削除：コメント投稿者本人または管理者
+      allow update, delete: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // ── notifications コレクション ───────────────────────────
+    match /notifications/{notificationId} {
+      // 読み取り：自分宛ての通知のみ
+      allow read: if isAuthenticated() &&
+        resource.data.recipientId == request.auth.uid;
+
+      // 作成：ログイン済みユーザー（いいね/コメント/フォロー時にクライアントから作成）
+      allow create: if isAuthenticated();
+
+      // 更新：自分宛ての通知のみ（既読フラグ更新用）
+      allow update: if isAuthenticated() &&
+        resource.data.recipientId == request.auth.uid;
+
+      // 削除：自分宛て or 管理者
+      allow delete: if isAuthenticated() &&
+        (resource.data.recipientId == request.auth.uid || isAdmin());
+    }
+
+    // ── user_fcm_tokens コレクション ─────────────────────────
+    match /user_fcm_tokens/{userId} {
+      // 本人のみ読み書き可
+      allow read, write: if isOwner(userId);
+    }
+
+    // ── push_notification_requests コレクション ──────────────
+    // Cloud Function が処理するキュー。
+    // senderId が自分のUIDと一致する場合のみ作成可（なりすまし防止）
+    match /push_notification_requests/{docId} {
+      allow create: if isAuthenticated() &&
+        request.resource.data.senderId == request.auth.uid;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // ── vibe_topics コレクション ─────────────────────────────
+    // 読み取りは全ログインユーザー可
+    // 更新：管理者 または 一般ユーザーはvoteCount/updatedAtのみ変更可（投票機能用）
+    match /vibe_topics/{topicId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['voteCount', 'updatedAt']);
+    }
+
+    // ── vibeVotes コレクション ───────────────────────────────
+    // Vibeお題への投票データ
+    match /vibeVotes/{voteId} {
+      // 読み取り：ログイン済み（自分の投票状況確認用）
+      allow read: if isAuthenticated();
+      // 作成：ログイン済み（投票時）
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      // 削除：本人のみ（投票変更時に古い投票を削除）
+      allow delete: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid;
+    }
+
+    // ── reports コレクション ─────────────────────────────────
+    // 通報データ：作成はログイン済みユーザー、読み取り・管理は管理者のみ
+    match /reports/{reportId} {
+      allow create: if isAuthenticated() &&
+        request.resource.data.reporterId == request.auth.uid;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // ── post_notification_states コレクション ────────────────
+    // Cloud Functions（Admin SDK）のみ読み書き。クライアントからは一切アクセス不可。
+    match /post_notification_states/{userId} {
+      allow read, write: if false;
+    }
+
+    // ── broadcast_notifications コレクション ─────────────────
+    // 管理者のみ作成・更新・削除、読み取りはログイン済み全員
+    match /broadcast_notifications/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ── invite_codes コレクション ─────────────────────────────
+    // 読み取り・作成・更新：ログイン済みユーザー（招待コード検証・登録時に使用）
+    // 削除：管理者のみ
+    match /invite_codes/{code} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
   }
+}

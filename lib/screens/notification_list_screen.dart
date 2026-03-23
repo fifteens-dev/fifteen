@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/notification_model.dart';
 import '../services/notification_service.dart';
 import '../services/auth_service.dart';
@@ -23,25 +24,56 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   final PostService _postService = PostService();
   final UserService _userService = UserService();
 
+  String _currentUserId = '';
+  String _currentUsername = '';
+
   // senderId → 最新アイコンURL のキャッシュ
   final Map<String, String?> _freshIconUrls = {};
   List<NotificationModel> _latestNotifications = [];
   Timer? _iconRefreshTimer;
+  Timer? _markAsReadTimer;
   bool _isNavigating = false;
+  bool _hasMarkedAsRead = false;
+  // 3秒後に視覚的に既読化するためのローカルフラグ
+  bool _visuallyRead = false;
+  // StreamBuilderが再サブスクライブしないようにキャッシュ
+  Stream<List<NotificationModel>>? _notificationsStream;
 
   @override
   void initState() {
     super.initState();
+    _currentUserId = _authService.currentUser?.uid ?? '';
+    if (_currentUserId.isNotEmpty) {
+      _notificationsStream = _notificationService.getNotificationsStream(_currentUserId);
+    }
+    _loadCurrentUsername();
     // 5分ごとにアイコンURLを再取得
     _iconRefreshTimer = Timer.periodic(
       const Duration(minutes: 5),
       (_) => _refreshIcons(),
     );
+    // 3秒後に既読化（視覚的にもグレー化）
+    _markAsReadTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() { _visuallyRead = true; });
+      if (_currentUserId.isNotEmpty) {
+        _notificationService.markAllAsRead(_currentUserId).catchError((_) {});
+      }
+    });
+  }
+
+  Future<void> _loadCurrentUsername() async {
+    if (_currentUserId.isEmpty) return;
+    final user = await _userService.getUser(_currentUserId);
+    if (mounted) {
+      setState(() => _currentUsername = user?.username ?? '');
+    }
   }
 
   @override
   void dispose() {
     _iconRefreshTimer?.cancel();
+    _markAsReadTimer?.cancel();
     super.dispose();
   }
 
@@ -110,9 +142,10 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
             _buildHeader(),
             Expanded(
               child: StreamBuilder<List<NotificationModel>>(
-                stream: _notificationService.getNotificationsStream(currentUserId),
+                stream: _notificationsStream,
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      !snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
@@ -142,6 +175,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                       (_) => _refreshIcons(),
                     );
                   }
+
+                  // 既読化はTimerで3秒後に行う（initStateで設定済み）
 
                   return RefreshIndicator(
                     onRefresh: () async {
@@ -174,29 +209,12 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
             icon: const Icon(Icons.chevron_left, color: Colors.white, size: 32),
             onPressed: () => Navigator.pop(context),
           ),
-          const Expanded(
-            child: Text(
-              '通知',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          // すべて既読ボタン
-          TextButton(
-            onPressed: () async {
-              final userId = _authService.currentUser?.uid ?? '';
-              await _notificationService.markAllAsRead(userId);
-            },
-            child: const Text(
-              'すべて既読',
-              style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFF5D8FFF),
-              ),
+          Text(
+            _currentUsername,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
             ),
           ),
         ],
@@ -205,17 +223,17 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   }
 
   Widget _buildNotificationCell(NotificationModel notification) {
+    final isRead = notification.isRead || _visuallyRead;
     return GestureDetector(
       onTap: () => _handleNotificationTap(notification),
       child: Container(
         decoration: BoxDecoration(
-          color: notification.isRead
+          color: isRead
               ? Colors.transparent
               : const Color(0xFF1E1E1E),
           borderRadius: BorderRadius.circular(8),
         ),
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         child: _buildNotificationContent(notification),
       ),
     );
@@ -281,9 +299,73 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
               ],
             ),
           ),
+          const SizedBox(width: 12),
+          _buildFollowButton(notification.senderId),
         ],
       ),
     );
+  }
+
+  /// フォローボタン（フォロー状態を FutureBuilder で判定）
+  Widget _buildFollowButton(String senderId) {
+    if (senderId.isEmpty || senderId == 'system' || senderId == _currentUserId) {
+      return const SizedBox.shrink();
+    }
+    return FutureBuilder<bool>(
+      future: _isFollowing(senderId),
+      builder: (context, snapshot) {
+        final isFollowing = snapshot.data ?? false;
+        return GestureDetector(
+          onTap: () async {
+            try {
+              if (isFollowing) {
+                await _userService.unfollowUser(
+                  currentUserId: _currentUserId,
+                  targetUserId: senderId,
+                );
+              } else {
+                await _userService.followUser(
+                  currentUserId: _currentUserId,
+                  targetUserId: senderId,
+                );
+              }
+              if (mounted) setState(() {});
+            } catch (_) {}
+          },
+          child: Container(
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: isFollowing ? Colors.transparent : Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: isFollowing
+                  ? Border.all(color: Colors.white54)
+                  : null,
+            ),
+            child: Center(
+              child: Text(
+                isFollowing ? 'フォロー中' : 'フォロー',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: isFollowing ? Colors.white54 : Colors.black,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<bool> _isFollowing(String targetUserId) async {
+    if (_currentUserId.isEmpty) return false;
+    try {
+      final me = await _userService.getUser(_currentUserId);
+      return me?.following.contains(targetUserId) ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
   Widget _buildPostNotification(NotificationModel notification) {
@@ -347,6 +429,10 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
               ],
             ),
           ),
+          if (notification.albumArtUrl != null) ...[
+            const SizedBox(width: 16),
+            _buildAlbumArt(notification.albumArtUrl!),
+          ],
         ],
       ),
     );
@@ -550,6 +636,10 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   }
 
   Widget _buildOfficialNotification(NotificationModel notification) {
+    final hasLink = (notification.actionUrl != null &&
+            notification.actionUrl!.isNotEmpty) ||
+        (notification.postId != null && notification.postId!.isNotEmpty);
+
     return Container(
       decoration: BoxDecoration(
         color: notification.isRead ? Colors.transparent : const Color(0xFF1E1E1E),
@@ -580,6 +670,14 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                   color: Color(0x80FFFFFF),
                 ),
               ),
+              if (hasLink) ...[
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.chevron_right,
+                  color: Color(0x80FFFFFF),
+                  size: 18,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 8),
@@ -719,38 +817,39 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
 
       if (!mounted) return;
 
+      final currentUserId = _currentUserId;
+
       switch (notification.type) {
         case NotificationType.follow:
-          // フォローした人のプロフィールへ遷移
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => OtherUserProfileScreen(userId: notification.senderId),
+              builder: (context) =>
+                  OtherUserProfileScreen(userId: notification.senderId),
             ),
           );
           break;
         case NotificationType.like:
         case NotificationType.comment:
         case NotificationType.post:
-        case NotificationType.vibe:
-        case NotificationType.official:
-          // postId があれば投稿カードへ遷移（日付チェックをスキップして常に閲覧可能）
           if (notification.postId != null && notification.postId!.isNotEmpty) {
             final post = await _postService.getPost(notification.postId!);
             if (mounted && post != null) {
-              final currentUserId = _authService.currentUser?.uid ?? '';
               await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => PostDetailScreen(
                     post: post,
                     currentUserId: currentUserId,
-                    alwaysShowBack: true,
+                    alwaysShowBack: false,
                   ),
                 ),
               );
             } else if (mounted) {
-              // 既存のスナックバーをクリアしてから表示（連打による重複防止）
+              // 投稿が存在しない → 孤立通知を削除
+              _notificationService
+                  .deleteNotification(notification.notificationId)
+                  .catchError((_) {});
               ScaffoldMessenger.of(context)
                 ..clearSnackBars()
                 ..showSnackBar(
@@ -759,9 +858,30 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                     duration: Duration(seconds: 2),
                   ),
                 );
-              // スナックバー表示中は _isNavigating を true に保ち連打を無効化
               await Future.delayed(const Duration(seconds: 2));
             }
+          }
+          break;
+        case NotificationType.vibe:
+        case NotificationType.official:
+          // postId があれば投稿へ、なければ actionUrl をブラウザで開く
+          if (notification.postId != null && notification.postId!.isNotEmpty) {
+            final post = await _postService.getPost(notification.postId!);
+            if (mounted && post != null) {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PostDetailScreen(
+                    post: post,
+                    currentUserId: currentUserId,
+                    alwaysShowBack: false,
+                  ),
+                ),
+              );
+            }
+          } else if (notification.actionUrl != null &&
+              notification.actionUrl!.isNotEmpty) {
+            await _launchUrl(notification.actionUrl!);
           }
           break;
       }
@@ -770,5 +890,15 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         _isNavigating = false;
       }
     }
+  }
+
+  /// URLを外部ブラウザで開く
+  Future<void> _launchUrl(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {}
   }
 }

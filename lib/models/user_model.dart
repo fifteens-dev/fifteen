@@ -7,6 +7,7 @@ class UserModel {
   final String? username;
   final String? profileImageUrl;
   final String? bio;
+  final String? university;
   final List<String> followers; // フォロワーのuidリスト
   final List<String> following; // フォロー中のuidリスト
   final List<String> savedPosts; // 保存した投稿のIDリスト
@@ -23,6 +24,7 @@ class UserModel {
     this.username,
     this.profileImageUrl,
     this.bio,
+    this.university,
     this.followers = const [],
     this.following = const [],
     this.savedPosts = const [],
@@ -44,6 +46,7 @@ class UserModel {
       username: data['username'],
       profileImageUrl: data['profileImageUrl'],
       bio: data['bio'],
+      university: data['university'],
       followers: List<String>.from(data['followers'] ?? []),
       following: List<String>.from(data['following'] ?? []),
       savedPosts: List<String>.from(data['savedPosts'] ?? []),
@@ -64,6 +67,7 @@ class UserModel {
       'username': username,
       'profileImageUrl': profileImageUrl,
       'bio': bio,
+      'university': university,
       'followers': followers,
       'following': following,
       'savedPosts': savedPosts,
@@ -81,6 +85,7 @@ class UserModel {
     String? username,
     String? profileImageUrl,
     String? bio,
+    String? university,
     List<String>? followers,
     List<String>? following,
     List<String>? savedPosts,
@@ -94,6 +99,7 @@ class UserModel {
       username: username ?? this.username,
       profileImageUrl: profileImageUrl ?? this.profileImageUrl,
       bio: bio ?? this.bio,
+      university: university ?? this.university,
       followers: followers ?? this.followers,
       following: following ?? this.following,
       savedPosts: savedPosts ?? this.savedPosts,

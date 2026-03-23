@@ -218,7 +218,8 @@ class VibeBarSection extends StatelessWidget {
   Widget _buildSkeleton() {
     return Container(
       color: AppColors.background,
-      padding: const EdgeInsets.all(16),
+      // 高さを固定して SliverToBoxAdapter 内での無限展開を防ぐ
+      height: 100,
       child: const Center(
         child: CircularProgressIndicator(),
       ),
@@ -229,7 +230,10 @@ class VibeBarSection extends StatelessWidget {
   Widget _buildEmpty() {
     return Container(
       color: AppColors.background,
+      // Expanded は SliverToBoxAdapter 内の無制限高さコンテキストで使えないため
+      // Column を mainAxisSize.min にして高さを子要素に合わせる
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -263,14 +267,13 @@ class VibeBarSection extends StatelessWidget {
               ],
             ),
           ),
-          Expanded(
-            child: Center(
-              child: Text(
-                '今日のVibeお題はありません',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white.withValues(alpha: 0.6),
-                ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              '今日のVibeお題はありません',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white.withValues(alpha: 0.6),
               ),
             ),
           ),

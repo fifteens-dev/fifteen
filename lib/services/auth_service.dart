@@ -125,6 +125,63 @@ class AuthService {
     }
   }
 
+  // メール/パスワードでサインイン（公式アカウント用）
+  Future<UserCredential> signInWithEmailAndPassword({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      return await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) {
+        print('FirebaseAuthException in signInWithEmail: ${e.code} - ${e.message}');
+      }
+      switch (e.code) {
+        case 'user-not-found':
+          throw Exception('このメールアドレスのアカウントが見つかりません');
+        case 'wrong-password':
+        case 'invalid-credential':
+          throw Exception('メールアドレスまたはパスワードが正しくありません');
+        case 'invalid-email':
+          throw Exception('メールアドレスの形式が正しくありません');
+        case 'user-disabled':
+          throw Exception('このアカウントは無効化されています');
+        default:
+          throw Exception('ログインに失敗しました');
+      }
+    }
+  }
+
+  // メール/パスワードでアカウント作成（公式アカウント用）
+  Future<UserCredential> createUserWithEmailAndPassword({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      return await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) {
+        print('FirebaseAuthException in createUser: ${e.code} - ${e.message}');
+      }
+      switch (e.code) {
+        case 'email-already-in-use':
+          throw Exception('このメールアドレスは既に使用されています');
+        case 'invalid-email':
+          throw Exception('メールアドレスの形式が正しくありません');
+        case 'weak-password':
+          throw Exception('パスワードは6文字以上にしてください');
+        default:
+          throw Exception('アカウント作成に失敗しました');
+      }
+    }
+  }
+
   // サインアウト
   Future<void> signOut() async {
     await _auth.signOut();

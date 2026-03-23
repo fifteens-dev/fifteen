@@ -29,4 +29,9 @@ class AppColors {
   static const Color accentBlue = Color(0xFF5D8FFF);
   static const Color error = Color(0xFFE74C3C);
   static const Color success = Color(0xFF2ECC71);
+
+  // 検索バー
+  static const Color searchBarBackground = Color(0xFF2D2D2D);
+  static const Color searchBarIcon = Color(0xFF9F9F9F);
+  static const Color searchCancelText = Color(0xFF99999B);
 }

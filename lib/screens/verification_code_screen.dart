@@ -1,9 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
+import '../constants/app_constants.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
 
@@ -80,23 +82,48 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen> {
       if (userCredential != null && userCredential.user != null) {
         final user = userCredential.user!;
 
-        // 既存ユーザーかチェック
-        final existingUser = await _userService.getUser(user.uid);
+        // 既存ユーザーかチェック（直接 doc.exists で確認し getUser の parse 失敗を回避）
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
 
         if (mounted) {
           setState(() {
             _isLoading = false;
           });
 
-          if (existingUser != null) {
-            // 既存ユーザー - ホーム画面へ直接遷移
-            Navigator.pushReplacementNamed(context, '/home');
+          if (userDoc.exists) {
+            // 既存ユーザー - 登録進捗に応じてナビゲート
+            final data = userDoc.data() ?? {};
+            final username = data['username'] as String?;
+            final name = data['name'] as String?;
+
+            if (username != null && username.isNotEmpty) {
+              // 登録完了 → ホーム
+              Navigator.pushReplacementNamed(context, '/home');
+            } else if (name != null && name.isNotEmpty) {
+              // 名前まで完了 → ユーザーネーム入力へ
+              Navigator.pushReplacementNamed(
+                context,
+                '/username-creation',
+                arguments: {'name': name},
+              );
+            } else {
+              // 名前未設定 → 名前入力へ
+              Navigator.pushReplacementNamed(context, '/name-input');
+            }
           } else {
             // 新規ユーザー - 基本情報をFirestoreに作成
             await _userService.createUser(
               uid: user.uid,
               phoneNumber: _phoneNumber ?? user.phoneNumber ?? '',
             );
+            // 公式アカウントを自動フォロー（エラーは無視）
+            _userService.followUser(
+              currentUserId: user.uid,
+              targetUserId: AppConstants.officialAccountUid,
+            ).catchError((_) {});
             // 招待コード入力画面へ
             Navigator.pushReplacementNamed(context, '/invite-code');
           }

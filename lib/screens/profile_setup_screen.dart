@@ -253,7 +253,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           _isSaving = false;
         });
         // 音楽ライブラリ接続画面への遷移
-        Navigator.of(context).pushReplacementNamed('/music-connection');
+        Navigator.of(context).pushNamed('/music-connection');
       }
     } catch (e) {
       if (mounted) {

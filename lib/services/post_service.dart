@@ -5,6 +5,7 @@ import '../models/post_theme.dart';
 import '../models/vibe_ranking_item.dart';
 import '../models/track_model.dart';
 import '../models/notification_model.dart';
+import '../utils/campus_vibe_utils.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
 
@@ -44,6 +45,8 @@ class PostService {
     String? lyricsText, // 歌詞テキスト
     int audioStartMs = 0, // 音楽再生開始位置（ミリ秒）
     int audioDurationSec = 15, // 音楽再生時間（秒）
+    String? university, // 投稿者の大学名
+    bool campusVibeParticipating = true, // Campus Vibe参加フラグ
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
@@ -84,9 +87,11 @@ class PostService {
         'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
         'emotionTag': emotionTag,
         'theme': theme != null ? theme.toMap() : null, // 抽出した色テーマを保存
-        'lyricsText': lyricsText, // 歌詞テキスト
+        'lyricsText': lyricsText,
         'audioStartMs': audioStartMs,
         'audioDurationSec': audioDurationSec,
+        'university': university,
+        'campusVibeParticipating': campusVibeParticipating,
       };
 
       await postRef.set(postData);
@@ -729,4 +734,48 @@ class PostService {
     }
   }
 
+  // ────────────────────────────────────────────
+  // Campus Vibe
+  // ────────────────────────────────────────────
+
+  /// Campus Vibe投稿一覧を取得（今週末・大学一致・参加フラグtrue）
+  /// campusVibeParticipating のフィルタはクライアント側で行う
+  /// （university + createdAt の2フィールドインデックスのみで動作させるため）
+  Future<List<PostModel>> getCampusVibePosts(String university) async {
+    try {
+      final range = CampusVibeUtils.weekendRange();
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('university', isEqualTo: university)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(range.start))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(range.end))
+          .orderBy('createdAt', descending: false)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .where((p) => p.campusVibeParticipating)
+          .toList();
+    } catch (e) {
+      if (kDebugMode) print('getCampusVibePosts error: $e');
+      return [];
+    }
+  }
+
+  /// Campus Vibe投稿件数をリアルタイムで流すStream
+  /// campusVibeParticipating のフィルタはクライアント側で行う
+  /// （university + createdAt の2フィールドインデックスのみで動作させるため）
+  Stream<int> streamCampusVibePostCount(String university) {
+    final range = CampusVibeUtils.weekendRange();
+    return _firestore
+        .collection(_postsCollection)
+        .where('university', isEqualTo: university)
+        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(range.start))
+        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(range.end))
+        .snapshots()
+        .map((snap) => snap.docs
+            .where((doc) =>
+                (doc.data()['campusVibeParticipating'] as bool?) != false)
+            .length);
+  }
 }

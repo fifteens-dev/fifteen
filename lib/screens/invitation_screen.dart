@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/user_service.dart';
+import '../widgets/common/common.dart';
 
 /// 招待画面
 class InvitationScreen extends StatefulWidget {
@@ -204,114 +205,6 @@ class _InvitationScreenState extends State<InvitationScreen> {
   /// 招待コードをコピー
   void _copyInvitationCode(BuildContext context) {
     Clipboard.setData(ClipboardData(text: _inviteCode!));
-    _showCopiedToast(context);
-  }
-
-  /// コピー完了トースト表示
-  void _showCopiedToast(BuildContext context) {
-    final overlay = Overlay.of(context);
-    late OverlayEntry overlayEntry;
-
-    overlayEntry = OverlayEntry(
-      builder: (context) => _CopiedToast(
-        onDismiss: () {
-          overlayEntry.remove();
-        },
-      ),
-    );
-
-    overlay.insert(overlayEntry);
-  }
-}
-
-/// コピー完了トースト
-class _CopiedToast extends StatefulWidget {
-  final VoidCallback onDismiss;
-
-  const _CopiedToast({required this.onDismiss});
-
-  @override
-  State<_CopiedToast> createState() => _CopiedToastState();
-}
-
-class _CopiedToastState extends State<_CopiedToast>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
-
-    _controller.forward();
-
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        _controller.reverse().then((_) {
-          widget.onDismiss();
-        });
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      top: MediaQuery.of(context).padding.top + 100,
-      left: 0,
-      right: 0,
-      child: FadeTransition(
-        opacity: _fadeAnimation,
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 14),
-            decoration: BoxDecoration(
-              color: Colors.grey[800],
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 22,
-                  height: 22,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white,
-                  ),
-                  child: const Icon(
-                    Icons.check,
-                    color: Color(0xFF424242),
-                    size: 16,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'コピーしました',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    showCopyBanner(context);
   }
 }

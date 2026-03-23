@@ -1,4 +1,4 @@
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
@@ -50,6 +50,8 @@ exports.sendPushNotification = onDocumentCreated(
         return;
       }
 
+      const senderId = request.senderId || '';
+
       // プッシュ通知のペイロード
       const payload = {
         notification: {
@@ -58,6 +60,7 @@ exports.sendPushNotification = onDocumentCreated(
         },
         data: {
           notificationType: notificationType,
+          senderId: senderId,
           postId: postId || '',
           click_action: 'FLUTTER_NOTIFICATION_CLICK',
         },
@@ -138,9 +141,9 @@ exports.sendOfficialNotification = onCall(async (request) => {
     throw new HttpsError('unauthenticated', 'ログインが必要です');
   }
 
-  // 管理者チェック
+  // 管理者チェック（users/{uid}.isAdmin で確認）
   const adminDoc = await admin.firestore()
-    .collection('admin_users')
+    .collection('users')
     .doc(request.auth.uid)
     .get();
 
@@ -225,7 +228,7 @@ exports.sendOfficialNotification = onCall(async (request) => {
         const fcmMsg = {
           tokens: chunk,
           notification: { title, body },
-          data: { type: 'official', actionUrl: actionUrl || '', click_action: 'FLUTTER_NOTIFICATION_CLICK' },
+          data: { notificationType: 'official', actionUrl: actionUrl || '', click_action: 'FLUTTER_NOTIFICATION_CLICK' },
         };
         if (imageUrl) fcmMsg.notification.imageUrl = imageUrl;
         await admin.messaging().sendEachForMulticast(fcmMsg);
@@ -245,17 +248,39 @@ exports.sendOfficialNotification = onCall(async (request) => {
   }
 });
 
-// ========== 投稿通知システム ==========
+// ========== 投稿通知状態管理 ==========
+//
+// post_notification_states/{recipientId} の構造:
+// {
+//   phase: 'TIMER_ACTIVE' | 'TIMER_EXPIRED_EMPTY' | 'DONE',
+//   notificationsSentToday: number,       // 今日送った通知数（最大2）
+//   batchedSenderIds: string[],           // TIMER_ACTIVE中に溜めた投稿者UID
+//   batchedSenderUsernames: string[],     // 同上（表示名）
+//   timerStartedAt: Timestamp,            // タイマー開始時刻
+//   lastResetDate: string,                // JST 'YYYY-MM-DD'（日付リセット判定用）
+// }
+
+/** JST基準の今日の日付文字列 (YYYY-MM-DD) を返す */
+function getJstDateString() {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return `${jst.getFullYear()}-${String(jst.getMonth() + 1).padStart(2, '0')}-${String(jst.getDate()).padStart(2, '0')}`;
+}
 
 /**
- * 投稿通知を送信するヘルパー
- * Firestore通知書き込み + FCM直接送信（リアルタイム）
+ * 通知ドキュメントを作成してFCMプッシュを送信するヘルパー
+ * notifDocId を固定化することで冪等性を保証
  */
-async function sendPostNotification(recipientId, senderId, senderUsername, senderIconUrl, message, postId) {
-  const db = admin.firestore();
+async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername, senderIconUrl, message, notifDocId, postId) {
+  // 重複チェック
+  const notifRef = db.collection('notifications').doc(notifDocId);
+  const existing = await notifRef.get();
+  if (existing.exists) {
+    console.log(`sendPostNotificationDoc: already exists ${notifDocId}, skipping`);
+    return;
+  }
 
-  // notifications コレクションに通知を作成（アプリ内通知）
-  await db.collection('notifications').add({
+  await notifRef.set({
     type: 'post',
     recipientId: recipientId,
     senderId: senderId,
@@ -268,7 +293,7 @@ async function sendPostNotification(recipientId, senderId, senderUsername, sende
     readAt: null,
   });
 
-  // FCMプッシュ通知を直接送信（push_notification_requests キューを経由しない）
+  // FCMプッシュ送信
   const tokenDoc = await db.collection('user_fcm_tokens').doc(recipientId).get();
   if (!tokenDoc.exists || !tokenDoc.data().tokens) return;
 
@@ -276,12 +301,10 @@ async function sendPostNotification(recipientId, senderId, senderUsername, sende
   if (tokens.length === 0) return;
 
   const payload = {
-    notification: {
-      title: senderUsername,
-      body: message,
-    },
+    notification: { title: senderUsername, body: message },
     data: {
       notificationType: 'post',
+      senderId: senderId || '',
       postId: postId || '',
       click_action: 'FLUTTER_NOTIFICATION_CLICK',
     },
@@ -290,7 +313,6 @@ async function sendPostNotification(recipientId, senderId, senderUsername, sende
 
   const response = await admin.messaging().sendEachForMulticast(payload);
 
-  // 無効なトークンを削除
   if (response.failureCount > 0) {
     const invalidTokens = [];
     response.responses.forEach((resp, idx) => {
@@ -310,23 +332,94 @@ async function sendPostNotification(recipientId, senderId, senderUsername, sende
 }
 
 /**
+ * 1フォロワーへの通知状態遷移を処理
+ *
+ * 状態遷移:
+ *   [ドキュメントなし / 日付違い] → 即時通知 → TIMER_ACTIVE (notificationsSentToday=1)
+ *   [TIMER_ACTIVE]               → batchedSenderIds に追加（通知なし）
+ *   [TIMER_EXPIRED_EMPTY]        → 即時通知 → DONE (notificationsSentToday=2)
+ *   [DONE]                       → スキップ
+ */
+async function processPostNotificationForRecipient(db, recipientId, senderId, senderUsername, senderIconUrl, postId) {
+  const today = getJstDateString();
+  const stateRef = db.collection('post_notification_states').doc(recipientId);
+
+  let action = 'skip';
+  let notifDocId = null;
+  let notifMessage = null;
+  let notifPostId = null;
+
+  await db.runTransaction(async (tx) => {
+    const stateDoc = await tx.get(stateRef);
+    const state = stateDoc.exists ? stateDoc.data() : null;
+    const needsReset = !state || state.lastResetDate !== today;
+
+    if (needsReset) {
+      // その日の通知0通 → 即時通知 + TIMER_ACTIVE 開始
+      action = 'send_immediate';
+      notifDocId = `post_${postId}_${recipientId}`;
+      notifMessage = `${senderUsername}が投稿しました。`;
+      notifPostId = postId;
+      tx.set(stateRef, {
+        phase: 'TIMER_ACTIVE',
+        notificationsSentToday: 1,
+        batchedSenderIds: [],
+        batchedSenderUsernames: [],
+        timerStartedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastResetDate: today,
+      });
+    } else if (state.phase === 'TIMER_ACTIVE') {
+      // タイマー中 → batchedSenderIds に追加（通知なし）
+      action = 'batch';
+      const newIds = [...(state.batchedSenderIds || [])];
+      const newNames = [...(state.batchedSenderUsernames || [])];
+      if (!newIds.includes(senderId)) {
+        newIds.push(senderId);
+        newNames.push(senderUsername);
+      }
+      tx.update(stateRef, {
+        batchedSenderIds: newIds,
+        batchedSenderUsernames: newNames,
+      });
+    } else if (state.phase === 'TIMER_EXPIRED_EMPTY') {
+      // タイマー切れ（その日2件目の投稿） → 即時通知 → DONE
+      action = 'send_immediate';
+      notifDocId = `post_${postId}_${recipientId}`;
+      notifMessage = `${senderUsername}が投稿しました。`;
+      notifPostId = postId;
+      tx.update(stateRef, {
+        phase: 'DONE',
+        notificationsSentToday: admin.firestore.FieldValue.increment(1),
+      });
+    }
+    // DONE → action = 'skip' のまま
+  });
+
+  if (action === 'send_immediate') {
+    await sendPostNotificationDoc(
+      db, recipientId, senderId, senderUsername, senderIconUrl,
+      notifMessage, notifDocId, notifPostId
+    );
+  }
+}
+
+/**
  * 投稿作成時のCloud Function
  *
  * トリガー: Firestore `posts` コレクションへの書き込み
  *
  * 処理:
  * 1. 投稿者のフォロワーリストを取得
- * 2. 全フォロワーへ即時通知（スロットリングなし・リアルタイム）
+ * 2. 各フォロワーの通知状態に応じて状態遷移を実行
  */
 exports.onPostCreated = onDocumentCreated(
-  { document: 'posts/{postId}', timeoutSeconds: 300 },
+  { document: 'posts/{postId}', timeoutSeconds: 300, retry: false },
   async (event) => {
     const postDocId = event.data.id;
     const post = event.data.data();
     const posterId = post.userId;
     const posterUsername = post.username || 'Unknown';
     const posterIconUrl = post.userIconUrl || null;
-    const message = `${posterUsername}が投稿しました。`;
 
     if (!posterId) {
       console.log('onPostCreated: userId not found in post');
@@ -334,36 +427,49 @@ exports.onPostCreated = onDocumentCreated(
     }
 
     try {
-      // 投稿者のフォロワーリストを取得
-      const posterDoc = await admin.firestore()
-        .collection('users')
-        .doc(posterId)
-        .get();
+      const db = admin.firestore();
 
+      const posterDoc = await db.collection('users').doc(posterId).get();
       if (!posterDoc.exists) {
         console.log(`onPostCreated: user ${posterId} not found`);
         return;
       }
 
       const followers = posterDoc.data().followers || [];
-
       if (followers.length === 0) {
         console.log(`onPostCreated: user ${posterId} has no followers`);
         return;
       }
 
-      console.log(`onPostCreated: notifying ${followers.length} followers for ${posterUsername}`);
+      console.log(`onPostCreated: processing ${followers.length} followers for ${posterUsername}`);
 
-      // 10件ずつ並列処理で全フォロワーに即時通知
-      const batchSize = 10;
-      for (let i = 0; i < followers.length; i += batchSize) {
-        const batch = followers.slice(i, i + batchSize);
+      // notifPostEnabled チェック（未設定はデフォルトで通知あり）
+      // 大量フォロワー対策: 最大1000人まで処理
+      const followersToProcess = followers.length > 1000 ? followers.slice(0, 1000) : followers;
+      const chunkSize = 20;
+      const enabledFollowers = [];
+      for (let i = 0; i < followersToProcess.length; i += chunkSize) {
+        const chunk = followersToProcess.slice(i, i + chunkSize);
+        const docs = await Promise.all(chunk.map(id => db.collection('users').doc(id).get()));
+        for (const doc of docs) {
+          if (doc.exists && doc.data().notifPostEnabled !== false) {
+            enabledFollowers.push(doc.id);
+          }
+        }
+      }
+
+      console.log(`onPostCreated: ${enabledFollowers.length} / ${followers.length} followers enabled`);
+
+      // 各フォロワーの状態遷移を処理
+      for (let i = 0; i < enabledFollowers.length; i += chunkSize) {
+        const chunk = enabledFollowers.slice(i, i + chunkSize);
         await Promise.all(
-          batch.map((followerId) =>
-            sendPostNotification(followerId, posterId, posterUsername, posterIconUrl, message, postDocId)
-              .catch((err) => {
-                console.error(`Error notifying ${followerId}:`, err);
-              })
+          chunk.map((followerId) =>
+            processPostNotificationForRecipient(
+              db, followerId, posterId, posterUsername, posterIconUrl, postDocId
+            ).catch((err) => {
+              console.error(`Error processing notification for ${followerId}:`, err);
+            })
           )
         );
       }
@@ -371,6 +477,76 @@ exports.onPostCreated = onDocumentCreated(
       console.log(`onPostCreated: completed for ${posterUsername}`);
     } catch (error) {
       console.error('onPostCreated error:', error);
+    }
+  }
+);
+
+/**
+ * 15分ごとに TIMER_ACTIVE 状態をチェックし、3時間経過したものを処理
+ *
+ * - batchedSenderIds > 0 → パターンA: 「〇人が投稿しました」まとめ通知 → DONE
+ * - batchedSenderIds == 0 → パターンC: TIMER_EXPIRED_EMPTY へ遷移
+ */
+exports.checkPostNotificationTimers = onSchedule(
+  { schedule: '*/15 * * * *', timeZone: 'Asia/Tokyo' },
+  async () => {
+    const db = admin.firestore();
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const today = getJstDateString();
+
+    try {
+      const activeStates = await db
+        .collection('post_notification_states')
+        .where('phase', '==', 'TIMER_ACTIVE')
+        .get();
+
+      // コード側で3時間経過フィルタ（複合インデックス不要）
+      const expiredDocs = activeStates.docs.filter(doc => {
+        const ts = doc.data().timerStartedAt;
+        return ts && ts.toDate() <= threeHoursAgo;
+      });
+
+      console.log(`checkPostNotificationTimers: ${expiredDocs.length} expired timers`);
+
+      for (const doc of expiredDocs) {
+        const state = doc.data();
+        const recipientId = doc.id;
+        const batchedSenderIds = state.batchedSenderIds || [];
+        const batchedSenderUsernames = state.batchedSenderUsernames || [];
+
+        if (batchedSenderIds.length > 0) {
+          // パターンA: まとめ通知 → DONE
+          const count = batchedSenderIds.length;
+          const firstUsername = batchedSenderUsernames[0] || 'Unknown';
+          const message = count === 1
+            ? `${firstUsername}が投稿しました。`
+            : `${firstUsername}さんなど${count}人が投稿しました。`;
+
+          await doc.ref.update({
+            phase: 'DONE',
+            notificationsSentToday: admin.firestore.FieldValue.increment(1),
+            batchedSenderIds: [],
+            batchedSenderUsernames: [],
+          });
+
+          const notifDocId = `batch_${recipientId}_${today}`;
+          await sendPostNotificationDoc(
+            db, recipientId,
+            batchedSenderIds[0], firstUsername, null,
+            message, notifDocId, null
+          );
+
+          console.log(`checkPostNotificationTimers: batch sent to ${recipientId} (${count} senders)`);
+        } else {
+          // パターンC: 3時間タイマー切れ、溜まった投稿なし → TIMER_EXPIRED_EMPTY
+          await doc.ref.update({ phase: 'TIMER_EXPIRED_EMPTY' });
+          console.log(`checkPostNotificationTimers: ${recipientId} -> TIMER_EXPIRED_EMPTY`);
+        }
+      }
+
+      console.log('checkPostNotificationTimers: completed');
+    } catch (error) {
+      console.error('checkPostNotificationTimers error:', error);
     }
   }
 );
@@ -616,5 +792,84 @@ exports.dailyVibeNotification = onSchedule(
     } catch (error) {
       console.error('dailyVibeNotification error:', error);
     }
+  }
+);
+
+/**
+ * FCMトークン重複除去の共通ロジック
+ */
+async function _deduplicateFcmTokens(db) {
+  const snapshot = await db.collection('user_fcm_tokens').get();
+  let totalDocs = 0;
+  let fixedDocs = 0;
+  let totalRemoved = 0;
+
+  for (const doc of snapshot.docs) {
+    totalDocs++;
+    const tokens = doc.data().tokens;
+    if (!Array.isArray(tokens)) continue;
+
+    // token文字列でユニーク化（最新エントリを残す）
+    const seen = new Map();
+    for (const entry of tokens) {
+      if (entry && entry.token) seen.set(entry.token, entry);
+    }
+
+    const deduplicated = Array.from(seen.values());
+    const removed = tokens.length - deduplicated.length;
+
+    if (removed > 0) {
+      await doc.ref.update({ tokens: deduplicated });
+      fixedDocs++;
+      totalRemoved += removed;
+      console.log(`Cleaned ${doc.id}: removed ${removed} duplicate(s)`);
+    }
+  }
+
+  return { totalDocs, fixedDocs, totalRemoved };
+}
+
+/**
+ * FCMトークン重複クリーンアップ（管理者用HTTPS呼び出し）
+ */
+exports.cleanupDuplicateFcmTokens = onCall(
+  { timeoutSeconds: 540 },
+  async (request) => {
+    const db = admin.firestore();
+    const result = await _deduplicateFcmTokens(db);
+    console.log('cleanupDuplicateFcmTokens completed:', result);
+    return result;
+  }
+);
+
+/**
+ * FCMトークン重複クリーンアップ（毎週日曜 3:00 JST に自動実行）
+ */
+exports.weeklyCleanupDuplicateFcmTokens = onSchedule(
+  { schedule: '0 3 * * 0', timeZone: 'Asia/Tokyo', timeoutSeconds: 540 },
+  async () => {
+    const db = admin.firestore();
+    const result = await _deduplicateFcmTokens(db);
+    console.log('weeklyCleanupDuplicateFcmTokens completed:', result);
+  }
+);
+
+/**
+ * ユーザードキュメント削除時のクリーンアップ
+ *
+ * deleteUserData() の補完として、サーバー側でも補助データを削除する。
+ */
+exports.onUserDocDeleted = onDocumentDeleted(
+  'users/{userId}',
+  async (event) => {
+    const userId = event.params.userId;
+    const db = admin.firestore();
+
+    await Promise.allSettled([
+      db.collection('user_fcm_tokens').doc(userId).delete(),
+      db.collection('post_notification_states').doc(userId).delete(),
+    ]);
+
+    console.log(`onUserDocDeleted: cleaned up auxiliary data for ${userId}`);
   }
 );

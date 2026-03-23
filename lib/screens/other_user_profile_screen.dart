@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -70,6 +71,33 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
     _tabController.dispose();
     _audioService.stop();
     super.dispose();
+  }
+
+  /// プロフィール画像を拡大表示
+  void _showProfileImageDialog(String imageUrl) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(16),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: CachedNetworkImage(
+              imageUrl: imageUrl,
+              fit: BoxFit.contain,
+              errorWidget: (_, __, ___) => const Icon(
+                Icons.person,
+                color: Colors.white54,
+                size: 80,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// データを読み込み
@@ -323,18 +351,23 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
                   ],
                 ),
               ),
-              // 右側: プロフィール画像
-              Container(
-                width: 65,
-                height: 65,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.grey[800],
-                ),
-                child: ClipOval(
-                  child: ProfileImage(
-                    imageUrl: profileImageUrl,
-                    size: 65,
+              // 右側: プロフィール画像（タップで拡大）
+              GestureDetector(
+                onTap: profileImageUrl != null && profileImageUrl.isNotEmpty
+                    ? () => _showProfileImageDialog(profileImageUrl)
+                    : null,
+                child: Container(
+                  width: 65,
+                  height: 65,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.grey[800],
+                  ),
+                  child: ClipOval(
+                    child: ProfileImage(
+                      imageUrl: profileImageUrl,
+                      size: 65,
+                    ),
                   ),
                 ),
               ),

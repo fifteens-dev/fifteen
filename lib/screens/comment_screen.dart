@@ -428,6 +428,12 @@ class _CommentScreenState extends State<CommentScreen> {
                       ),
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _postComment(),
+                      contextMenuBuilder: (ctx, editableTextState) {
+                        return AdaptiveTextSelectionToolbar.buttonItems(
+                          anchors: editableTextState.contextMenuAnchors,
+                          buttonItems: editableTextState.contextMenuButtonItems,
+                        );
+                      },
                     ),
                   ),
                   // 送信ボタン

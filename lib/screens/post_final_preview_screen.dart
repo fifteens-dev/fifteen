@@ -2,25 +2,30 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/track_model.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
+import '../models/post_edit_state.dart';
 import '../widgets/post_card.dart';
 import '../widgets/post_card/post_card_constants.dart';
 import '../widgets/post_card_back_info.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
+import '../widgets/post_creation/post_card_back_view.dart';
 import '../widgets/dialogs/dialogs.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../services/lyrics_service.dart';
+import '../utils/campus_vibe_utils.dart';
 import '../utils/color_extractor.dart';
 import '../utils/current_user_helper.dart';
 import '../utils/photo_helper.dart';
+import '../widgets/campus_vibe_toggle_bar.dart';
 import '../widgets/shared/user_info_badge.dart';
 
 /// 投稿カード最終プレビュー画面
@@ -43,6 +48,9 @@ class PostFinalPreviewScreen extends StatefulWidget {
   final int audioDurationSec;
   final Color? preExtractedGradientStart;
   final Color? preExtractedGradientEnd;
+  final String? initialUsername;
+  final String? initialUserIconUrl;
+  final String? initialUniversity;
 
   const PostFinalPreviewScreen({
     super.key,
@@ -63,6 +71,9 @@ class PostFinalPreviewScreen extends StatefulWidget {
     this.audioDurationSec = 15,
     this.preExtractedGradientStart,
     this.preExtractedGradientEnd,
+    this.initialUsername,
+    this.initialUserIconUrl,
+    this.initialUniversity,
   });
 
   @override
@@ -87,6 +98,10 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   late Animation<double> _flipAnimation;
   bool _showFront = false;
 
+  // 背景フェードイン用（フリップ開始時に下画面を隠す）
+  late AnimationController _bgFadeController;
+  late Animation<double> _bgFadeAnimation;
+
   // 再生ボタンアニメーション用
   late AnimationController _playButtonAnimController;
   late Animation<double> _playButtonScaleAnim;
@@ -97,14 +112,50 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   Color? _extractedGradientEnd;
   bool _isColorExtracting = false;
 
+  // 歌詞カード編集状態
+  late PostEditState _editState;
+
+  // ジェスチャー途中の状態
+  bool _isTwoFingerGesture = false;
+  double _startScale = 1.0;
+  double _startRotation = 0.0;
+  static const List<double> _snapDegrees = [45, 135, 225, 315];
+  static const double _snapThreshold = 3.0;
+  Set<double> _activeSnapAngles = {};
+  Set<double> _prevSnapAngles = {};
+  bool _isTwoFingerAccepted = false;
+
   // 現在のユーザー情報
   String _currentUsername = '';
   String? _currentUserIconUrl;
+  String? _currentUniversity;
+
+  // Campus Vibe 参加フラグ（デフォルトON）
+  bool _campusVibeParticipating = true;
 
   @override
   void initState() {
     super.initState();
-    _loadCurrentUserInfo();
+    _currentUniversity = widget.initialUniversity;
+    if (widget.initialUsername != null && widget.initialUsername!.isNotEmpty) {
+      _currentUsername = widget.initialUsername!;
+      _currentUserIconUrl = widget.initialUserIconUrl;
+    } else {
+      _loadCurrentUserInfo();
+    }
+
+    // widget の cardPosition（左上座標）から cardCenter を復元
+    final cardSize = PostCardBackView.cardSizeForLayout(widget.selectedLayoutIndex);
+    final initialCenter = Offset(
+      widget.cardPosition.dx + cardSize.width * widget.cardScale / 2,
+      widget.cardPosition.dy + cardSize.height * widget.cardScale / 2,
+    );
+    _editState = PostEditState(
+      selectedLayoutIndex: widget.selectedLayoutIndex,
+      cardCenter: initialCenter,
+      cardScale: widget.cardScale,
+      cardRotation: widget.cardRotation,
+    );
 
     // 最初から裏面を表示するため value: 1.0 で初期化
     _flipController = AnimationController(
@@ -115,6 +166,14 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     _flipAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
     );
+
+    // 背景（下画面を隠す暗背景）- 画面表示と同時に不透明
+    _bgFadeController = AnimationController(
+      duration: const Duration(milliseconds: 1),
+      vsync: this,
+      value: 1.0, // 最初から不透明
+    );
+    _bgFadeAnimation = _bgFadeController;
 
     // 再生ボタンアニメーション（PostCardと同一仕様）
     _playButtonAnimController = AnimationController(
@@ -200,8 +259,10 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   @override
   void dispose() {
     _flipController.dispose();
+    _bgFadeController.dispose();
     _playButtonAnimController.dispose();
     _audioService.stop();
+    _editState.dispose();
     super.dispose();
   }
 
@@ -306,6 +367,97 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     }
   }
 
+  // ---- 歌詞カード ジェスチャー ----
+
+  bool _isInTwoFingerHitArea(Offset localFocalPoint) {
+    const frameW = 363.0;
+    const frameH = 484.0; // 写真エリアのみ（情報バー除く）
+    // 情報バー部分（484px以下）はピンチ対象外
+    if (localFocalPoint.dy > frameH) return false;
+    final center = Offset(frameW / 2, frameH / 2);
+    final radius = min(frameW, frameH) * 0.6 / 2;
+    return (localFocalPoint - center).distance <= radius;
+  }
+
+  void _onGestureScaleStart(ScaleStartDetails details) {
+    _startScale = _editState.cardScale;
+    _startRotation = _editState.cardRotation;
+    _isTwoFingerAccepted = false;
+    if (details.pointerCount >= 2 &&
+        _isInTwoFingerHitArea(details.localFocalPoint)) {
+      _isTwoFingerAccepted = true;
+      setState(() => _isTwoFingerGesture = true);
+    }
+  }
+
+  void _onGestureScaleUpdate(ScaleUpdateDetails details) {
+    double newScale = _editState.cardScale;
+    double newRotation = _editState.cardRotation;
+
+    if (details.pointerCount >= 2) {
+      if (!_isTwoFingerAccepted &&
+          _isInTwoFingerHitArea(details.localFocalPoint)) {
+        _isTwoFingerAccepted = true;
+        _startScale = _editState.cardScale;
+        _startRotation = _editState.cardRotation;
+      }
+      if (_isTwoFingerAccepted) {
+        newScale =
+            (_startScale * (1.0 + (details.scale - 1.0) * 0.6)).clamp(0.3, 3.0);
+        newRotation = _startRotation + details.rotation * 0.6;
+
+        double deg = (newRotation * 180 / pi) % 360;
+        if (deg < 0) deg += 360;
+        final newSnaps = <double>{};
+        for (final snapDeg in _snapDegrees) {
+          double diff = (deg - snapDeg).abs();
+          if (diff > 180) diff = 360 - diff;
+          if (diff <= _snapThreshold) newSnaps.add(snapDeg);
+        }
+        if (newSnaps.isNotEmpty &&
+            !newSnaps.every((a) => _prevSnapAngles.contains(a))) {
+          HapticFeedback.lightImpact();
+        }
+        _prevSnapAngles = newSnaps;
+        _activeSnapAngles = newSnaps;
+      }
+    }
+
+    final newCenter = Offset(
+      _editState.cardCenter.dx + details.focalPointDelta.dx * 0.7,
+      _editState.cardCenter.dy + details.focalPointDelta.dy * 0.7,
+    );
+
+    setState(() {
+      _editState.updateCardSilent(
+        center: newCenter,
+        scale: newScale,
+        rotation: newRotation,
+      );
+      _editState.notify();
+    });
+  }
+
+  void _onGestureScaleEnd(ScaleEndDetails details) {
+    const snapCenter = Offset(363.0 / 2, 484.0 * 0.45);
+    setState(() {
+      _isTwoFingerGesture = false;
+      _isTwoFingerAccepted = false;
+      _activeSnapAngles = {};
+      _prevSnapAngles = {};
+
+      if ((_editState.cardCenter - snapCenter).distance <= 40.0) {
+        _editState.updateCardSilent(
+          center: snapCenter,
+          scale: _editState.cardScale,
+          rotation: _editState.cardRotation,
+        );
+        HapticFeedback.lightImpact();
+      }
+      _editState.notify();
+    });
+  }
+
   /// 投稿を完了
   Future<void> _onPost() async {
     if (_isPosting) return;
@@ -358,6 +510,10 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         );
       }
 
+      // _editState から最終カード位置を計算
+      final cardSize = PostCardBackView.cardSizeForLayout(_editState.selectedLayoutIndex);
+      final cardPos = _editState.cardPositionForSize(cardSize);
+
       // 投稿を作成
       final postId = await _postService.createPost(
         userId: userId,
@@ -370,11 +526,11 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         imageScale: widget.imageScale,
         imageNaturalWidth: widget.imageNaturalSize?.width ?? 0,
         imageNaturalHeight: widget.imageNaturalSize?.height ?? 0,
-        selectedLayoutIndex: widget.selectedLayoutIndex,
-        cardPositionX: widget.cardPosition.dx,
-        cardPositionY: widget.cardPosition.dy,
-        cardScale: widget.cardScale,
-        cardRotation: widget.cardRotation,
+        selectedLayoutIndex: _editState.selectedLayoutIndex,
+        cardPositionX: cardPos.dx,
+        cardPositionY: cardPos.dy,
+        cardScale: _editState.cardScale,
+        cardRotation: _editState.cardRotation,
         isVibe: widget.isVibe,
         vibeTopicId: widget.vibeTopicId,
         vibeTopicTitle: widget.vibeTopicTitle,
@@ -382,6 +538,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         lyricsText: lyricsText,
         audioStartMs: widget.audioStartMs,
         audioDurationSec: widget.audioDurationSec,
+        university: _currentUniversity,
+        campusVibeParticipating: _campusVibeParticipating,
       );
 
       print('✅ 投稿を作成しました: $postId');
@@ -409,116 +567,169 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          // フリップ開始時に下画面（PostCardEditScreen）を隠す暗背景
+          FadeTransition(
+            opacity: _bgFadeAnimation,
+            child: const ColoredBox(
+              color: Color(0xFF121212),
+              child: SizedBox.expand(),
+            ),
+          ),
+          SafeArea(
         bottom: false,
         child: Column(
           children: [
             _buildHeader(),
             Expanded(
               child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Center(
-                    child: AnimatedBuilder(
-                      animation: _flipAnimation,
-                      builder: (context, child) {
-                        final angle = _flipAnimation.value * pi;
-                        final isFront = angle < pi / 2;
+                child: Builder(
+                  builder: (context) {
+                    final cardW = MediaQuery.of(context).size.width - 2;
+                    final cardH = cardW * (644.0 / 363.0);
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                      child: SizedBox(
+                        width: cardW,
+                        height: cardH,
+                        child: FittedBox(
+                          fit: BoxFit.fill,
+                          child: SizedBox(
+                            width: 363.0,
+                            height: 644.0,
+                            child: AnimatedBuilder(
+                              animation: _flipAnimation,
+                              builder: (context, child) {
+                                final angle = _flipAnimation.value * pi;
+                                final isFront = angle < pi / 2;
 
-                        return Transform(
-                          alignment: Alignment.center,
-                          transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.001)
-                            ..rotateY(angle),
-                          child: isFront
-                              ? PostCard(
-                                  post: _createDummyPost(),
-                                  audioService: _audioService,
-                                  showFrontOnly: true,
-                                  hideReactionCounts: true,
-                                  onCardTap: _flipCard,
-                                  preExtractedGradientStart:
-                                      _extractedGradientStart,
-                                  preExtractedGradientEnd:
-                                      _extractedGradientEnd,
-                                  externalPreviewUrl: _cachedPreviewUrl,
-                                )
-                              : _buildBackCard(),
-                        );
-                      },
-                    ),
-                  ),
+                                return Transform(
+                                  alignment: Alignment.center,
+                                  transform: Matrix4.identity()
+                                    ..setEntry(3, 2, 0.001)
+                                    ..rotateY(angle),
+                                  child: isFront
+                                      ? PostCard(
+                                          post: _createDummyPost(),
+                                          audioService: _audioService,
+                                          showFrontOnly: true,
+                                          hideReactionCounts: true,
+                                          onCardTap: _flipCard,
+                                          preExtractedGradientStart: _extractedGradientStart,
+                                          preExtractedGradientEnd: _extractedGradientEnd,
+                                          externalPreviewUrl: _cachedPreviewUrl,
+                                        )
+                                      : _buildBackCard(),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
+            if (CampusVibeUtils.shouldShow(_currentUniversity))
+              CampusVibeToggleBar(
+                university: _currentUniversity!,
+                participating: _campusVibeParticipating,
+                onChanged: (v) => setState(() => _campusVibeParticipating = v),
+              ),
           ],
         ),
+      ),
+        ],
       ),
     );
   }
 
-  /// ヘッダー
+/// ヘッダー
   Widget _buildHeader() {
-    return Container(
-      height: 62,
-      padding: const EdgeInsets.symmetric(horizontal: 19),
-      child: Row(
-        children: [
-          // 戻るボタン（くの字）- ダイアログなし
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: GestureDetector(
-                onTap: _isPosting ? null : () => Navigator.pop(context),
-                child: Icon(
-                  Icons.arrow_back_ios,
-                  color: _isPosting ? Colors.grey : Colors.white,
-                  size: 27,
-                ),
+    return Hero(
+      tag: 'post_flow_header',
+      flightShuttleBuilder: (_, __, ___, ____, _____) => const Material(
+        color: Colors.transparent,
+        child: SizedBox(
+          height: 50,
+          child: Center(
+            child: Text(
+              '新規投稿',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
           ),
-
-          // タイトル
-          const Text(
-            '新規投稿',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
-
-          // 投稿するボタン
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: _isPosting
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Color(0xFF5D8FFF),
-                        ),
-                      ),
-                    )
-                  : GestureDetector(
-                      onTap: _onPost,
-                      child: const Text(
-                        '投稿する',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF5D8FFF),
-                        ),
-                      ),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 19),
+          child: Row(
+            children: [
+              // 戻るボタン（くの字）- ダイアログなし
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: GestureDetector(
+                    onTap: _isPosting ? null : () => Navigator.pop(context),
+                    child: Icon(
+                      Icons.arrow_back_ios,
+                      color: _isPosting ? Colors.grey : Colors.white,
+                      size: 27,
                     ),
-            ),
+                  ),
+                ),
+              ),
+
+              // タイトル
+              const Text(
+                '新規投稿',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+
+              // 投稿するボタン
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _isPosting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Color(0xFF5D8FFF),
+                            ),
+                          ),
+                        )
+                      : GestureDetector(
+                          onTap: _onPost,
+                          child: const Text(
+                            '投稿する',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF5D8FFF),
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -533,6 +744,10 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       transform: Matrix4.identity()..rotateY(pi),
       child: GestureDetector(
         onTap: _flipCard,
+        onScaleStart: _onGestureScaleStart,
+        onScaleUpdate: _onGestureScaleUpdate,
+        onScaleEnd: _onGestureScaleEnd,
+        behavior: HitTestBehavior.opaque,
         child: Container(
           width: 363,
           height: cardHeight,
@@ -641,8 +856,19 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                       child: Container(color: const Color(0xFF121212)),
                     ),
 
-                  // 歌詞カード（固定表示）
+                  // 歌詞カード
                   _buildLyricsCardBack(),
+
+                  // スナップガイドライン（2本指ジェスチャー中のみ）
+                  if (_isTwoFingerGesture)
+                    Positioned.fill(
+                      child: RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _GuideLinePainter(
+                              activeSnapAngles: _activeSnapAngles),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -716,10 +942,10 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     );
   }
 
-  /// 歌詞カード（裏面・固定表示）
+  /// 歌詞カード（裏面・ジェスチャーで移動・拡縮・回転可能）
   Widget _buildLyricsCardBack() {
     final layoutType =
-        LyricsCardLayout.getLayoutType(widget.selectedLayoutIndex);
+        LyricsCardLayout.getLayoutType(_editState.selectedLayoutIndex);
 
     // 歌詞テキストを取得
     String? lyricsText;
@@ -731,14 +957,17 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       );
     }
 
+    final cardSize = PostCardBackView.cardSizeForLayout(_editState.selectedLayoutIndex);
+    final cardPos = _editState.cardPositionForSize(cardSize);
+
     return Positioned(
-      left: widget.cardPosition.dx,
-      top: widget.cardPosition.dy,
+      left: cardPos.dx,
+      top: cardPos.dy,
       child: Transform.scale(
-        scale: widget.cardScale,
+        scale: _editState.cardScale,
         alignment: Alignment.topLeft,
         child: Transform.rotate(
-          angle: widget.cardRotation,
+          angle: _editState.cardRotation,
           alignment: Alignment.center,
           child: LyricsCardLayout(
             layoutType: layoutType,
@@ -778,4 +1007,49 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       onAdd: () {},
     );
   }
+}
+
+class _GuideLinePainter extends CustomPainter {
+  final Set<double> activeSnapAngles;
+  _GuideLinePainter({required this.activeSnapAngles});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final len = sqrt(size.width * size.width + size.height * size.height);
+    final base = Paint()
+      ..color = Colors.white.withValues(alpha: 0.3)
+      ..strokeWidth = 1.0;
+
+    for (final deg in [0.0, 90.0]) {
+      final rad = deg * pi / 180;
+      canvas.drawLine(
+          Offset(cx - cos(rad) * len, cy - sin(rad) * len),
+          Offset(cx + cos(rad) * len, cy + sin(rad) * len),
+          base);
+    }
+
+    if (activeSnapAngles.isNotEmpty) {
+      final snap = Paint()
+        ..color = Colors.orange.withValues(alpha: 0.5)
+        ..strokeWidth = 1.0;
+      final drawn = <double>{};
+      for (final deg in activeSnapAngles) {
+        final norm = deg % 180;
+        if (drawn.contains(norm)) continue;
+        drawn.add(norm);
+        final rad = deg * pi / 180;
+        canvas.drawLine(
+            Offset(cx - cos(rad) * len, cy - sin(rad) * len),
+            Offset(cx + cos(rad) * len, cy + sin(rad) * len),
+            snap);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _GuideLinePainter old) =>
+      old.activeSnapAngles.length != activeSnapAngles.length ||
+      !old.activeSnapAngles.containsAll(activeSnapAngles);
 }

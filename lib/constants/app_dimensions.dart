@@ -20,4 +20,11 @@ class AppDimensions {
 
   // ボーダー幅
   static const double borderWidth = 1.5;
+
+  // 検索バー
+  static const double searchBarHeight = 36.0;
+  static const double searchBarBorderRadius = 11.0;
+  static const double searchBarLeadingGap = 13.0;
+  static const double searchBarIconSize = 22.0;
+  static const double searchBarFontSize = 13.0;
 }

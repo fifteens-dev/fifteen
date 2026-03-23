@@ -234,9 +234,12 @@ class NotificationService {
       };
 
       if (doc.exists) {
-        // 既存トークンを更新または追加
+        // 同じトークン文字列の既存エントリを除去してから追加（重複防止）
+        final currentTokens = List<dynamic>.from(doc.data()?['tokens'] ?? []);
+        final filteredTokens = currentTokens.where((t) => t['token'] != token).toList();
+        filteredTokens.add(tokenData);
         await docRef.update({
-          'tokens': FieldValue.arrayUnion([tokenData]),
+          'tokens': filteredTokens,
           'updatedAt': FieldValue.serverTimestamp(),
         });
       } else {
@@ -292,6 +295,7 @@ class NotificationService {
       await _firestore.collection('push_notification_requests').add({
         'recipientId': recipientId,
         'notificationType': notification.type.toString().split('.').last,
+        'senderId': notification.senderId,
         'senderUsername': notification.senderUsername,
         'message': notification.getMessage(),
         'postId': notification.postId,

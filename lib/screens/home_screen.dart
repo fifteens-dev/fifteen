@@ -14,19 +14,23 @@ import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/user_service.dart';
 import '../services/vibe_topic_service.dart';
+import '../utils/campus_vibe_utils.dart';
 import '../utils/current_user_helper.dart';
 import 'comment_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'music_selection_screen.dart';
+import 'post_photo_selection_screen.dart';
 import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
 import 'home/vibe_bar_section.dart';
 import 'home/home_bottom_nav.dart';
+import '../widgets/campus_vibe_card.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final List<PostModel>? initialPosts;
+  const HomeScreen({super.key, this.initialPosts});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -80,6 +84,9 @@ class _HomeScreenState extends State<HomeScreen>
   // 現在のユーザーのアイコンURL（楽観的UI用）
   String? _currentUserIconUrl;
 
+  // 現在のユーザーの大学名（Campus Vibe用）
+  String? _currentUniversity;
+
   // 現在のユーザーが今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
 
@@ -92,8 +99,15 @@ class _HomeScreenState extends State<HomeScreen>
     print('🏠 ホーム画面: initState()が呼ばれました');
     _vibeDataFuture = _loadVibeData();
     _loadRevealedPostIds();
-    _loadPosts();
     _loadCurrentUserIconUrl();
+    if (widget.initialPosts != null) {
+      // 事前取得済みデータがあればそのまま表示（リロード不要）
+      _cachedPosts = widget.initialPosts;
+      _prefetchBacksideImages(widget.initialPosts!);
+      _loadHasPostedToday();
+    } else {
+      _loadPosts();
+    }
   }
 
   /// 一度裏面を見た投稿IDをSharedPreferencesから読み込む
@@ -129,8 +143,25 @@ class _HomeScreenState extends State<HomeScreen>
     if (mounted) {
       setState(() {
         _currentUserIconUrl = userInfo.iconUrl;
+        _currentUniversity = userInfo.university;
       });
     }
+  }
+
+  /// プルダウン更新（投稿リスト＋ユーザー情報を両方再取得）
+  Future<void> _onRefresh() async {
+    await Future.wait([
+      _loadPosts(),
+      _loadCurrentUserIconUrl(),
+    ]);
+  }
+
+  /// 今日投稿済みかチェック（initialPosts使用時に個別呼び出し）
+  Future<void> _loadHasPostedToday() async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+    final result = await _postService.hasUserPostedToday(currentUser.uid);
+    if (mounted) setState(() => _hasPostedToday = result);
   }
 
   /// 投稿リストを読み込み（Firestoreから取得）
@@ -275,41 +306,52 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  /// スクロール時に再生中のカードが完全に画面外に出たら音楽を停止
+  /// スクロール時に各カードの可視性を確認し、
+  /// 最も多く見えているカード（50%超）以外の裏面カードを表面に戻す
   void _checkPlayingCardVisibility() {
-    if (!_homeAudioService.isPlaying && !_homeAudioService.isPaused) return;
-    // _playingPostId == null の場合、別画面の音楽が再生中の可能性があるため干渉しない
-    if (_playingPostId == null) return;
-
-    final key = _postCardKeys[_playingPostId];
-    if (key == null) {
-      _homeAudioService.stop();
-      _playingPostId = null;
-      return;
-    }
-
-    final currentContext = key.currentContext;
-    if (currentContext == null) {
-      _homeAudioService.stop();
-      _playingPostId = null;
-      return;
-    }
-
-    final renderBox = currentContext.findRenderObject() as RenderBox?;
-    if (renderBox == null || !renderBox.attached) {
-      _homeAudioService.stop();
-      _playingPostId = null;
-      return;
-    }
-
-    final position = renderBox.localToGlobal(Offset.zero);
-    final size = renderBox.size;
     final screenHeight = MediaQuery.of(context).size.height;
 
-    if (position.dy + size.height <= 0 || position.dy >= screenHeight) {
+    String? dominantPostId;
+    double bestVisibleFraction = 0;
+
+    // 全カードの可視割合を計算し、最も多く見えているカードを特定
+    for (final entry in _postCardKeys.entries) {
+      final postId = entry.key;
+      final key = entry.value;
+      final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+      if (renderBox == null || !renderBox.attached) continue;
+
+      final cardTop = renderBox.localToGlobal(Offset.zero).dy;
+      final cardHeight = renderBox.size.height;
+      final cardBottom = cardTop + cardHeight;
+
+      // 完全に画面外のカードはスキップ
+      if (cardBottom <= 0 || cardTop >= screenHeight) continue;
+
+      final visibleTop = cardTop.clamp(0.0, screenHeight.toDouble());
+      final visibleBottom = cardBottom.clamp(0.0, screenHeight.toDouble());
+      final visibleFraction = (visibleBottom - visibleTop) / cardHeight;
+
+      if (visibleFraction > 0.5 && visibleFraction > bestVisibleFraction) {
+        bestVisibleFraction = visibleFraction;
+        dominantPostId = postId;
+      }
+    }
+
+    // 再生中カードが画面外 or dominant以外になったら音楽を停止し、同時に表面に戻す
+    if (_playingPostId != null && _playingPostId != dominantPostId) {
       _homeAudioService.stop();
-      key.currentState?.flipToFront();
+      _postCardKeys[_playingPostId]?.currentState?.flipToFront();
       _playingPostId = null;
+    }
+
+    // dominant以外のカードをすべて表面に戻す（音楽停止と同タイミング）
+    for (final entry in _postCardKeys.entries) {
+      final postId = entry.key;
+      final key = entry.value;
+      if (postId != dominantPostId) {
+        key.currentState?.flipToFront();
+      }
     }
   }
 
@@ -328,9 +370,7 @@ class _HomeScreenState extends State<HomeScreen>
     Navigator.push(
       context,
       PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const MusicSelectionScreen(
-          initialCategoryType: 'vibe',
-        ),
+        pageBuilder: (_, __, ___) => const MusicSelectionScreen(initialCategoryType: 'vibe'),
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
       ),
@@ -339,7 +379,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _onItemTapped(int index) {
     if (index == 2) {
-      // 楽曲選択画面へ遷移（別画面として開く）
+      // 楽曲選択画面へ遷移（投稿フローの起点）
       _homeAudioService.stop();
       Navigator.push(
         context,
@@ -390,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen>
                     return false;
                   },
                   child: RefreshIndicator(
-                    onRefresh: _loadPosts,
+                    onRefresh: _onRefresh,
                     color: Colors.white,
                     backgroundColor: const Color(0xFF1E1E1E),
                     child: CustomScrollView(
@@ -409,6 +449,16 @@ class _HomeScreenState extends State<HomeScreen>
                           onPostTap: _navigateToVibePost,
                         ),
                       ),
+                      if (CampusVibeUtils.shouldShow(_currentUniversity))
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                            child: CampusVibeCard(
+                              university: _currentUniversity!,
+                              currentUserId: _auth.currentUser?.uid ?? '',
+                            ),
+                          ),
+                        ),
                       const SliverToBoxAdapter(
                         child: SizedBox(height: 9),
                       ),

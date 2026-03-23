@@ -195,39 +195,61 @@ class _LyricsCardSelectionScreenState
 
   /// ヘッダー
   Widget _buildHeader() {
-    return Container(
-      height: 62,
-      padding: const EdgeInsets.symmetric(horizontal: 19),
-      child: Row(
-        children: [
-          // 戻るボタン
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: const Icon(
-                  Icons.arrow_back_ios,
-                  color: Colors.white,
-                  size: 27,
-                ),
+    return Hero(
+      tag: 'post_flow_header',
+      flightShuttleBuilder: (_, __, ___, ____, _____) => const Material(
+        color: Colors.transparent,
+        child: SizedBox(
+          height: 50,
+          child: Center(
+            child: Text(
+              '新規投稿',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
           ),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 19),
+          child: Row(
+            children: [
+              // 戻るボタン
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: const Icon(
+                      Icons.arrow_back_ios,
+                      color: Colors.white,
+                      size: 27,
+                    ),
+                  ),
+                ),
+              ),
 
-          // タイトル
-          const Text(
-            '新規投稿',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
+              // タイトル
+              const Text(
+                '新規投稿',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+
+              // スペーサー
+              const Expanded(child: SizedBox()),
+            ],
           ),
-
-          // スペーサー
-          const Expanded(child: SizedBox()),
-        ],
+        ),
       ),
     );
   }

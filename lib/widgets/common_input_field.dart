@@ -13,6 +13,8 @@ class CommonInputField extends StatelessWidget {
   final int? maxLines;
   final int? maxLength;
   final String? Function(String?)? validator;
+  final bool autocorrect;
+  final bool enableSuggestions;
 
   const CommonInputField({
     super.key,
@@ -23,6 +25,8 @@ class CommonInputField extends StatelessWidget {
     this.maxLines = 1,
     this.maxLength,
     this.validator,
+    this.autocorrect = true,
+    this.enableSuggestions = true,
   });
 
   @override
@@ -41,6 +45,8 @@ class CommonInputField extends StatelessWidget {
         style: AppTextStyles.input,
         keyboardType: keyboardType,
         inputFormatters: inputFormatters,
+        autocorrect: autocorrect,
+        enableSuggestions: enableSuggestions,
         maxLines: maxLines,
         maxLength: maxLength,
         validator: validator,

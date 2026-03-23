@@ -84,11 +84,12 @@ class InviteCodeService {
           'lastUsedAt': FieldValue.serverTimestamp(),
         });
       } else {
-        // 従来方式：使用済みフラグ
+        // 従来方式：使用済みフラグ + usedCountも記録（管理パネル用）
         await docRef.update({
           'isUsed': true,
           'usedBy': userId,
           'usedAt': FieldValue.serverTimestamp(),
+          'usedCount': FieldValue.increment(1),
         });
       }
     } catch (e) {

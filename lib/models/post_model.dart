@@ -37,6 +37,8 @@ class PostModel {
   final String? lyricsText; // 歌詞テキスト（歌詞カード表示用）
   final int audioStartMs; // 音楽再生開始位置（ミリ秒）
   final int audioDurationSec; // 音楽再生時間（秒）
+  final String? university; // 投稿者の大学名（Campus Vibe用）
+  final bool campusVibeParticipating; // Campus Vibe参加フラグ（デフォルトtrue）
 
   PostModel({
     required this.postId,
@@ -72,6 +74,8 @@ class PostModel {
     this.lyricsText,
     this.audioStartMs = 0,
     this.audioDurationSec = 15,
+    this.university,
+    this.campusVibeParticipating = true,
   });
 
   // Firestoreドキュメントから作成
@@ -114,6 +118,8 @@ class PostModel {
       lyricsText: data['lyricsText'],
       audioStartMs: data['audioStartMs'] ?? 0,
       audioDurationSec: data['audioDurationSec'] ?? 15,
+      university: data['university'],
+      campusVibeParticipating: data['campusVibeParticipating'] ?? true,
     );
   }
 
@@ -152,6 +158,8 @@ class PostModel {
       'lyricsText': lyricsText,
       'audioStartMs': audioStartMs,
       'audioDurationSec': audioDurationSec,
+      'university': university,
+      'campusVibeParticipating': campusVibeParticipating,
     };
   }
 
@@ -190,6 +198,8 @@ class PostModel {
     String? lyricsText,
     int? audioStartMs,
     int? audioDurationSec,
+    String? university,
+    bool? campusVibeParticipating,
   }) {
     return PostModel(
       postId: postId ?? this.postId,
@@ -225,6 +235,8 @@ class PostModel {
       lyricsText: lyricsText ?? this.lyricsText,
       audioStartMs: audioStartMs ?? this.audioStartMs,
       audioDurationSec: audioDurationSec ?? this.audioDurationSec,
+      university: university ?? this.university,
+      campusVibeParticipating: campusVibeParticipating ?? this.campusVibeParticipating,
     );
   }
 

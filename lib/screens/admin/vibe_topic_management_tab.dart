@@ -117,6 +117,33 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
     }
   }
 
+  Future<void> _activateTopic(VibeTopicModel topic) async {
+    try {
+      await _adminService.updateVibeTopic(
+        topicId: topic.topicId,
+        status: VibeTopicStatus.active,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('「${topic.title}」をアクティブにしました'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadTopics();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('更新に失敗しました: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _deleteTopic(VibeTopicModel topic) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -556,6 +583,13 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // アーカイブ済みまたは投票中 → アクティブにするボタン
+                if (topic.status != VibeTopicStatus.active)
+                  IconButton(
+                    icon: const Icon(Icons.play_circle_outline, color: Color(0xFF5D8FFF)),
+                    tooltip: 'アクティブにする',
+                    onPressed: () => _activateTopic(topic),
+                  ),
                 IconButton(
                   icon: const Icon(Icons.edit, color: Colors.grey),
                   onPressed: () => _editTopic(topic),

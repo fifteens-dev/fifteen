@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
@@ -133,7 +134,7 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
           _isLoading = false;
         });
         // プロフィール設定画面へ遷移（名前とユーザーネームを渡す）
-        Navigator.pushReplacementNamed(
+        Navigator.pushNamed(
           context,
           '/profile-setup',
           arguments: {
@@ -186,8 +187,13 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
               const SizedBox(height: AppDimensions.paddingLarge),
               CommonInputField(
                 controller: _usernameController,
-                hintText: 'ユーザーネーム',
-                keyboardType: TextInputType.text,
+                hintText: 'ユーザーネーム（英数字・アンダースコアのみ）',
+                keyboardType: TextInputType.visiblePassword,
+                autocorrect: false,
+                enableSuggestions: false,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_]')),
+                ],
               ),
               const SizedBox(height: AppDimensions.paddingLarge),
               PrimaryButton(

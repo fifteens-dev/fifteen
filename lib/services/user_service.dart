@@ -128,6 +128,7 @@ class UserService {
     String? username,
     String? profileImageUrl,
     String? bio,
+    String? university,
   }) async {
     try {
       final userDoc = _firestore.collection(_usersCollection).doc(uid);
@@ -140,8 +141,9 @@ class UserService {
       if (username != null) updates['username'] = username;
       if (profileImageUrl != null) updates['profileImageUrl'] = profileImageUrl;
       if (bio != null) updates['bio'] = bio;
+      if (university != null) updates['university'] = university;
 
-      await userDoc.update(updates);
+      await userDoc.set(updates, SetOptions(merge: true));
     } catch (e) {
       if (kDebugMode) {
         print('Error updating user: $e');
@@ -489,6 +491,10 @@ class UserService {
       final fcmDoc = _firestore.collection('user_fcm_tokens').doc(userId);
       batch.delete(fcmDoc);
 
+      // 投稿通知状態を削除
+      final postNotifStateDoc = _firestore.collection('post_notification_states').doc(userId);
+      batch.delete(postNotifStateDoc);
+
       await batch.commit();
 
       // 投稿を削除（件数が多い可能性があるため個別に処理）
@@ -497,6 +503,25 @@ class UserService {
           .where('userId', isEqualTo: userId)
           .get();
       for (final doc in postsSnapshot.docs) {
+        await doc.reference.delete();
+      }
+
+      // 受信した通知を削除
+      final notificationsSnapshot = await _firestore
+          .collection('notifications')
+          .where('recipientId', isEqualTo: userId)
+          .get();
+      for (final doc in notificationsSnapshot.docs) {
+        await doc.reference.delete();
+      }
+
+      // 未処理のプッシュ通知リクエストを削除
+      final pnrSnapshot = await _firestore
+          .collection('push_notification_requests')
+          .where('recipientId', isEqualTo: userId)
+          .where('processed', isEqualTo: false)
+          .get();
+      for (final doc in pnrSnapshot.docs) {
         await doc.reference.delete();
       }
     } catch (e) {

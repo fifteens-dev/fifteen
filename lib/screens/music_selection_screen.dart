@@ -17,14 +17,18 @@ import '../utils/color_extractor.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import 'post_preview_screen.dart';
+import 'home_screen.dart';
+import '../widgets/common/common.dart';
 
 /// 投稿用楽曲選択画面
 class MusicSelectionScreen extends StatefulWidget {
   final String? initialCategoryType; // 'vibe' or 'emotion' — 事前選択用
+  final bool isPickerMode; // true = 選択後にpopで結果を返す（PostCardEditScreenから呼ばれる場合）
 
   const MusicSelectionScreen({
     super.key,
     this.initialCategoryType,
+    this.isPickerMode = false,
   });
 
   @override
@@ -112,8 +116,8 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     _selectedCategoryType = widget.initialCategoryType ?? 'vibe';
     _searchFocusNode.addListener(_onSearchFocusChanged);
     _loadRecentMusicSearches();
-    _loadInitialTracks();
     _loadTodaysTopic();
+    _initializeTabAndTracks();
   }
 
   @override
@@ -180,6 +184,20 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     );
 
     if (mounted) setState(() {});
+  }
+
+  /// 起動時：連携済みなら「最近聞いた曲」タブを表示＋先頭曲をプリセレクト
+  /// 未連携なら「おすすめ」タブを表示（従来動作）
+  Future<void> _initializeTabAndTracks() async {
+    final isAuthenticated = await _musicServiceManager.isAuthenticated();
+    if (!mounted) return;
+
+    if (isAuthenticated) {
+      setState(() => _selectedTab = 0);
+      await _loadRecentlyPlayedTracks();
+    } else {
+      await _loadInitialTracks();
+    }
   }
 
   /// 最近聞いた曲を読み込み
@@ -450,11 +468,30 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       previewUrl = result?['previewUrl'];
     }
 
-    if (previewUrl != null && previewUrl.isNotEmpty && mounted) {
+    // 非同期処理中に別の曲が選択された場合は再生しない（レースコンディション対策）
+    if (!mounted || _selectedTrack?.trackId != track.trackId) return;
+
+    if (previewUrl != null && previewUrl.isNotEmpty) {
+      // iTunesから取得したURLを_selectedTrackに反映（PostPreviewScreenに正しいURLを引き渡すため）
+      if ((track.previewUrl == null || track.previewUrl!.isEmpty) && mounted) {
+        setState(() {
+          _selectedTrack = track.copyWith(previewUrl: previewUrl);
+        });
+      }
       try {
         await _audioService.playPreview(previewUrl, durationSeconds: 15);
       } catch (e) {
         print('Preview playback error: $e');
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('音楽が見つかりません'),
+            backgroundColor: Color(0xFF333333),
+            duration: Duration(seconds: 2),
+          ),
+        );
       }
     }
   }
@@ -468,6 +505,13 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
           backgroundColor: Color(0xFFE53935),
         ),
       );
+      return;
+    }
+
+    // ピッカーモード: 選択されたトラックをpopで返す
+    if (widget.isPickerMode) {
+      _audioService.stop();
+      if (mounted) Navigator.pop(context, _selectedTrack);
       return;
     }
 
@@ -515,17 +559,23 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     if (mounted) {
       Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (context) => PostPreviewScreen(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => PostPreviewScreen(
             track: _selectedTrack!,
-            lyricsData: null, // nullを渡す
-            lyricsFuture: lyricsFuture, // Futureを渡す
+            lyricsData: null,
+            lyricsFuture: lyricsFuture,
             isVibe: _selectedCategoryType == 'vibe',
             vibeTopicId: _todaysTopic?.topicId,
             vibeTopicTitle: _todaysTopic?.title,
             preExtractedGradientStart: gradientStart,
             preExtractedGradientEnd: gradientEnd,
           ),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final tween = Tween(begin: const Offset(0, 1), end: Offset.zero)
+                .chain(CurveTween(curve: Curves.easeOutCubic));
+            return SlideTransition(position: animation.drive(tween), child: child);
+          },
+          transitionDuration: const Duration(milliseconds: 350),
         ),
       );
     }
@@ -554,26 +604,30 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
               Expanded(
                 child: CustomScrollView(
                   slivers: [
-                    // カテゴリーボタン（スクロールで消える）
-                    SliverToBoxAdapter(child: _buildCategoryButtons()),
-                    // セクションヘッダー（スクロールで消える）
-                    SliverToBoxAdapter(child: _buildSectionHeader()),
-                    // おすすめ楽曲（スクロールで消える）
-                    SliverToBoxAdapter(child: _buildRecommendedSection()),
-                    // タブバー＋区切り線（検索バー直下にピン留め）
-                    SliverPersistentHeader(
-                      pinned: true,
-                      delegate: _TabBarSliverDelegate(
-                        height: 53,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildTabBar(),
-                            Container(height: 1, color: const Color(0xFF2D2D2D)),
-                          ],
+                    // 検索中はカテゴリー・ヘッダー・おすすめを非表示
+                    if (!_isSearchFocused) ...[
+                      // カテゴリーボタン（スクロールで消える）
+                      SliverToBoxAdapter(child: _buildCategoryButtons()),
+                      // セクションヘッダー（スクロールで消える）
+                      SliverToBoxAdapter(child: _buildSectionHeader()),
+                      // おすすめ楽曲（スクロールで消える）
+                      SliverToBoxAdapter(child: _buildRecommendedSection()),
+                    ],
+                    // タブバー＋区切り線（検索中は非表示）
+                    if (!_isSearchFocused)
+                      SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _TabBarSliverDelegate(
+                          height: 53,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildTabBar(),
+                              Container(height: 1, color: const Color(0xFF2D2D2D)),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
                     // 楽曲リスト or グリッド
                     if (_isLoading)
                       const SliverFillRemaining(
@@ -611,64 +665,97 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// ヘッダー
   Widget _buildHeader() {
-    return Container(
-      height: 62,
-      padding: const EdgeInsets.symmetric(horizontal: 19),
-      child: Row(
-        children: [
-          // 戻るボタン
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => Navigator.pop(context),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Icon(
-                    Icons.close,
-                    color: Colors.white,
-                    size: 27,
-                  ),
-                ),
+    return Hero(
+      tag: 'post_flow_header',
+      flightShuttleBuilder: (_, __, ___, ____, _____) => const Material(
+        color: Colors.transparent,
+        child: SizedBox(
+          height: 50,
+          child: Center(
+            child: Text(
+              '新規投稿',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
           ),
-
-          // タイトル
-          const Text(
-            '新規投稿',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
-
-          // 次へボタン
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _selectedTrack != null ? _onNext : null,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    '次へ',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: _selectedTrack != null
-                          ? const Color(0xFF5D8FFF)
-                          : const Color(0xFF5B5B5B),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 19),
+          child: Row(
+            children: [
+              // 戻るボタン
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      _audioService.stop();
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        PageRouteBuilder(
+                          pageBuilder: (_, __, ___) => const HomeScreen(),
+                          transitionDuration: Duration.zero,
+                          reverseTransitionDuration: Duration.zero,
+                        ),
+                        (route) => false,
+                      );
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 27,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+
+              // タイトル
+              const Text(
+                '新規投稿',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+
+              // 次へボタン
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _selectedTrack != null ? _onNext : null,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        '次へ',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _selectedTrack != null
+                              ? const Color(0xFF5D8FFF)
+                              : const Color(0xFF5B5B5B),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -685,70 +772,12 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// 検索バー
   Widget _buildSearchBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFF2D2D2D),
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: Row(
-                children: [
-                  const SizedBox(width: 13),
-                  const Icon(
-                    Icons.search,
-                    color: Color(0xFF9F9F9F),
-                    size: 22,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      focusNode: _searchFocusNode,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.white,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: '検索',
-                        hintStyle: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF9F9F9F),
-                        ),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 8),
-                      ),
-                      onChanged: (value) {
-                        _searchTracks(value);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_isSearchFocused)
-            GestureDetector(
-              onTap: _onSearchCancel,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 10),
-                child: Text(
-                  'キャンセル',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w400,
-                    color: Color(0xFF99999B),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+    return AppSearchBar(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      isFocused: _isSearchFocused,
+      onCancel: _onSearchCancel,
+      onChanged: _searchTracks,
     );
   }
 

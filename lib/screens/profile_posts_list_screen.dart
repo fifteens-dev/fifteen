@@ -113,9 +113,14 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
     }
   }
 
-  /// スクロール時に各カードの可視性を確認し、画面外に出たら裏面に戻す＆音楽停止
+  /// スクロール時に各カードの可視性を確認し、
+  /// 半分以上見えているカードの音楽を再生・画面外に出たら裏面に戻す
   void _checkCardVisibility() {
+    if (!mounted) return;
     final screenHeight = MediaQuery.of(context).size.height;
+
+    int? newPlayingIndex;
+    double bestVisibleFraction = 0;
 
     for (final entry in _cardKeys.entries) {
       final index = entry.key;
@@ -124,16 +129,41 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
       if (renderBox == null || !renderBox.attached) continue;
 
       final position = renderBox.localToGlobal(Offset.zero);
-      final size = renderBox.size;
-      final isOffScreen = position.dy + size.height <= 0 || position.dy >= screenHeight;
+      final cardHeight = renderBox.size.height;
+      final cardTop = position.dy;
+      final cardBottom = cardTop + cardHeight;
 
+      final isOffScreen = cardBottom <= 0 || cardTop >= screenHeight;
       if (isOffScreen) {
         key.currentState?.flipToBack();
         if (_playingIndex == index) {
           _audioService.stop();
-          _playingIndex = null;
+          setState(() => _playingIndex = null);
         }
+        continue;
       }
+
+      // 画面内に見えている割合を計算
+      final visibleTop = cardTop.clamp(0.0, screenHeight.toDouble());
+      final visibleBottom = cardBottom.clamp(0.0, screenHeight.toDouble());
+      final visibleFraction = (visibleBottom - visibleTop) / cardHeight;
+
+      // 半分以上見えているカードのうち最も多く見えているものを再生候補にする
+      if (visibleFraction > 0.5 && visibleFraction > bestVisibleFraction) {
+        bestVisibleFraction = visibleFraction;
+        newPlayingIndex = index;
+      }
+    }
+
+    // 再生すべきカードが変わった場合のみ切り替え
+    if (newPlayingIndex != null && newPlayingIndex != _playingIndex) {
+      // 前のカードを裏面に戻す
+      if (_playingIndex != null) {
+        _cardKeys[_playingIndex!]?.currentState?.flipToBack();
+      }
+      _audioService.stop();
+      setState(() => _playingIndex = newPlayingIndex);
+      _playMusicForPage(newPlayingIndex!);
     }
   }
 
@@ -272,7 +302,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                       audioManagedExternally: true,
                       externalPreviewUrl: _previewUrlCache[index],
                       disableInteractions: widget.disableInteractions,
-                      persistentPlayButton: true,
+                      persistentPlayButton: false,
                       onPlayStarted: () => setState(() { _playingIndex = index; }),
                       isSaved: _savedPostIds.contains(post.postId),
                       onAdd: () => _handleSave(post),

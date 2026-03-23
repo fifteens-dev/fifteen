@@ -407,7 +407,7 @@ class PostCardState extends State<PostCard>
     // 裏面無効の場合、表面→裏面への反転をブロック（カチカチシェイクで拒否を表現）
     // 音楽は再生する
     if (!widget.backSideEnabled && _showFront) {
-      HapticFeedback.lightImpact();
+      HapticFeedback.heavyImpact();
       _rejectController.forward(from: 0.0);
       RestrictionNotification.show(context, message: '投稿して表示\nあなたのVibeをシェアして\n友達の投稿をみよう');
       if (!widget.audioManagedExternally) {

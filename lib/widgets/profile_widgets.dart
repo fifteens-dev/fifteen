@@ -97,6 +97,7 @@ class ProfileStatItem extends StatelessWidget {
           style: const TextStyle(
             color: Color(0xFF919191),
             fontSize: 12,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],

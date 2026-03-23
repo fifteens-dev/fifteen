@@ -1,11 +1,15 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
+import '../../constants/app_constants.dart';
 import '../../services/admin_service.dart';
 import 'broadcast_notification_tab.dart';
 import 'vibe_topic_management_tab.dart';
 import 'vibe_posts_viewer_tab.dart';
 import 'dev_tools_tab.dart';
 import 'invitation_stats_tab.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'reports_tab.dart';
 
 /// 管理者画面
@@ -27,7 +31,7 @@ class _AdminScreenState extends State<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 7, vsync: this);
     _checkAdminStatus();
   }
 
@@ -125,6 +129,10 @@ class _AdminScreenState extends State<AdminScreen>
               icon: Icon(Icons.flag_outlined),
               text: '通報',
             ),
+            Tab(
+              icon: Icon(Icons.verified_user),
+              text: '公式アカウント',
+            ),
           ],
         ),
       ),
@@ -137,6 +145,178 @@ class _AdminScreenState extends State<AdminScreen>
           DevToolsTab(),
           InvitationStatsTab(),
           ReportsTab(),
+          _OfficialAccountTab(),
+        ],
+      ),
+    );
+  }
+}
+
+/// 公式アカウントタブ
+class _OfficialAccountTab extends StatefulWidget {
+  const _OfficialAccountTab();
+
+  @override
+  State<_OfficialAccountTab> createState() => _OfficialAccountTabState();
+}
+
+class _OfficialAccountTabState extends State<_OfficialAccountTab> {
+  bool _isLoading = false;
+
+  Future<void> _loginAsOfficial() async {
+    final email = dotenv.env['OFFICIAL_ACCOUNT_EMAIL'] ?? '';
+    final password = dotenv.env['OFFICIAL_ACCOUNT_PASSWORD'] ?? '';
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('.env に OFFICIAL_ACCOUNT_EMAIL と OFFICIAL_ACCOUNT_PASSWORD を設定してください'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final uid = credential.user!.uid;
+
+      // Firestoreドキュメントをupsert（全フィールドを確実にセット）
+      final docRef = FirebaseFirestore.instance.collection('users').doc(uid);
+      final existing = await docRef.get();
+      await docRef.set({
+        'uid': uid,
+        'phoneNumber': '',
+        'name': '15s',
+        'username': '15s_official',
+        'bio': '15s公式アカウント',
+        'profileImageUrl': existing.data()?['profileImageUrl'],
+        'isAdmin': true,
+        'followers': existing.data()?['followers'] ?? [],
+        'following': existing.data()?['following'] ?? [],
+        'savedPosts': existing.data()?['savedPosts'] ?? [],
+        'inviteCode': existing.data()?['inviteCode'],
+        'createdAt': existing.data()?['createdAt'] ?? FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message ?? 'ログインに失敗しました'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final isLoggedInAsOfficial =
+        currentUser?.uid == AppConstants.officialAccountUid;
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 現在のログイン状態
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E2E),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isLoggedInAsOfficial
+                    ? Colors.green.withValues(alpha: 0.5)
+                    : Colors.white12,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isLoggedInAsOfficial ? Icons.verified : Icons.account_circle_outlined,
+                  color: isLoggedInAsOfficial ? Colors.green : Colors.white54,
+                  size: 22,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isLoggedInAsOfficial ? '公式アカウントでログイン中' : '通常アカウントでログイン中',
+                        style: TextStyle(
+                          color: isLoggedInAsOfficial ? Colors.green : Colors.white70,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        currentUser?.email ?? currentUser?.phoneNumber ?? currentUser?.uid ?? '',
+                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // ワンタップログインボタン
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isLoggedInAsOfficial
+                    ? const Color(0xFF2D2D2D)
+                    : const Color(0xFF5D8FFF),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: _isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : Icon(
+                      isLoggedInAsOfficial ? Icons.check_circle : Icons.login,
+                      color: Colors.white,
+                    ),
+              label: Text(
+                isLoggedInAsOfficial ? '公式アカウントでログイン済み' : '公式アカウントに切り替え',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              onPressed: isLoggedInAsOfficial || _isLoading ? null : _loginAsOfficial,
+            ),
+          ),
+
+          const SizedBox(height: 16),
+          const Text(
+            '公式アカウントでログインすると 15s 公式として投稿・コメントができます。\n通常アカウントへ戻るにはログアウトして再ログインしてください。',
+            style: TextStyle(color: Colors.white38, fontSize: 12),
+          ),
         ],
       ),
     );

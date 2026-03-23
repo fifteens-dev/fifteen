@@ -20,6 +20,7 @@ class _NotificationSettingsScreenState
   bool _vibeNotification = true;
   bool _likeCommentNotification = true;
   bool _followNotification = true;
+  bool _postNotification = true;
   bool _officialNotification = true;
 
   // ローディング状態
@@ -32,18 +33,62 @@ class _NotificationSettingsScreenState
     _loadSettings();
   }
 
-  /// 設定を読み込む
+  /// 設定を読み込む（SharedPreferences → Firestore の順で上書き）
   Future<void> _loadSettings() async {
-    final settings = await _settingsService.getAllNotificationSettings();
+    // まずSharedPreferencesから即時表示
+    final localSettings = await _settingsService.getAllNotificationSettings();
     if (mounted) {
       setState(() {
-        _vibeNotification = settings['vibeNotification'] ?? true;
-        _likeCommentNotification = settings['likeCommentNotification'] ?? true;
-        _followNotification = settings['followNotification'] ?? true;
-        _officialNotification = settings['officialNotification'] ?? true;
-        _isLoading = false;
+        _vibeNotification = localSettings['vibeNotification'] ?? true;
+        _likeCommentNotification = localSettings['likeCommentNotification'] ?? true;
+        _followNotification = localSettings['followNotification'] ?? true;
+        _postNotification = localSettings['postNotification'] ?? true;
+        _officialNotification = localSettings['officialNotification'] ?? true;
       });
     }
+
+    // Firestoreから読み込んで上書き（機種変更時の同期）
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId != null) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .get();
+        if (doc.exists && mounted) {
+          final data = doc.data()!;
+          setState(() {
+            if (data.containsKey('notifVibeEnabled')) {
+              _vibeNotification = data['notifVibeEnabled'] as bool;
+            }
+            if (data.containsKey('notifLikeCommentEnabled')) {
+              _likeCommentNotification = data['notifLikeCommentEnabled'] as bool;
+            }
+            if (data.containsKey('notifFollowEnabled')) {
+              _followNotification = data['notifFollowEnabled'] as bool;
+            }
+            if (data.containsKey('notifPostEnabled')) {
+              _postNotification = data['notifPostEnabled'] as bool;
+            }
+            if (data.containsKey('notifOfficialEnabled')) {
+              _officialNotification = data['notifOfficialEnabled'] as bool;
+            }
+          });
+          // Firestoreの値でSharedPreferencesも同期
+          await _settingsService.saveAllNotificationSettings(
+            vibeNotification: _vibeNotification,
+            likeCommentNotification: _likeCommentNotification,
+            followNotification: _followNotification,
+            postNotification: _postNotification,
+            officialNotification: _officialNotification,
+          );
+        }
+      } catch (_) {
+        // Firestore読み込み失敗時はSharedPreferencesの値を使用
+      }
+    }
+
+    if (mounted) setState(() => _isLoading = false);
   }
 
   /// 設定を保存する
@@ -55,14 +100,18 @@ class _NotificationSettingsScreenState
       vibeNotification: _vibeNotification,
       likeCommentNotification: _likeCommentNotification,
       followNotification: _followNotification,
+      postNotification: _postNotification,
       officialNotification: _officialNotification,
     );
 
-    // Firestoreにも保存（Cloud Functionが参照できるように）
+    // Firestoreにも全5項目保存（Cloud Functionが参照 + 機種変更時の同期用）
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId != null) {
       await FirebaseFirestore.instance.collection('users').doc(userId).update({
         'notifVibeEnabled': _vibeNotification,
+        'notifLikeCommentEnabled': _likeCommentNotification,
+        'notifFollowEnabled': _followNotification,
+        'notifPostEnabled': _postNotification,
         'notifOfficialEnabled': _officialNotification,
       });
     }
@@ -205,6 +254,16 @@ class _NotificationSettingsScreenState
             },
           ),
           _buildDivider(),
+          // 投稿通知
+          _buildNotificationItem(
+            icon: _buildPostIcon(),
+            title: '投稿通知',
+            value: _postNotification,
+            onChanged: (value) {
+              setState(() => _postNotification = value);
+            },
+          ),
+          _buildDivider(),
           // 運営からのお知らせ通知
           _buildNotificationItem(
             icon: const Icon(
@@ -262,6 +321,15 @@ class _NotificationSettingsScreenState
     );
   }
 
+  /// 投稿通知アイコン
+  Widget _buildPostIcon() {
+    return const Icon(
+      Icons.music_note,
+      color: Colors.white,
+      size: 20,
+    );
+  }
+
   /// 通知項目
   Widget _buildNotificationItem({
     required Widget icon,
@@ -294,7 +362,7 @@ class _NotificationSettingsScreenState
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: Colors.white,
+            activeThumbColor: Colors.white,
             activeTrackColor: const Color(0xFF34C759),
             inactiveThumbColor: Colors.white,
             inactiveTrackColor: Colors.grey[600],

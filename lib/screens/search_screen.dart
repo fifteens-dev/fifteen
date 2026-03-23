@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
 import '../models/user_model.dart';
 import '../widgets/profile_widgets.dart';
+import '../widgets/common/common.dart';
 import 'other_user_profile_screen.dart';
 
 /// 検索画面
@@ -74,13 +75,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _copyInviteCode() {
     if (_inviteCode == null) return;
     Clipboard.setData(ClipboardData(text: _inviteCode!));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('招待コードをコピーしました'),
-        duration: Duration(seconds: 2),
-        backgroundColor: Color(0xFF4CAF50),
-      ),
-    );
+    showCopyBanner(context);
   }
 
   @override
@@ -258,15 +253,18 @@ class _SearchScreenState extends State<SearchScreen> {
   /// ヘッダー
   Widget _buildHeader() {
     return Container(
-      height: 50,
+      height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: const Center(
-        child: Text(
-          '15s',
-          style: TextStyle(
-            fontSize: 32,
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
+      child: Center(
+        child: Transform.translate(
+          offset: const Offset(0, -1),
+          child: const Text(
+            '15s',
+            style: TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
           ),
         ),
       ),
@@ -275,72 +273,16 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// 検索バー
   Widget _buildSearchBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        children: [
-          // 検索フィールド
-          Expanded(
-            child: Container(
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFF2D2D2D),
-                borderRadius: BorderRadius.circular(5),
-              ),
-              child: Row(
-                children: [
-                  const SizedBox(width: 11),
-                  const Icon(
-                    Icons.search,
-                    color: Color(0xFF9F9F9F),
-                    size: 22,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      focusNode: _searchFocusNode,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.white,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: '検索',
-                        hintStyle: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF9F9F9F),
-                        ),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 6),
-                      ),
-                      onChanged: (value) {
-                        _onSearchChanged(value);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // キャンセルボタン（フォーカス時のみ表示）
-          if (_isFocused)
-            GestureDetector(
-              onTap: _onCancel,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 10, right: 4),
-                child: Text(
-                  'キャンセル',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w400,
-                    color: Color(0xFF99999B),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+    return AppSearchBar(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      isFocused: _isFocused,
+      onCancel: _onCancel,
+      onChanged: (value) {
+        _onSearchChanged(value);
+        setState(() {});
+      },
+      showClearButton: true,
     );
   }
 

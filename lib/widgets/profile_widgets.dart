@@ -55,7 +55,6 @@ class ProfileImage extends StatelessWidget {
         width: size,
         height: size,
         memCacheWidth: (size * 2).toInt(),
-        memCacheHeight: (size * 2).toInt(),
         fit: BoxFit.cover,
         errorWidget: (context, url, error) {
           return Icon(

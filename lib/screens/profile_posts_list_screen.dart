@@ -8,6 +8,7 @@ import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../services/user_service.dart';
 import '../utils/current_user_helper.dart';
+import 'card_share_screen.dart';
 
 /// プロフィールからの投稿一覧画面（インスタ式縦スクロール）
 /// 音楽制御はこの画面が一括管理（PostCardのフリップに依存しない）
@@ -52,7 +53,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
   final Map<int, String?> _previewUrlCache = {};
   int? _requestedPageIndex;
 
-  static const double _cardItemHeight = 660.0; // 644 card + 16 bottom padding
+  static const double _cardItemHeight = 668.0; // 644 card + 24 bottom padding
 
   @override
   void initState() {
@@ -290,7 +291,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                 final post = _posts[index];
                 _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.only(bottom: 24),
                   child: Center(
                     child: PostCard(
                       key: _cardKeys[index],
@@ -309,6 +310,17 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                       onDelete: (_currentUserId != null && post.userId == _currentUserId)
                           ? () => _handleDelete(post)
                           : null,
+                      onShare: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CardShareScreen(
+                            post: post,
+                            currentUserId: _currentUserId,
+                            currentUserIconUrl: _currentUserIconUrl,
+                            isSaved: _savedPostIds.contains(post.postId),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 );

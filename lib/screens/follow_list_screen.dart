@@ -280,8 +280,8 @@ class _FollowListScreenState extends State<FollowListScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // フォロワー欄: username + フォローバックバッジ
-                                  if (widget.showFollowers)
+                                  // フォロワー欄(自分のページ): username + フォローバックバッジ
+                                  if (widget.showFollowers && isOwnPage)
                                     Row(
                                       children: [
                                         Flexible(
@@ -349,7 +349,7 @@ class _FollowListScreenState extends State<FollowListScreen> {
                               if (isOwnPage && user.uid != _currentUserId)
                                 _buildRemoveButton(user.uid)
                               else
-                                const SizedBox.shrink()
+                                _buildFollowButton(user.uid)
                             else
                               _buildFollowButton(user.uid),
                           ],

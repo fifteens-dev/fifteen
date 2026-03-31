@@ -417,7 +417,7 @@ class PostService {
         if (!isLiked) {
           postOwnerId = data['userId'];
           final trackData = data['track'] as Map<String, dynamic>?;
-          albumArtUrl = trackData?['albumArtUrl'];
+          albumArtUrl = trackData?['albumImageUrl'];
           trackName = trackData?['trackName'];
         }
 

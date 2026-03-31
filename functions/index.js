@@ -5,6 +5,11 @@ const admin = require('firebase-admin');
 
 admin.initializeApp();
 
+/** 投稿通知のタイトルをランダムに選ぶ */
+function randomPostTitle() {
+  return Math.random() < 0.5 ? 'もう見た？' : '気になる？';
+}
+
 /**
  * プッシュ通知送信Cloud Function
  *
@@ -52,10 +57,20 @@ exports.sendPushNotification = onDocumentCreated(
 
       const senderId = request.senderId || '';
 
+      // 通知タイプ別タイトル
+      let notifTitle;
+      if (notificationType === 'post') {
+        notifTitle = randomPostTitle();
+      } else if (notificationType === 'follow') {
+        notifTitle = 'フォロー通知';
+      } else {
+        notifTitle = senderUsername;
+      }
+
       // プッシュ通知のペイロード
       const payload = {
         notification: {
-          title: `${senderUsername}`,
+          title: notifTitle,
           body: message,
         },
         data: {
@@ -63,6 +78,12 @@ exports.sendPushNotification = onDocumentCreated(
           senderId: senderId,
           postId: postId || '',
           click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        },
+        apns: {
+          payload: { aps: { sound: 'default' } },
+        },
+        android: {
+          notification: { sound: 'default' },
         },
         tokens: tokens,
       };
@@ -271,7 +292,7 @@ function getJstDateString() {
  * 通知ドキュメントを作成してFCMプッシュを送信するヘルパー
  * notifDocId を固定化することで冪等性を保証
  */
-async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername, senderIconUrl, message, notifDocId, postId) {
+async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername, senderIconUrl, message, notifDocId, postId, albumArtUrl) {
   // 重複チェック
   const notifRef = db.collection('notifications').doc(notifDocId);
   const existing = await notifRef.get();
@@ -287,6 +308,7 @@ async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername
     senderUsername: senderUsername,
     senderIconUrl: senderIconUrl || null,
     postId: postId || null,
+    albumArtUrl: albumArtUrl || null,
     body: message,
     isRead: false,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -301,12 +323,18 @@ async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername
   if (tokens.length === 0) return;
 
   const payload = {
-    notification: { title: senderUsername, body: message },
+    notification: { title: randomPostTitle(), body: message },
     data: {
       notificationType: 'post',
       senderId: senderId || '',
       postId: postId || '',
       click_action: 'FLUTTER_NOTIFICATION_CLICK',
+    },
+    apns: {
+      payload: { aps: { sound: 'default' } },
+    },
+    android: {
+      notification: { sound: 'default' },
     },
     tokens: tokens,
   };
@@ -340,7 +368,7 @@ async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername
  *   [TIMER_EXPIRED_EMPTY]        → 即時通知 → DONE (notificationsSentToday=2)
  *   [DONE]                       → スキップ
  */
-async function processPostNotificationForRecipient(db, recipientId, senderId, senderUsername, senderIconUrl, postId) {
+async function processPostNotificationForRecipient(db, recipientId, senderId, senderUsername, senderIconUrl, postId, albumArtUrl) {
   const today = getJstDateString();
   const stateRef = db.collection('post_notification_states').doc(recipientId);
 
@@ -398,7 +426,7 @@ async function processPostNotificationForRecipient(db, recipientId, senderId, se
   if (action === 'send_immediate') {
     await sendPostNotificationDoc(
       db, recipientId, senderId, senderUsername, senderIconUrl,
-      notifMessage, notifDocId, notifPostId
+      notifMessage, notifDocId, notifPostId, albumArtUrl
     );
   }
 }
@@ -420,6 +448,7 @@ exports.onPostCreated = onDocumentCreated(
     const posterId = post.userId;
     const posterUsername = post.username || 'Unknown';
     const posterIconUrl = post.userIconUrl || null;
+    const posterAlbumArtUrl = post.track?.albumImageUrl || null;
 
     if (!posterId) {
       console.log('onPostCreated: userId not found in post');
@@ -466,7 +495,7 @@ exports.onPostCreated = onDocumentCreated(
         await Promise.all(
           chunk.map((followerId) =>
             processPostNotificationForRecipient(
-              db, followerId, posterId, posterUsername, posterIconUrl, postDocId
+              db, followerId, posterId, posterUsername, posterIconUrl, postDocId, posterAlbumArtUrl
             ).catch((err) => {
               console.error(`Error processing notification for ${followerId}:`, err);
             })
@@ -520,7 +549,7 @@ exports.checkPostNotificationTimers = onSchedule(
           const firstUsername = batchedSenderUsernames[0] || 'Unknown';
           const message = count === 1
             ? `${firstUsername}が投稿しました。`
-            : `${firstUsername}さんなど${count}人が投稿しました。`;
+            : `${firstUsername}など${count}人が投稿しました。`;
 
           await doc.ref.update({
             phase: 'DONE',
@@ -533,7 +562,7 @@ exports.checkPostNotificationTimers = onSchedule(
           await sendPostNotificationDoc(
             db, recipientId,
             batchedSenderIds[0], firstUsername, null,
-            message, notifDocId, null
+            message, notifDocId, null, null
           );
 
           console.log(`checkPostNotificationTimers: batch sent to ${recipientId} (${count} senders)`);
@@ -554,29 +583,64 @@ exports.checkPostNotificationTimers = onSchedule(
 // ========== Vibeお題ローテーション & 通知 ==========
 
 /**
- * 事前定義されたVibeお題リスト（Flutter側と同じ）
+ * 事前定義されたVibeお題リスト
+ * カテゴリごとに絵文字を固定し、同カテゴリが連続しないようローテーション
  */
 const PREDEFINED_VIBE_TOPICS = [
-  'ドライブで聴きたい曲',
-  '雨の日に聴きたい曲',
-  '朝に聴きたい曲',
-  '夜に聴きたい曲',
-  '作業中に聴きたい曲',
-  '運動中に聴きたい曲',
-  'リラックスしたい時の曲',
-  'テンションを上げたい曲',
-  '懐かしい曲',
-  '最近ハマっている曲',
-  '通勤・通学で聴きたい曲',
-  '勉強中に聴きたい曲',
-  '寝る前に聴きたい曲',
-  '元気が出る曲',
-  '切ない曲',
-  '夏に聴きたい曲',
-  '冬に聴きたい曲',
-  '春に聴きたい曲',
-  '秋に聴きたい曲',
-  'デートで聴きたい曲',
+  // 🌙夜・エモ系
+  { title: '夜中に1人で聴きたい曲', emoji: '🌙', category: '夜・エモ系' },
+  { title: '帰り道に聴きたい曲', emoji: '🌙', category: '夜・エモ系' },
+  { title: '寝る前に浸りたい曲', emoji: '🌙', category: '夜・エモ系' },
+  { title: '夜のドライブで流したい曲', emoji: '🌙', category: '夜・エモ系' },
+  { title: '夜景見ながら聴きたい曲', emoji: '🌙', category: '夜・エモ系' },
+  { title: 'ちょっと寂しい夜に聴きたい曲', emoji: '🌙', category: '夜・エモ系' },
+  { title: '泣きたい時に聴きたい曲', emoji: '🌙', category: '夜・エモ系' },
+  { title: '失恋した日に聴きたい曲', emoji: '🌙', category: '夜・エモ系' },
+  { title: '誰にも会いたくない日に聞きたい曲', emoji: '🌙', category: '夜・エモ系' },
+  { title: '夜散歩しながら聴きたい曲', emoji: '🌙', category: '夜・エモ系' },
+  // 🚗日常シーン系
+  { title: '朝起きてすぐ聴きたい曲', emoji: '🚗', category: '日常シーン系' },
+  { title: '学校行く前に聴きたい曲', emoji: '🚗', category: '日常シーン系' },
+  { title: '電車で聴きたい曲', emoji: '🚗', category: '日常シーン系' },
+  { title: '友達といる時に流したい曲', emoji: '🚗', category: '日常シーン系' },
+  { title: 'カフェで流したい曲', emoji: '🚗', category: '日常シーン系' },
+  { title: '1人で外出する時に聴きたい曲', emoji: '🚗', category: '日常シーン系' },
+  { title: '帰り道ちょっとテンション上げたい時の曲', emoji: '🚗', category: '日常シーン系' },
+  { title: '何も予定ない日に聞きたい曲', emoji: '🚗', category: '日常シーン系' },
+  { title: '休日の昼に聴きたい曲', emoji: '🚗', category: '日常シーン系' },
+  { title: 'だらだらしている時に聴きたい曲', emoji: '🚗', category: '日常シーン系' },
+  // ❤️恋愛系
+  { title: '好きな人を思い浮かべる曲', emoji: '❤️', category: '恋愛系' },
+  { title: '付き合いたてで聴きたい曲', emoji: '❤️', category: '恋愛系' },
+  { title: 'デート前に聴きたい曲', emoji: '❤️', category: '恋愛系' },
+  { title: '別れた後に聴きたい曲', emoji: '❤️', category: '恋愛系' },
+  { title: '会いたいときに聴きたい曲', emoji: '❤️', category: '恋愛系' },
+  { title: '片想いしてるときの曲', emoji: '❤️', category: '恋愛系' },
+  { title: '友達以上恋人未満のときに聴きたい曲', emoji: '❤️', category: '恋愛系' },
+  { title: '思い出の人を思い出す曲', emoji: '❤️', category: '恋愛系' },
+  { title: 'なんか恋したくなる曲', emoji: '❤️', category: '恋愛系' },
+  { title: '幸せな気分のときの曲', emoji: '❤️', category: '恋愛系' },
+  // 🔥テンション・感情系
+  { title: '気分上げたいときの曲', emoji: '🔥', category: 'テンション・感情系' },
+  { title: '落ち込んでるときに聴きたい曲', emoji: '🔥', category: 'テンション・感情系' },
+  { title: '自信つけたいときの曲', emoji: '🔥', category: 'テンション・感情系' },
+  { title: 'なんか無敵な気分のときの曲', emoji: '🔥', category: 'テンション・感情系' },
+  { title: 'ストレス発散したいときの曲', emoji: '🔥', category: 'テンション・感情系' },
+  { title: 'イライラしてるときに聴きたい曲', emoji: '🔥', category: 'テンション・感情系' },
+  { title: '頑張ろうと思える曲', emoji: '🔥', category: 'テンション・感情系' },
+  { title: '何もかもどうでもいいときの曲', emoji: '🔥', category: 'テンション・感情系' },
+  { title: 'テンションぶち上げたいときの曲', emoji: '🔥', category: 'テンション・感情系' },
+  { title: 'ちょっとチルしたいときの曲', emoji: '🔥', category: 'テンション・感情系' },
+  // 🌆シーン・映像浮かぶ系
+  { title: '海を見ながら聴きたい曲', emoji: '🌆', category: 'シーン・映像浮かぶ系' },
+  { title: '雨の日に聴きたい曲', emoji: '🌆', category: 'シーン・映像浮かぶ系' },
+  { title: '夕焼け見ながら聴きたい曲', emoji: '🌆', category: 'シーン・映像浮かぶ系' },
+  { title: '夜の街を歩きながら聴きたい曲', emoji: '🌆', category: 'シーン・映像浮かぶ系' },
+  { title: '高速乗ってるときに聴きたい曲', emoji: '🌆', category: 'シーン・映像浮かぶ系' },
+  { title: '夏の終わりに聴きたい曲', emoji: '🌆', category: 'シーン・映像浮かぶ系' },
+  { title: '冬の朝に聴きたい曲', emoji: '🌆', category: 'シーン・映像浮かぶ系' },
+  { title: '春っぽい気分のときの曲', emoji: '🌆', category: 'シーン・映像浮かぶ系' },
+  { title: '夜更かししてるときに聴きたい曲', emoji: '🌆', category: 'シーン・映像浮かぶ系' },
 ];
 
 /**
@@ -640,26 +704,34 @@ exports.dailyVibeTopicRotation = onSchedule(
       } else {
         // 3. 今日のお題がない → 事前定義リストからランダムに作成
 
-        // 直近使われたお題を取得（重複回避）
+        // 直近使われたお題を取得（重複・連続カテゴリ回避）
         const recentTopics = await db
           .collection('vibe_topics')
           .orderBy('date', 'desc')
-          .limit(5)
+          .limit(10)
           .get();
 
-        const recentTitles = recentTopics.docs.map(d => d.data().title);
+        const recentTitles = recentTopics.docs.slice(0, 5).map(d => d.data().title);
+        const lastCategory = recentTopics.docs.length > 0 ? recentTopics.docs[0].data().category : null;
 
-        // 直近5つと被らないお題を選ぶ
-        const availableTopics = PREDEFINED_VIBE_TOPICS.filter(
-          t => !recentTitles.includes(t)
+        // 直近5つと被らず、かつ直前と異なるカテゴリのお題を選ぶ
+        let availableTopics = PREDEFINED_VIBE_TOPICS.filter(
+          t => !recentTitles.includes(t.title) && t.category !== lastCategory
         );
 
-        // 候補がなければ全リストから選ぶ
+        // 候補がなければカテゴリ制約を外す
+        if (availableTopics.length === 0) {
+          availableTopics = PREDEFINED_VIBE_TOPICS.filter(t => !recentTitles.includes(t.title));
+        }
+
+        // それでも候補がなければ全リストから選ぶ
         const pool = availableTopics.length > 0 ? availableTopics : PREDEFINED_VIBE_TOPICS;
-        const selectedTitle = pool[Math.floor(Math.random() * pool.length)];
+        const selected = pool[Math.floor(Math.random() * pool.length)];
 
         await db.collection('vibe_topics').add({
-          title: selectedTitle,
+          title: selected.title,
+          emoji: selected.emoji,
+          category: selected.category,
           date: todayTimestamp,
           status: 'active',
           voteCount: 0,
@@ -667,7 +739,7 @@ exports.dailyVibeTopicRotation = onSchedule(
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
-        console.log(`Created new vibe topic: "${selectedTitle}"`);
+        console.log(`Created new vibe topic: "${selected.title}" [${selected.category}]`);
       }
 
       console.log('dailyVibeTopicRotation: completed');
@@ -690,7 +762,7 @@ exports.dailyVibeTopicRotation = onSchedule(
  * - 本文: お題を疑問形に変換（例:「夜に聴きたい曲は？」）
  */
 exports.dailyVibeNotification = onSchedule(
-  { schedule: '0 20 * * *', timeZone: 'Asia/Tokyo' },
+  { schedule: '0 20 * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 300 },
   async () => {
     const db = admin.firestore();
 
@@ -713,14 +785,27 @@ exports.dailyVibeNotification = onSchedule(
         return;
       }
 
-      const topicData = todaysTopics.docs[0].data();
-      const topicTitle = topicData.title; // 例: "夜に聴きたい曲"
+      const topicDoc = todaysTopics.docs[0];
+      const topicData = topicDoc.data();
+      const topicTitle = topicData.title; // 例: "夜中に1人で聴きたい曲"
+      const topicEmoji = topicData.emoji || '🎵';
+      const topicId = topicDoc.id;
 
-      const notificationTitle = '今日のVibe、もう決めた？';
-      const notificationBody = `${topicTitle}は？`; // 例: "夜に聴きたい曲は？"
+      const notificationTitle = 'タップして今日の15sを投稿しよう。';
+      const notificationBody = `${topicEmoji}${topicTitle}は？？`;
+
+      // 今日のVibeにすでに投稿済みのユーザーIDを取得
+      const alreadyPostedSnapshot = await db.collection('posts')
+        .where('vibeTopicId', '==', topicId)
+        .get();
+      const alreadyPostedUserIds = new Set(
+        alreadyPostedSnapshot.docs.map(d => d.data().userId).filter(Boolean)
+      );
+      console.log(`dailyVibeNotification: ${alreadyPostedUserIds.size} users already posted today`);
 
       // 全ユーザーに通知を作成（バッチ処理、500件ずつ）
       // notifVibeEnabled が false のユーザーはスキップ
+      // すでに今日投稿済みのユーザーもスキップ
       const usersSnapshot = await db.collection('users').get();
 
       const batchSize = 500;
@@ -733,6 +818,8 @@ exports.dailyVibeNotification = onSchedule(
         const userData = userDoc.data();
         // フィールドが未設定の場合はデフォルトで通知あり（true）
         if (userData.notifVibeEnabled === false) continue;
+        // 今日すでにVibe投稿済みのユーザーはスキップ
+        if (alreadyPostedUserIds.has(userDoc.id)) continue;
 
         enabledUserIds.push(userDoc.id);
 
@@ -767,25 +854,79 @@ exports.dailyVibeNotification = onSchedule(
 
       // FCMプッシュ通知を通知有効ユーザーにのみ個別送信
       if (enabledUserIds.length > 0) {
-        const tokenDocs = await Promise.all(
-          enabledUserIds.map(uid => db.collection('user_fcm_tokens').doc(uid).get())
-        );
-        const allTokens = [];
-        for (const tokenDoc of tokenDocs) {
-          if (tokenDoc.exists && tokenDoc.data().tokens) {
-            allTokens.push(...tokenDoc.data().tokens.map(t => t.token));
+        // トークン取得を10件ずつ逐次処理してFirestoreの負荷を分散
+        const tokenChunkSize = 10;
+        const allTokenEntries = []; // { uid, token } の配列
+        for (let i = 0; i < enabledUserIds.length; i += tokenChunkSize) {
+          const chunk = enabledUserIds.slice(i, i + tokenChunkSize);
+          const tokenDocs = await Promise.all(
+            chunk.map(uid => db.collection('user_fcm_tokens').doc(uid).get())
+          );
+          for (let j = 0; j < tokenDocs.length; j++) {
+            const tokenDoc = tokenDocs[j];
+            if (tokenDoc.exists && tokenDoc.data().tokens) {
+              for (const t of tokenDoc.data().tokens) {
+                allTokenEntries.push({ uid: chunk[j], token: t.token });
+              }
+            }
           }
         }
-        const tokenChunkSize = 500;
-        for (let i = 0; i < allTokens.length; i += tokenChunkSize) {
-          const chunk = allTokens.slice(i, i + tokenChunkSize);
-          await admin.messaging().sendEachForMulticast({
+
+        const allTokens = allTokenEntries.map(e => e.token);
+        const fcmChunkSize = 500;
+        let totalSuccess = 0;
+        let totalFailure = 0;
+
+        for (let i = 0; i < allTokens.length; i += fcmChunkSize) {
+          const chunk = allTokens.slice(i, i + fcmChunkSize);
+          const chunkEntries = allTokenEntries.slice(i, i + fcmChunkSize);
+          const response = await admin.messaging().sendEachForMulticast({
             tokens: chunk,
             notification: { title: notificationTitle, body: notificationBody },
             data: { notificationType: 'vibe', click_action: 'FLUTTER_NOTIFICATION_CLICK' },
+            apns: {
+              payload: { aps: { sound: 'default' } },
+            },
+            android: {
+              notification: { sound: 'default' },
+            },
           });
+
+          totalSuccess += response.successCount;
+          totalFailure += response.failureCount;
+
+          // 無効なトークンを削除
+          if (response.failureCount > 0) {
+            const invalidByUid = {};
+            response.responses.forEach((resp, idx) => {
+              if (!resp.success) {
+                console.error(`Vibe FCM error for token ${chunk[idx]}:`, resp.error?.code);
+                if (
+                  resp.error?.code === 'messaging/invalid-registration-token' ||
+                  resp.error?.code === 'messaging/registration-token-not-registered'
+                ) {
+                  const uid = chunkEntries[idx].uid;
+                  if (!invalidByUid[uid]) invalidByUid[uid] = [];
+                  invalidByUid[uid].push(chunk[idx]);
+                }
+              }
+            });
+
+            for (const [uid, invalidTokens] of Object.entries(invalidByUid)) {
+              const tokenDocRef = db.collection('user_fcm_tokens').doc(uid);
+              const tokenDoc = await tokenDocRef.get();
+              if (tokenDoc.exists) {
+                const updatedTokens = tokenDoc.data().tokens.filter(
+                  t => !invalidTokens.includes(t.token)
+                );
+                await tokenDocRef.update({ tokens: updatedTokens });
+                console.log(`Removed ${invalidTokens.length} invalid tokens for user ${uid}`);
+              }
+            }
+          }
         }
-        console.log(`Vibe FCM sent to ${allTokens.length} tokens`);
+
+        console.log(`Vibe FCM sent: success=${totalSuccess}, failure=${totalFailure}, total=${allTokens.length} tokens`);
       }
 
       console.log('dailyVibeNotification: completed');

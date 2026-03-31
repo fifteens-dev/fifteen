@@ -366,55 +366,56 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
             // ヘッダー
             _buildHeader(),
 
-            // 投稿カードプレビュー（スクロール可能）
+            // 投稿カードプレビュー（スクロールなし・画面に収まるようサイズ調整）
             Expanded(
-              child: SingleChildScrollView(
-                child: Builder(
-                  builder: (context) {
-                    final cardW = MediaQuery.of(context).size.width - 2;
-                    final cardH = cardW * (644.0 / 363.0);
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 1),
-                      child: SizedBox(
-                        width: cardW,
-                        height: cardH,
-                        child: FittedBox(
-                          fit: BoxFit.fill,
-                          child: SizedBox(
-                            width: 363.0,
-                            height: 644.0,
-                            child: AnimatedBuilder(
-                              animation: _flipAnimation,
-                              builder: (context, child) {
-                                final angle = _flipAnimation.value * pi;
-                                final isFront = angle < pi / 2;
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  const aspectRatio = 644.0 / 363.0;
+                  final screenW = MediaQuery.of(context).size.width - 2;
+                  final byWidth = screenW;
+                  final byHeight = constraints.maxHeight / aspectRatio;
+                  final cardW = byWidth < byHeight ? byWidth : byHeight;
+                  final cardH = cardW * aspectRatio;
+                  return Center(
+                    child: SizedBox(
+                      width: cardW,
+                      height: cardH,
+                      child: FittedBox(
+                        fit: BoxFit.fill,
+                        child: SizedBox(
+                          width: 363.0,
+                          height: 644.0,
+                          child: AnimatedBuilder(
+                            animation: _flipAnimation,
+                            builder: (context, child) {
+                              final angle = _flipAnimation.value * pi;
+                              final isFront = angle < pi / 2;
 
-                                return Transform(
-                                  alignment: Alignment.center,
-                                  transform: Matrix4.identity()
-                                    ..setEntry(3, 2, 0.001)
-                                    ..rotateY(angle),
-                                  child: isFront
-                                      ? PostCard(
-                                          post: _createDummyPost(),
-                                          audioService: _audioService,
-                                          showFrontOnly: true,
-                                          hideReactionCounts: true,
-                                          onCardTap: _flipCard,
-                                          preExtractedGradientStart: _extractedGradientStart,
-                                          preExtractedGradientEnd: _extractedGradientEnd,
-                                          externalPreviewUrl: _cachedPreviewUrl,
-                                        )
-                                      : _buildBackCard(),
-                                );
-                              },
-                            ),
+                              return Transform(
+                                alignment: Alignment.center,
+                                transform: Matrix4.identity()
+                                  ..setEntry(3, 2, 0.001)
+                                  ..rotateY(angle),
+                                child: isFront
+                                    ? PostCard(
+                                        post: _createDummyPost(),
+                                        audioService: _audioService,
+                                        showFrontOnly: true,
+                                        hideReactionCounts: true,
+                                        onCardTap: _flipCard,
+                                        preExtractedGradientStart: _extractedGradientStart,
+                                        preExtractedGradientEnd: _extractedGradientEnd,
+                                        externalPreviewUrl: _cachedPreviewUrl,
+                                      )
+                                    : _buildBackCard(),
+                              );
+                            },
                           ),
                         ),
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
               ),
             ),
           ],

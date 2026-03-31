@@ -17,12 +17,14 @@ class LyricsCardLayout extends StatelessWidget {
   final LyricsCardLayoutType layoutType;
   final TrackModel track;
   final String? lyricsText; // オプション：歌詞テキスト
+  final double albumArtOpacity;
 
   const LyricsCardLayout({
     super.key,
     required this.layoutType,
     required this.track,
     this.lyricsText,
+    this.albumArtOpacity = 1.0,
   });
 
   /// レイアウトタイプからインデックスを取得
@@ -411,27 +413,30 @@ class LyricsCardLayout extends StatelessWidget {
     required double height,
     required double borderRadius,
   }) {
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: const Color(0xFF9F9F9F),
-        borderRadius: BorderRadius.circular(borderRadius),
+    return Opacity(
+      opacity: albumArtOpacity,
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: const Color(0xFF9F9F9F),
+          borderRadius: BorderRadius.circular(borderRadius),
+        ),
+        child: track.albumImageUrl.isNotEmpty
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(borderRadius),
+                child: CachedNetworkImage(
+                  imageUrl: track.albumImageUrl,
+                  fit: BoxFit.cover,
+                  errorWidget: (context, url, error) {
+                    return Container(
+                      color: const Color(0xFF9F9F9F),
+                    );
+                  },
+                ),
+              )
+            : null,
       ),
-      child: track.albumImageUrl.isNotEmpty
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(borderRadius),
-              child: CachedNetworkImage(
-                imageUrl: track.albumImageUrl,
-                fit: BoxFit.cover,
-                errorWidget: (context, url, error) {
-                  return Container(
-                    color: const Color(0xFF9F9F9F),
-                  );
-                },
-              ),
-            )
-          : null,
     );
   }
 }

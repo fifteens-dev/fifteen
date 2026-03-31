@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../services/storage_service.dart';
+import '../utils/context_menu_builder.dart';
 
 /// プロフィール設定画面
 class ProfileSetupScreen extends StatefulWidget {
@@ -471,6 +472,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
               ),
+              contextMenuBuilder: buildTextContextMenu,
             ),
           ),
         ],

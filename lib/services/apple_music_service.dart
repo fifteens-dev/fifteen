@@ -163,7 +163,7 @@ class AppleMusicService {
       final encodedQuery = Uri.encodeComponent(query);
       final response = await http.get(
         Uri.parse(
-            'https://api.music.apple.com/v1/catalog/jp/search?term=$encodedQuery&types=songs&limit=$apiLimit'),
+            'https://api.music.apple.com/v1/catalog/jp/search?term=$encodedQuery&types=songs&limit=$apiLimit&l=ja-JP'),
         headers: {
           'Authorization': 'Bearer $_developerToken',
         },
@@ -227,7 +227,7 @@ class AppleMusicService {
     try {
       final response = await http.get(
         Uri.parse(
-            'https://api.music.apple.com/v1/catalog/jp/playlists/$playlistId'),
+            'https://api.music.apple.com/v1/catalog/jp/playlists/$playlistId?l=ja-JP'),
         headers: {
           'Authorization': 'Bearer $_developerToken',
         },
@@ -288,7 +288,7 @@ class AppleMusicService {
       final encodedQuery = Uri.encodeComponent(playlistName);
       final searchResponse = await http.get(
         Uri.parse(
-            'https://api.music.apple.com/v1/catalog/jp/search?term=$encodedQuery&types=playlists&limit=1'),
+            'https://api.music.apple.com/v1/catalog/jp/search?term=$encodedQuery&types=playlists&limit=1&l=ja-JP'),
         headers: {'Authorization': 'Bearer $_developerToken'},
       );
 
@@ -316,7 +316,7 @@ class AppleMusicService {
     try {
       final response = await http.get(
         Uri.parse(
-            'https://api.music.apple.com/v1/catalog/jp/charts?types=songs&limit=$limit'),
+            'https://api.music.apple.com/v1/catalog/jp/charts?types=songs&limit=$limit&l=ja-JP'),
         headers: {
           'Authorization': 'Bearer $_developerToken',
         },
@@ -388,7 +388,7 @@ class AppleMusicService {
 
     try {
       final response = await http.get(
-        Uri.parse('https://api.music.apple.com/v1/me/recent/played/tracks?limit=$limit'),
+        Uri.parse('https://api.music.apple.com/v1/me/recent/played/tracks?limit=$limit&l=ja-JP'),
         headers: {
           'Authorization': 'Bearer $_developerToken',
           'Music-User-Token': _userToken!,
@@ -461,7 +461,7 @@ class AppleMusicService {
     try {
       // Library API: ユーザーのライブラリから楽曲を取得
       final response = await http.get(
-        Uri.parse('https://api.music.apple.com/v1/me/library/songs?limit=$limit'),
+        Uri.parse('https://api.music.apple.com/v1/me/library/songs?limit=$limit&l=ja-JP'),
         headers: {
           'Authorization': 'Bearer $_developerToken',
           'Music-User-Token': _userToken!,

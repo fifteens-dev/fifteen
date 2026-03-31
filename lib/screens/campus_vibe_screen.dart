@@ -6,6 +6,7 @@ import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../utils/current_user_helper.dart';
+import 'home/home_bottom_nav.dart';
 
 /// Campus Vibe 投稿一覧画面（TikTok式縦スクロール）
 class CampusVibeScreen extends StatefulWidget {
@@ -132,8 +133,10 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: Colors.transparent,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        forceMaterialTransparency: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
           onPressed: () {
@@ -225,37 +228,58 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
                     ],
                   ),
                 )
-              : PageView.builder(
-                  controller: _pageController,
-                  scrollDirection: Axis.vertical,
-                  onPageChanged: _onPageChanged,
-                  itemCount: _posts.length,
-                  itemBuilder: (context, index) {
-                    final post = _posts[index];
-                    _cardKeys.putIfAbsent(
-                        index, () => GlobalKey<PostCardState>());
-                    return Center(
-                      child: SingleChildScrollView(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: PostCard(
-                            key: _cardKeys[index],
-                            post: post,
-                            currentUserId: widget.currentUserId,
-                            currentUserIconUrl: _currentUserIconUrl,
-                            audioService: _audioService,
-                            startFromBack: false,
-                            audioManagedExternally: true,
-                            externalPreviewUrl: _previewUrlCache[index],
-                            backSideEnabled: false,
-                            onLike: () {},
-                            onComment: () {},
-                            onAdd: () {},
+              : Stack(
+                  children: [
+                    PageView.builder(
+                      controller: _pageController,
+                      scrollDirection: Axis.vertical,
+                      onPageChanged: _onPageChanged,
+                      itemCount: _posts.length,
+                      itemBuilder: (context, index) {
+                        final post = _posts[index];
+                        _cardKeys.putIfAbsent(
+                            index, () => GlobalKey<PostCardState>());
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 71),
+                          child: Center(
+                            child: SingleChildScrollView(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: PostCard(
+                                  key: _cardKeys[index],
+                                  post: post,
+                                  currentUserId: widget.currentUserId,
+                                  currentUserIconUrl: _currentUserIconUrl,
+                                  audioService: _audioService,
+                                  startFromBack: false,
+                                  audioManagedExternally: true,
+                                  externalPreviewUrl: _previewUrlCache[index],
+                                  backSideEnabled: false,
+                                  onLike: () {},
+                                  onComment: () {},
+                                  onAdd: () {},
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                        );
+                      },
+                    ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: HomeBottomNavigation(
+                        selectedIndex: 0,
+                        onItemTapped: (i) {
+                          if (i == 0) {
+                            _audioService.stop();
+                            Navigator.pop(context);
+                          }
+                        },
                       ),
-                    );
-                  },
+                    ),
+                  ],
                 ),
     );
   }

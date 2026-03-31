@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
+import '../utils/context_menu_builder.dart';
 
 /// 汎用的な入力フィールドウィジェット
 class CommonInputField extends StatelessWidget {
@@ -50,6 +51,7 @@ class CommonInputField extends StatelessWidget {
         maxLines: maxLines,
         maxLength: maxLength,
         validator: validator,
+        contextMenuBuilder: buildTextContextMenu,
         decoration: InputDecoration(
           hintText: hintText,
           hintStyle: AppTextStyles.placeholder,

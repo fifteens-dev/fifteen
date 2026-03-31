@@ -29,6 +29,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
 
   // senderId → 最新アイコンURL のキャッシュ
   final Map<String, String?> _freshIconUrls = {};
+  // postId → アルバムアートURL のキャッシュ（albumArtUrlが未保存の古い通知向け）
+  final Map<String, String?> _albumArtCache = {};
   List<NotificationModel> _latestNotifications = [];
   Timer? _iconRefreshTimer;
   Timer? _markAsReadTimer;
@@ -75,6 +77,36 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     _iconRefreshTimer?.cancel();
     _markAsReadTimer?.cancel();
     super.dispose();
+  }
+
+  /// postIdを持つがalbumArtUrlが未保存の通知のアルバムアートを遅延取得
+  Future<void> _fetchMissingAlbumArts(List<NotificationModel> notifications) async {
+    final postIds = notifications
+        .where((n) =>
+            (n.albumArtUrl == null || n.albumArtUrl!.isEmpty) &&
+            n.postId != null &&
+            n.postId!.isNotEmpty &&
+            !_albumArtCache.containsKey(n.postId))
+        .map((n) => n.postId!)
+        .toSet()
+        .toList();
+
+    if (postIds.isEmpty) return;
+
+    final results = await Future.wait(
+      postIds.map((pid) async {
+        final post = await _postService.getPost(pid);
+        return MapEntry(pid, post?.track.albumImageUrl);
+      }),
+    );
+
+    if (mounted) {
+      setState(() {
+        for (final entry in results) {
+          _albumArtCache[entry.key] = entry.value;
+        }
+      });
+    }
   }
 
   /// 通知送信者の最新アイコンURLをまとめて取得（並列・未取得分のみ）
@@ -167,13 +199,20 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
 
                   final notifications = snapshot.data!;
 
-                  // 通知リストが変わったらアイコンを更新
+                  // 通知リストが変わった or アルバムアート未取得のものがあればフェッチ
+                  final hasMissingArt = notifications.any((n) =>
+                      (n.albumArtUrl == null || n.albumArtUrl!.isEmpty) &&
+                      n.postId != null &&
+                      n.postId!.isNotEmpty &&
+                      !_albumArtCache.containsKey(n.postId));
                   if (_latestNotifications.length != notifications.length ||
-                      _latestNotifications.isEmpty) {
+                      _latestNotifications.isEmpty ||
+                      hasMissingArt) {
                     _latestNotifications = notifications;
-                    WidgetsBinding.instance.addPostFrameCallback(
-                      (_) => _refreshIcons(),
-                    );
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _refreshIcons();
+                      _fetchMissingAlbumArts(notifications);
+                    });
                   }
 
                   // 既読化はTimerで3秒後に行う（initStateで設定済み）
@@ -257,16 +296,17 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   }
 
   Widget _buildFollowNotification(NotificationModel notification) {
-    return SizedBox(
-      height: 59,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _buildUserIcon(notification.senderIconUrl, senderId: notification.senderId),
           const SizedBox(width: 20),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
@@ -290,7 +330,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  notification.getMessage(),
+                  '${notification.senderUsername}があなたをフォローしました',
                   style: const TextStyle(
                     fontSize: 14,
                     color: Color(0x80FFFFFF),
@@ -372,9 +412,10 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     // バッチ通知（system）の場合はアプリアイコン、個別通知はユーザーアイコン
     final isSystemNotification = notification.senderId == 'system';
 
-    return SizedBox(
-      height: 59,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (isSystemNotification)
             Container(
@@ -396,7 +437,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
@@ -429,19 +470,27 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
               ],
             ),
           ),
-          if (notification.albumArtUrl != null) ...[
-            const SizedBox(width: 16),
-            _buildAlbumArt(notification.albumArtUrl!),
-          ],
+          () {
+            final artUrl = notification.albumArtUrl ??
+                (notification.postId != null ? _albumArtCache[notification.postId] : null);
+            if (artUrl != null && artUrl.isNotEmpty) {
+              return Row(mainAxisSize: MainAxisSize.min, children: [
+                const SizedBox(width: 16),
+                _buildAlbumArt(artUrl),
+              ]);
+            }
+            return const SizedBox.shrink();
+          }(),
         ],
       ),
     );
   }
 
   Widget _buildVibeNotification(NotificationModel notification) {
-    return SizedBox(
-      height: 59,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             width: 42,
@@ -460,7 +509,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
@@ -499,16 +548,19 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   }
 
   Widget _buildLikeNotification(NotificationModel notification) {
-    return SizedBox(
-      height: 59,
+    final artUrl = notification.albumArtUrl ??
+        (notification.postId != null ? _albumArtCache[notification.postId] : null);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _buildUserIcon(notification.senderIconUrl, senderId: notification.senderId),
           const SizedBox(width: 20),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
@@ -542,30 +594,28 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
             ),
           ),
           const SizedBox(width: 16),
-          if (notification.albumArtUrl != null)
-            _buildAlbumArt(notification.albumArtUrl!),
+          if (artUrl != null && artUrl.isNotEmpty)
+            _buildAlbumArt(artUrl),
         ],
       ),
     );
   }
 
   Widget _buildCommentNotification(NotificationModel notification) {
-    return SizedBox(
-      height: 81,
+    final artUrl = notification.albumArtUrl ??
+        (notification.postId != null ? _albumArtCache[notification.postId] : null);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 9),
-            child: _buildUserIcon(notification.senderIconUrl, senderId: notification.senderId),
-          ),
+          _buildUserIcon(notification.senderIconUrl, senderId: notification.senderId),
           const SizedBox(width: 20),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 9),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
                   Row(
                     children: [
                       Text(
@@ -622,14 +672,10 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                     ),
                 ],
               ),
-            ),
           ),
           const SizedBox(width: 16),
-          if (notification.albumArtUrl != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 9),
-              child: _buildAlbumArt(notification.albumArtUrl!),
-            ),
+          if (artUrl != null && artUrl.isNotEmpty)
+            _buildAlbumArt(artUrl),
         ],
       ),
     );

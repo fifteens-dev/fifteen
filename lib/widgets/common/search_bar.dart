@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_dimensions.dart';
+import '../../utils/context_menu_builder.dart';
 
 /// アプリ共通の検索バーウィジェット
 ///
@@ -72,15 +73,7 @@ class AppSearchBar extends StatelessWidget {
                         contentPadding: const EdgeInsets.symmetric(vertical: 8),
                       ),
                       onChanged: onChanged,
-                      contextMenuBuilder: (ctx, editableTextState) {
-                        if (editableTextState.textEditingValue.text.isEmpty) {
-                          return const SizedBox.shrink();
-                        }
-                        return AdaptiveTextSelectionToolbar.buttonItems(
-                          anchors: editableTextState.contextMenuAnchors,
-                          buttonItems: editableTextState.contextMenuButtonItems,
-                        );
-                      },
+                      contextMenuBuilder: buildTextContextMenu,
                     ),
                   ),
                   if (showClearButton && controller.text.isNotEmpty)

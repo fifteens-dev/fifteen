@@ -316,18 +316,19 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   /// プロフィール情報セクション
   Widget _buildProfileInfo() {
     final displayName = _userData?.name ?? '名前未設定';
+    final username = _userData?.username;
     final bio = _userData?.bio;
     final profileImageUrl = _userData?.profileImageUrl;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 27, vertical: 16),
+      padding: const EdgeInsets.fromLTRB(27, 30, 27, 16),
       child: Column(
         children: [
           // ユーザー情報行
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 左側: 名前とユーザーID
+              // 左側: 名前・ユーザーID・bio
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -340,6 +341,16 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    if (username != null && username.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        username,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                     if (bio != null && bio.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
@@ -376,13 +387,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             ],
           ),
 
-          const SizedBox(height: 16),
-
           // 統計情報
           Row(
             children: [
               ProfileStatItem(count: '$_tracksCount', label: 'Tracks'),
-              const SizedBox(width: 32),
+              const SizedBox(width: 20),
               GestureDetector(
                 onTap: () {
                   final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -400,7 +409,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                 },
                 child: ProfileStatItem(count: '$_followersCount', label: 'Followers'),
               ),
-              const SizedBox(width: 32),
+              const SizedBox(width: 20),
               GestureDetector(
                 onTap: () {
                   final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -425,80 +434,87 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     );
   }
 
-  /// タブ切り替え
+  /// タブ切り替え（スライドインジケーター付き）
   Widget _buildTabSelector() {
+    const indicatorWidth = 60.0;
+    const indicatorHeight = 2.0;
+
     return AnimatedBuilder(
-      animation: _tabController,
+      animation: _tabController.animation!,
       builder: (context, _) {
-        return SizedBox(
-          height: 40,
-          child: Row(
-            children: [
-              // グリッドタブ
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => _tabController.animateTo(0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
+        // スワイプ中も含め 0.0〜1.0 の連続値
+        final t = _tabController.animation!.value.clamp(0.0, 1.0);
+
+        // アイコン色：スワイプ量に応じて白⇔グレーを補間
+        final color0 = Color.lerp(Colors.grey, Colors.white, 1.0 - t)!;
+        final color1 = Color.lerp(Colors.grey, Colors.white, t)!;
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final totalWidth = constraints.maxWidth;
+            final tabWidth = totalWidth / 2;
+            // インジケーターはそれぞれのタブ中央に配置
+            final indicatorLeft = (tabWidth - indicatorWidth) / 2 + t * tabWidth;
+
+            return Stack(
+              children: [
+                // タブボタン
+                SizedBox(
+                  height: 40,
+                  child: Row(
                     children: [
-                      Icon(
-                        Icons.grid_view,
-                        color: _tabController.index == 0 ? Colors.white : Colors.grey,
-                        size: 24,
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        width: 60,
-                        height: 2,
-                        color: _tabController.index == 0
-                            ? Colors.white
-                            : Colors.transparent,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // 保存タブ
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => _tabController.animateTo(1),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Container(
-                        width: 25,
-                        height: 25,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: _tabController.index == 1
-                                ? Colors.white
-                                : Colors.grey,
-                            width: 1.5,
+                      // グリッドタブ
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _tabController.animateTo(0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Icon(Icons.grid_view, color: color0, size: 25),
+                              const SizedBox(height: 4 + indicatorHeight),
+                            ],
                           ),
                         ),
-                        child: Icon(
-                          Icons.add,
-                          color: _tabController.index == 1
-                              ? Colors.white
-                              : Colors.grey,
-                          size: 16,
-                        ),
                       ),
-                      const SizedBox(height: 4),
-                      Container(
-                        width: 60,
-                        height: 2,
-                        color: _tabController.index == 1
-                            ? Colors.white
-                            : Colors.transparent,
+                      // 保存タブ
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _tabController.animateTo(1),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Container(
+                                width: 26,
+                                height: 26,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: color1, width: 1.5),
+                                ),
+                                child: Icon(Icons.add, color: color1, size: 17),
+                              ),
+                              const SizedBox(height: 4 + indicatorHeight),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
+                // スライドするインジケーターバー
+                Positioned(
+                  bottom: 0,
+                  left: indicatorLeft,
+                  child: Container(
+                    width: indicatorWidth,
+                    height: indicatorHeight,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -543,7 +559,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             crossAxisCount: 3,
             childAspectRatio: 131 / 192,
             crossAxisSpacing: 0,
-            mainAxisSpacing: 5,
+            mainAxisSpacing: 8,
           ),
           delegate: SliverChildBuilderDelegate(
             (context, index) {

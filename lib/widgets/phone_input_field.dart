@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
+import '../utils/context_menu_builder.dart';
 
 /// 電話番号入力フィールドウィジェット
 class PhoneInputField extends StatefulWidget {
@@ -76,6 +77,7 @@ class _PhoneInputFieldState extends State<PhoneInputField> {
                 FilteringTextInputFormatter.digitsOnly,
                 _PhoneNumberFormatter(),
               ],
+              contextMenuBuilder: buildTextContextMenu,
               decoration: InputDecoration(
                 hintText: '080-1234-5678',
                 hintStyle: AppTextStyles.placeholder,

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:image_picker/image_picker.dart';
@@ -74,16 +73,6 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
   final Duration _totalDuration = const Duration(seconds: 30);
   late List<double> _waveformData;
 
-  // ---- Card gesture（ジェスチャー途中の状態のみ保持）----
-  bool _isTwoFingerGesture = false;
-  double _startScale = 1.0;
-  double _startRotation = 0.0;
-  static const List<double> _snapDegrees = [45, 135, 225, 315];
-  static const double _snapThreshold = 3.0;
-  Set<double> _activeSnapAngles = {};
-  Set<double> _prevSnapAngles = {};
-  bool _isTwoFingerAccepted = false;
-
   // ---- Shared edit state（カードの位置・レイアウト等）----
   late PostEditState _editState;
 
@@ -106,6 +95,9 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
   String _currentUsername = '';
   String? _currentUserIconUrl;
   String? _currentUniversity;
+
+  // ---- アルバムアート透明度 ----
+  double _albumArtOpacity = 1.0;
 
   @override
   void initState() {
@@ -328,6 +320,76 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
     _playFromCurrentPosition();
   }
 
+  void _showOpacityPicker() {
+    final opacities = [1.0, 0.7, 0.5, 0.3, 0.0];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'ジャケットの透明度',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: opacities.map((opacity) {
+                    final isSelected = (_albumArtOpacity - opacity).abs() < 0.01;
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() => _albumArtOpacity = opacity);
+                        Navigator.pop(ctx);
+                      },
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: isSelected ? Colors.white : Colors.grey.shade700,
+                                width: isSelected ? 2 : 1,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.white.withValues(alpha: opacity),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${(opacity * 100).toInt()}%',
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : Colors.grey,
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _onNext() async {
     if (_curtainController.isAnimating) return;
 
@@ -376,6 +438,7 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
           initialUsername: _currentUsername,
           initialUserIconUrl: _currentUserIconUrl,
           initialUniversity: _currentUniversity,
+          albumArtOpacity: _albumArtOpacity,
         ),
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
@@ -430,99 +493,6 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
     }
   }
 
-  // ---- Gesture ----
-
-  bool _isInTwoFingerHitArea(Offset localFocalPoint) {
-    const frameW = PostCardBackView.cardWidth;
-    const frameH = PostCardBackView.photoHeight;
-    final center = Offset(frameW / 2, frameH / 2);
-    final radius = min(frameW, frameH) * 0.6 / 2;
-    return (localFocalPoint - center).distance <= radius;
-  }
-
-  void _onGestureScaleStart(ScaleStartDetails details) {
-    _startScale = _editState.cardScale;
-    _startRotation = _editState.cardRotation;
-    _isTwoFingerAccepted = false;
-    if (details.pointerCount >= 2 &&
-        _isInTwoFingerHitArea(details.localFocalPoint)) {
-      _isTwoFingerAccepted = true;
-      setState(() => _isTwoFingerGesture = true);
-    }
-  }
-
-  void _onGestureScaleUpdate(ScaleUpdateDetails details) {
-    double newScale = _editState.cardScale;
-    double newRotation = _editState.cardRotation;
-
-    if (details.pointerCount >= 2) {
-      if (!_isTwoFingerAccepted &&
-          _isInTwoFingerHitArea(details.localFocalPoint)) {
-        _isTwoFingerAccepted = true;
-        _startScale = _editState.cardScale;
-        _startRotation = _editState.cardRotation;
-      }
-      if (_isTwoFingerAccepted) {
-        newScale =
-            (_startScale * (1.0 + (details.scale - 1.0) * 0.6)).clamp(0.3, 3.0);
-        newRotation = _startRotation + details.rotation * 0.6;
-
-        double deg = (newRotation * 180 / pi) % 360;
-        if (deg < 0) deg += 360;
-        final newSnaps = <double>{};
-        for (final snapDeg in _snapDegrees) {
-          double diff = (deg - snapDeg).abs();
-          if (diff > 180) diff = 360 - diff;
-          if (diff <= _snapThreshold) newSnaps.add(snapDeg);
-        }
-        if (newSnaps.isNotEmpty &&
-            !newSnaps.every((a) => _prevSnapAngles.contains(a))) {
-          HapticFeedback.lightImpact();
-        }
-        _prevSnapAngles = newSnaps;
-        _activeSnapAngles = newSnaps;
-      }
-    }
-
-    final newCenter = Offset(
-      _editState.cardCenter.dx + details.focalPointDelta.dx * 0.7,
-      _editState.cardCenter.dy + details.focalPointDelta.dy * 0.7,
-    );
-
-    // setState を呼んで画面全体を再構築（_isTwoFingerGesture、_activeSnapAngles も更新）
-    setState(() {
-      _editState.updateCardSilent(
-        center: newCenter,
-        scale: newScale,
-        rotation: newRotation,
-      );
-      _editState.notify();
-    });
-  }
-
-  void _onGestureScaleEnd(ScaleEndDetails details) {
-    const snapCenter = Offset(
-      PostCardBackView.cardWidth / 2,
-      PostCardBackView.photoHeight * 0.45,
-    );
-    setState(() {
-      _isTwoFingerGesture = false;
-      _isTwoFingerAccepted = false;
-      _activeSnapAngles = {};
-      _prevSnapAngles = {};
-
-      if ((_editState.cardCenter - snapCenter).distance <= 40.0) {
-        _editState.updateCardSilent(
-          center: snapCenter,
-          scale: _editState.cardScale,
-          rotation: _editState.cardRotation,
-        );
-        HapticFeedback.lightImpact();
-      }
-      _editState.notify();
-    });
-  }
-
   // ---- Build ----
 
   @override
@@ -571,29 +541,15 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
                               preExtractedGradientStart: _gradientStart,
                               preExtractedGradientEnd: _gradientEnd,
                               showLyricsCard: false,
-                              // ジェスチャー検出（常時有効）
                               photoOverlaysBefore: [
                                 Positioned.fill(
                                   child: GestureDetector(
-                                    onScaleStart: _onGestureScaleStart,
-                                    onScaleUpdate: _onGestureScaleUpdate,
-                                    onScaleEnd: _onGestureScaleEnd,
+                                    onTap: _showOpacityPicker,
                                     behavior: HitTestBehavior.translucent,
                                   ),
                                 ),
                               ],
-                              // コントロール + スナップガイドライン（アニメーション後に表示）
-                              photoOverlaysAfter: [
-                                if (_isTwoFingerGesture)
-                                  Positioned.fill(
-                                    child: RepaintBoundary(
-                                      child: CustomPaint(
-                                        painter: _GuideLinePainter(
-                                            activeSnapAngles: _activeSnapAngles),
-                                      ),
-                                    ),
-                                  ),
-                              ],
+                              photoOverlaysAfter: const [],
                                 ),
                               ),
                             ),
@@ -651,6 +607,7 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
                               layoutType: layoutType,
                               track: _currentTrack,
                               lyricsText: lyricsText,
+                              albumArtOpacity: _albumArtOpacity,
                             ),
                           ),
                         ),
@@ -1064,47 +1021,3 @@ class _WaveformPainter extends CustomPainter {
       old.selectionWidth != selectionWidth;
 }
 
-class _GuideLinePainter extends CustomPainter {
-  final Set<double> activeSnapAngles;
-  _GuideLinePainter({required this.activeSnapAngles});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final len = sqrt(size.width * size.width + size.height * size.height);
-    final base = Paint()
-      ..color = Colors.white.withValues(alpha: 0.3)
-      ..strokeWidth = 1.0;
-
-    for (final deg in [0.0, 90.0]) {
-      final rad = deg * pi / 180;
-      canvas.drawLine(
-          Offset(cx - cos(rad) * len, cy - sin(rad) * len),
-          Offset(cx + cos(rad) * len, cy + sin(rad) * len),
-          base);
-    }
-
-    if (activeSnapAngles.isNotEmpty) {
-      final snap = Paint()
-        ..color = Colors.orange.withValues(alpha: 0.5)
-        ..strokeWidth = 1.0;
-      final drawn = <double>{};
-      for (final deg in activeSnapAngles) {
-        final norm = deg % 180;
-        if (drawn.contains(norm)) continue;
-        drawn.add(norm);
-        final rad = deg * pi / 180;
-        canvas.drawLine(
-            Offset(cx - cos(rad) * len, cy - sin(rad) * len),
-            Offset(cx + cos(rad) * len, cy + sin(rad) * len),
-            snap);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _GuideLinePainter old) =>
-      old.activeSnapAngles.length != activeSnapAngles.length ||
-      !old.activeSnapAngles.containsAll(activeSnapAngles);
-}

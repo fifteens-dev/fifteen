@@ -122,6 +122,12 @@ class FifteenApp extends StatelessWidget {
       navigatorKey: navigatorKey,
       title: '15s',
       debugShowCheckedModeBanner: false,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.noScaling,
+        ),
+        child: child!,
+      ),
       locale: const Locale('ja', 'JP'),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,

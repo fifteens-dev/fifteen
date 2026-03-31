@@ -24,6 +24,25 @@ class HomeBottomNavigation extends StatelessWidget {
           decoration: BoxDecoration(
             color: const Color(0xFF191919).withValues(alpha: 0.77),
             borderRadius: BorderRadius.circular(30),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.45),
+                blurRadius: 1,
+                spreadRadius: 0,
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.22),
+                blurRadius: 6,
+                spreadRadius: 0,
+                offset: const Offset(0, 2),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 14,
+                spreadRadius: 0,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,

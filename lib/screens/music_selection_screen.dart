@@ -19,6 +19,7 @@ import '../services/itunes_search_service.dart';
 import 'post_preview_screen.dart';
 import 'home_screen.dart';
 import '../widgets/common/common.dart';
+import 'home/home_bottom_nav.dart';
 
 /// 投稿用楽曲選択画面
 class MusicSelectionScreen extends StatefulWidget {
@@ -583,82 +584,107 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final showNav = !widget.isPickerMode;
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            // ヘッダー
-            _buildHeader(),
+      body: Stack(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                // ヘッダー
+                _buildHeader(),
 
-            // 検索バー
-            _buildSearchBar(),
+                // 検索バー
+                _buildSearchBar(),
 
-            // 検索フォーカス中＆クエリ空 → 検索履歴を表示
-            if (_isSearchFocused && _currentSearchQuery.isEmpty) ...[
-              Expanded(
-                child: _buildRecentMusicSearches(),
-              ),
-            ] else ...[
-              Expanded(
-                child: CustomScrollView(
-                  slivers: [
-                    // 検索中はカテゴリー・ヘッダー・おすすめを非表示
-                    if (!_isSearchFocused) ...[
-                      // カテゴリーボタン（スクロールで消える）
-                      SliverToBoxAdapter(child: _buildCategoryButtons()),
-                      // セクションヘッダー（スクロールで消える）
-                      SliverToBoxAdapter(child: _buildSectionHeader()),
-                      // おすすめ楽曲（スクロールで消える）
-                      SliverToBoxAdapter(child: _buildRecommendedSection()),
-                    ],
-                    // タブバー＋区切り線（検索中は非表示）
-                    if (!_isSearchFocused)
-                      SliverPersistentHeader(
-                        pinned: true,
-                        delegate: _TabBarSliverDelegate(
-                          height: 53,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _buildTabBar(),
-                              Container(height: 1, color: const Color(0xFF2D2D2D)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    // 楽曲リスト or グリッド
-                    if (_isLoading)
-                      const SliverFillRemaining(
-                        child: Center(
-                          child: CircularProgressIndicator(color: Color(0xFF5D8FFF)),
-                        ),
-                      )
-                    else if (_notConnected)
-                      SliverFillRemaining(child: _buildNotConnectedView())
-                    else if (_tracks.isEmpty)
-                      const SliverFillRemaining(
-                        child: Center(
-                          child: Text(
-                            '楽曲が見つかりませんでした',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF9F9F9F),
+                // 検索フォーカス中＆クエリ空 → 検索履歴を表示
+                if (_isSearchFocused && _currentSearchQuery.isEmpty) ...[
+                  Expanded(
+                    child: _buildRecentMusicSearches(),
+                  ),
+                ] else ...[
+                  Expanded(
+                    child: CustomScrollView(
+                      slivers: [
+                        // 検索中はカテゴリー・ヘッダー・おすすめを非表示
+                        if (!_isSearchFocused) ...[
+                          // カテゴリーボタン（スクロールで消える）
+                          SliverToBoxAdapter(child: _buildCategoryButtons()),
+                          // セクションヘッダー（スクロールで消える）
+                          SliverToBoxAdapter(child: _buildSectionHeader()),
+                          // おすすめ楽曲（スクロールで消える）
+                          SliverToBoxAdapter(child: _buildRecommendedSection()),
+                        ],
+                        // タブバー＋区切り線（検索中は非表示）
+                        if (!_isSearchFocused)
+                          SliverPersistentHeader(
+                            pinned: true,
+                            delegate: _TabBarSliverDelegate(
+                              height: 53,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildTabBar(),
+                                  Container(height: 1, color: const Color(0xFF2D2D2D)),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      )
-                    else if (_isGridView)
-                      _buildTrackGridSliver()
-                    else
-                      _buildTrackListSliver(),
-                  ],
-                ),
+                        // 楽曲リスト or グリッド
+                        if (_isLoading)
+                          const SliverFillRemaining(
+                            child: Center(
+                              child: CircularProgressIndicator(color: Color(0xFF5D8FFF)),
+                            ),
+                          )
+                        else if (_notConnected)
+                          SliverFillRemaining(child: _buildNotConnectedView())
+                        else if (_tracks.isEmpty)
+                          const SliverFillRemaining(
+                            child: Center(
+                              child: Text(
+                                '楽曲が見つかりませんでした',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF9F9F9F),
+                                ),
+                              ),
+                            ),
+                          )
+                        else if (_isGridView)
+                          _buildTrackGridSliver()
+                        else
+                          _buildTrackListSliver(),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // ボトムナビゲーション（投稿ボタンは白・タップでこの画面を閉じる）
+          if (showNav && MediaQuery.of(context).viewInsets.bottom == 0)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: HomeBottomNavigation(
+                selectedIndex: 2,
+                onItemTapped: (i) {
+                  _audioService.stop();
+                  if (i == 2) {
+                    // 投稿ボタン再タップ → 画面を閉じてホームへ
+                    Navigator.pop(context, 0);
+                  } else {
+                    // ホーム/検索/プロフィール → 結果インデックスを渡してタブ切り替え
+                    Navigator.pop(context, i);
+                  }
+                },
               ),
-            ],
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }

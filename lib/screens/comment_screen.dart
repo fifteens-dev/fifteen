@@ -8,8 +8,10 @@ import '../models/comment_model.dart';
 import '../services/comment_service.dart';
 import '../constants/app_colors.dart';
 import '../utils/current_user_helper.dart';
+import '../utils/context_menu_builder.dart';
 import '../widgets/dialogs/dialogs.dart';
 import '../services/report_service.dart';
+import '../widgets/native_pull_down_button.dart';
 
 /// コメント画面（ボトムシート）
 class CommentScreen extends StatefulWidget {
@@ -318,49 +320,22 @@ class _CommentScreenState extends State<CommentScreen> {
           ),
 
           // 3点メニュー（自分→削除、他人→通報）
-          SizedBox(
-            width: 28,
-            height: 28,
-            child: PopupMenuButton<String>(
-              padding: EdgeInsets.zero,
-              icon: Icon(Icons.more_horiz,
+          NativePullDownButton(
+            items: [
+              if (isMyComment)
+                const NativeMenuItem(id: 'delete', title: '削除', type: 'destructive', icon: 'trash')
+              else
+                const NativeMenuItem(id: 'report', title: '通報', type: 'destructive', icon: 'exclamationmark.triangle'),
+            ],
+            onSelected: (id) async {
+              if (id == 'delete') _deleteComment(comment);
+              if (id == 'report') _reportComment(comment);
+            },
+            child: SizedBox(
+              width: 28,
+              height: 28,
+              child: Icon(Icons.more_horiz,
                   color: _theme.secondaryTextColor, size: 18),
-              color: const Color(0xFF2D2D2D),
-              onSelected: (value) async {
-                if (value == 'delete') {
-                  _deleteComment(comment);
-                } else if (value == 'report') {
-                  await _reportComment(comment);
-                }
-              },
-              itemBuilder: (context) => [
-                if (isMyComment)
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(Icons.delete_outline,
-                            color: Color(0xFFE53935), size: 18),
-                        SizedBox(width: 8),
-                        Text('削除',
-                            style: TextStyle(color: Color(0xFFE53935))),
-                      ],
-                    ),
-                  ),
-                if (!isMyComment)
-                  const PopupMenuItem(
-                    value: 'report',
-                    child: Row(
-                      children: [
-                        Icon(Icons.flag_outlined,
-                            color: Color(0xFFE53935), size: 18),
-                        SizedBox(width: 8),
-                        Text('通報',
-                            style: TextStyle(color: Color(0xFFE53935))),
-                      ],
-                    ),
-                  ),
-              ],
             ),
           ),
         ],
@@ -428,12 +403,7 @@ class _CommentScreenState extends State<CommentScreen> {
                       ),
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _postComment(),
-                      contextMenuBuilder: (ctx, editableTextState) {
-                        return AdaptiveTextSelectionToolbar.buttonItems(
-                          anchors: editableTextState.contextMenuAnchors,
-                          buttonItems: editableTextState.contextMenuButtonItems,
-                        );
-                      },
+                      contextMenuBuilder: buildTextContextMenu,
                     ),
                   ),
                   // 送信ボタン

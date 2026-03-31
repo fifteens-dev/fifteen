@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'animated_waveform.dart';
@@ -25,6 +27,9 @@ import 'post_card/post_card_constants.dart';
 import 'post_card/marquee_text.dart';
 import 'dialogs/restriction_notification.dart';
 import 'dialogs/report_dialog.dart';
+import 'package:path_provider/path_provider.dart';
+import 'native_pull_down_button.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// 投稿カードウィジェット（表裏反転アニメーション付き）
 class PostCard extends StatefulWidget {
@@ -52,6 +57,7 @@ class PostCard extends StatefulWidget {
   final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
   final VoidCallback? onFlipToBack; // 初めて裏面に反転したときのコールバック（閲覧済み記録用）
   final bool persistentPlayButton; // trueの場合、停止中は再生ボタンを常時表示・再生中は非表示
+  final VoidCallback? onShare; // 共有ボタンタップ時のコールバック（未指定時はPNG保存）
 
   const PostCard({
     super.key,
@@ -79,6 +85,7 @@ class PostCard extends StatefulWidget {
     this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
     this.onFlipToBack, // 裏面反転コールバック（オプション）
     this.persistentPlayButton = false, // デフォルトはアニメーション表示
+    this.onShare, // 共有コールバック（オプション）
   });
 
   @override
@@ -90,6 +97,9 @@ class PostCardState extends State<PostCard>
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
   bool _showFront = true;
+
+  // カードキャプチャ用
+  final GlobalKey _cardRepaintKey = GlobalKey();
 
   // 再生ボタンアニメーション用
   late AnimationController _playButtonAnimationController;
@@ -607,25 +617,28 @@ class PostCardState extends State<PostCard>
       child: SizedBox(
         width: 363.0,
         height: 644.0,
-        child: widget.showFrontOnly
-            ? _buildFront() // 表面のみ表示（反転アニメーションなし）
-            : AnimatedBuilder(
-                animation: Listenable.merge([_flipAnimation, _rejectAnimation]),
-                builder: (context, child) {
-                  final flipAngle = _flipAnimation.value * pi;
-                  final peekAngle = _rejectAnimation.value * pi;
-                  final totalAngle = flipAngle + peekAngle;
-                  final isFront = totalAngle.abs() < pi / 2;
+        child: RepaintBoundary(
+          key: _cardRepaintKey,
+          child: widget.showFrontOnly
+              ? _buildFront() // 表面のみ表示（反転アニメーションなし）
+              : AnimatedBuilder(
+                  animation: Listenable.merge([_flipAnimation, _rejectAnimation]),
+                  builder: (context, child) {
+                    final flipAngle = _flipAnimation.value * pi;
+                    final peekAngle = _rejectAnimation.value * pi;
+                    final totalAngle = flipAngle + peekAngle;
+                    final isFront = totalAngle.abs() < pi / 2;
 
-                  return Transform(
-                    alignment: Alignment.center,
-                    transform: Matrix4.identity()
-                      ..setEntry(3, 2, 0.001)
-                      ..rotateY(totalAngle),
-                    child: isFront ? _buildFront() : _buildBack(),
-                  );
-                },
-              ),
+                    return Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.identity()
+                        ..setEntry(3, 2, 0.001)
+                        ..rotateY(totalAngle),
+                      child: isFront ? _buildFront() : _buildBack(),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }
@@ -741,6 +754,26 @@ class PostCardState extends State<PostCard>
                           : cardWidth * (12 / 363),
                       child: _buildTrackInfo(theme),
                     ),
+
+                    // 共有ボタン（3点メニューのすぐ左・自分の投稿のみ）
+                    if (_isOwner)
+                      Positioned(
+                        right: cardWidth * (47 / 363),
+                        top: contentHeight * (63 / 294),
+                        child: SizedBox(
+                          width: 32,
+                          height: 36,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: widget.onShare ?? _handleShare,
+                            child: Icon(
+                              Icons.ios_share,
+                              size: 22,
+                              color: theme.iconColor,
+                            ),
+                          ),
+                        ),
+                      ),
 
                     // 3点メニューボタン
                     if (_showMoreButton)
@@ -909,11 +942,14 @@ class PostCardState extends State<PostCard>
                         : cardWidth * (340 / 363),
                   ),
                   const SizedBox(height: 1.198),
-                  _buildWeightAdjustedText(
-                    widget.post.track.artistName,
-                    fontSize: 13,
-                    baseWeight: FontWeight.w400,
-                    color: theme.secondaryTextColor,
+                  Opacity(
+                    opacity: 0.8,
+                    child: _buildWeightAdjustedText(
+                      widget.post.track.artistName,
+                      fontSize: 13,
+                      baseWeight: FontWeight.w400,
+                      color: theme.secondaryTextColor,
+                    ),
                   ),
                 ],
               ),
@@ -959,11 +995,12 @@ class PostCardState extends State<PostCard>
             ),
 
             // ユーザーアバター（右側）
-            Positioned(
-              right: cardWidth * (12 / 363),
-              bottom: cardHeight * (80 / 644),
-              child: _buildLikedUsersIconsFront(cardWidth, cardHeight),
-            ),
+            if (!widget.hideReactionCounts)
+              Positioned(
+                right: cardWidth * (12 / 363),
+                bottom: cardHeight * (80 / 644),
+                child: _buildLikedUsersIconsFront(cardWidth, cardHeight),
+              ),
 
             // コメントボタン
             Positioned(
@@ -985,6 +1022,26 @@ class PostCardState extends State<PostCard>
                 ),
               ),
             ),
+
+            // 共有ボタン（3点メニューのすぐ左・自分の投稿のみ）
+            if (_isOwner)
+              Positioned(
+                right: cardWidth * (47 / 363),
+                bottom: cardHeight * (110 / 644),
+                child: SizedBox(
+                  width: 32,
+                  height: 36,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.onShare ?? _handleShare,
+                    child: Icon(
+                      Icons.ios_share,
+                      size: 22,
+                      color: theme.iconColor,
+                    ),
+                  ),
+                ),
+              ),
 
             // 3点メニューボタン（裏面）
             if (_showMoreButton)
@@ -1741,11 +1798,14 @@ class PostCardState extends State<PostCard>
           width: availableWidth,
         ),
         const SizedBox(height: 4),
-        _buildWeightAdjustedText(
-          widget.post.track.artistName,
-          fontSize: 13,
-          baseWeight: FontWeight.w400,
-          color: theme.textColor,
+        Opacity(
+          opacity: 0.8,
+          child: _buildWeightAdjustedText(
+            widget.post.track.artistName,
+            fontSize: 13,
+            baseWeight: FontWeight.w400,
+            color: theme.textColor,
+          ),
         ),
       ],
     );
@@ -1781,10 +1841,11 @@ class PostCardState extends State<PostCard>
         // 追加（保存ボタン）
         _buildSaveButton(theme: theme),
 
-        const Spacer(),
-
-        // いいねしたユーザーのアイコン（最大2人）
-        _buildLikedUsersIcons(),
+        if (!widget.hideReactionCounts) ...[
+          const Spacer(),
+          // いいねしたユーザーのアイコン（最大2人）
+          _buildLikedUsersIcons(),
+        ],
       ],
     );
   }
@@ -1857,6 +1918,7 @@ class PostCardState extends State<PostCard>
     );
   }
 
+
   /// いいねしたユーザーのアイコン（裏面用 - 固定サイズ）
   Widget _buildLikedUsersIcons() {
     return _buildLikedUsersIconsCommon(
@@ -1878,7 +1940,6 @@ class PostCardState extends State<PostCard>
     required double iconSize,
     required double margin,
   }) {
-    // 楽観的UIを使用するか、実際のデータを使用
     final iconUrls = _likedByUserIconUrlsOptimistic ?? widget.post.likedByUserIconUrls;
     final displayCount = iconUrls.length > PostCardConstants.maxLikedUsersToShow
         ? PostCardConstants.maxLikedUsersToShow
@@ -1973,48 +2034,27 @@ class PostCardState extends State<PostCard>
       widget.post.userId == widget.currentUserId;
 
   Widget _buildMoreButton(PostTheme theme) {
-    return SizedBox(
-      width: 32,
-      height: 36,
-      child: PopupMenuButton<String>(
-        padding: EdgeInsets.zero,
-        icon: Icon(Icons.more_vert, color: theme.iconColor, size: 22),
-        color: const Color(0xFF2D2D2D),
-        onSelected: (value) async {
-          if (value == 'delete') {
-            widget.onDelete?.call();
-          } else if (value == 'report') {
-            await showReportDialog(
-              context,
-              reportedUserId: widget.post.userId,
-              postId: widget.post.postId,
-            );
-          }
-        },
-        itemBuilder: (context) => [
-          if (_isOwner && widget.onDelete != null)
-            const PopupMenuItem(
-              value: 'delete',
-              child: Row(
-                children: [
-                  Icon(Icons.delete_outline, color: Color(0xFFE53935), size: 20),
-                  SizedBox(width: 8),
-                  Text('削除', style: TextStyle(color: Color(0xFFE53935))),
-                ],
-              ),
-            ),
-          if (!_isOwner)
-            const PopupMenuItem(
-              value: 'report',
-              child: Row(
-                children: [
-                  Icon(Icons.flag_outlined, color: Color(0xFFE53935), size: 20),
-                  SizedBox(width: 8),
-                  Text('通報', style: TextStyle(color: Color(0xFFE53935))),
-                ],
-              ),
-            ),
-        ],
+    return NativePullDownButton(
+      items: [
+        if (_isOwner && widget.onDelete != null)
+          const NativeMenuItem(id: 'delete', title: '削除', type: 'destructive', icon: 'trash'),
+        if (!_isOwner)
+          const NativeMenuItem(id: 'report', title: '通報', type: 'destructive', icon: 'exclamationmark.triangle'),
+      ],
+      onSelected: (id) async {
+        if (id == 'delete') widget.onDelete?.call();
+        if (id == 'report') {
+          await showReportDialog(
+            context,
+            reportedUserId: widget.post.userId,
+            postId: widget.post.postId,
+          );
+        }
+      },
+      child: SizedBox(
+        width: 32,
+        height: 36,
+        child: Icon(Icons.more_vert, color: theme.iconColor, size: 22),
       ),
     );
   }
@@ -2076,6 +2116,35 @@ class PostCardState extends State<PostCard>
         ),
       ),
     );
+  }
+
+  /// 外部から共有を実行（CardShareScreenのボタンから呼び出す）
+  void shareCard() => _handleShare();
+
+  /// カードをPNG画像としてシェア（現在表示中の面を保存）
+  Future<void> _handleShare() async {
+    try {
+      final boundary = _cardRepaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return;
+
+      // iOS用: シェアポップオーバーの表示位置をカード自身の画面座標から取得
+      final shareRect = boundary.localToGlobal(Offset.zero) & boundary.size;
+
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return;
+
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/fifteen_card.png');
+      await file.writeAsBytes(byteData.buffer.asUint8List());
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        sharePositionOrigin: shareRect,
+      );
+    } catch (e) {
+      if (kDebugMode) print('❌ Share error: $e');
+    }
   }
 }
 

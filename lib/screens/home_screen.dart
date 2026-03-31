@@ -23,6 +23,7 @@ import 'music_selection_screen.dart';
 import 'post_photo_selection_screen.dart';
 import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
+import 'card_share_screen.dart';
 import 'home/vibe_bar_section.dart';
 import 'home/home_bottom_nav.dart';
 import '../widgets/campus_vibe_card.dart';
@@ -45,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen>
   final SpotifyService _spotifyService = SpotifyService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey<RefreshIndicatorState> _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
   final ValueNotifier<double> _bellOpacity = ValueNotifier<double>(1.0);
 
   // ホーム画面専用の音楽再生サービス（全てのPostCardで共有）
@@ -148,8 +150,11 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// プルダウン更新（投稿リスト＋ユーザー情報を両方再取得）
+  /// プルダウン更新（投稿リスト＋ユーザー情報＋Vibeを再取得）
   Future<void> _onRefresh() async {
+    setState(() {
+      _vibeDataFuture = _loadVibeData();
+    });
     await Future.wait([
       _loadPosts(),
       _loadCurrentUserIconUrl(),
@@ -365,9 +370,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ボトムナビゲーションのタップ処理
   /// Vibeの「投稿する」ボタンから楽曲選択画面へ遷移（Vibe事前選択済み）
-  void _navigateToVibePost() {
+  Future<void> _navigateToVibePost() async {
     _homeAudioService.stop();
-    Navigator.push(
+    final targetIndex = await Navigator.push<int>(
       context,
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => const MusicSelectionScreen(initialCategoryType: 'vibe'),
@@ -375,13 +380,16 @@ class _HomeScreenState extends State<HomeScreen>
         reverseTransitionDuration: Duration.zero,
       ),
     );
+    if (targetIndex != null && mounted) {
+      setState(() => _selectedIndex = targetIndex);
+    }
   }
 
-  void _onItemTapped(int index) {
+  Future<void> _onItemTapped(int index) async {
     if (index == 2) {
       // 楽曲選択画面へ遷移（投稿フローの起点）
       _homeAudioService.stop();
-      Navigator.push(
+      final targetIndex = await Navigator.push<int>(
         context,
         PageRouteBuilder(
           pageBuilder: (_, __, ___) => const MusicSelectionScreen(),
@@ -389,6 +397,22 @@ class _HomeScreenState extends State<HomeScreen>
           reverseTransitionDuration: Duration.zero,
         ),
       );
+      if (targetIndex != null && mounted) {
+        setState(() => _selectedIndex = targetIndex);
+      }
+      return;
+    }
+
+    // ホームタブを既に表示中にもう一度タップ → 先頭に戻る＋リロードUI表示
+    if (index == 0 && _selectedIndex == 0) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+      Future.delayed(const Duration(milliseconds: 150), () {
+        _refreshIndicatorKey.currentState?.show();
+      });
       return;
     }
 
@@ -430,6 +454,7 @@ class _HomeScreenState extends State<HomeScreen>
                     return false;
                   },
                   child: RefreshIndicator(
+                    key: _refreshIndicatorKey,
                     onRefresh: _onRefresh,
                     color: Colors.white,
                     backgroundColor: const Color(0xFF1E1E1E),
@@ -607,7 +632,7 @@ class _HomeScreenState extends State<HomeScreen>
       // ホーム画面の音楽を停止
       _homeAudioService.stop();
 
-      // 投稿一覧画面に遷移
+      // 投稿一覧画面に遷移（hasPostedTodayを渡してローディングをスキップ）
       await Navigator.push(
         context,
         MaterialPageRoute(
@@ -615,6 +640,10 @@ class _HomeScreenState extends State<HomeScreen>
             track: item.track,
             posts: matchingPosts,
             currentUserId: _auth.currentUser?.uid ?? 'test_user_temp',
+            initialHasPostedToday: _hasPostedToday,
+            onTabSwitch: (i) {
+              if (mounted) setState(() => _selectedIndex = i);
+            },
           ),
         ),
       );
@@ -671,7 +700,7 @@ class _HomeScreenState extends State<HomeScreen>
             final cardKey = _postCardKeys[post.postId]!;
 
             return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.only(bottom: 24),
               child: RepaintBoundary(
                 child: PostCard(
                   key: cardKey,
@@ -689,6 +718,17 @@ class _HomeScreenState extends State<HomeScreen>
                   onPlayStarted: () {
                     _playingPostId = post.postId;
                   },
+                  onShare: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CardShareScreen(
+                        post: post,
+                        currentUserId: currentUserId,
+                        currentUserIconUrl: _currentUserIconUrl,
+                        isSaved: _savedPostIds.contains(post.postId),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             );

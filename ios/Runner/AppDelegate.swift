@@ -2,10 +2,50 @@ import Flutter
 import UIKit
 import MusicKit
 import StoreKit
+import ObjectiveC.runtime
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private let musicKitChannel = "com.fifteen.musickit"
+  private var nativeMenuChannel: AnyObject?
+
+  // MARK: - FlutterTextInputView swizzle: ペーストを常に許可
+
+  /// FlutterTextInputView の canPerformAction:withSender: を差し替えて
+  /// paste: セレクタを常に true にする。
+  /// UIEditMenuInteraction (SystemContextMenu) はこの値を参照してペーストを表示する。
+  private var _originalCanPerformIMP: IMP?
+
+  private func swizzleFlutterPasteAction() {
+    guard let targetClass = NSClassFromString("FlutterTextInputView") else { return }
+    let sel = NSSelectorFromString("canPerformAction:withSender:")
+    guard let method = class_getInstanceMethod(targetClass, sel) else { return }
+
+    _originalCanPerformIMP = method_getImplementation(method)
+    let origIMP = _originalCanPerformIMP  // ブロックにキャプチャするためローカルに保持
+
+    // ブロックの引数: (receiver, action, sender)
+    // imp_implementationWithBlock では _cmd は渡されない
+    let newBlock: @convention(block) (AnyObject, Selector, AnyObject?) -> Bool =
+      { (receiver, action, sender) in
+        if action == #selector(UIResponderStandardEditActions.paste(_:)) {
+          return true
+        }
+        guard let orig = origIMP else { return false }
+        // 元の IMP を C 呼び出し規約で呼び出す（self, _cmd, action, sender の順）
+        typealias Fn = @convention(c) (AnyObject, Selector, Selector, AnyObject?) -> Bool
+        return unsafeBitCast(orig, to: Fn.self)(receiver, sel, action, sender)
+      }
+
+    method_setImplementation(method, imp_implementationWithBlock(newBlock))
+  }
+
+  /// UIKit のシステム UI（テキスト編集メニュー等）を端末言語に関わらず
+  /// 日本語で表示するため、アプリ言語を起動前に強制設定する。
+  override init() {
+    UserDefaults.standard.set(["ja"], forKey: "AppleLanguages")
+    super.init()
+  }
 
   override func application(
     _ application: UIApplication,
@@ -13,9 +53,25 @@ import StoreKit
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
 
-    // Setup MusicKit Method Channel
+    // FlutterTextInputView の paste を常に許可（SystemContextMenu でペーストを常時表示）
+    swizzleFlutterPasteAction()
+
+    // Setup MusicKit Method Channel + Native Menu Channel
     if let controller = window?.rootViewController as? FlutterViewController {
       setupMusicKitChannel(controller: controller)
+      if #available(iOS 14.0, *) {
+        let menuChannel = NativeMenuChannel()
+        menuChannel.setup(controller: controller)
+        nativeMenuChannel = menuChannel  // ARC で解放されないよう保持
+
+        // PlatformView: 透明 UIButton + UIMenu
+        if let registrar = self.registrar(forPlugin: "NativeMenuButtonPlugin") {
+          registrar.register(
+            NativeMenuButtonFactory(messenger: registrar.messenger()),
+            withId: "com.fifteen.nativemenu/button"
+          )
+        }
+      }
     }
 
     // FCM: Request notification permissions

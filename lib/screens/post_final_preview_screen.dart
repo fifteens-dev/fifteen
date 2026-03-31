@@ -51,6 +51,7 @@ class PostFinalPreviewScreen extends StatefulWidget {
   final String? initialUsername;
   final String? initialUserIconUrl;
   final String? initialUniversity;
+  final double albumArtOpacity;
 
   const PostFinalPreviewScreen({
     super.key,
@@ -74,6 +75,7 @@ class PostFinalPreviewScreen extends StatefulWidget {
     this.initialUsername,
     this.initialUserIconUrl,
     this.initialUniversity,
+    this.albumArtOpacity = 1.0,
   });
 
   @override
@@ -124,6 +126,15 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   Set<double> _activeSnapAngles = {};
   Set<double> _prevSnapAngles = {};
   bool _isTwoFingerAccepted = false;
+  bool _rotationLocked = true;
+
+  // 写真パン・ズーム
+  late Offset _imageOffset;
+  late double _imageScale;
+  bool _isPhotoGestureMode = false;
+  Offset _photoStartOffset = Offset.zero;
+  double _photoStartScale = 1.0;
+  Offset _photoStartFocalPoint = Offset.zero;
 
   // 現在のユーザー情報
   String _currentUsername = '';
@@ -143,6 +154,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     } else {
       _loadCurrentUserInfo();
     }
+
+    _imageOffset = widget.imageOffset;
+    _imageScale = widget.imageScale;
 
     // widget の cardPosition（左上座標）から cardCenter を復元
     final cardSize = PostCardBackView.cardSizeForLayout(widget.selectedLayoutIndex);
@@ -367,36 +381,90 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     }
   }
 
-  // ---- 歌詞カード ジェスチャー ----
+  // ---- ジェスチャー共通 ----
 
-  bool _isInTwoFingerHitArea(Offset localFocalPoint) {
+  /// 歌詞カードの外側（写真ゾーン）かどうかを判定
+  /// trueなら写真パン・ズームゾーン、falseなら歌詞カードゾーン
+  bool _isInPhotoZone(Offset localPoint) {
+    const photoW = 363.0;
+    const photoH = 484.0;
+    if (localPoint.dy < 0 || localPoint.dy > photoH) return false;
+    if (localPoint.dx < 0 || localPoint.dx > photoW) return false;
+
+    // 歌詞カードの実際の位置・スケール・回転に基づいて判定
+    final cardSize = PostCardBackView.cardSizeForLayout(_editState.selectedLayoutIndex);
+    final halfW = cardSize.width * _editState.cardScale / 2;
+    final halfH = cardSize.height * _editState.cardScale / 2;
+    final center = _editState.cardCenter;
+
+    // カード中心からの相対座標を求め、カードの回転を逆に適用
+    final dx = localPoint.dx - center.dx;
+    final dy = localPoint.dy - center.dy;
+    final angle = -_editState.cardRotation;
+    final rx = dx * cos(angle) - dy * sin(angle);
+    final ry = dx * sin(angle) + dy * cos(angle);
+
+    // カード矩形内ならfalse（歌詞カードゾーン）、外ならtrue（写真ゾーン）
+    return !(rx.abs() <= halfW && ry.abs() <= halfH);
+  }
+
+  bool _isInCardHitArea(Offset localFocalPoint) {
     const frameW = 363.0;
-    const frameH = 484.0; // 写真エリアのみ（情報バー除く）
-    // 情報バー部分（484px以下）はピンチ対象外
-    if (localFocalPoint.dy > frameH) return false;
-    final center = Offset(frameW / 2, frameH / 2);
-    final radius = min(frameW, frameH) * 0.6 / 2;
-    return (localFocalPoint - center).distance <= radius;
+    const frameH = 484.0;
+    return localFocalPoint.dx >= 0 &&
+        localFocalPoint.dx <= frameW &&
+        localFocalPoint.dy >= 0 &&
+        localFocalPoint.dy <= frameH;
   }
 
   void _onGestureScaleStart(ScaleStartDetails details) {
+    if (_isInPhotoZone(details.localFocalPoint)) {
+      _isPhotoGestureMode = true;
+      _photoStartOffset = _imageOffset;
+      _photoStartScale = _imageScale;
+      _photoStartFocalPoint = details.localFocalPoint;
+      return;
+    }
+    _isPhotoGestureMode = false;
     _startScale = _editState.cardScale;
     _startRotation = _editState.cardRotation;
     _isTwoFingerAccepted = false;
+    _rotationLocked = true;
     if (details.pointerCount >= 2 &&
-        _isInTwoFingerHitArea(details.localFocalPoint)) {
+        _isInCardHitArea(details.localFocalPoint)) {
       _isTwoFingerAccepted = true;
       setState(() => _isTwoFingerGesture = true);
     }
   }
 
   void _onGestureScaleUpdate(ScaleUpdateDetails details) {
+    if (_isPhotoGestureMode) {
+      final scaleRatio = details.scale;
+      final newScale = (_photoStartScale * scaleRatio).clamp(0.5, 5.0);
+      final panDelta = details.localFocalPoint - _photoStartFocalPoint;
+      final newOffset = Offset(
+        _photoStartFocalPoint.dx -
+            (_photoStartFocalPoint.dx - _photoStartOffset.dx) *
+                (newScale / _photoStartScale) +
+            panDelta.dx,
+        _photoStartFocalPoint.dy -
+            (_photoStartFocalPoint.dy - _photoStartOffset.dy) *
+                (newScale / _photoStartScale) +
+            panDelta.dy,
+      );
+      setState(() {
+        _imageOffset = newOffset;
+        _imageScale = newScale;
+      });
+      return;
+    }
+
     double newScale = _editState.cardScale;
     double newRotation = _editState.cardRotation;
 
     if (details.pointerCount >= 2) {
       if (!_isTwoFingerAccepted &&
-          _isInTwoFingerHitArea(details.localFocalPoint)) {
+          _isInCardHitArea(details.localFocalPoint)) {
         _isTwoFingerAccepted = true;
         _startScale = _editState.cardScale;
         _startRotation = _editState.cardRotation;
@@ -404,7 +472,14 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       if (_isTwoFingerAccepted) {
         newScale =
             (_startScale * (1.0 + (details.scale - 1.0) * 0.6)).clamp(0.3, 3.0);
-        newRotation = _startRotation + details.rotation * 0.6;
+        // 10度未満は回転をロック（拡縮優先）
+        const rotationThreshold = 10.0 * pi / 180.0;
+        if (_rotationLocked && details.rotation.abs() < rotationThreshold) {
+          newRotation = _startRotation;
+        } else {
+          _rotationLocked = false;
+          newRotation = _startRotation + details.rotation * 0.6;
+        }
 
         double deg = (newRotation * 180 / pi) % 360;
         if (deg < 0) deg += 360;
@@ -439,6 +514,10 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   }
 
   void _onGestureScaleEnd(ScaleEndDetails details) {
+    if (_isPhotoGestureMode) {
+      setState(() => _isPhotoGestureMode = false);
+      return;
+    }
     const snapCenter = Offset(363.0 / 2, 484.0 * 0.45);
     setState(() {
       _isTwoFingerGesture = false;
@@ -521,9 +600,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         userIconUrl: userIconUrl,
         trackData: widget.track.toMap(),
         photoUrl: photoUrl,
-        imageOffsetX: widget.imageOffset.dx,
-        imageOffsetY: widget.imageOffset.dy,
-        imageScale: widget.imageScale,
+        imageOffsetX: _imageOffset.dx,
+        imageOffsetY: _imageOffset.dy,
+        imageScale: _imageScale,
         imageNaturalWidth: widget.imageNaturalSize?.width ?? 0,
         imageNaturalHeight: widget.imageNaturalSize?.height ?? 0,
         selectedLayoutIndex: _editState.selectedLayoutIndex,
@@ -680,10 +759,18 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                   alignment: Alignment.centerLeft,
                   child: GestureDetector(
                     onTap: _isPosting ? null : () => Navigator.pop(context),
-                    child: Icon(
-                      Icons.arrow_back_ios,
-                      color: _isPosting ? Colors.grey : Colors.white,
-                      size: 27,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.arrow_back_ios_new,
+                        color: _isPosting ? Colors.grey : Colors.white,
+                        size: 20,
+                      ),
                     ),
                   ),
                 ),
@@ -823,10 +910,10 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                   // 選択された写真
                   if (widget.selectedImage != null && displayW != null)
                     Positioned(
-                      left: widget.imageOffset.dx,
-                      top: widget.imageOffset.dy,
+                      left: _imageOffset.dx,
+                      top: _imageOffset.dy,
                       child: Transform.scale(
-                        scale: widget.imageScale,
+                        scale: _imageScale,
                         alignment: Alignment.topLeft,
                         child: SizedBox(
                           width: displayW,
@@ -973,6 +1060,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
             layoutType: layoutType,
             track: widget.track,
             lyricsText: lyricsText,
+            albumArtOpacity: widget.albumArtOpacity,
           ),
         ),
       ),
@@ -1053,3 +1141,4 @@ class _GuideLinePainter extends CustomPainter {
       old.activeSnapAngles.length != activeSnapAngles.length ||
       !old.activeSnapAngles.containsAll(activeSnapAngles);
 }
+

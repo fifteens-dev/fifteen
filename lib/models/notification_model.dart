@@ -141,7 +141,7 @@ class NotificationModel {
       case NotificationType.comment:
         return 'あなたの投稿にコメントしました';
       case NotificationType.follow:
-        return 'あなたをフォローしました';
+        return 'があなたをフォローしました';
       case NotificationType.official:
         return body ?? '';
       case NotificationType.post:

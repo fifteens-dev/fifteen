@@ -8,6 +8,7 @@ import '../services/user_service.dart';
 import '../services/storage_service.dart';
 import '../constants/app_colors.dart';
 import '../widgets/dialogs/glass_popup.dart';
+import '../utils/context_menu_builder.dart';
 
 /// アカウント編集画面
 class AccountEditScreen extends StatefulWidget {
@@ -586,12 +587,7 @@ class _EditDialogState extends State<_EditDialog> {
           inputFormatters: widget.isUsername
               ? [FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_]'))]
               : null,
-          contextMenuBuilder: (ctx, editableTextState) {
-            return AdaptiveTextSelectionToolbar.buttonItems(
-              anchors: editableTextState.contextMenuAnchors,
-              buttonItems: editableTextState.contextMenuButtonItems,
-            );
-          },
+          contextMenuBuilder: buildTextContextMenu,
         ),
       ),
       actions: [

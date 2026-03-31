@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -53,20 +52,12 @@ class _LyricsCardSelectionScreenState
   String? _currentUserIconUrl;
 
   int _selectedLayoutIndex = 1; // 選択されたレイアウト (1-4、0=歌詞カードは非表示)
-  Offset _cardCenter = const Offset(180, 200); // カード中央座標
-  double _cardScale = 1.0; // 拡大率
-  double _cardRotation = 0.0; // 回転角度（ラジアン）
-  bool _isTwoFingerGesture = false; // 2本指操作中フラグ
-  // ジェスチャー開始時の値保持
-  double _startScale = 1.0;
-  double _startRotation = 0.0;
-  // スナップ補助線用
-  static const List<double> _snapDegrees = [45, 135, 225, 315];
-  static const double _snapThreshold = 3.0; // 度
-  Set<double> _activeSnapAngles = {};
-  Set<double> _prevSnapAngles = {};
-  // ジェスチャー中のカード再描画用（setStateを避けて高速化）
-  final ValueNotifier<int> _gestureNotifier = ValueNotifier<int>(0);
+  Offset _cardCenter = const Offset(180, 200); // カード中央座標（固定）
+  double _cardScale = 1.0; // 拡大率（固定）
+  double _cardRotation = 0.0; // 回転角度（固定）
+  double _albumArtOpacity = 1.0; // アルバムアートの透明度
+  // タップ検出用
+  Offset? _tapStartFocalPoint;
 
   LyricsData? _lyricsData; // 取得した歌詞データ
   bool _isLoadingLyrics = false; // 歌詞取得中フラグ
@@ -84,12 +75,6 @@ class _LyricsCardSelectionScreenState
     } else {
       print('✅ 既に取得済みの歌詞を使用します (${_lyricsData!.source})');
     }
-  }
-
-  @override
-  void dispose() {
-    _gestureNotifier.dispose();
-    super.dispose();
   }
 
   Future<void> _loadCurrentUserInfo() async {
@@ -169,6 +154,7 @@ class _LyricsCardSelectionScreenState
             // コンテンツ（最終プレビュー画面と同じ padding に合わせる）
             Expanded(
               child: SingleChildScrollView(
+                physics: const NeverScrollableScrollPhysics(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -319,50 +305,35 @@ class _LyricsCardSelectionScreenState
                   color: const Color(0xFF121212),
                 ),
 
-              // 歌詞カード + 補助線（ジェスチャー中はここだけ再描画）
-              ValueListenableBuilder<int>(
-                valueListenable: _gestureNotifier,
-                builder: (context, _, child) {
-                  return Stack(
-                    children: [
-                      // 歌詞カードプレビュー（Transform のみで移動・回転・拡大 → layout pass なし）
-                      Positioned.fill(
-                        child: Transform.translate(
-                          offset: Offset(
-                            _cardCenter.dx - _photoWidth / 2,
-                            _cardCenter.dy - _photoHeight / 2,
-                          ),
-                          child: Transform.scale(
-                            scale: _cardScale,
-                            child: Transform.rotate(
-                              angle: _cardRotation,
-                              child: child!,
-                            ),
-                          ),
-                        ),
-                      ),
-                      // 補助線
-                      if (_isTwoFingerGesture)
-                        Positioned.fill(
-                          child: RepaintBoundary(
-                            child: CustomPaint(
-                              painter: _GuideLinePainter(activeSnapAngles: _activeSnapAngles),
-                            ),
-                          ),
-                        ),
-                    ],
-                  );
-                },
-                // child は layout ウィジェット（ジェスチャーで再構築不要）
-                child: Center(child: _buildCurrentLayout()),
+              // 歌詞カード（固定位置・固定スケール・固定回転）
+              Positioned.fill(
+                child: Transform.translate(
+                  offset: Offset(
+                    _cardCenter.dx - _photoWidth / 2,
+                    _cardCenter.dy - _photoHeight / 2,
+                  ),
+                  child: Transform.scale(
+                    scale: _cardScale,
+                    child: Transform.rotate(
+                      angle: _cardRotation,
+                      child: Center(child: _buildCurrentLayout()),
+                    ),
+                  ),
+                ),
               ),
 
-              // ジェスチャー検出オーバーレイ（写真エリア全体をカバー）
+              // タップ検出オーバーレイ（写真エリア全体をカバー）
               Positioned.fill(
                 child: GestureDetector(
-                  onScaleStart: _onGestureScaleStart,
-                  onScaleUpdate: _onGestureScaleUpdate,
-                  onScaleEnd: _onGestureScaleEnd,
+                  onTap: () {
+                    if (_tapStartFocalPoint != null &&
+                        _isTapOnCard(_tapStartFocalPoint!)) {
+                      _showOpacityPicker();
+                    }
+                  },
+                  onTapDown: (details) {
+                    _tapStartFocalPoint = details.localPosition;
+                  },
                   behavior: HitTestBehavior.translucent,
                 ),
               ),
@@ -389,17 +360,6 @@ class _LyricsCardSelectionScreenState
   // 写真フレームサイズ
   static const double _photoWidth = 363.0;
   static const double _photoHeight = 484.0;
-
-  // 2本指ジェスチャーの判定エリア（写真枠の60%、円形）
-  static const double _twoFingerHitRatio = 0.6;
-  bool _isTwoFingerAccepted = false;
-
-  /// 2本指ジェスチャーの判定エリア内かチェック（中心から円状）
-  bool _isInTwoFingerHitArea(Offset localFocalPoint) {
-    const center = Offset(_photoWidth / 2, _photoHeight / 2);
-    final radius = min(_photoWidth, _photoHeight) * _twoFingerHitRatio / 2;
-    return (localFocalPoint - center).distance <= radius;
-  }
 
   /// カードサイズを取得（レイアウトごとに異なる）
   Size _getCardSize() {
@@ -437,80 +397,84 @@ class _LyricsCardSelectionScreenState
     }
   }
 
-  /// ジェスチャーコールバック（setStateを使わず ValueNotifier で通知）
-  void _onGestureScaleStart(ScaleStartDetails details) {
-    _startScale = _cardScale;
-    _startRotation = _cardRotation;
-    _isTwoFingerAccepted = false;
-
-    if (details.pointerCount >= 2) {
-      // 2本指：円形判定エリア内かチェック
-      if (_isInTwoFingerHitArea(details.localFocalPoint)) {
-        _isTwoFingerAccepted = true;
-        _isTwoFingerGesture = true;
-        _gestureNotifier.value++;
-      }
-    }
+  /// タップ位置がカードの範囲内か判定（回転は考慮しない近似）
+  bool _isTapOnCard(Offset tapPoint) {
+    final cardSize = _getCardSize();
+    final halfW = cardSize.width * _cardScale / 2;
+    final halfH = cardSize.height * _cardScale / 2;
+    return (tapPoint.dx - _cardCenter.dx).abs() <= halfW &&
+        (tapPoint.dy - _cardCenter.dy).abs() <= halfH;
   }
 
-  void _onGestureScaleUpdate(ScaleUpdateDetails details) {
-    if (details.pointerCount >= 2) {
-      // 2本指に遷移した場合、まだ判定されていなければチェック
-      if (!_isTwoFingerAccepted) {
-        if (_isInTwoFingerHitArea(details.localFocalPoint)) {
-          _isTwoFingerAccepted = true;
-          _startScale = _cardScale;
-          _startRotation = _cardRotation;
-        }
-      }
-
-      if (_isTwoFingerAccepted) {
-        _isTwoFingerGesture = true;
-        final dampedScale = 1.0 + (details.scale - 1.0) * 0.6;
-        _cardScale = (_startScale * dampedScale).clamp(0.3, 3.0);
-        _cardRotation = _startRotation + details.rotation * 0.6;
-
-        // スナップ角度の検知
-        double deg = (_cardRotation * 180 / pi) % 360;
-        if (deg < 0) deg += 360;
-        final newSnaps = <double>{};
-        for (final snapDeg in _snapDegrees) {
-          double diff = (deg - snapDeg).abs();
-          if (diff > 180) diff = 360 - diff;
-          if (diff <= _snapThreshold) {
-            newSnaps.add(snapDeg);
-          }
-        }
-        if (newSnaps.isNotEmpty && !newSnaps.every((a) => _prevSnapAngles.contains(a))) {
-          HapticFeedback.lightImpact();
-        }
-        _prevSnapAngles = newSnaps;
-        _activeSnapAngles = newSnaps;
-      }
-    }
-
-    // カード移動（1本指・2本指共通）
-    _cardCenter = Offset(
-      _cardCenter.dx + details.focalPointDelta.dx * 0.7,
-      _cardCenter.dy + details.focalPointDelta.dy * 0.7,
+  /// アルバムアート透明度ピッカーを表示
+  void _showOpacityPicker() {
+    final opacities = [1.0, 0.7, 0.5, 0.3, 0.0];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'ジャケットの透明度',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: opacities.map((opacity) {
+                    final isSelected = (_albumArtOpacity - opacity).abs() < 0.01;
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() => _albumArtOpacity = opacity);
+                        Navigator.pop(ctx);
+                      },
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: isSelected ? Colors.white : Colors.grey.shade700,
+                                width: isSelected ? 2 : 1,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.white.withOpacity(opacity),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${(opacity * 100).toInt()}%',
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : Colors.grey,
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
     );
-    _gestureNotifier.value++;
-  }
-
-  void _onGestureScaleEnd(ScaleEndDetails details) {
-    _isTwoFingerGesture = false;
-    _isTwoFingerAccepted = false;
-    _activeSnapAngles = {};
-    _prevSnapAngles = {};
-
-    // 中心スナップ（40px以内なら吸着）
-    const center = Offset(_photoWidth / 2, _photoHeight / 2);
-    if ((_cardCenter - center).distance <= 40.0) {
-      _cardCenter = center;
-      HapticFeedback.lightImpact();
-    }
-
-    _gestureNotifier.value++;
   }
 
   /// レイアウト1：標準（歌詞 + トラック情報）
@@ -566,22 +530,25 @@ class _LyricsCardSelectionScreenState
                 child: Row(
                   children: [
                     // アルバムアートワーク
-                    Container(
-                      width: 36,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF9F9F9F),
-                        borderRadius: BorderRadius.circular(3),
+                    Opacity(
+                      opacity: _albumArtOpacity,
+                      child: Container(
+                        width: 36,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF9F9F9F),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: widget.track.albumImageUrl.isNotEmpty
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(3),
+                                child: CachedNetworkImage(
+                                  imageUrl: widget.track.albumImageUrl,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : null,
                       ),
-                      child: widget.track.albumImageUrl.isNotEmpty
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(3),
-                              child: CachedNetworkImage(
-                                imageUrl: widget.track.albumImageUrl,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          : null,
                     ),
                     const SizedBox(width: 10),
                     // 楽曲情報
@@ -630,22 +597,25 @@ class _LyricsCardSelectionScreenState
         child: Column(
           children: [
             // アルバムアートワーク
-            Container(
-              width: 105,
-              height: 115,
-              decoration: BoxDecoration(
-                color: const Color(0xFF9F9F9F),
-                borderRadius: BorderRadius.circular(3),
+            Opacity(
+              opacity: _albumArtOpacity,
+              child: Container(
+                width: 105,
+                height: 115,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF9F9F9F),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: widget.track.albumImageUrl.isNotEmpty
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(3),
+                        child: CachedNetworkImage(
+                          imageUrl: widget.track.albumImageUrl,
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    : null,
               ),
-              child: widget.track.albumImageUrl.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: CachedNetworkImage(
-                        imageUrl: widget.track.albumImageUrl,
-                        fit: BoxFit.cover,
-                      ),
-                    )
-                  : null,
             ),
             const SizedBox(height: 7),
             // トラック情報
@@ -694,22 +664,25 @@ class _LyricsCardSelectionScreenState
         child: Row(
           children: [
             // アルバムアートワーク
-            Container(
-              width: 33,
-              height: 35,
-              decoration: BoxDecoration(
-                color: const Color(0xFF9F9F9F),
-                borderRadius: BorderRadius.circular(3),
+            Opacity(
+              opacity: _albumArtOpacity,
+              child: Container(
+                width: 33,
+                height: 35,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF9F9F9F),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: widget.track.albumImageUrl.isNotEmpty
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(3),
+                        child: CachedNetworkImage(
+                          imageUrl: widget.track.albumImageUrl,
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    : null,
               ),
-              child: widget.track.albumImageUrl.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: CachedNetworkImage(
-                        imageUrl: widget.track.albumImageUrl,
-                        fit: BoxFit.cover,
-                      ),
-                    )
-                  : null,
             ),
             const SizedBox(width: 9),
             // トラック情報
@@ -748,7 +721,9 @@ class _LyricsCardSelectionScreenState
 
   /// レイアウト4：アルバムアートワークのみ
   Widget _buildLayout4() {
-    return Container(
+    return Opacity(
+      opacity: _albumArtOpacity,
+      child: Container(
         width: 140,
         height: 152,
         decoration: BoxDecoration(
@@ -764,7 +739,8 @@ class _LyricsCardSelectionScreenState
                 ),
               )
             : null,
-      );
+      ),
+    );
   }
 
   /// レイアウト5：音楽プレイヤーUI
@@ -782,22 +758,25 @@ class _LyricsCardSelectionScreenState
             Positioned(
               left: 11,
               top: 8,
-              child: Container(
-                width: 41,
-                height: 45,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9F9F9F),
-                  borderRadius: BorderRadius.circular(3),
+              child: Opacity(
+                opacity: _albumArtOpacity,
+                child: Container(
+                  width: 41,
+                  height: 45,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF9F9F9F),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: widget.track.albumImageUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: CachedNetworkImage(
+                            imageUrl: widget.track.albumImageUrl,
+                            fit: BoxFit.cover,
+                          ),
+                        )
+                      : null,
                 ),
-                child: widget.track.albumImageUrl.isNotEmpty
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(3),
-                        child: CachedNetworkImage(
-                          imageUrl: widget.track.albumImageUrl,
-                          fit: BoxFit.cover,
-                        ),
-                      )
-                    : null,
               ),
             ),
             // トラック情報
@@ -982,6 +961,7 @@ class _LyricsCardSelectionScreenState
                   lyricsData: _lyricsData,
                   audioStartMs: widget.audioStartMs,
                   audioDurationSec: widget.audioDurationSec,
+                  albumArtOpacity: _albumArtOpacity,
                 ),
               ),
             );
@@ -1003,64 +983,4 @@ class _LyricsCardSelectionScreenState
       ],
     );
   }
-}
-
-/// 補助線ペインター
-/// - 0°(360°), 90°, 180°, 270° の白い線は常に表示
-/// - 45°, 135°, 225°, 315° のオレンジ線はスナップ時のみ表示
-class _GuideLinePainter extends CustomPainter {
-  final Set<double> activeSnapAngles;
-
-  _GuideLinePainter({required this.activeSnapAngles});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-    final length = sqrt(size.width * size.width + size.height * size.height);
-
-    final basePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.3)
-      ..strokeWidth = 1.0;
-
-    // 常に表示: 0°, 90°, 180°, 270°（0°と180°, 90°と270°は同じ線）
-    for (final deg in [0.0, 90.0]) {
-      final rad = deg * pi / 180;
-      final dx = cos(rad) * length;
-      final dy = sin(rad) * length;
-      canvas.drawLine(
-        Offset(centerX - dx, centerY - dy),
-        Offset(centerX + dx, centerY + dy),
-        basePaint,
-      );
-    }
-
-    // スナップ時のみ表示: 斜め線（オレンジ）
-    if (activeSnapAngles.isNotEmpty) {
-      final snapPaint = Paint()
-        ..color = Colors.orange.withValues(alpha: 0.5)
-        ..strokeWidth = 1.0;
-
-      final drawnAngles = <double>{};
-      for (final deg in activeSnapAngles) {
-        final normalized = deg % 180;
-        if (drawnAngles.contains(normalized)) continue;
-        drawnAngles.add(normalized);
-
-        final rad = deg * pi / 180;
-        final dx = cos(rad) * length;
-        final dy = sin(rad) * length;
-        canvas.drawLine(
-          Offset(centerX - dx, centerY - dy),
-          Offset(centerX + dx, centerY + dy),
-          snapPaint,
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _GuideLinePainter oldDelegate) =>
-      oldDelegate.activeSnapAngles.length != activeSnapAngles.length ||
-      !oldDelegate.activeSnapAngles.containsAll(activeSnapAngles);
 }

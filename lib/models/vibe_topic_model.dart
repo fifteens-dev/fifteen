@@ -9,7 +9,8 @@ enum VibeTopicStatus {
 /// Vibeお題を表すモデル
 class VibeTopicModel {
   final String topicId;
-  final String title; // 例: "ドライブで聴きたい曲"
+  final String title; // 例: "夜中に1人で聴きたい曲"
+  final String emoji; // 例: "🌙"（カテゴリ固定絵文字）
   final DateTime date; // このお題がアクティブな日付
   final VibeTopicStatus status;
   final DateTime createdAt;
@@ -18,6 +19,7 @@ class VibeTopicModel {
   VibeTopicModel({
     required this.topicId,
     required this.title,
+    this.emoji = '🎵',
     required this.date,
     this.status = VibeTopicStatus.active,
     required this.createdAt,
@@ -31,6 +33,7 @@ class VibeTopicModel {
     return VibeTopicModel(
       topicId: doc.id,
       title: data['title'] ?? '',
+      emoji: (data['emoji'] as String?) ?? '🎵',
       date: (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
       status: _statusFromString(data['status'] ?? 'active'),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -42,6 +45,7 @@ class VibeTopicModel {
   Map<String, dynamic> toMap() {
     return {
       'title': title,
+      'emoji': emoji,
       'date': Timestamp.fromDate(date),
       'status': status.name,
       'createdAt': Timestamp.fromDate(createdAt),
@@ -53,6 +57,7 @@ class VibeTopicModel {
   VibeTopicModel copyWith({
     String? topicId,
     String? title,
+    String? emoji,
     DateTime? date,
     VibeTopicStatus? status,
     DateTime? createdAt,
@@ -61,6 +66,7 @@ class VibeTopicModel {
     return VibeTopicModel(
       topicId: topicId ?? this.topicId,
       title: title ?? this.title,
+      emoji: emoji ?? this.emoji,
       date: date ?? this.date,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,

@@ -53,6 +53,8 @@ class UserService {
         'username': username,
         'profileImageUrl': profileImageUrl,
         'inviteCode': inviteCode,
+        'followers': [],
+        'following': [],
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });

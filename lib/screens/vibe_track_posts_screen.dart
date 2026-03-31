@@ -7,18 +7,24 @@ import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../utils/current_user_helper.dart';
+import 'card_share_screen.dart';
+import 'home/home_bottom_nav.dart';
 
 /// 特定のトラックのVibe投稿一覧を表示する画面
 class VibeTrackPostsScreen extends StatefulWidget {
   final TrackModel track;
   final List<PostModel> posts;
   final String currentUserId;
+  final bool? initialHasPostedToday;
+  final void Function(int tabIndex)? onTabSwitch;
 
   const VibeTrackPostsScreen({
     super.key,
     required this.track,
     required this.posts,
     required this.currentUserId,
+    this.initialHasPostedToday,
+    this.onTabSwitch,
   });
 
   @override
@@ -47,7 +53,13 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
   void initState() {
     super.initState();
     _loadCurrentUserIconUrl();
-    _loadHasPostedToday();
+    // 呼び出し元から渡された値があればローディングをスキップ
+    if (widget.initialHasPostedToday != null) {
+      _hasPostedToday = widget.initialHasPostedToday!;
+      _hasPostedTodayLoaded = true;
+    } else {
+      _loadHasPostedToday();
+    }
     // 最初のカードの音楽を再生
     if (widget.posts.isNotEmpty) {
       _playingPageIndex = 0;
@@ -152,102 +164,175 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+    final headerAreaHeight = topPadding + 16.0 + 40.0 + 8.0;
+
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          onPressed: () {
-            _audioService.stop();
-            Navigator.pop(context);
-          },
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Text(
-              widget.track.trackName,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              widget.track.artistName,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.white.withOpacity(0.7),
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-        centerTitle: true,
-        actions: [
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Text(
-                '${_currentPage + 1}/${widget.posts.length}',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white.withOpacity(0.7),
+      body: Stack(
+        children: [
+          !_hasPostedTodayLoaded
+              ? const Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      color: Colors.white54,
+                      strokeWidth: 2,
+                    ),
+                  ),
+                )
+              : PageView.builder(
+                  controller: _pageController,
+                  scrollDirection: Axis.vertical,
+                  onPageChanged: _onPageChanged,
+                  itemCount: widget.posts.length,
+                  itemBuilder: (context, index) {
+                    final post = widget.posts[index];
+                    _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
+                    // ヘッダー分を上に、ナビバー分(71px)を下に padding してカードを中央に寄せる
+                    return Padding(
+                      padding: EdgeInsets.only(top: headerAreaHeight, bottom: 71),
+                      child: Center(
+                        child: SingleChildScrollView(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: PostCard(
+                              key: _cardKeys[index],
+                              post: post,
+                              currentUserId: widget.currentUserId,
+                              currentUserIconUrl: _currentUserIconUrl,
+                              audioService: _audioService,
+                              startFromBack: _hasPostedToday,
+                              audioManagedExternally: true,
+                              externalPreviewUrl: _previewUrlCache[index],
+                              backSideEnabled: _hasPostedToday,
+                              onLike: () {},
+                              onComment: () {},
+                              onAdd: () {},
+                              onShare: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => CardShareScreen(
+                                    post: post,
+                                    currentUserId: widget.currentUserId,
+                                    currentUserIconUrl: _currentUserIconUrl,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+          // フローティングヘッダー（透明背景・文字だけ浮かせる）
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SizedBox(
+              height: headerAreaHeight,
+              child: Padding(
+                padding: EdgeInsets.only(top: topPadding),
+                child: Row(
+                  children: [
+                    // 戻るボタン
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: GestureDetector(
+                        onTap: () {
+                          _audioService.stop();
+                          Navigator.pop(context);
+                        },
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.5),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.arrow_back_ios_new,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // トラック名・アーティスト名（中央）
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            widget.track.trackName,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                          Text(
+                            widget.track.artistName,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    // ページカウンター
+                    Padding(
+                      padding: const EdgeInsets.only(right: 16),
+                      child: SizedBox(
+                        width: 40,
+                        child: Text(
+                          '${_currentPage + 1}/${widget.posts.length}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white.withValues(alpha: 0.7),
+                          ),
+                          textAlign: TextAlign.right,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-        ],
-      ),
-      body: !_hasPostedTodayLoaded
-          // 投稿状態の確認が完了するまでローディング表示
-          // （startFromBack の値が確定してから PostCard を生成するため）
-          ? const Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  color: Colors.white54,
-                  strokeWidth: 2,
-                ),
-              ),
-            )
-          : PageView.builder(
-              controller: _pageController,
-              scrollDirection: Axis.vertical,
-              onPageChanged: _onPageChanged,
-              itemCount: widget.posts.length,
-              itemBuilder: (context, index) {
-                final post = widget.posts[index];
-                _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
-                return Center(
-                  child: SingleChildScrollView(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: PostCard(
-                        key: _cardKeys[index],
-                        post: post,
-                        currentUserId: widget.currentUserId,
-                        currentUserIconUrl: _currentUserIconUrl,
-                        audioService: _audioService,
-                        startFromBack: _hasPostedToday,
-                        audioManagedExternally: true,
-                        externalPreviewUrl: _previewUrlCache[index],
-                        backSideEnabled: _hasPostedToday,
-                        onLike: () {},
-                        onComment: () {},
-                        onAdd: () {},
-                      ),
-                    ),
-                  ),
-                );
+          // ボトムナビゲーション（ホームアイコン白・タップで戻る）
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: HomeBottomNavigation(
+              selectedIndex: 0,
+              onItemTapped: (i) {
+                _audioService.stop();
+                if (i == 0) {
+                  Navigator.pop(context);
+                } else {
+                  widget.onTabSwitch?.call(i);
+                  final route = ModalRoute.of(context);
+                  if (route != null) {
+                    Navigator.of(context).removeRoute(route);
+                  }
+                }
               },
             ),
+          ),
+        ],
+      ),
     );
   }
 }

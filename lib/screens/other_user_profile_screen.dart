@@ -100,6 +100,14 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
     );
   }
 
+  /// データを全て再読み込み
+  Future<void> _refresh() async {
+    await Future.wait([
+      _loadData(),
+      _loadSavedPosts(),
+    ]);
+  }
+
   /// データを読み込み
   Future<void> _loadData() async {
     try {
@@ -244,6 +252,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
         child: NestedScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
             headerSliverBuilder: (context, innerBoxIsScrolled) {
               return [
                 // ヘッダー
@@ -299,7 +308,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
             top: 0,
             bottom: 0,
             child: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
               onPressed: () {
                 _audioService.stop();
                 Navigator.pop(context);
@@ -314,18 +323,19 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
   /// プロフィール情報セクション
   Widget _buildProfileInfo() {
     final displayName = _userData?.name ?? '名前未設定';
+    final username = _userData?.username;
     final bio = _userData?.bio ?? '';
     final profileImageUrl = _userData?.profileImageUrl;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 27, vertical: 16),
+      padding: const EdgeInsets.fromLTRB(27, 30, 27, 16),
       child: Column(
         children: [
           // ユーザー情報行
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 左側: 名前とbio
+              // 左側: 名前・ユーザーID・bio
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -338,6 +348,16 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    if (username != null && username.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        username,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                     if (bio.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
@@ -374,13 +394,11 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
             ],
           ),
 
-          const SizedBox(height: 16),
-
           // 統計情報
           Row(
             children: [
               ProfileStatItem(count: '$_tracksCount', label: 'Tracks'),
-              const SizedBox(width: 32),
+              const SizedBox(width: 20),
               GestureDetector(
                 onTap: () {
                   Navigator.push(
@@ -396,7 +414,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
                 child: ProfileStatItem(
                     count: '$_followersCount', label: 'Followers'),
               ),
-              const SizedBox(width: 32),
+              const SizedBox(width: 20),
               GestureDetector(
                 onTap: () {
                   Navigator.push(
@@ -453,143 +471,180 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
     );
   }
 
-  /// タブ切り替え
+  /// タブ切り替え（スライドインジケーター付き）
   Widget _buildTabSelector() {
-    return Container(
-      height: 40,
-      child: Row(
-        children: [
-          // グリッドタブ
-          Expanded(
-            child: GestureDetector(
-              onTap: () => _tabController.animateTo(0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Icon(
-                    Icons.grid_view,
-                    color: _tabController.index == 0
-                        ? Colors.white
-                        : Colors.grey,
-                    size: 24,
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: 60,
-                    height: 2,
-                    color: _tabController.index == 0
-                        ? Colors.white
-                        : Colors.transparent,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // 保存タブ
-          Expanded(
-            child: GestureDetector(
-              onTap: () => _tabController.animateTo(1),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    width: 25,
-                    height: 25,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: _tabController.index == 1
-                            ? Colors.white
-                            : Colors.grey,
-                        width: 1.5,
+    const indicatorWidth = 60.0;
+    const indicatorHeight = 2.0;
+
+    return AnimatedBuilder(
+      animation: _tabController.animation!,
+      builder: (context, _) {
+        final t = _tabController.animation!.value.clamp(0.0, 1.0);
+        final color0 = Color.lerp(Colors.grey, Colors.white, 1.0 - t)!;
+        final color1 = Color.lerp(Colors.grey, Colors.white, t)!;
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final tabWidth = constraints.maxWidth / 2;
+            final indicatorLeft = (tabWidth - indicatorWidth) / 2 + t * tabWidth;
+
+            return Stack(
+              children: [
+                SizedBox(
+                  height: 40,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _tabController.animateTo(0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Icon(Icons.grid_view, color: color0, size: 24),
+                              const SizedBox(height: 4 + indicatorHeight),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                    child: Icon(
-                      Icons.add,
-                      color: _tabController.index == 1
-                          ? Colors.white
-                          : Colors.grey,
-                      size: 16,
-                    ),
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _tabController.animateTo(1),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Container(
+                                width: 25,
+                                height: 25,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: color1, width: 1.5),
+                                ),
+                                child: Icon(Icons.add, color: color1, size: 16),
+                              ),
+                              const SizedBox(height: 4 + indicatorHeight),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: 60,
-                    height: 2,
-                    color: _tabController.index == 1
-                        ? Colors.white
-                        : Colors.transparent,
+                ),
+                Positioned(
+                  bottom: 0,
+                  left: indicatorLeft,
+                  child: Container(
+                    width: indicatorWidth,
+                    height: indicatorHeight,
+                    color: Colors.white,
                   ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
   /// 投稿グリッド（TabBarView内用）
   Widget _buildPostsGridScrollable() {
     if (_otherPosts.isEmpty) {
-      return const Center(
-        child: Text(
-          '投稿がありません',
-          style: TextStyle(color: Colors.white54, fontSize: 14),
+      return RefreshIndicator(
+        onRefresh: _refresh,
+        color: Colors.white,
+        backgroundColor: const Color(0xFF2D2D2D),
+        child: const CustomScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverFillRemaining(
+              child: Center(
+                child: Text(
+                  '投稿がありません',
+                  style: TextStyle(color: Colors.white54, fontSize: 14),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
 
-    return GridView.builder(
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 131 / 192,
-        crossAxisSpacing: 0,
-        mainAxisSpacing: 5,
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: Colors.white,
+      backgroundColor: const Color(0xFF2D2D2D),
+      child: GridView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          childAspectRatio: 131 / 192,
+          crossAxisSpacing: 0,
+          mainAxisSpacing: 5,
+        ),
+        itemCount: _otherPosts.length,
+        itemBuilder: (context, index) {
+          final post = _otherPosts[index];
+          return ProfilePostGridItem(
+            post: post,
+            allPosts: _otherPosts,
+            initialIndex: index,
+            disableInteractions: true,
+          );
+        },
       ),
-      itemCount: _otherPosts.length,
-      itemBuilder: (context, index) {
-        final post = _otherPosts[index];
-        return ProfilePostGridItem(
-          post: post,
-          allPosts: _otherPosts,
-          initialIndex: index,
-          disableInteractions: true,
-        );
-      },
     );
   }
 
   /// 保存済み投稿グリッド（TabBarView内用）
   Widget _buildSavedPostsGridScrollable() {
     if (_savedPosts.isEmpty) {
-      return const Center(
-        child: Text(
-          '保存済みの投稿がありません',
-          style: TextStyle(color: Colors.white54, fontSize: 14),
+      return RefreshIndicator(
+        onRefresh: _refresh,
+        color: Colors.white,
+        backgroundColor: const Color(0xFF2D2D2D),
+        child: const CustomScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverFillRemaining(
+              child: Center(
+                child: Text(
+                  '保存済みの投稿がありません',
+                  style: TextStyle(color: Colors.white54, fontSize: 14),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
 
-    return GridView.builder(
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 1,
-        crossAxisSpacing: 1,
-        mainAxisSpacing: 1,
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: Colors.white,
+      backgroundColor: const Color(0xFF2D2D2D),
+      child: GridView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          childAspectRatio: 1,
+          crossAxisSpacing: 1,
+          mainAxisSpacing: 1,
+        ),
+        itemCount: _savedPosts.length,
+        itemBuilder: (context, index) {
+          final post = _savedPosts[index];
+          return ProfilePostGridItem(
+            post: post,
+            allPosts: _savedPosts,
+            initialIndex: index,
+            disableInteractions: true,
+          );
+        },
       ),
-      itemCount: _savedPosts.length,
-      itemBuilder: (context, index) {
-        final post = _savedPosts[index];
-        return ProfilePostGridItem(
-          post: post,
-          allPosts: _savedPosts,
-          initialIndex: index,
-          disableInteractions: true,
-        );
-      },
     );
   }
 }

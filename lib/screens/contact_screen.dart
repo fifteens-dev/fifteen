@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/context_menu_builder.dart';
 
 /// お問い合わせ画面
 class ContactScreen extends StatefulWidget {
@@ -98,6 +99,7 @@ class _ContactScreenState extends State<ContactScreen> {
         maxLines: null,
         expands: true,
         textAlignVertical: TextAlignVertical.top,
+        contextMenuBuilder: buildTextContextMenu,
         style: const TextStyle(
           color: Colors.white,
           fontSize: 12,

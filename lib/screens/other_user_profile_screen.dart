@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -42,6 +43,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
   List<PostModel> _savedPosts = [];
   bool _isLoading = true;
   bool _isFollowing = false;
+  bool _isFollowedBy = false; // 相手が自分をフォローしているか
 
 
   // ダミーユーザー用フォロワー数オーバーライド
@@ -57,13 +59,14 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
-      if (_tabController.index == 1) {
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
+      if (_tabController.index == 1 && _savedPosts.isEmpty) {
         _loadSavedPosts();
       }
-      setState(() {});
     });
     _loadData();
-    _loadSavedPosts();
   }
 
   @override
@@ -135,6 +138,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
           _userData = userData;
           _otherPosts = visibleOtherPosts;
           _isFollowing = currentUser?.isFollowing(widget.userId) ?? false;
+          _isFollowedBy = userData?.following.contains(currentUserId) ?? false;
           _isLoading = false;
 
           if (isDummyUser) {
@@ -221,7 +225,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
       return const Scaffold(
         backgroundColor: Color(0xFF121212),
         body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
+          child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
         ),
       );
     }
@@ -251,34 +255,37 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
-        child: NestedScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            headerSliverBuilder: (context, innerBoxIsScrolled) {
-              return [
-                // ヘッダー
-                SliverToBoxAdapter(child: _buildHeader()),
-                // プロフィール情報
-                SliverToBoxAdapter(child: _buildProfileInfo()),
-                // フォローボタン
-                SliverToBoxAdapter(child: _buildActionButtons()),
-                // タブ切り替え（スクロール時に上に固定）
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _TabBarDelegate(
-                    child: _buildTabSelector(),
-                  ),
+        child: Column(
+          children: [
+            // ヘッダー（固定）
+            _buildHeader(),
+            // リフレッシュ＋スクロールエリア（単一CustomScrollViewで統合）
+            Expanded(
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
                 ),
-              ];
-            },
-            body: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildPostsGridScrollable(),
-                _buildSavedPostsGridScrollable(),
-              ],
+                slivers: [
+                  CupertinoSliverRefreshControl(
+                    onRefresh: _refresh,
+                  ),
+                  // プロフィール情報
+                  SliverToBoxAdapter(child: _buildProfileInfo()),
+                  // フォローボタン
+                  SliverToBoxAdapter(child: _buildActionButtons()),
+                  // タブ切り替え（スクロール時に上部に固定）
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _TabBarDelegate(child: _buildTabSelector()),
+                  ),
+                  // アクティブなタブのコンテンツ
+                  ..._buildActiveTabSlivers(),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
+      ),
     );
   }
 
@@ -323,7 +330,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
   /// プロフィール情報セクション
   Widget _buildProfileInfo() {
     final displayName = _userData?.name ?? '名前未設定';
-    final username = _userData?.username;
     final bio = _userData?.bio ?? '';
     final profileImageUrl = _userData?.profileImageUrl;
 
@@ -348,16 +354,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    if (username != null && username.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        username,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
                     if (bio.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
@@ -458,7 +454,11 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
           ),
           child: Center(
             child: Text(
-              _isFollowing ? 'フォロー中' : 'フォロー',
+              _isFollowing
+                  ? 'フォロー中'
+                  : _isFollowedBy
+                      ? 'フォローバック'
+                      : 'フォロー',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 12,
@@ -548,104 +548,91 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
     );
   }
 
-  /// 投稿グリッド（TabBarView内用）
-  Widget _buildPostsGridScrollable() {
+  /// アクティブなタブのスライバーリストを返す
+  List<Widget> _buildActiveTabSlivers() {
+    if (_tabController.index == 0) {
+      return _buildPostsGridSlivers();
+    } else {
+      return _buildSavedPostsGridSlivers();
+    }
+  }
+
+  /// 投稿グリッドのスライバーリスト
+  List<Widget> _buildPostsGridSlivers() {
     if (_otherPosts.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: _refresh,
-        color: Colors.white,
-        backgroundColor: const Color(0xFF2D2D2D),
-        child: const CustomScrollView(
-          physics: AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverFillRemaining(
-              child: Center(
-                child: Text(
-                  '投稿がありません',
-                  style: TextStyle(color: Colors.white54, fontSize: 14),
-                ),
-              ),
+      return [
+        const SliverFillRemaining(
+          child: Center(
+            child: Text(
+              '投稿がありません',
+              style: TextStyle(color: Colors.white54, fontSize: 14),
             ),
-          ],
+          ),
         ),
-      );
+      ];
     }
 
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      color: Colors.white,
-      backgroundColor: const Color(0xFF2D2D2D),
-      child: GridView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.zero,
+    return [
+      SliverGrid(
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
           childAspectRatio: 131 / 192,
           crossAxisSpacing: 0,
           mainAxisSpacing: 5,
         ),
-        itemCount: _otherPosts.length,
-        itemBuilder: (context, index) {
-          final post = _otherPosts[index];
-          return ProfilePostGridItem(
-            post: post,
-            allPosts: _otherPosts,
-            initialIndex: index,
-            disableInteractions: true,
-          );
-        },
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final post = _otherPosts[index];
+            return ProfilePostGridItem(
+              post: post,
+              allPosts: _otherPosts,
+              initialIndex: index,
+              disableInteractions: true,
+            );
+          },
+          childCount: _otherPosts.length,
+        ),
       ),
-    );
+    ];
   }
 
-  /// 保存済み投稿グリッド（TabBarView内用）
-  Widget _buildSavedPostsGridScrollable() {
+  /// 保存済み投稿グリッドのスライバーリスト
+  List<Widget> _buildSavedPostsGridSlivers() {
     if (_savedPosts.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: _refresh,
-        color: Colors.white,
-        backgroundColor: const Color(0xFF2D2D2D),
-        child: const CustomScrollView(
-          physics: AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverFillRemaining(
-              child: Center(
-                child: Text(
-                  '保存済みの投稿がありません',
-                  style: TextStyle(color: Colors.white54, fontSize: 14),
-                ),
-              ),
+      return [
+        const SliverFillRemaining(
+          child: Center(
+            child: Text(
+              '保存済みの投稿がありません',
+              style: TextStyle(color: Colors.white54, fontSize: 14),
             ),
-          ],
+          ),
         ),
-      );
+      ];
     }
 
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      color: Colors.white,
-      backgroundColor: const Color(0xFF2D2D2D),
-      child: GridView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.zero,
+    return [
+      SliverGrid(
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
           childAspectRatio: 1,
           crossAxisSpacing: 1,
           mainAxisSpacing: 1,
         ),
-        itemCount: _savedPosts.length,
-        itemBuilder: (context, index) {
-          final post = _savedPosts[index];
-          return ProfilePostGridItem(
-            post: post,
-            allPosts: _savedPosts,
-            initialIndex: index,
-            disableInteractions: true,
-          );
-        },
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final post = _savedPosts[index];
+            return ProfilePostGridItem(
+              post: post,
+              allPosts: _savedPosts,
+              initialIndex: index,
+              disableInteractions: true,
+            );
+          },
+          childCount: _savedPosts.length,
+        ),
       ),
-    );
+    ];
   }
 }
 

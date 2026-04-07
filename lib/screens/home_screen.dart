@@ -1,17 +1,21 @@
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../main.dart' show routeObserver;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
+import '../providers/post_ui_state.dart';
 import '../models/vibe_ranking_item.dart';
 import '../widgets/post_card.dart';
 import '../widgets/notification_badge.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
+import '../services/itunes_search_service.dart';
 import '../services/user_service.dart';
 import '../services/vibe_topic_service.dart';
 import '../utils/campus_vibe_utils.dart';
@@ -20,7 +24,6 @@ import 'comment_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'music_selection_screen.dart';
-import 'post_photo_selection_screen.dart';
 import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
 import 'card_share_screen.dart';
@@ -38,15 +41,16 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin
+    implements RouteAware {
   int _selectedIndex = 0;
   final PostService _postService = PostService();
   final UserService _userService = UserService();
   final VibeTopicService _vibeTopicService = VibeTopicService();
   final SpotifyService _spotifyService = SpotifyService();
+  final ITunesSearchService _itunesService = ITunesSearchService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
-  final GlobalKey<RefreshIndicatorState> _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
   final ValueNotifier<double> _bellOpacity = ValueNotifier<double>(1.0);
 
   // ホーム画面専用の音楽再生サービス（全てのPostCardで共有）
@@ -68,26 +72,14 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   bool get wantKeepAlive => true;
 
-  // 投稿ごとのコメント数を保持（楽観的UI更新用）
-  final Map<String, int> _commentCounts = {};
-
-  // 投稿ごとのいいね数を保持（楽観的UI更新用）
-  final Map<String, int> _likeCounts = {};
-
-  // ユーザーがいいねした投稿IDのセット（楽観的UI更新用）
-  final Set<String> _likedPostIds = {};
-
-  // ユーザーが保存した投稿IDのセット（楽観的UI更新用）
-  final Set<String> _savedPostIds = {};
-
   // 投稿リストをキャッシュ（再構築を避けるため）
   List<PostModel>? _cachedPosts;
 
+  // 投稿ごとの音楽プレビューURL（postId → URL）
+  final Map<String, String?> _previewUrlCache = {};
+
   // 現在のユーザーのアイコンURL（楽観的UI用）
   String? _currentUserIconUrl;
-
-  // 現在のユーザーの大学名（Campus Vibe用）
-  String? _currentUniversity;
 
   // 現在のユーザーが今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
@@ -102,13 +94,55 @@ class _HomeScreenState extends State<HomeScreen>
     _vibeDataFuture = _loadVibeData();
     _loadRevealedPostIds();
     _loadCurrentUserIconUrl();
+    _updateLastActive();
     if (widget.initialPosts != null) {
-      // 事前取得済みデータがあればそのまま表示（リロード不要）
+      // バックグラウンドで事前取得済みのデータをそのまま表示（追加フェッチ不要）
       _cachedPosts = widget.initialPosts;
       _prefetchBacksideImages(widget.initialPosts!);
+      _prefetchPreviewUrls(widget.initialPosts!);
       _loadHasPostedToday();
+      _initializePostUIState(widget.initialPosts!);
     } else {
       _loadPosts();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  /// 他画面から戻ったタイミングで最新データを再取得
+  @override
+  void didPopNext() {
+    _loadPosts();
+  }
+
+  @override
+  void didPush() {}
+
+  @override
+  void didPushNext() {}
+
+  @override
+  void didPop() {}
+
+  /// PostUIState を投稿リストから初期化する（initialPosts 使用時に呼ぶ）
+  Future<void> _initializePostUIState(List<PostModel> posts) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+    List<String> savedPostIds = [];
+    try {
+      final userModel = await _userService.getUser(currentUser.uid);
+      savedPostIds = userModel?.savedPosts ?? [];
+    } catch (_) {}
+    if (mounted) {
+      context.read<PostUIState>().resetAndInitialize(
+        posts: posts,
+        currentUserId: currentUser.uid,
+        savedPostIds: savedPostIds.toSet(),
+      );
     }
   }
 
@@ -145,20 +179,46 @@ class _HomeScreenState extends State<HomeScreen>
     if (mounted) {
       setState(() {
         _currentUserIconUrl = userInfo.iconUrl;
-        _currentUniversity = userInfo.university;
       });
     }
   }
 
+  /// lastActiveAt を Firestore に書き込む（DAU/MAU 計測）
+  Future<void> _updateLastActive() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid != null) await _userService.updateLastActive(uid);
+  }
+
   /// プルダウン更新（投稿リスト＋ユーザー情報＋Vibeを再取得）
+  /// setState を1回にまとめてカクつきを防止
   Future<void> _onRefresh() async {
-    setState(() {
-      _vibeDataFuture = _loadVibeData();
-    });
-    await Future.wait([
-      _loadPosts(),
-      _loadCurrentUserIconUrl(),
+    // Vibe Future をセットするだけ（setState なし）
+    _vibeDataFuture = _loadVibeData();
+
+    // 投稿データとユーザー情報を並列取得
+    final results = await Future.wait([
+      _fetchPostsData(),
+      CurrentUserHelper.load(),
     ]);
+
+    final postsResult = results[0] as ({List<PostModel> posts, bool hasPostedToday, List<String> savedPostIds});
+    final userInfo = results[1] as ({String username, String? iconUrl, String? university});
+
+    if (mounted) {
+      setState(() {
+        _cachedPosts = postsResult.posts;
+        _hasPostedToday = postsResult.hasPostedToday;
+        _currentUserIconUrl = userInfo.iconUrl;
+        _previewUrlCache.clear(); // リフレッシュ時はキャッシュをリセット
+      });
+      context.read<PostUIState>().resetAndInitialize(
+        posts: postsResult.posts,
+        currentUserId: _auth.currentUser?.uid ?? '',
+        savedPostIds: postsResult.savedPostIds.toSet(),
+      );
+      _prefetchBacksideImages(postsResult.posts);
+      _prefetchPreviewUrls(postsResult.posts);
+    }
   }
 
   /// 今日投稿済みかチェック（initialPosts使用時に個別呼び出し）
@@ -169,24 +229,25 @@ class _HomeScreenState extends State<HomeScreen>
     if (mounted) setState(() => _hasPostedToday = result);
   }
 
-  /// 投稿リストを読み込み（Firestoreから取得）
-  Future<void> _loadPosts() async {
-    print('📥 _loadPosts()開始');
+  /// 投稿データをFirestoreから取得して返す（setState なし・_loadPosts/_onRefresh 共用）
+  Future<({List<PostModel> posts, bool hasPostedToday, List<String> savedPostIds})> _fetchPostsData() async {
     try {
       final currentUser = _auth.currentUser;
-      print('👤 現在のユーザー: ${currentUser?.uid ?? "未認証"}');
 
-      // 今日投稿済みかチェック（裏面表示制御用）
+      // 今日投稿済みかチェック
+      bool hasPostedToday = false;
       if (currentUser != null) {
-        _hasPostedToday = await _postService.hasUserPostedToday(currentUser.uid);
+        hasPostedToday = await _postService.hasUserPostedToday(currentUser.uid);
       }
 
-      // フォロー中のユーザーIDを取得（自分を含む）
+      // フォロー中のユーザーIDと保存済み投稿IDを取得
       List<String> followingIds = [];
+      List<String> savedPostIds = [];
       if (currentUser != null) {
         try {
           final userModel = await _userService.getUser(currentUser.uid);
           followingIds = userModel?.following ?? [];
+          savedPostIds = userModel?.savedPosts ?? [];
         } catch (e) {
           print('⚠️ フォロー一覧取得エラー: $e');
         }
@@ -196,8 +257,6 @@ class _HomeScreenState extends State<HomeScreen>
           : followingIds;
 
       List<PostModel> firestorePosts = [];
-
-      // フォロー中ユーザーの投稿のみを取得
       try {
         firestorePosts = allTargetIds.isEmpty
             ? []
@@ -205,15 +264,12 @@ class _HomeScreenState extends State<HomeScreen>
         print('📥 Firestoreから取得した投稿数: ${firestorePosts.length}');
       } catch (e) {
         print('⚠️ Firestore取得エラー（権限エラーの可能性）: $e');
-        // エラーの場合は空配列のまま
       }
 
-      // Firestoreの投稿のみを使用（テストデータは除外）
       final postsToUse = firestorePosts;
-
       print('📊 表示する投稿数: ${postsToUse.length} (Firestore)');
 
-      // 各投稿の楽曲名でSpotify検索し、アルバムアートワークを更新（必要な場合のみ、並列実行）
+      // アルバムアートワークが空の投稿はSpotifyで補完（並列実行）
       final postsNeedingArt = <int>[];
       for (int i = 0; i < postsToUse.length; i++) {
         if (postsToUse[i].track.albumImageUrl.isEmpty) {
@@ -222,15 +278,12 @@ class _HomeScreenState extends State<HomeScreen>
       }
 
       final updatedPosts = List<PostModel>.from(postsToUse);
-
       if (postsNeedingArt.isNotEmpty) {
         final futures = postsNeedingArt.map((i) async {
           final post = postsToUse[i];
           try {
-            final searchQuery =
-                '${post.track.trackName} ${post.track.artistName}';
-            final tracks =
-                await _spotifyService.searchTracks(searchQuery, limit: 1);
+            final searchQuery = '${post.track.trackName} ${post.track.artistName}';
+            final tracks = await _spotifyService.searchTracks(searchQuery, limit: 1);
             if (tracks.isNotEmpty) {
               final updatedTrack = post.track.copyWith(
                 albumImageUrl: tracks.first.albumImageUrl,
@@ -243,30 +296,83 @@ class _HomeScreenState extends State<HomeScreen>
           return MapEntry(i, post);
         }).toList();
 
-        final results = await Future.wait(futures);
-        for (final entry in results) {
+        final artResults = await Future.wait(futures);
+        for (final entry in artResults) {
           updatedPosts[entry.key] = entry.value;
         }
       }
 
-      if (mounted) {
-        print('✅ 投稿読み込み完了: ${updatedPosts.length}件の投稿をセット');
-        setState(() {
-          _cachedPosts = updatedPosts;
-        });
-        print('🔄 setState()完了');
-        _prefetchBacksideImages(updatedPosts);
-      } else {
-        print('⚠️ mountedがfalseのため、setStateをスキップ');
-      }
+      return (posts: updatedPosts, hasPostedToday: hasPostedToday, savedPostIds: savedPostIds);
     } catch (e) {
       print('❌ 投稿読み込みエラー: $e');
-      if (mounted) {
-        setState(() {
-          _cachedPosts = [];
-        });
-      }
+      return (posts: <PostModel>[], hasPostedToday: false, savedPostIds: <String>[]);
     }
+  }
+
+  /// 投稿リストを読み込み（Firestoreから取得）
+  Future<void> _loadPosts() async {
+    print('📥 _loadPosts()開始');
+    final result = await _fetchPostsData();
+    if (mounted) {
+      print('✅ 投稿読み込み完了: ${result.posts.length}件の投稿をセット');
+      setState(() {
+        _cachedPosts = result.posts;
+        _hasPostedToday = result.hasPostedToday;
+      });
+      print('🔄 setState()完了');
+      context.read<PostUIState>().resetAndInitialize(
+        posts: result.posts,
+        currentUserId: _auth.currentUser?.uid ?? '',
+        savedPostIds: result.savedPostIds.toSet(),
+      );
+      _prefetchBacksideImages(result.posts);
+      _prefetchPreviewUrls(result.posts);
+    } else {
+      print('⚠️ mountedがfalseのため、setStateをスキップ');
+    }
+  }
+
+  /// 全投稿の音楽プレビューURLをバックグラウンドで先取りする
+  /// カードタップ時の遅延をなくすため、投稿読み込み直後にiTunes APIを叩いておく
+  /// 3件ずつバッチで並列処理してAPIレート制限を緩和する
+  Future<void> _prefetchPreviewUrls(List<PostModel> posts) async {
+    const batchSize = 3;
+    for (int i = 0; i < posts.length; i += batchSize) {
+      if (!mounted) return;
+      final batch = posts.skip(i).take(batchSize).toList();
+      final futures = <Future<void>>[];
+
+      for (final post in batch) {
+        // 既にキャッシュ済みならスキップ
+        if (_previewUrlCache.containsKey(post.postId)) continue;
+
+        // post自身にpreviewUrlが入っていればそれを使う（API不要）
+        if (post.track.previewUrl != null && post.track.previewUrl!.isNotEmpty) {
+          _previewUrlCache[post.postId] = post.track.previewUrl;
+          continue;
+        }
+
+        // iTunes APIでURL取得（バッチ内は並列）
+        futures.add(() async {
+          try {
+            final result = await _itunesService.getPreviewUrlWithArt(
+              trackName: post.track.trackName,
+              artistName: post.track.artistName,
+            );
+            if (mounted) {
+              _previewUrlCache[post.postId] = result?['previewUrl'];
+            }
+          } catch (_) {
+            _previewUrlCache[post.postId] = null;
+          }
+        }());
+      }
+
+      // バッチ内の全URL取得が完了するまで待ってから次の3件へ
+      await Future.wait(futures, eagerError: false);
+    }
+    // キャッシュが更新されたらPostCardに反映
+    if (mounted) setState(() {});
   }
 
   /// 全投稿の裏面画像を3件ずつバッチでバックグラウンドプリフェッチ
@@ -306,6 +412,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    routeObserver.unsubscribe(this);
     _scrollController.dispose();
     _bellOpacity.dispose();
     super.dispose();
@@ -403,16 +510,25 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    // ホームタブを既に表示中にもう一度タップ → 先頭に戻る＋リロードUI表示
+    // ホームタブを既に表示中にもう一度タップ
+    // → 先頭へ戻り、そのままリフレッシュトリガー位置まで自動スクロール
     if (index == 0 && _selectedIndex == 0) {
+      if (!_scrollController.hasClients) return;
+      // 先頭以外にいる場合はまず先頭へ
+      if (_scrollController.offset > 0) {
+        await _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+      // デフォルトのトリガー距離（100px）を超えてネガティブ方向へスクロール
+      // → CupertinoSliverRefreshControl が検知して onRefresh を自動呼び出し
       _scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
+        -130,
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeInOut,
       );
-      Future.delayed(const Duration(milliseconds: 150), () {
-        _refreshIndicatorKey.currentState?.show();
-      });
       return;
     }
 
@@ -428,6 +544,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixinのために必要
+    final postUIState = context.watch<PostUIState>();
     final topPadding = MediaQuery.of(context).padding.top;
     final headerHeight = 48.0 + topPadding;
 
@@ -440,6 +557,9 @@ class _HomeScreenState extends State<HomeScreen>
               index: _selectedIndex <= 1 ? _selectedIndex : (_selectedIndex == 3 ? 2 : 0),
               children: [
                 // index 0: ホーム
+                // Column で固定ヘッダー分のスペースを確保し、
+                // スクロールビューをヘッダーの下から開始させることで
+                // プロフィール画面と同じ引っ張り距離・位置でリフレッシュできる
                 NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
                     if (notification is ScrollUpdateNotification) {
@@ -453,46 +573,54 @@ class _HomeScreenState extends State<HomeScreen>
                     }
                     return false;
                   },
-                  child: RefreshIndicator(
-                    key: _refreshIndicatorKey,
-                    onRefresh: _onRefresh,
-                    color: Colors.white,
-                    backgroundColor: const Color(0xFF1E1E1E),
-                    child: CustomScrollView(
+                  child: CustomScrollView(
                     controller: _scrollController,
                     physics: const BouncingScrollPhysics(
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     slivers: [
-                      SliverToBoxAdapter(
-                        child: SizedBox(height: headerHeight),
+                      CupertinoSliverRefreshControl(
+                        onRefresh: _onRefresh,
                       ),
-                      SliverToBoxAdapter(
-                        child: VibeBarSection(
-                          vibeDataFuture: _vibeDataFuture!,
-                          onRankingItemTap: _handleRankingItemTap,
-                          onPostTap: _navigateToVibePost,
-                        ),
-                      ),
-                      if (CampusVibeUtils.shouldShow(_currentUniversity))
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-                            child: CampusVibeCard(
-                              university: _currentUniversity!,
-                              currentUserId: _auth.currentUser?.uid ?? '',
+                      SliverToBoxAdapter(child: SizedBox(height: headerHeight)),
+                      if (_cachedPosts == null) ...[
+                        // 初回ローディング中：センタースピナーのみ（Vibeも非表示）
+                        const SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(
+                            child: CupertinoActivityIndicator(
+                              color: Colors.white,
+                              radius: 14,
                             ),
                           ),
                         ),
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 9),
-                      ),
-                      _buildTimelineSliver(),
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 80),
-                      ),
+                      ] else ...[
+                        SliverToBoxAdapter(
+                          child: VibeBarSection(
+                            vibeDataFuture: _vibeDataFuture!,
+                            onRankingItemTap: _handleRankingItemTap,
+                            onPostTap: _navigateToVibePost,
+                          ),
+                        ),
+                        if (CampusVibeUtils.shouldShow())
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                              child: CampusVibeCard(
+                                university: CampusVibeUtils.targetUniversity,
+                                currentUserId: _auth.currentUser?.uid ?? '',
+                              ),
+                            ),
+                          ),
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: 9),
+                        ),
+                        _buildTimelineSliver(postUIState),
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: 80),
+                        ),
+                      ],
                     ],
-                  ),
                   ),
                 ),
                 // index 1: 検索
@@ -510,6 +638,7 @@ class _HomeScreenState extends State<HomeScreen>
                 top: 0,
                 child: Container(
                   height: headerHeight,
+                  color: Colors.transparent,
                   padding: EdgeInsets.only(left: 16, right: 16, top: topPadding),
                   child: Stack(
                     children: [
@@ -654,18 +783,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// タイムライン（投稿カードリスト）- Sliver版
-  Widget _buildTimelineSliver() {
-    if (_cachedPosts == null) {
-      return const SliverToBoxAdapter(
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.all(32),
-            child: CircularProgressIndicator(color: Colors.white),
-          ),
-        ),
-      );
-    }
-
+  Widget _buildTimelineSliver(PostUIState postUIState) {
     final posts = _cachedPosts!;
     final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
 
@@ -675,26 +793,11 @@ class _HomeScreenState extends State<HomeScreen>
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final post = posts[index];
-
-            var displayPost = post;
-            if (_commentCounts.containsKey(post.postId)) {
-              displayPost = displayPost.copyWith(commentCount: _commentCounts[post.postId]);
-            }
-            if (_likeCounts.containsKey(post.postId)) {
-              displayPost = displayPost.copyWith(likeCount: _likeCounts[post.postId]);
-            }
-            if (_likedPostIds.contains(post.postId)) {
-              if (!displayPost.likedUserIds.contains(currentUserId)) {
-                final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds)
-                  ..add(currentUserId);
-                displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
-              }
-            } else if (_likeCounts.containsKey(post.postId) &&
-                displayPost.likedUserIds.contains(currentUserId)) {
-              final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds)
-                ..remove(currentUserId);
-              displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
-            }
+            final displayPost = postUIState.getDisplayPost(
+              post,
+              currentUserId: currentUserId,
+              currentUserIconUrl: _currentUserIconUrl,
+            );
 
             _postCardKeys.putIfAbsent(post.postId, () => GlobalKey<PostCardState>());
             final cardKey = _postCardKeys[post.postId]!;
@@ -708,11 +811,12 @@ class _HomeScreenState extends State<HomeScreen>
                   currentUserId: currentUserId,
                   currentUserIconUrl: _currentUserIconUrl,
                   audioService: _homeAudioService,
+                  externalPreviewUrl: _previewUrlCache[post.postId],
                   onLike: () => _handleLike(post),
                   onComment: () => _handleComment(post),
                   onAdd: () => _handleAdd(post),
                   onDelete: post.userId == currentUserId ? () => _handleDelete(post) : null,
-                  isSaved: _savedPostIds.contains(post.postId),
+                  isSaved: postUIState.isSaved(post.postId),
                   backSideEnabled: _hasPostedToday || _revealedPostIds.contains(post.postId),
                   onFlipToBack: () => _markPostRevealed(post.postId),
                   onPlayStarted: () {
@@ -725,7 +829,7 @@ class _HomeScreenState extends State<HomeScreen>
                         post: post,
                         currentUserId: currentUserId,
                         currentUserIconUrl: _currentUserIconUrl,
-                        isSaved: _savedPostIds.contains(post.postId),
+                        isSaved: postUIState.isSaved(post.postId),
                       ),
                     ),
                   ),
@@ -743,24 +847,13 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _handleLike(PostModel post) async {
     final currentUser = _auth.currentUser;
     final userId = currentUser?.uid ?? 'test_user_temp';
+    final postUIState = context.read<PostUIState>();
 
-    // 現在のいいね状態を取得
-    final currentLikeCount = _likeCounts[post.postId] ?? post.likeCount;
-    final isCurrentlyLiked =
-        _likedPostIds.contains(post.postId) || post.isLikedBy(userId);
+    final currentLikeCount = postUIState.getLikeCount(post.postId) ?? post.likeCount;
+    final wasLiked = postUIState.isLiked(post.postId);
 
-    // 楽観的UI更新: 先に状態を更新
-    setState(() {
-      if (isCurrentlyLiked) {
-        // いいね解除
-        _likedPostIds.remove(post.postId);
-        _likeCounts[post.postId] = currentLikeCount - 1;
-      } else {
-        // いいね追加
-        _likedPostIds.add(post.postId);
-        _likeCounts[post.postId] = currentLikeCount + 1;
-      }
-    });
+    // 楽観的UI更新（notifyListeners → build再実行）
+    postUIState.toggleLike(post.postId, currentLikeCount: currentLikeCount);
 
     try {
       await _postService.toggleLike(
@@ -768,19 +861,14 @@ class _HomeScreenState extends State<HomeScreen>
         userId: userId,
       );
     } catch (e) {
-      // エラーが発生したら状態を元に戻す
+      // エラー時はロールバック
       if (mounted) {
-        setState(() {
-          if (isCurrentlyLiked) {
-            _likedPostIds.add(post.postId);
-            _likeCounts[post.postId] = currentLikeCount;
-          } else {
-            _likedPostIds.remove(post.postId);
-            _likeCounts[post.postId] = currentLikeCount;
-          }
-        });
+        postUIState.revertLikeToggle(
+          post.postId,
+          originalLikeCount: currentLikeCount,
+          wasLiked: wasLiked,
+        );
       }
-
       _showMessage('いいねに失敗しました');
     }
   }
@@ -788,9 +876,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// コメント数を更新（コメント画面から呼ばれる）
   void _updateCommentCount(String postId, int count) {
     if (mounted) {
-      setState(() {
-        _commentCounts[postId] = count;
-      });
+      context.read<PostUIState>().updateCommentCount(postId, count);
     }
   }
 
@@ -823,38 +909,21 @@ class _HomeScreenState extends State<HomeScreen>
     final currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
-    final userId = currentUser.uid;
+    final postUIState = context.read<PostUIState>();
+    final wasSaved = postUIState.isSaved(post.postId);
+
+    // 楽観的UI更新（notifyListeners → build再実行）
+    postUIState.toggleSave(post.postId);
 
     try {
-      final isSaved = _savedPostIds.contains(post.postId);
-
-      // 楽観的UI更新
-      setState(() {
-        if (isSaved) {
-          _savedPostIds.remove(post.postId);
-        } else {
-          _savedPostIds.add(post.postId);
-        }
-      });
-
       await _userService.toggleSavePost(
-        userId: userId,
+        userId: currentUser.uid,
         postId: post.postId,
       );
-
-      _showMessage(isSaved ? '投稿の保存を解除しました' : '投稿を保存しました');
+      _showMessage(wasSaved ? '投稿の保存を解除しました' : '投稿を保存しました');
     } catch (e) {
       print('投稿の保存に失敗: $e');
-
-      // エラー時は状態を元に戻す
-      setState(() {
-        if (_savedPostIds.contains(post.postId)) {
-          _savedPostIds.remove(post.postId);
-        } else {
-          _savedPostIds.add(post.postId);
-        }
-      });
-
+      if (mounted) postUIState.revertSaveToggle(post.postId);
       _showMessage('投稿の保存に失敗しました');
     }
   }

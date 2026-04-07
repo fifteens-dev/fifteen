@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/rendering.dart';
@@ -30,6 +31,11 @@ import 'dialogs/report_dialog.dart';
 import 'package:path_provider/path_provider.dart';
 import 'native_pull_down_button.dart';
 import 'package:share_plus/share_plus.dart';
+
+part 'post_card/mixins/post_card_color_mixin.dart';
+part 'post_card/mixins/post_card_lyrics_mixin.dart';
+part 'post_card/mixins/post_card_audio_mixin.dart';
+part 'post_card/mixins/post_card_like_mixin.dart';
 
 /// 投稿カードウィジェット（表裏反転アニメーション付き）
 class PostCard extends StatefulWidget {
@@ -277,113 +283,6 @@ class PostCardState extends State<PostCard>
   }
 
 
-  /// 色テーマの初期化
-  void _initializeColors() {
-    // 色の優先順位:
-    // 1. 事前抽出パラメータ
-    // 2. Firestoreに保存されたテーマ（デフォルトテーマでない場合）
-    // 3. リアルタイム抽出
-    if (widget.preExtractedGradientStart != null && widget.preExtractedGradientEnd != null) {
-      debugPrint('✅ PostCard: 事前抽出された色を使用します');
-      _extractedGradientStart = widget.preExtractedGradientStart;
-      _extractedGradientEnd = widget.preExtractedGradientEnd;
-    } else if (widget.post.theme != PostTheme.defaultTheme) {
-      debugPrint('✅ PostCard: Firestoreのテーマを使用します');
-      _extractedGradientStart = widget.post.theme.gradientStart;
-      _extractedGradientEnd = widget.post.theme.gradientEnd;
-    } else {
-      debugPrint('⚠️ PostCard: 色が未抽出のため、抽出を開始します');
-      _extractColorsFromAlbumArt();
-    }
-  }
-
-  /// アルバムアートから色を抽出
-  Future<void> _extractColorsFromAlbumArt() async {
-    if (_isColorExtracting) return;
-
-    setState(() {
-      _isColorExtracting = true;
-    });
-
-    try {
-      final imageUrl = _displayAlbumArtUrl;
-      debugPrint('🎨 Extracting colors from: $imageUrl');
-
-      if (imageUrl.isNotEmpty) {
-        // グラデーション用の色ペアを抽出
-        final (gradientStart, gradientEnd) =
-            await ColorExtractor.extractGradientColors(imageUrl);
-
-        debugPrint('✅ Color extraction successful!');
-        debugPrint('  Gradient Start: $gradientStart');
-        debugPrint('  Gradient End: $gradientEnd');
-
-        if (mounted) {
-          setState(() {
-            _extractedGradientStart = gradientStart;
-            _extractedGradientEnd = gradientEnd;
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ Color extraction error: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isColorExtracting = false;
-        });
-      }
-    }
-  }
-
-  /// 歌詞を動的に取得（lyricsTextがない場合のフォールバック）
-  Future<void> _fetchLyricsIfNeeded() async {
-    // 既に歌詞がある場合、または取得中/取得済みの場合はスキップ
-    if (widget.post.lyricsText != null || _isLyricsFetching || _lyricsFetchAttempted) {
-      return;
-    }
-
-    setState(() {
-      _isLyricsFetching = true;
-    });
-
-    try {
-      final lyricsData = await _lyricsService.getLyrics(
-        trackName: widget.post.track.trackName,
-        artistName: widget.post.track.artistName,
-      );
-
-      if (mounted && lyricsData != null) {
-        final truncatedLyrics = _lyricsService.truncateLyrics(
-          lyricsData.plainLyrics,
-          maxLines: 4,
-        );
-        setState(() {
-          _fetchedLyricsText = truncatedLyrics;
-        });
-        debugPrint('✅ PostCard: 歌詞を動的に取得しました');
-
-        // Firebaseに保存（テスト投稿以外の場合）
-        final postId = widget.post.postId;
-        if (!postId.startsWith('test_post_') && !postId.startsWith('preview_')) {
-          await _postService.updateLyricsText(
-            postId: postId,
-            lyricsText: truncatedLyrics,
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ PostCard: 歌詞取得エラー: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLyricsFetching = false;
-          _lyricsFetchAttempted = true;
-        });
-      }
-    }
-  }
-
   @override
   void dispose() {
     _flipController.dispose();
@@ -463,149 +362,14 @@ class PostCardState extends State<PostCard>
     }
   }
 
-  /// 音楽を非同期で再生（UIをブロックしない）
-  Future<void> _playAudioAsync() async {
-    // 二重呼び出し防止（自動再生とフリップが競合するケース）
-    if (_isPlayAudioInProgress) return;
-    _isPlayAudioInProgress = true;
-
-    try {
-      String? previewUrl = _cachedPreviewUrl;
-
-      // キャッシュがない場合、iTunes APIから取得
-      if (previewUrl == null) {
-        if (kDebugMode) print('🍎 Fetching preview URL from iTunes...');
-        final result = await _itunesService.getPreviewUrlWithArt(
-          trackName: widget.post.track.trackName,
-          artistName: widget.post.track.artistName,
-        );
-        if (!mounted) return;
-
-        if (result != null) {
-          previewUrl = result['previewUrl'];
-          // setState で更新し、波形ウィジェットにURLを反映
-          setState(() { _cachedPreviewUrl = previewUrl; });
-          if (kDebugMode) print('✅ iTunes preview URL obtained and cached');
-        } else {
-          // 1回目が失敗した場合、1秒後にリトライ
-          if (kDebugMode) print('⚠️ iTunes returned null, retrying in 1s...');
-          await Future.delayed(const Duration(seconds: 1));
-          if (!mounted) return;
-          final retryResult = await _itunesService.getPreviewUrlWithArt(
-            trackName: widget.post.track.trackName,
-            artistName: widget.post.track.artistName,
-          );
-          if (!mounted) return;
-          if (retryResult != null) {
-            previewUrl = retryResult['previewUrl'];
-            setState(() { _cachedPreviewUrl = previewUrl; });
-            if (kDebugMode) print('✅ iTunes retry succeeded');
-          } else {
-            if (kDebugMode) print('❌ iTunes retry also failed');
-          }
-        }
-      } else {
-        if (kDebugMode) print('📦 Using cached preview URL');
-      }
-
-      if (!mounted) return;
-
-      // プレビューURLがあれば再生
-      if (previewUrl != null && previewUrl.isNotEmpty) {
-        if (kDebugMode) print('▶️  Starting playback...');
-        try {
-          await widget.audioService.playPreview(
-            previewUrl,
-            startFrom: Duration(milliseconds: widget.post.audioStartMs),
-            durationSeconds: widget.post.audioDurationSec,
-          );
-        } catch (e) {
-          if (kDebugMode) print('❌ Playback error: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('音楽の再生に失敗しました: ${e.toString()}'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
-        }
-      } else {
-        if (kDebugMode) print('⚠️  No preview URL available');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('この曲のプレビューURLが見つかりません'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-    } finally {
-      _isPlayAudioInProgress = false;
-    }
-  }
-
-  /// いいねボタンが押された時の処理（楽観的UI更新）
-  void _handleLikeTap() {
-    if (widget.disableInteractions) {
-      RestrictionNotification.show(context, message: 'いいねができません');
-      return;
-    }
-    if (widget.onLike != null) {
-      setState(() {
-        final currentIsLiked = _isLikedOptimistic ??
-            (widget.currentUserId != null &&
-                widget.post.isLikedBy(widget.currentUserId!));
-        final currentLikeCount = _likeCountOptimistic ?? widget.post.likeCount;
-        final currentIconUrls = _likedByUserIconUrlsOptimistic ??
-            List<String>.from(widget.post.likedByUserIconUrls);
-
-        _isLikedOptimistic = !currentIsLiked;
-        _likeCountOptimistic =
-            currentIsLiked ? currentLikeCount - 1 : currentLikeCount + 1;
-
-        // アイコンURLリストも楽観的に更新
-        if (currentIsLiked) {
-          // いいね解除：自分のアイコンを削除
-          if (widget.currentUserIconUrl != null) {
-            currentIconUrls.remove(widget.currentUserIconUrl);
-          } else if (currentIconUrls.isNotEmpty) {
-            // アイコンURLがない場合は最後の要素を削除
-            currentIconUrls.removeLast();
-          }
-        } else {
-          // いいね追加：自分のアイコンを追加
-          final iconUrl = widget.currentUserIconUrl ?? '';
-          currentIconUrls.add(iconUrl);
-        }
-        _likedByUserIconUrlsOptimistic = currentIconUrls;
-      });
-
-      widget.onLike!();
-    }
-  }
-
   @override
   void didUpdateWidget(PostCard oldWidget) {
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.post.postId != widget.post.postId) {
-      _isLikedOptimistic = null;
-      _likeCountOptimistic = null;
-      _likedByUserIconUrlsOptimistic = null;
-    } else if (_isLikedOptimistic != null || _likeCountOptimistic != null || _likedByUserIconUrlsOptimistic != null) {
-      final actualIsLiked = widget.currentUserId != null &&
-          widget.post.isLikedBy(widget.currentUserId!);
-      final actualLikeCount = widget.post.likeCount;
-
-      if (_isLikedOptimistic == actualIsLiked &&
-          _likeCountOptimistic == actualLikeCount) {
-        _isLikedOptimistic = null;
-        _likeCountOptimistic = null;
-        _likedByUserIconUrlsOptimistic = null;
-      }
+      _clearLikeOptimistic();
+    } else {
+      _syncLikeOptimisticWithActual();
     }
   }
 
@@ -641,19 +405,6 @@ class PostCardState extends State<PostCard>
         ),
       ),
     );
-  }
-
-  /// 動的にテーマを生成（抽出された色を優先、なければデフォルトテーマ）
-  PostTheme _getDynamicTheme() {
-    // 抽出された色がある場合は動的にテーマを生成
-    if (_extractedGradientStart != null && _extractedGradientEnd != null) {
-      return ColorExtractor.createThemeFromColors(
-        _extractedGradientStart!,
-        _extractedGradientEnd!,
-      );
-    }
-    // デフォルトのテーマを使用
-    return widget.post.theme;
   }
 
   /// カード表面（アルバムカバー全表示）
@@ -1158,11 +909,9 @@ class PostCardState extends State<PostCard>
           fit: fit,
           progressIndicatorBuilder: (context, url, progress) {
             return Center(
-              child: CircularProgressIndicator(
-                value: progress.totalSize != null
-                    ? progress.downloaded / progress.totalSize!
-                    : null,
+              child: CupertinoActivityIndicator(
                 color: Colors.white,
+                radius: 14,
               ),
             );
           },
@@ -1252,7 +1001,7 @@ class PostCardState extends State<PostCard>
       },
       child: Row(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // プロフィールアイコン
             Container(
@@ -1346,53 +1095,6 @@ class PostCardState extends State<PostCard>
         ),
       ),
     );
-  }
-
-  /// プレビューURLを取得（キャッシュまたはiTunes APIから）
-  Future<String?> _fetchPreviewUrl() async {
-    if (_cachedPreviewUrl != null) {
-      return _cachedPreviewUrl;
-    }
-
-    final result = await _itunesService.getPreviewUrlWithArt(
-      trackName: widget.post.track.trackName,
-      artistName: widget.post.track.artistName,
-    );
-
-    if (result != null) {
-      final url = result['previewUrl'];
-      setState(() {
-        _cachedPreviewUrl = url;
-      });
-      return url;
-    }
-
-    return null;
-  }
-
-  /// 再生ボタンタップ時の処理
-  Future<void> _handlePlayButtonTap(bool isPlaying, String? previewUrl) async {
-    // 通常モードのみタップ時アニメーション（persistentモードは状態変化で制御）
-    if (!widget.persistentPlayButton) {
-      _playButtonAnimationController.forward(from: 0.0);
-    }
-
-    // 再生/一時停止処理
-    if (isPlaying) {
-      widget.audioService.pause();
-    } else if (widget.audioService.isPaused && previewUrl != null) {
-      widget.audioService.resume();
-    } else {
-      widget.onPlayStarted?.call();
-      final urlToPlay = await _fetchPreviewUrl();
-      if (urlToPlay != null && urlToPlay.isNotEmpty) {
-        await widget.audioService.playPreview(
-          urlToPlay,
-          startFrom: Duration(milliseconds: widget.post.audioStartMs),
-          durationSeconds: widget.post.audioDurationSec,
-        );
-      }
-    }
   }
 
   /// MarqueeText 用: 文字単位で日本語 +200 補正を行った InlineSpan を返す

@@ -5,6 +5,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:provider/provider.dart';
+import 'providers/post_ui_state.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/verification_code_screen.dart';
 import 'screens/invite_code_screen.dart';
@@ -39,6 +41,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 /// アプリ全体で使用するNavigatorKey（FCM通知タップ時の画面遷移用）
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+/// ルート変化を監視するオブザーバー（画面復帰時のデータ更新に使用）
+final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
+
 void main() async {
   // Flutter バインディングの初期化
   WidgetsFlutterBinding.ensureInitialized();
@@ -67,8 +72,23 @@ void main() async {
   // （runApp より前・top-level 関数で登録する必要がある）
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
+  // ステータスバーの設定
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+    ),
+  );
+
+  // runApp を先に呼んで「15s」をすぐ表示し、FCM初期化はバックグラウンドで実行
+  runApp(const FifteenApp());
+  _initializePostLaunch();
+}
+
+/// runApp後にバックグラウンドで実行するFCM等の初期化処理
+/// 黒い画面を減らすため、runApp前に await しない
+Future<void> _initializePostLaunch() async {
   // iOS: フォアグラウンド時も通知バナー・サウンドを表示するよう設定
-  // （アプリ内カスタムバナーに加えてシステム通知も表示する）
   await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
     alert: true,
     badge: true,
@@ -96,16 +116,6 @@ void main() async {
       print('⚠️ FCM初期化エラー: $e');
     }
   }
-
-  // ステータスバーの設定
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-    ),
-  );
-
-  runApp(const FifteenApp());
 }
 
 /// OS標準フォント（iOS: SF Pro, Android: Roboto）をそのまま使用
@@ -118,8 +128,11 @@ class FifteenApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return ChangeNotifierProvider(
+      create: (_) => PostUIState(),
+      child: MaterialApp(
       navigatorKey: navigatorKey,
+      navigatorObservers: [routeObserver],
       title: '15s',
       debugShowCheckedModeBanner: false,
       builder: (context, child) => MediaQuery(
@@ -165,6 +178,7 @@ class FifteenApp extends StatelessWidget {
         '/photo-picker': (context) => const PhotoPickerScreen(),
         '/music-selection': (context) => const MusicSelectionScreen(),
       },
+      ),
     );
   }
 }
@@ -178,12 +192,23 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
+  // スプラッシュ開始時刻（最小表示時間の計算用）
+  final DateTime _splashStart = DateTime.now();
+  static const _minSplashDuration = Duration(milliseconds: 500);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAuthState();
     });
+  }
+
+  /// 最小表示時間に達するまで待機
+  Future<void> _waitForMinSplash() async {
+    final elapsed = DateTime.now().difference(_splashStart);
+    final remaining = _minSplashDuration - elapsed;
+    if (remaining > Duration.zero) await Future.delayed(remaining);
   }
 
   Future<void> _checkAuthState() async {
@@ -222,6 +247,7 @@ class _AuthGateState extends State<AuthGate> {
             } catch (_) {
               // 取得失敗時はホーム画面側でリロード
             }
+            await _waitForMinSplash();
             if (!mounted) return;
             Navigator.pushReplacement(
               context,
@@ -233,23 +259,32 @@ class _AuthGateState extends State<AuthGate> {
               ),
             );
           } else if (name != null && name.isNotEmpty) {
+            await _waitForMinSplash();
+            if (!mounted) return;
             Navigator.pushReplacementNamed(
               context,
               '/username-creation',
               arguments: {'name': name},
             );
           } else {
+            await _waitForMinSplash();
+            if (!mounted) return;
             Navigator.pushReplacementNamed(context, '/name-input');
           }
         } else {
+          await _waitForMinSplash();
+          if (!mounted) return;
           Navigator.pushReplacementNamed(context, '/invite-code');
         }
       } catch (e) {
+        await _waitForMinSplash();
         if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/phone-auth');
       }
     } else {
       // 未ログイン → 認証画面へ
+      await _waitForMinSplash();
+      if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/phone-auth');
     }
   }

@@ -66,7 +66,7 @@ class ITunesSearchService {
     try {
       final encodedQuery = Uri.encodeComponent(query);
       final url = Uri.parse(
-        'https://itunes.apple.com/search?term=$encodedQuery&country=JP&media=music&entity=song&limit=30'
+        'https://itunes.apple.com/search?term=$encodedQuery&country=JP&lang=ja_JP&media=music&entity=song&limit=30'
       );
 
       print('🍎 iTunes Search API request: $query');
@@ -157,7 +157,7 @@ class ITunesSearchService {
       final encodedQuery = Uri.encodeComponent(query);
       // より多くの結果を取得してフィルタリング
       final url = Uri.parse(
-        'https://itunes.apple.com/search?term=$encodedQuery&country=JP&media=music&entity=song&limit=${limit * 2}'
+        'https://itunes.apple.com/search?term=$encodedQuery&country=JP&lang=ja_JP&media=music&entity=song&limit=${limit * 2}'
       );
 
       print('🍎 iTunes Search API: $query');

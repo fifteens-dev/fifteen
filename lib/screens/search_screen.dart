@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
@@ -290,7 +291,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildInviteCodeCard() {
     final isExhausted = _inviteUsedCount >= _maxInvites;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 10, 8, 4),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
       child: Container(
         decoration: BoxDecoration(
           color: const Color(0xFF282828),
@@ -305,13 +306,9 @@ class _SearchScreenState extends State<SearchScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: _inviteCode == null
                   ? const Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
+                      child: CupertinoActivityIndicator(
+                        color: Colors.white,
+                        radius: 10,
                       ),
                     )
                   : Row(
@@ -384,9 +381,9 @@ class _SearchScreenState extends State<SearchScreen> {
     // ローディング中
     if (_isSearching) {
       return const Center(
-        child: CircularProgressIndicator(
+        child: CupertinoActivityIndicator(
           color: Colors.white,
-          strokeWidth: 2,
+          radius: 8,
         ),
       );
     }

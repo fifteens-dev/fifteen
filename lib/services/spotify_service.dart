@@ -87,7 +87,7 @@ class SpotifyService {
   Future<http.Response> _executeSearch(String token, String encodedQuery, int searchLimit) {
     return http.get(
       Uri.parse(
-          'https://api.spotify.com/v1/search?q=$encodedQuery&type=track&limit=$searchLimit'),
+          'https://api.spotify.com/v1/search?q=$encodedQuery&type=track&limit=$searchLimit&market=JP'),
       headers: {
         'Authorization': 'Bearer $token',
       },
@@ -400,7 +400,7 @@ class SpotifyService {
     try {
       final query = Uri.encodeComponent('track:$trackName artist:$artistName');
       final response = await http.get(
-        Uri.parse('https://api.spotify.com/v1/search?q=$query&type=track&limit=1'),
+        Uri.parse('https://api.spotify.com/v1/search?q=$query&type=track&limit=1&market=JP'),
         headers: {
           'Authorization': 'Bearer $token',
         },
@@ -465,7 +465,7 @@ class SpotifyService {
       final encodedQuery = Uri.encodeComponent(playlistName);
       final searchResponse = await http.get(
         Uri.parse(
-            'https://api.spotify.com/v1/search?q=$encodedQuery&type=playlist&limit=1'),
+            'https://api.spotify.com/v1/search?q=$encodedQuery&type=playlist&limit=1&market=JP'),
         headers: {'Authorization': 'Bearer $token'},
       );
 

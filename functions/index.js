@@ -360,74 +360,52 @@ async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername
 }
 
 /**
- * 1フォロワーへの通知状態遷移を処理
+ * 1フォロワーへの通知処理
  *
- * 状態遷移:
- *   [ドキュメントなし / 日付違い] → 即時通知 → TIMER_ACTIVE (notificationsSentToday=1)
- *   [TIMER_ACTIVE]               → batchedSenderIds に追加（通知なし）
- *   [TIMER_EXPIRED_EMPTY]        → 即時通知 → DONE (notificationsSentToday=2)
- *   [DONE]                       → スキップ
+ * ① 即時通知: 投稿ごとに毎回送信（タイマー状態に関わらず常に実行）
+ * ② バッチ追跡: TIMER_ACTIVE で投稿を蓄積し、3時間後にまとめ通知（checkPostNotificationTimers で送信）
+ *    → ①と②は独立して動作する
  */
 async function processPostNotificationForRecipient(db, recipientId, senderId, senderUsername, senderIconUrl, postId, albumArtUrl) {
-  const today = getJstDateString();
-  const stateRef = db.collection('post_notification_states').doc(recipientId);
+  // ① 即時通知（常に送信）
+  const notifDocId = `post_${postId}_${recipientId}`;
+  const notifMessage = `${senderUsername}が投稿しました。`;
+  await sendPostNotificationDoc(
+    db, recipientId, senderId, senderUsername, senderIconUrl,
+    notifMessage, notifDocId, postId, albumArtUrl
+  );
 
-  let action = 'skip';
-  let notifDocId = null;
-  let notifMessage = null;
-  let notifPostId = null;
+  // ② バッチトラッキング（3時間後まとめ通知用・即時通知とは独立）
+  try {
+    const today = getJstDateString();
+    const stateRef = db.collection('post_notification_states').doc(recipientId);
+    await db.runTransaction(async (tx) => {
+      const stateDoc = await tx.get(stateRef);
+      const state = stateDoc.exists ? stateDoc.data() : null;
+      const isNewCycle = !state || state.lastResetDate !== today ||
+                         state.phase === 'DONE' || state.phase === 'TIMER_EXPIRED_EMPTY';
 
-  await db.runTransaction(async (tx) => {
-    const stateDoc = await tx.get(stateRef);
-    const state = stateDoc.exists ? stateDoc.data() : null;
-    const needsReset = !state || state.lastResetDate !== today;
-
-    if (needsReset) {
-      // その日の通知0通 → 即時通知 + TIMER_ACTIVE 開始
-      action = 'send_immediate';
-      notifDocId = `post_${postId}_${recipientId}`;
-      notifMessage = `${senderUsername}が投稿しました。`;
-      notifPostId = postId;
-      tx.set(stateRef, {
-        phase: 'TIMER_ACTIVE',
-        notificationsSentToday: 1,
-        batchedSenderIds: [],
-        batchedSenderUsernames: [],
-        timerStartedAt: admin.firestore.FieldValue.serverTimestamp(),
-        lastResetDate: today,
-      });
-    } else if (state.phase === 'TIMER_ACTIVE') {
-      // タイマー中 → batchedSenderIds に追加（通知なし）
-      action = 'batch';
-      const newIds = [...(state.batchedSenderIds || [])];
-      const newNames = [...(state.batchedSenderUsernames || [])];
-      if (!newIds.includes(senderId)) {
-        newIds.push(senderId);
-        newNames.push(senderUsername);
+      if (isNewCycle) {
+        // 新しいタイマーサイクルを開始
+        tx.set(stateRef, {
+          phase: 'TIMER_ACTIVE',
+          batchedSenderIds: [senderId],
+          batchedSenderUsernames: [senderUsername],
+          batchedPostIds: [postId],
+          timerStartedAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastResetDate: today,
+        });
+      } else if (state.phase === 'TIMER_ACTIVE') {
+        // タイマー中 → 各投稿を独立エントリとして追加
+        tx.update(stateRef, {
+          batchedSenderIds: [...(state.batchedSenderIds || []), senderId],
+          batchedSenderUsernames: [...(state.batchedSenderUsernames || []), senderUsername],
+          batchedPostIds: [...(state.batchedPostIds || []), postId],
+        });
       }
-      tx.update(stateRef, {
-        batchedSenderIds: newIds,
-        batchedSenderUsernames: newNames,
-      });
-    } else if (state.phase === 'TIMER_EXPIRED_EMPTY') {
-      // タイマー切れ（その日2件目の投稿） → 即時通知 → DONE
-      action = 'send_immediate';
-      notifDocId = `post_${postId}_${recipientId}`;
-      notifMessage = `${senderUsername}が投稿しました。`;
-      notifPostId = postId;
-      tx.update(stateRef, {
-        phase: 'DONE',
-        notificationsSentToday: admin.firestore.FieldValue.increment(1),
-      });
-    }
-    // DONE → action = 'skip' のまま
-  });
-
-  if (action === 'send_immediate') {
-    await sendPostNotificationDoc(
-      db, recipientId, senderId, senderUsername, senderIconUrl,
-      notifMessage, notifDocId, notifPostId, albumArtUrl
-    );
+    });
+  } catch (e) {
+    console.error(`Batch tracking error for ${recipientId}:`, e);
   }
 }
 
@@ -542,35 +520,41 @@ exports.checkPostNotificationTimers = onSchedule(
         const recipientId = doc.id;
         const batchedSenderIds = state.batchedSenderIds || [];
         const batchedSenderUsernames = state.batchedSenderUsernames || [];
+        const batchedPostIds = state.batchedPostIds || [];
 
-        if (batchedSenderIds.length > 0) {
-          // パターンA: まとめ通知 → DONE
-          const count = batchedSenderIds.length;
-          const firstUsername = batchedSenderUsernames[0] || 'Unknown';
-          const message = count === 1
-            ? `${firstUsername}が投稿しました。`
-            : `${firstUsername}など${count}人が投稿しました。`;
-
-          await doc.ref.update({
-            phase: 'DONE',
-            notificationsSentToday: admin.firestore.FieldValue.increment(1),
-            batchedSenderIds: [],
-            batchedSenderUsernames: [],
-          });
-
-          const notifDocId = `batch_${recipientId}_${today}`;
-          await sendPostNotificationDoc(
-            db, recipientId,
-            batchedSenderIds[0], firstUsername, null,
-            message, notifDocId, null, null
-          );
-
-          console.log(`checkPostNotificationTimers: batch sent to ${recipientId} (${count} senders)`);
-        } else {
-          // パターンC: 3時間タイマー切れ、溜まった投稿なし → TIMER_EXPIRED_EMPTY
-          await doc.ref.update({ phase: 'TIMER_EXPIRED_EMPTY' });
-          console.log(`checkPostNotificationTimers: ${recipientId} -> TIMER_EXPIRED_EMPTY`);
+        // バッチに投稿がない場合はスキップ
+        if (batchedSenderIds.length === 0) {
+          await doc.ref.update({ phase: 'DONE' });
+          console.log(`checkPostNotificationTimers: ${recipientId} -> DONE (empty batch)`);
+          continue;
         }
+
+        // ユニークな送信者数でメッセージを作成（同一ユーザーの複数投稿は1人とカウント）
+        const uniqueSenderIds = [...new Set(batchedSenderIds)];
+        const count = uniqueSenderIds.length;
+        const firstUsername = batchedSenderUsernames[0] || 'Unknown';
+        // 最新の投稿（最後に追加されたエントリ）のIDでナビゲート
+        const latestPostId = batchedPostIds[batchedPostIds.length - 1] || null;
+        const message = count === 1
+          ? `${firstUsername}が投稿しました。`
+          : `${firstUsername}など${count}人が投稿しました。`;
+
+        await doc.ref.update({
+          phase: 'DONE',
+          batchedSenderIds: [],
+          batchedSenderUsernames: [],
+          batchedPostIds: [],
+        });
+
+        // タイムスタンプで一意なIDを生成（同日複数バッチでの重複を防ぐ）
+        const notifDocId = `batch_${recipientId}_${Date.now()}`;
+        await sendPostNotificationDoc(
+          db, recipientId,
+          batchedSenderIds[0], firstUsername, null,
+          message, notifDocId, latestPostId, null
+        );
+
+        console.log(`checkPostNotificationTimers: batch sent to ${recipientId} (${count} unique senders, ${batchedSenderIds.length} posts)`);
       }
 
       console.log('checkPostNotificationTimers: completed');
@@ -773,19 +757,23 @@ exports.dailyVibeNotification = onSchedule(
       const todayStart = new Date(jst.getFullYear(), jst.getMonth(), jst.getDate());
       const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-      const todaysTopics = await db
+      // statusのみでクエリし、コード側で日付フィルタ（複合インデックス不要）
+      const activeTopics = await db
         .collection('vibe_topics')
         .where('status', '==', 'active')
-        .where('date', '>=', admin.firestore.Timestamp.fromDate(todayStart))
-        .where('date', '<', admin.firestore.Timestamp.fromDate(todayEnd))
         .get();
 
-      if (todaysTopics.empty) {
+      const todayTopicDocs = activeTopics.docs.filter(doc => {
+        const topicDate = doc.data().date?.toDate();
+        return topicDate && topicDate >= todayStart && topicDate < todayEnd;
+      });
+
+      if (todayTopicDocs.length === 0) {
         console.log('dailyVibeNotification: no active topic for today, skipping');
         return;
       }
 
-      const topicDoc = todaysTopics.docs[0];
+      const topicDoc = todayTopicDocs[0];
       const topicData = topicDoc.data();
       const topicTitle = topicData.title; // 例: "夜中に1人で聴きたい曲"
       const topicEmoji = topicData.emoji || '🎵';
@@ -994,6 +982,166 @@ exports.weeklyCleanupDuplicateFcmTokens = onSchedule(
     console.log('weeklyCleanupDuplicateFcmTokens completed:', result);
   }
 );
+
+/**
+ * Vibe通知を手動でテスト送信（管理者用HTTPS呼び出し）
+ *
+ * - skipPostedCheck: true を渡すと「今日すでに投稿済み」チェックをスキップ
+ * - targetUserId を渡すと特定ユーザーにのみ送信（省略時は全ユーザー）
+ */
+exports.testVibeNotification = onCall(
+  { timeoutSeconds: 300 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    const skipPostedCheck = request.data?.skipPostedCheck === true;
+    const targetUserId = request.data?.targetUserId || null;
+
+    // 今日のactiveなお題を取得
+    const now = new Date();
+    const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const todayStart = new Date(jst.getFullYear(), jst.getMonth(), jst.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    const activeTopics = await db.collection('vibe_topics')
+      .where('status', '==', 'active')
+      .get();
+
+    const todayTopicDocs = activeTopics.docs.filter(doc => {
+      const topicDate = doc.data().date?.toDate();
+      return topicDate && topicDate >= todayStart && topicDate < todayEnd;
+    });
+
+    const todaysTopics = { empty: todayTopicDocs.length === 0, docs: todayTopicDocs };
+
+    if (todaysTopics.empty) {
+      // activeなお題がなければ最新のお題を使う
+      const latestTopics = await db.collection('vibe_topics')
+        .orderBy('date', 'desc')
+        .limit(1)
+        .get();
+
+      if (latestTopics.empty) {
+        throw new HttpsError('not-found', '送信できるVibeお題がありません');
+      }
+
+      console.log('testVibeNotification: no active topic today, using latest topic');
+      const topicDoc = latestTopics.docs[0];
+      return _sendVibeNotificationToUsers(db, topicDoc, skipPostedCheck, targetUserId);
+    }
+
+    const topicDoc = todayTopicDocs[0];
+    console.log(`testVibeNotification: using topic "${topicDoc.data().title}"`);
+    return _sendVibeNotificationToUsers(db, topicDoc, skipPostedCheck, targetUserId);
+  }
+);
+
+/** Vibe通知送信の共通処理 */
+async function _sendVibeNotificationToUsers(db, topicDoc, skipPostedCheck, targetUserId) {
+  const topicData = topicDoc.data();
+  const topicId = topicDoc.id;
+  const notificationTitle = 'タップして今日の15sを投稿しよう。';
+  const notificationBody = `${topicData.emoji || '🎵'}${topicData.title}は？？`;
+
+  let alreadyPostedUserIds = new Set();
+  if (!skipPostedCheck) {
+    const alreadyPostedSnapshot = await db.collection('posts')
+      .where('vibeTopicId', '==', topicId)
+      .get();
+    alreadyPostedUserIds = new Set(
+      alreadyPostedSnapshot.docs.map(d => d.data().userId).filter(Boolean)
+    );
+  }
+
+  // 送信対象ユーザーを絞り込む
+  let usersToNotify = [];
+  if (targetUserId) {
+    const userDoc = await db.collection('users').doc(targetUserId).get();
+    if (userDoc.exists && userDoc.data().notifVibeEnabled !== false) {
+      if (skipPostedCheck || !alreadyPostedUserIds.has(targetUserId)) {
+        usersToNotify = [targetUserId];
+      }
+    }
+  } else {
+    const usersSnapshot = await db.collection('users').get();
+    for (const userDoc of usersSnapshot.docs) {
+      if (userDoc.data().notifVibeEnabled === false) continue;
+      if (!skipPostedCheck && alreadyPostedUserIds.has(userDoc.id)) continue;
+      usersToNotify.push(userDoc.id);
+    }
+  }
+
+  if (usersToNotify.length === 0) {
+    return { success: true, message: '送信対象ユーザーが0人でした（全員投稿済みか通知オフ）', notificationCount: 0 };
+  }
+
+  // Firestore通知を作成
+  const batchSize = 500;
+  let currentBatch = db.batch();
+  let operationCount = 0;
+  const batches = [];
+  for (const userId of usersToNotify) {
+    const notificationRef = db.collection('notifications').doc();
+    currentBatch.set(notificationRef, {
+      type: 'vibe',
+      recipientId: userId,
+      senderId: 'system',
+      senderUsername: '15s',
+      title: notificationTitle,
+      body: notificationBody,
+      isRead: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      readAt: null,
+    });
+    operationCount++;
+    if (operationCount >= batchSize) {
+      batches.push(currentBatch.commit());
+      currentBatch = db.batch();
+      operationCount = 0;
+    }
+  }
+  if (operationCount > 0) batches.push(currentBatch.commit());
+  await Promise.all(batches);
+
+  // FCMプッシュ通知
+  const tokenDocs = await Promise.all(
+    usersToNotify.map(uid => db.collection('user_fcm_tokens').doc(uid).get())
+  );
+  const allTokens = [];
+  for (const tokenDoc of tokenDocs) {
+    if (tokenDoc.exists && tokenDoc.data().tokens) {
+      allTokens.push(...tokenDoc.data().tokens.map(t => t.token).filter(Boolean));
+    }
+  }
+
+  let totalSuccess = 0;
+  for (let i = 0; i < allTokens.length; i += 500) {
+    const chunk = allTokens.slice(i, i + 500);
+    const response = await admin.messaging().sendEachForMulticast({
+      tokens: chunk,
+      notification: { title: notificationTitle, body: notificationBody },
+      data: { notificationType: 'vibe', click_action: 'FLUTTER_NOTIFICATION_CLICK' },
+      apns: { payload: { aps: { sound: 'default' } } },
+      android: { notification: { sound: 'default' } },
+    });
+    totalSuccess += response.successCount;
+  }
+
+  console.log(`testVibeNotification: sent to ${usersToNotify.length} users, ${totalSuccess}/${allTokens.length} FCM tokens`);
+  return {
+    success: true,
+    message: `${usersToNotify.length}人にVibe通知を送信しました`,
+    notificationCount: usersToNotify.length,
+    fcmTokenCount: allTokens.length,
+    fcmSuccessCount: totalSuccess,
+  };
+}
 
 /**
  * ユーザードキュメント削除時のクリーンアップ

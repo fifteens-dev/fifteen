@@ -20,6 +20,7 @@ class _CopyBannerState extends State<CopyBanner>
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  bool _dismissed = false;
 
   @override
   void initState() {
@@ -39,10 +40,14 @@ class _CopyBannerState extends State<CopyBanner>
     _controller.forward();
 
     Future.delayed(const Duration(milliseconds: 2000), () {
-      if (mounted) {
-        _controller.reverse().then((_) => widget.onDismiss());
-      }
+      _dismiss();
     });
+  }
+
+  void _dismiss() {
+    if (_dismissed || !mounted) return;
+    _dismissed = true;
+    _controller.reverse().then((_) => widget.onDismiss());
   }
 
   @override
@@ -58,7 +63,11 @@ class _CopyBannerState extends State<CopyBanner>
       top: safeTop + 8,
       left: 16,
       right: 16,
-      child: SlideTransition(
+      child: GestureDetector(
+        onVerticalDragUpdate: (details) {
+          if (details.delta.dy < -4) _dismiss();
+        },
+        child: SlideTransition(
         position: _slideAnimation,
         child: FadeTransition(
           opacity: _fadeAnimation,
@@ -112,6 +121,7 @@ class _CopyBannerState extends State<CopyBanner>
               ),
             ),
           ),
+        ),
         ),
       ),
     );

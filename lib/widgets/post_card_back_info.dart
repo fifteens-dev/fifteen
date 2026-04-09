@@ -73,7 +73,7 @@ class PostCardBackInfo extends StatelessWidget {
                 MarqueeText(
                   text: track.trackName,
                   style: TextStyle(
-                    fontSize: 22,
+                    fontSize: 21,
                     fontWeight: FontWeight.bold,
                     color: theme.textColor,
                   ),
@@ -83,7 +83,7 @@ class PostCardBackInfo extends StatelessWidget {
                 Text(
                   track.artistName,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 11,
                     color: theme.secondaryTextColor,
                   ),
                   maxLines: 1,

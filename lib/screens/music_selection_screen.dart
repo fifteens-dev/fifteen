@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -19,6 +20,8 @@ import '../services/itunes_search_service.dart';
 import 'post_preview_screen.dart';
 import 'home_screen.dart';
 import '../widgets/common/common.dart';
+import '../widgets/music/music_search_bar.dart';
+import '../widgets/music/music_track_list_item.dart';
 import 'home/home_bottom_nav.dart';
 
 /// 投稿用楽曲選択画面
@@ -119,6 +122,16 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     _loadRecentMusicSearches();
     _loadTodaysTopic();
     _initializeTabAndTracks();
+    if (!widget.isPickerMode) _trackPostStart();
+  }
+
+  /// 投稿開始イベントを記録（analytics_events コレクション）
+  Future<void> _trackPostStart() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      await _postService.trackAnalyticsEvent(uid: uid, type: 'post_start');
+    } catch (_) {}
   }
 
   @override
@@ -636,7 +649,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                         if (_isLoading)
                           const SliverFillRemaining(
                             child: Center(
-                              child: CircularProgressIndicator(color: Color(0xFF5D8FFF)),
+                              child: CupertinoActivityIndicator(color: Color(0xFF5D8FFF), radius: 14),
                             ),
                           )
                         else if (_notConnected)
@@ -798,7 +811,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// 検索バー
   Widget _buildSearchBar() {
-    return AppSearchBar(
+    return MusicSearchBar(
       controller: _searchController,
       focusNode: _searchFocusNode,
       isFocused: _isSearchFocused,
@@ -986,7 +999,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
           child: Text(
             '最近',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: Colors.white,
             ),
@@ -1162,86 +1175,10 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// 楽曲アイテム（リスト表示用）
   Widget _buildTrackItem(TrackModel track, bool isSelected) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return MusicTrackListItem(
+      track: track,
+      isSelected: isSelected,
       onTap: () => _toggleTrackSelection(track),
-      child: Container(
-        height: 59,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        color: isSelected ? const Color(0xFF2A2A2A) : Colors.transparent,
-        child: Row(
-          children: [
-            // アルバムアート
-            ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: CachedNetworkImage(
-                    imageUrl: track.albumImageUrl,
-                    width: 47,
-                    height: 47,
-                    fit: BoxFit.cover,
-                    errorWidget: (context, url, error) {
-                      return _buildPlaceholderImage();
-                    },
-                  ),
-            ),
-            const SizedBox(width: 11),
-
-            // 楽曲情報
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    track.trackName,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    track.artistName,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Colors.white,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-
-            // 選択ボタン
-            Container(
-              width: 19,
-              height: 19,
-              decoration: BoxDecoration(
-                color:
-                    isSelected ? const Color(0xFF4CAF50) : Colors.transparent,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: isSelected
-                      ? const Color(0xFF4CAF50)
-                      : const Color(0xFF9F9F9F),
-                  width: 2,
-                ),
-              ),
-              child: isSelected
-                  ? const Icon(
-                      Icons.check,
-                      color: Colors.white,
-                      size: 12,
-                    )
-                  : null,
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -1344,7 +1281,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                   TextSpan(
                     text: '【#${_todaysTopic!.title}】',
                     style: const TextStyle(
-                      fontSize: 14,
+                      fontSize: 12,
                       fontWeight: FontWeight.w400,
                       color: Colors.white,
                     ),
@@ -1403,13 +1340,9 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
           height: 168,
           child: _isLoadingRecommended
               ? const Center(
-                  child: SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF5D8FFF),
-                      strokeWidth: 2,
-                    ),
+                  child: CupertinoActivityIndicator(
+                    color: Color(0xFF5D8FFF),
+                    radius: 12,
                   ),
                 )
               : _recommendedTracks.isEmpty

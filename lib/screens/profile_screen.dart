@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,14 +18,15 @@ class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
+  State<ProfileScreen> createState() => ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderStateMixin {
+class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderStateMixin {
   final UserService _userService = UserService();
   final PostService _postService = PostService();
   final AudioPlayerService _audioService = AudioPlayerService();
   late TabController _tabController;
+  final ScrollController _scrollController = ScrollController();
 
   // ユーザーデータ
   UserModel? _userData;
@@ -48,19 +50,22 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
-      // 保存済みタブが初めて選択されたときのみ読み込む
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
       if (_tabController.index == 1 && _savedPosts.isEmpty) {
         _loadSavedPosts();
       }
     });
+    _scrollController.addListener(_onScroll);
     _loadUserData();
     _loadUserPosts();
-    // 保存済み投稿はタブ選択時に遅延読み込みするため initState では呼ばない
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _scrollController.dispose();
     _audioService.stop();
     super.dispose();
   }
@@ -98,7 +103,8 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   }
 
   /// ユーザーの投稿を読み込み（初回）
-  Future<void> _loadUserPosts() async {
+  /// [limit] 起動時は9件、リフレッシュ時は20件
+  Future<void> _loadUserPosts({int limit = 9}) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
 
@@ -106,7 +112,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       print('[ProfileScreen] _loadUserPosts: fetching uid=${currentUser.uid}');
       final result = await _postService.getPostsByUserIdPaged(
         currentUser.uid,
-        limit: 20,
+        limit: limit,
       );
       print('[ProfileScreen] _loadUserPosts: success count=${result.posts.length} hasMore=${result.hasMore}');
 
@@ -122,7 +128,16 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     }
   }
 
-  /// 追加投稿を読み込み（もっと見る）
+  /// スクロール末尾付近で追加取得
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 300) {
+      _loadMorePosts();
+    }
+  }
+
+  /// 追加投稿を読み込み（2段階：最初の9件を即表示、残り11件をバックグラウンドで追加）
   Future<void> _loadMorePosts() async {
     if (_isLoadingMore || !_hasMorePosts || _lastPostDoc == null) return;
     final currentUser = FirebaseAuth.instance.currentUser;
@@ -131,19 +146,38 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     setState(() => _isLoadingMore = true);
 
     try {
-      final result = await _postService.getPostsByUserIdPaged(
+      // 第1段階：9件を取得して即表示
+      final firstResult = await _postService.getPostsByUserIdPaged(
         currentUser.uid,
-        limit: 20,
+        limit: 9,
         startAfter: _lastPostDoc,
       );
 
-      if (mounted) {
-        setState(() {
-          _otherPosts.addAll(result.posts);
-          _lastPostDoc = result.lastDoc;
-          _hasMorePosts = result.hasMore;
-          _isLoadingMore = false;
-        });
+      if (!mounted) return;
+      setState(() {
+        _otherPosts.addAll(firstResult.posts);
+        _lastPostDoc = firstResult.lastDoc;
+        _hasMorePosts = firstResult.hasMore;
+        // まだ続きがある場合はスピナーを維持
+        if (!firstResult.hasMore) _isLoadingMore = false;
+      });
+
+      // 第2段階：続きがあれば残り11件をバックグラウンドで取得
+      if (firstResult.hasMore && firstResult.lastDoc != null) {
+        final secondResult = await _postService.getPostsByUserIdPaged(
+          currentUser.uid,
+          limit: 11,
+          startAfter: firstResult.lastDoc,
+        );
+
+        if (mounted) {
+          setState(() {
+            _otherPosts.addAll(secondResult.posts);
+            _lastPostDoc = secondResult.lastDoc;
+            _hasMorePosts = secondResult.hasMore;
+            _isLoadingMore = false;
+          });
+        }
       }
     } catch (e) {
       print('追加投稿の読み込みエラー: $e');
@@ -205,7 +239,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     print('[ProfileScreen] refresh started');
     await Future.wait([
       _loadUserData(),
-      _loadUserPosts(),
+      _loadUserPosts(limit: 20),
     ]);
     print('[ProfileScreen] refresh completed');
   }
@@ -234,7 +268,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       return const Scaffold(
         backgroundColor: Color(0xFF121212),
         body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
+          child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
         ),
       );
     }
@@ -242,30 +276,34 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
-        child: NestedScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          headerSliverBuilder: (context, innerBoxIsScrolled) {
-            return [
-              // ヘッダー
-              SliverToBoxAdapter(child: _buildHeader()),
-              // プロフィール情報
-              SliverToBoxAdapter(child: _buildProfileInfo()),
-              // タブ切り替え（スクロール時に上に固定）
-              SliverPersistentHeader(
-                pinned: true,
-                delegate: _TabBarDelegate(
-                  child: _buildTabSelector(),
+        child: Column(
+          children: [
+            // ユーザーネームバー（固定）
+            _buildHeader(),
+            // リフレッシュ＋スクロールエリア（単一CustomScrollViewで統合）
+            Expanded(
+              child: CustomScrollView(
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
                 ),
+                slivers: [
+                  CupertinoSliverRefreshControl(
+                    onRefresh: _refresh,
+                  ),
+                  // プロフィール情報
+                  SliverToBoxAdapter(child: _buildProfileInfo()),
+                  // タブ切り替え（スクロール時に上部に固定）
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _TabBarDelegate(child: _buildTabSelector()),
+                  ),
+                  // アクティブなタブのコンテンツ
+                  ..._buildActiveTabSlivers(),
+                ],
               ),
-            ];
-          },
-          body: TabBarView(
-            controller: _tabController,
-            children: [
-              _buildPostsGridScrollable(),
-              _buildSavedPostsGridScrollable(),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -316,7 +354,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   /// プロフィール情報セクション
   Widget _buildProfileInfo() {
     final displayName = _userData?.name ?? '名前未設定';
-    final username = _userData?.username;
     final bio = _userData?.bio;
     final profileImageUrl = _userData?.profileImageUrl;
 
@@ -341,16 +378,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    if (username != null && username.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        username,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
                     if (bio != null && bio.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
@@ -520,135 +547,96 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     );
   }
 
-  /// 投稿グリッド（スクロール可能、TabBarView内用）
-  Widget _buildPostsGridScrollable() {
-    if (_otherPosts.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: _refresh,
-        color: Colors.white,
-        backgroundColor: const Color(0xFF2D2D2D),
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            const SliverFillRemaining(
-              child: Center(
-                child: Text(
-                  '投稿がありません',
-                  style: TextStyle(color: Colors.white54, fontSize: 14),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
+  /// アクティブなタブのスライバーリストを返す
+  List<Widget> _buildActiveTabSlivers() {
+    if (_tabController.index == 0) {
+      return _buildPostsGridSlivers();
+    } else {
+      return _buildSavedPostsGridSlivers();
     }
-
-    // グリッドアイテム数 + もっと見るボタン用の1行分
-    final gridItemCount = _otherPosts.length;
-    final showLoadMore = _hasMorePosts || _isLoadingMore;
-
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      color: Colors.white,
-      backgroundColor: const Color(0xFF2D2D2D),
-      child: CustomScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
-        SliverGrid(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 131 / 192,
-            crossAxisSpacing: 0,
-            mainAxisSpacing: 8,
-          ),
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final post = _otherPosts[index];
-              return ProfilePostGridItem(
-                post: post,
-                allPosts: _otherPosts,
-                initialIndex: index,
-                onDelete: () => _deletePost(post),
-                disableInteractions: true,
-              );
-            },
-            childCount: gridItemCount,
-          ),
-        ),
-        if (showLoadMore)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: _isLoadingMore
-                  ? const Center(
-                      child: SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          color: Colors.white54,
-                          strokeWidth: 2,
-                        ),
-                      ),
-                    )
-                  : TextButton(
-                      onPressed: _loadMorePosts,
-                      child: const Text(
-                        'もっと見る',
-                        style: TextStyle(color: Colors.white54, fontSize: 13),
-                      ),
-                    ),
-            ),
-          ),
-      ],
-      ),
-    );
   }
 
-
-
-  /// 保存済み投稿グリッド（スクロール可能、TabBarView内用）
-  Widget _buildSavedPostsGridScrollable() {
-    if (_savedPosts.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: _refresh,
-        color: Colors.white,
-        backgroundColor: const Color(0xFF2D2D2D),
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            const SliverFillRemaining(
-              child: Center(
-                child: Text(
-                  '保存済みの投稿がありません',
-                  style: TextStyle(color: Colors.white54, fontSize: 14),
-                ),
-              ),
+  /// 投稿グリッドのスライバーリスト
+  List<Widget> _buildPostsGridSlivers() {
+    if (_otherPosts.isEmpty) {
+      return [
+        const SliverFillRemaining(
+          child: Center(
+            child: Text(
+              '投稿がありません',
+              style: TextStyle(color: Colors.white54, fontSize: 14),
             ),
-          ],
+          ),
         ),
-      );
+      ];
     }
 
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      color: Colors.white,
-      backgroundColor: const Color(0xFF2D2D2D),
-      child: GridView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.zero,
+    return [
+      SliverGrid(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          childAspectRatio: 131 / 192,
+          crossAxisSpacing: 0,
+          mainAxisSpacing: 8,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final post = _otherPosts[index];
+            return ProfilePostGridItem(
+              post: post,
+              allPosts: _otherPosts,
+              initialIndex: index,
+              onDelete: () => _deletePost(post),
+              disableInteractions: true,
+            );
+          },
+          childCount: _otherPosts.length,
+        ),
+      ),
+      if (_isLoadingMore)
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: CupertinoActivityIndicator(
+                color: Colors.white54,
+                radius: 12,
+              ),
+            ),
+          ),
+        ),
+    ];
+  }
+
+  /// 保存済み投稿グリッドのスライバーリスト
+  List<Widget> _buildSavedPostsGridSlivers() {
+    if (_savedPosts.isEmpty) {
+      return [
+        const SliverFillRemaining(
+          child: Center(
+            child: Text(
+              '保存済みの投稿がありません',
+              style: TextStyle(color: Colors.white54, fontSize: 14),
+            ),
+          ),
+        ),
+      ];
+    }
+
+    return [
+      SliverGrid(
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
           childAspectRatio: 1,
           crossAxisSpacing: 1,
           mainAxisSpacing: 1,
         ),
-        itemCount: _savedPosts.length,
-        itemBuilder: (context, index) {
-          final post = _savedPosts[index];
-          return _buildSavedPostItem(post);
-        },
+        delegate: SliverChildBuilderDelegate(
+          (context, index) => _buildSavedPostItem(_savedPosts[index]),
+          childCount: _savedPosts.length,
+        ),
       ),
-    );
+    ];
   }
 
   /// 保存済み投稿アイテム（アルバムアートのみ）

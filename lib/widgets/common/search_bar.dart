@@ -7,7 +7,7 @@ import '../../utils/context_menu_builder.dart';
 ///
 /// 楽曲選択画面のスタイルを正典とする。
 /// - [controller] / [focusNode] は呼び出し元のStateが管理する
-/// - [isFocused] が true のときキャンセルボタンを表示
+/// - [isFocused] が true のときキャンセルボタンを表示し、検索バーを狭くする
 /// - [showClearButton] が true のとき、入力がある場合にフィールド内クリアボタンを表示
 /// - [padding] で外側の余白を上書き可能（デフォルト: horizontal 16）
 class AppSearchBar extends StatelessWidget {
@@ -38,7 +38,9 @@ class AppSearchBar extends StatelessWidget {
       padding: padding,
       child: Row(
         children: [
+          // フォーカス時は狭く（flex: 75）、非フォーカス時は全幅
           Expanded(
+            flex: isFocused ? 75 : 1,
             child: Container(
               height: AppDimensions.searchBarHeight,
               decoration: BoxDecoration(
@@ -96,16 +98,19 @@ class AppSearchBar extends StatelessWidget {
             ),
           ),
           if (isFocused)
-            GestureDetector(
-              onTap: onCancel,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 10),
-                child: Text(
-                  'キャンセル',
-                  style: TextStyle(
-                    fontSize: AppDimensions.searchBarFontSize,
-                    fontWeight: FontWeight.w400,
-                    color: AppColors.searchCancelText,
+            Expanded(
+              flex: 25,
+              child: GestureDetector(
+                onTap: onCancel,
+                child: const Padding(
+                  padding: EdgeInsets.only(left: 10),
+                  child: Text(
+                    'キャンセル',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.searchCancelText,
+                    ),
                   ),
                 ),
               ),

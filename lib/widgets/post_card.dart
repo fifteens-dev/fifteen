@@ -683,7 +683,7 @@ class PostCardState extends State<PostCard>
                     textSpan: _buildWeightAdjustedSpan(
                       widget.post.track.trackName,
                       baseStyle: TextStyle(
-                        fontSize: 22,
+                        fontSize: 21,
                         fontWeight: FontWeight.w700,
                         color: theme.textColor,
                       ),
@@ -697,7 +697,7 @@ class PostCardState extends State<PostCard>
                     opacity: 0.8,
                     child: _buildWeightAdjustedText(
                       widget.post.track.artistName,
-                      fontSize: 13,
+                      fontSize: 11,
                       baseWeight: FontWeight.w400,
                       color: theme.secondaryTextColor,
                     ),
@@ -1029,7 +1029,7 @@ class PostCardState extends State<PostCard>
                   // ユーザー名
                   _buildWeightAdjustedText(
                     widget.post.username,
-                    fontSize: 14,
+                    fontSize: 12,
                     baseWeight: FontWeight.w600,
                     color: Colors.white,
                   ),
@@ -1040,7 +1040,7 @@ class PostCardState extends State<PostCard>
                     Text(
                       displayText,
                       style: const TextStyle(
-                        fontSize: 8,
+                        fontSize: 7,
                         color: Colors.white,
                       ),
                       maxLines: 2,
@@ -1357,7 +1357,7 @@ class PostCardState extends State<PostCard>
             Text(
               count.toString(),
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 12,
                 color: textColor,
               ),
             ),
@@ -1392,7 +1392,7 @@ class PostCardState extends State<PostCard>
             Text(
               count.toString(),
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 12,
                 color: theme.iconColor,
               ),
             ),
@@ -1492,7 +1492,7 @@ class PostCardState extends State<PostCard>
           textSpan: _buildWeightAdjustedSpan(
             widget.post.track.trackName,
             baseStyle: TextStyle(
-              fontSize: 25,
+              fontSize: 21,
               fontWeight: FontWeight.w700,
               color: theme.textColor,
             ),
@@ -1504,7 +1504,7 @@ class PostCardState extends State<PostCard>
           opacity: 0.8,
           child: _buildWeightAdjustedText(
             widget.post.track.artistName,
-            fontSize: 13,
+            fontSize: 11,
             baseWeight: FontWeight.w400,
             color: theme.textColor,
           ),
@@ -1716,7 +1716,7 @@ class PostCardState extends State<PostCard>
           // ユーザー名
           _buildWeightAdjustedText(
             widget.post.username,
-            fontSize: 14,
+            fontSize: 12,
             baseWeight: FontWeight.w600,
             color: theme.textColor,
           ),

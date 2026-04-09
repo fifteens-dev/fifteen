@@ -435,6 +435,10 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
 
   /// アクションボタン（フォロー）
   Widget _buildActionButtons() {
+    // 自分のプロフィールの場合はフォローボタンを非表示
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == widget.userId) return const SizedBox.shrink();
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 21),
       child: GestureDetector(

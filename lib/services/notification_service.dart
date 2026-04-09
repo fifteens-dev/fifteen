@@ -234,9 +234,12 @@ class NotificationService {
       };
 
       if (doc.exists) {
-        // 同じトークン文字列の既存エントリを除去してから追加（重複防止）
+        // 同じプラットフォームの既存トークンをすべて除去してから追加
+        // （アプリ再インストール等でトークンが変わった場合に古いものが残るのを防ぐ）
         final currentTokens = List<dynamic>.from(doc.data()?['tokens'] ?? []);
-        final filteredTokens = currentTokens.where((t) => t['token'] != token).toList();
+        final filteredTokens = currentTokens
+            .where((t) => t['token'] != token && t['platform'] != platform)
+            .toList();
         filteredTokens.add(tokenData);
         await docRef.update({
           'tokens': filteredTokens,

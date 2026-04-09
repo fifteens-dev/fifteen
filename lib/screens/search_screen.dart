@@ -442,7 +442,7 @@ class _SearchScreenState extends State<SearchScreen> {
           child: Text(
             '最近',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: Colors.white,
             ),
@@ -510,7 +510,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   Text(
                     entry['username'] ?? 'unknown',
                     style: const TextStyle(
-                      fontSize: 14,
+                      fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
                     ),
@@ -521,7 +521,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     Text(
                       entry['name']!,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 11,
                         color: Color(0xFF9F9F9F),
                       ),
                       maxLines: 1,

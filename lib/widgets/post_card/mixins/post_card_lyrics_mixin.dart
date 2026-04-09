@@ -8,6 +8,7 @@ extension PostCardLyricsMethods on PostCardState {
       return;
     }
 
+    if (!mounted) return;
     setState(() {
       _isLyricsFetching = true;
     });

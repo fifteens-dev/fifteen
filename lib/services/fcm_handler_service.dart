@@ -178,7 +178,6 @@ class FCMHandlerService {
           builder: (_) => PostDetailScreen(
             post: post,
             currentUserId: currentUserId,
-            alwaysShowBack: true,
           ),
         ));
       }

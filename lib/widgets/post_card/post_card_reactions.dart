@@ -170,21 +170,12 @@ class ShareButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: theme.iconColor.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(size / 2),
-      ),
-      child: IconButton(
-        icon: Icon(
-          Icons.ios_share,
-          color: theme.iconColor,
-          size: size * 0.55,
-        ),
-        onPressed: onTap,
-        padding: EdgeInsets.zero,
+    return GestureDetector(
+      onTap: onTap,
+      child: Image.asset(
+        'assets/icons/share_button.png',
+        width: size,
+        height: size,
       ),
     );
   }
@@ -292,10 +283,10 @@ class CommentInputButton extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            Icon(
-              Icons.send,
-              size: 20,
-              color: theme.textColor.withValues(alpha: 0.7),
+            Image.asset(
+              'assets/icons/comment_send_button.png',
+              width: 20,
+              height: 20,
             ),
             const SizedBox(width: 12),
           ],

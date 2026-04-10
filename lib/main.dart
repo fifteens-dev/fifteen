@@ -27,8 +27,8 @@ import 'services/auth_service.dart';
 import 'services/settings_service.dart';
 import 'services/post_service.dart';
 import 'services/user_service.dart';
+import 'services/vibe_topic_service.dart';
 import 'models/post_model.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// バックグラウンドFCMハンドラー（top-level 必須・runApp前に登録する）
 @pragma('vm:entry-point')
@@ -183,6 +183,23 @@ class FifteenApp extends StatelessWidget {
   }
 }
 
+/// Vibeデータ（お題＋ランキング）を取得するヘルパー
+Future<Map<String, dynamic>> _fetchVibeData(
+    VibeTopicService vibeTopicService, PostService postService) async {
+  try {
+    final topic = await vibeTopicService.getTodaysTopic();
+    if (topic == null) return {'topic': null, 'ranking': []};
+    final ranking = await postService.calculateVibeRanking(
+      topic.topicId,
+      DateTime.now(),
+      limit: 10,
+    );
+    return {'topic': topic, 'ranking': ranking};
+  } catch (_) {
+    return {'topic': null, 'ranking': []};
+  }
+}
+
 /// ログイン状態を確認して適切な画面に遷移するゲート
 class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
@@ -219,31 +236,37 @@ class _AuthGateState extends State<AuthGate> {
 
     if (user != null) {
       SettingsService().configure(user.uid);
-      // ログイン済み：Firestoreにユーザーデータがあるか確認
+      // ログイン済み：Firestoreにユーザーデータがあるか確認（1回のみ）
       try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
+        final userService = UserService();
+        final userModel = await userService.getUser(user.uid);
 
         if (!mounted) return;
-        if (doc.exists) {
+        if (userModel != null) {
           // 登録進捗に応じてナビゲート
-          final data = doc.data() ?? {};
-          final username = data['username'] as String?;
-          final name = data['name'] as String?;
+          final username = userModel.username;
+          final name = userModel.name;
 
           if (username != null && username.isNotEmpty) {
             // ホーム画面に移動する前に投稿データを事前取得
             List<PostModel>? initialPosts;
+            Map<String, dynamic>? initialVibeData;
+            bool initialHasPostedToday = false;
             try {
-              final userService = UserService();
               final postService = PostService();
-              final userModel = await userService.getUser(user.uid);
-              final followingIds = userModel?.following ?? [];
+              final vibeTopicService = VibeTopicService();
+              final followingIds = userModel.following;
               final allTargetIds = [...followingIds, user.uid];
-              initialPosts = await postService.getPostsForFollowing(
-                  allTargetIds, limit: 50);
+
+              // 投稿・Vibe・今日の投稿チェックを並列取得
+              final results = await Future.wait([
+                postService.getPostsForFollowing(allTargetIds, limit: 50),
+                _fetchVibeData(vibeTopicService, postService),
+                postService.hasUserPostedToday(user.uid),
+              ]);
+              initialPosts = results[0] as List<PostModel>;
+              initialVibeData = results[1] as Map<String, dynamic>;
+              initialHasPostedToday = results[2] as bool;
             } catch (_) {
               // 取得失敗時はホーム画面側でリロード
             }
@@ -252,8 +275,12 @@ class _AuthGateState extends State<AuthGate> {
             Navigator.pushReplacement(
               context,
               PageRouteBuilder(
-                pageBuilder: (_, __, ___) =>
-                    HomeScreen(initialPosts: initialPosts),
+                pageBuilder: (_, __, ___) => HomeScreen(
+                  initialPosts: initialPosts,
+                  initialVibeData: initialVibeData,
+                  initialUserModel: userModel,
+                  initialHasPostedToday: initialHasPostedToday,
+                ),
                 transitionDuration: Duration.zero,
                 reverseTransitionDuration: Duration.zero,
               ),

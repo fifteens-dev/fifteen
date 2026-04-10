@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../constants/app_colors.dart';
@@ -24,7 +25,7 @@ class VibeBarSection extends StatelessWidget {
       future: vibeDataFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildSkeleton();
+          return const SizedBox.shrink();
         }
 
         if (!snapshot.hasData || snapshot.data!['topic'] == null) {
@@ -210,18 +211,6 @@ class VibeBarSection extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// スケルトン（ローディング）
-  Widget _buildSkeleton() {
-    return Container(
-      color: AppColors.background,
-      // 高さを固定して SliverToBoxAdapter 内での無限展開を防ぐ
-      height: 100,
-      child: const Center(
-        child: CircularProgressIndicator(),
       ),
     );
   }

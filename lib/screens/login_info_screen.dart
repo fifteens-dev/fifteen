@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
@@ -254,13 +255,9 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
                   child: _isDeleting
                       ? Row(
                           children: [
-                            const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                color: Colors.red,
-                                strokeWidth: 2,
-                              ),
+                            const CupertinoActivityIndicator(
+                              color: Colors.red,
+                              radius: 8,
                             ),
                             const SizedBox(width: 10),
                             const Flexible(

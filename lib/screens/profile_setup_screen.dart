@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
 import '../constants/app_colors.dart';
@@ -277,7 +278,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       return const Scaffold(
         backgroundColor: AppColors.background,
         body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
+          child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
         ),
       );
     }
@@ -501,13 +502,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         ),
         child: Center(
           child: _isSaving
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    color: Colors.black,
-                    strokeWidth: 2,
-                  ),
+              ? const CupertinoActivityIndicator(
+                  color: Colors.black,
+                  radius: 10,
                 )
               : const Text(
                   '次へ',

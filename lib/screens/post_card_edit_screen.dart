@@ -508,7 +508,6 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 50), // ヘッダー分
                   Expanded(
                     child: Builder(
                       builder: (context) {
@@ -541,6 +540,7 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
                               preExtractedGradientStart: _gradientStart,
                               preExtractedGradientEnd: _gradientEnd,
                               showLyricsCard: false,
+                              showUserBadge: false,
                               photoOverlaysBefore: [
                                 Positioned.fill(
                                   child: GestureDetector(
@@ -595,7 +595,7 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
                   final cardPos = _editState.cardPositionForSize(cardSize);
                   return Positioned(
                     left: 1 + cardPos.dx * scale,
-                    top: safeTop + 50 + cardPos.dy * scale,
+                    top: safeTop + cardPos.dy * scale,
                     child: IgnorePointer(
                       child: Transform.scale(
                           scale: _editState.cardScale * scale,
@@ -626,7 +626,7 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
               final safeTop = mq.padding.top;
               final scale = (screenW - 2) / PostCardBackView.cardWidth;
               // 写真エリア下端のスクリーン座標
-              final photoAreaBottom = safeTop + 50 + PostCardBackView.photoHeight * scale;
+              final photoAreaBottom = safeTop + PostCardBackView.photoHeight * scale;
               final bottomOffset = screenH - photoAreaBottom;
               return Positioned(
                 left: 0,
@@ -639,34 +639,14 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
               );
             }),
 
-          // ④ ヘッダーオーバーレイ（Hero で固定 — 常に表示）
+          // ④ ボタンオーバーレイ（カードの上に重ねる）
           Positioned(
             top: 0, left: 0, right: 0,
             child: SafeArea(
               bottom: false,
-              child: Hero(
-                tag: 'post_flow_header',
-                flightShuttleBuilder: (_, __, ___, ____, _____) =>
-                    const Material(
-                      color: Colors.transparent,
-                      child: SizedBox(
-                        height: 50,
-                        child: Center(
-                          child: Text(
-                            '新規投稿',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: _buildHeader(),
-                ),
+              child: Material(
+                color: Colors.transparent,
+                child: _buildHeader(),
               ),
             ),
           ),
@@ -680,44 +660,30 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
       height: 50,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Stack(
-          alignment: Alignment.center,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              '新規投稿',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600),
+            GestureDetector(
+              onTap: () {
+                _audioService.stop();
+                Navigator.pop(context);
+              },
+              child: const Text(
+                'キャンセル',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500),
+              ),
             ),
-            Positioned.fill(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      _audioService.stop();
-                      Navigator.pop(context);
-                    },
-                    child: const Text(
-                      'キャンセル',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: _onNext,
-                    child: const Text(
-                      '完了',
-                      style: TextStyle(
-                          color: Color(0xFF5D8FFF),
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ],
+            GestureDetector(
+              onTap: _onNext,
+              child: const Text(
+                '完了',
+                style: TextStyle(
+                    color: Color(0xFF5D8FFF),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600),
               ),
             ),
           ],

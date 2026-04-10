@@ -450,11 +450,6 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   /// 楽曲を選択
   void _toggleTrackSelection(TrackModel track) {
-    // カテゴリーが選択されていない場合は何もしない
-    if (_selectedCategoryType == null) {
-      return;
-    }
-
     if (_selectedTrack?.trackId == track.trackId) {
       setState(() { _selectedTrack = null; });
       _audioService.stop();
@@ -578,7 +573,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             track: _selectedTrack!,
             lyricsData: null,
             lyricsFuture: lyricsFuture,
-            isVibe: _selectedCategoryType == 'vibe',
+            isVibe: true,
             vibeTopicId: _todaysTopic?.topicId,
             vibeTopicTitle: _todaysTopic?.title,
             preExtractedGradientStart: gradientStart,
@@ -621,10 +616,8 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                   Expanded(
                     child: CustomScrollView(
                       slivers: [
-                        // 検索中はカテゴリー・ヘッダー・おすすめを非表示
+                        // 検索中はヘッダー・おすすめを非表示
                         if (!_isSearchFocused) ...[
-                          // カテゴリーボタン（スクロールで消える）
-                          SliverToBoxAdapter(child: _buildCategoryButtons()),
                           // セクションヘッダー（スクロールで消える）
                           SliverToBoxAdapter(child: _buildSectionHeader()),
                           // おすすめ楽曲（スクロールで消える）
@@ -817,133 +810,6 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       isFocused: _isSearchFocused,
       onCancel: _onSearchCancel,
       onChanged: _searchTracks,
-    );
-  }
-
-  /// Vibe/感情選択ボタン
-  Widget _buildCategoryButtons() {
-    return Padding(
-      padding: const EdgeInsets.only(left: 23, right: 23, top: 16, bottom: 5),
-      child: Row(
-        children: [
-          // Vibeボタン
-          Expanded(
-            child: _buildCategoryButtonWithImage(
-              imagePath: 'assets/icons/Vibe.png',
-              label: 'Vibe',
-              subtitle: _todaysTopic != null ? '【${_todaysTopic!.title}】' : '【読み込み中...】',
-              isSelected: _selectedCategoryType == 'vibe',
-              onTap: () {
-                setState(() {
-                  _selectedCategoryType = 'vibe';
-                });
-                _loadRecommendedTracks();
-              },
-            ),
-          ),
-          const SizedBox(width: 7),
-          // 感情選択ボタン
-          Expanded(
-            child: _buildCategoryButtonWithImage(
-              imagePath: 'assets/icons/emotion.png',
-              label: '感情で音楽を選ぶ',
-              subtitle: null,
-              isSelected: _selectedCategoryType == 'emotion',
-              onTap: () {
-                setState(() {
-                  _selectedCategoryType = 'emotion';
-                });
-                _loadRecommendedTracks();
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// カテゴリーボタン（画像版）
-  Widget _buildCategoryButtonWithImage({
-    required String imagePath,
-    required String label,
-    String? subtitle,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Stack(
-        children: [
-          Container(
-            height: 70,
-            width: 210,
-            decoration: BoxDecoration(
-              color: const Color(0xFF202020),
-              border: Border.all(
-                color: const Color(0xFF4C4C4C),
-                width: 1,
-              ),
-              borderRadius: BorderRadius.circular(5),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Image.asset(
-                  imagePath,
-                  width: 24,
-                  height: 24,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return const Icon(
-                      Icons.music_note,
-                      color: Colors.white,
-                      size: 24,
-                    );
-                  },
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 8,
-                      color: Colors.white,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          // チェックマークオーバーレイ
-          if (isSelected)
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: const Center(
-                  child: Icon(
-                    Icons.check_circle,
-                    color: Colors.white,
-                    size: 32,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 

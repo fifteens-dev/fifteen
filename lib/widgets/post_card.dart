@@ -511,17 +511,13 @@ class PostCardState extends State<PostCard>
                       Positioned(
                         right: cardWidth * (47 / 363),
                         top: contentHeight * (63 / 294),
-                        child: SizedBox(
-                          width: 32,
-                          height: 36,
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: widget.onShare ?? _handleShare,
-                            child: Icon(
-                              Icons.ios_share,
-                              size: 22,
-                              color: theme.iconColor,
-                            ),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: widget.onShare ?? _handleShare,
+                          child: Image.asset(
+                            'assets/icons/share_button.png',
+                            width: 36,
+                            height: 36,
                           ),
                         ),
                       ),
@@ -779,17 +775,13 @@ class PostCardState extends State<PostCard>
               Positioned(
                 right: cardWidth * (47 / 363),
                 bottom: cardHeight * (110 / 644),
-                child: SizedBox(
-                  width: 32,
-                  height: 36,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: widget.onShare ?? _handleShare,
-                    child: Icon(
-                      Icons.ios_share,
-                      size: 22,
-                      color: theme.iconColor,
-                    ),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.onShare ?? _handleShare,
+                  child: Image.asset(
+                    'assets/icons/share_button.png',
+                    width: 36,
+                    height: 36,
                   ),
                 ),
               ),
@@ -1453,10 +1445,10 @@ class PostCardState extends State<PostCard>
               ),
             ),
             const Spacer(),
-            Icon(
-              Icons.send,
-              size: 20,
-              color: theme.textColor.withOpacity(0.7),
+            Image.asset(
+              'assets/icons/comment_send_button.png',
+              width: 20,
+              height: 20,
             ),
             const SizedBox(width: 12),
           ],

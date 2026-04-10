@@ -80,46 +80,66 @@ class PostModel {
 
   // Firestoreドキュメントから作成
   factory PostModel.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = (doc.data() as Map<String, dynamic>?) ?? {};
+
+    List<String> safeStringList(String key) =>
+        (data[key] as List<dynamic>? ?? []).whereType<String>().toList();
+
+    final now = DateTime.now();
+    DateTime safeTimestamp(String key) {
+      final val = data[key];
+      return val is Timestamp ? val.toDate() : now;
+    }
+
+    DateTime? safeTimestampOrNull(String key) {
+      final val = data[key];
+      return val is Timestamp ? val.toDate() : null;
+    }
 
     return PostModel(
       postId: doc.id,
-      userId: data['userId'] ?? '',
-      username: data['username'] ?? '',
-      userIconUrl: data['userIconUrl'],
-      track: TrackModel.fromMap(data['track'] ?? {}),
-      likeCount: data['likeCount'] ?? 0,
-      commentCount: data['commentCount'] ?? 0,
-      likedUserIds: List<String>.from(data['likedUserIds'] ?? []),
-      likedByUserIconUrls: List<String>.from(data['likedByUserIconUrls'] ?? []),
-      savedByUserIds: List<String>.from(data['savedByUserIds'] ?? []),
-      savedByUserIconUrls: List<String>.from(data['savedByUserIconUrls'] ?? []),
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      theme: data['theme'] != null
+      userId: data['userId']?.toString() ?? '',
+      username: data['username']?.toString() ?? '',
+      userIconUrl: data['userIconUrl']?.toString(),
+      // track フィールドが Map 以外の型で保存されていた場合も空Mapにフォールバック
+      track: TrackModel.fromMap(
+          data['track'] is Map<String, dynamic>
+              ? data['track'] as Map<String, dynamic>
+              : {}),
+      likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
+      commentCount: (data['commentCount'] as num?)?.toInt() ?? 0,
+      likedUserIds: safeStringList('likedUserIds'),
+      likedByUserIconUrls: safeStringList('likedByUserIconUrls'),
+      savedByUserIds: safeStringList('savedByUserIds'),
+      savedByUserIconUrls: safeStringList('savedByUserIconUrls'),
+      createdAt: safeTimestamp('createdAt'),
+      updatedAt: safeTimestamp('updatedAt'),
+      // theme が Map 以外の型だった場合はデフォルトテーマにフォールバック
+      theme: data['theme'] is Map<String, dynamic>
           ? PostTheme.fromMap(data['theme'] as Map<String, dynamic>)
           : PostTheme.defaultTheme,
-      photoUrl: data['photoUrl'],
-      imageOffsetX: (data['imageOffsetX'] ?? 0.0).toDouble(),
-      imageOffsetY: (data['imageOffsetY'] ?? 0.0).toDouble(),
-      imageScale: (data['imageScale'] ?? 1.0).toDouble(),
-      imageNaturalWidth: (data['imageNaturalWidth'] ?? 0.0).toDouble(),
-      imageNaturalHeight: (data['imageNaturalHeight'] ?? 0.0).toDouble(),
-      selectedLayoutIndex: data['selectedLayoutIndex'] ?? 0,
-      cardPositionX: (data['cardPositionX'] ?? 0.0).toDouble(),
-      cardPositionY: (data['cardPositionY'] ?? 0.0).toDouble(),
-      cardScale: (data['cardScale'] ?? 1.0).toDouble(),
-      cardRotation: (data['cardRotation'] ?? 0.0).toDouble(),
-      isVibe: data['isVibe'] ?? false,
-      vibeTopicId: data['vibeTopicId'],
-      vibeTopicTitle: data['vibeTopicTitle'],
-      vibeDate: (data['vibeDate'] as Timestamp?)?.toDate(),
-      emotionTag: data['emotionTag'],
-      lyricsText: data['lyricsText'],
-      audioStartMs: data['audioStartMs'] ?? 0,
-      audioDurationSec: data['audioDurationSec'] ?? 15,
-      university: data['university'],
-      campusVibeParticipating: data['campusVibeParticipating'] ?? true,
+      photoUrl: data['photoUrl']?.toString(),
+      imageOffsetX: (data['imageOffsetX'] as num?)?.toDouble() ?? 0.0,
+      imageOffsetY: (data['imageOffsetY'] as num?)?.toDouble() ?? 0.0,
+      imageScale: (data['imageScale'] as num?)?.toDouble() ?? 1.0,
+      imageNaturalWidth: (data['imageNaturalWidth'] as num?)?.toDouble() ?? 0.0,
+      imageNaturalHeight: (data['imageNaturalHeight'] as num?)?.toDouble() ?? 0.0,
+      selectedLayoutIndex: (data['selectedLayoutIndex'] as num?)?.toInt() ?? 0,
+      cardPositionX: (data['cardPositionX'] as num?)?.toDouble() ?? 0.0,
+      cardPositionY: (data['cardPositionY'] as num?)?.toDouble() ?? 0.0,
+      cardScale: (data['cardScale'] as num?)?.toDouble() ?? 1.0,
+      cardRotation: (data['cardRotation'] as num?)?.toDouble() ?? 0.0,
+      isVibe: data['isVibe'] == true,
+      vibeTopicId: data['vibeTopicId']?.toString(),
+      vibeTopicTitle: data['vibeTopicTitle']?.toString(),
+      vibeDate: safeTimestampOrNull('vibeDate'),
+      emotionTag: data['emotionTag']?.toString(),
+      lyricsText: data['lyricsText']?.toString(),
+      audioStartMs: (data['audioStartMs'] as num?)?.toInt() ?? 0,
+      audioDurationSec: (data['audioDurationSec'] as num?)?.toInt() ?? 15,
+      university: data['university']?.toString(),
+      // null の場合デフォルト true、false が明示されている場合のみ false
+      campusVibeParticipating: data['campusVibeParticipating'] != false,
     );
   }
 

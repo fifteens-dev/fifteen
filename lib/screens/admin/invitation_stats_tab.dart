@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 /// 招待統計タブ
@@ -48,7 +49,6 @@ class _InvitationStatsTabState extends State<InvitationStatsTab> {
         if (code == null || code.isEmpty) return null;
 
         int usedCount = 0;
-        int maxUses = 3;
         try {
           final codeDoc = await _firestore
               .collection('invite_codes')
@@ -56,7 +56,6 @@ class _InvitationStatsTabState extends State<InvitationStatsTab> {
               .get();
           if (codeDoc.exists) {
             usedCount = (codeDoc.data()?['usedCount'] as int?) ?? 0;
-            maxUses = (codeDoc.data()?['maxUses'] as int?) ?? 3;
           }
         } catch (_) {}
 
@@ -67,7 +66,6 @@ class _InvitationStatsTabState extends State<InvitationStatsTab> {
           profileImageUrl: data['profileImageUrl'] as String?,
           inviteCode: code,
           usedCount: usedCount,
-          maxUses: maxUses,
         );
       }).toList();
 
@@ -112,9 +110,8 @@ class _InvitationStatsTabState extends State<InvitationStatsTab> {
 
   /// 上部サマリーバー（全体の招待数合計）
   Widget _buildSummaryBar() {
-    final total = _stats.fold(0, (sum, s) => sum + s.usedCount);
+    final total = _stats.fold(0, (acc, s) => acc + s.usedCount);
     final totalUsers = _stats.length;
-    final fullyUsed = _stats.where((s) => s.usedCount >= s.maxUses).length;
 
     return Container(
       color: const Color(0xFF1E1E2E),
@@ -124,8 +121,6 @@ class _InvitationStatsTabState extends State<InvitationStatsTab> {
           _buildSummaryItem('招待済み合計', '$total 人'),
           const SizedBox(width: 24),
           _buildSummaryItem('コード保有者', '$totalUsers 人'),
-          const SizedBox(width: 24),
-          _buildSummaryItem('上限達成', '$fullyUsed 人'),
         ],
       ),
     );
@@ -198,7 +193,7 @@ class _InvitationStatsTabState extends State<InvitationStatsTab> {
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(
-          child: CircularProgressIndicator(color: Colors.white));
+          child: CupertinoActivityIndicator(color: Colors.white, radius: 14));
     }
     if (_error != null) {
       return Center(
@@ -234,10 +229,6 @@ class _InvitationStatsTabState extends State<InvitationStatsTab> {
   }
 
   Widget _buildStatRow(_InviteStats stat) {
-    final remaining = stat.maxUses - stat.usedCount;
-    final progress = stat.usedCount / stat.maxUses;
-    final isFull = stat.usedCount >= stat.maxUses;
-
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
@@ -288,58 +279,22 @@ class _InvitationStatsTabState extends State<InvitationStatsTab> {
           ),
           const SizedBox(width: 12),
 
-          // 招待数バー＋カウント
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              // カウントバッジ
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isFull
-                      ? Colors.red.withValues(alpha: 0.2)
-                      : Colors.green.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isFull ? Colors.red : Colors.green,
-                    width: 1,
-                  ),
-                ),
-                child: Text(
-                  '${stat.usedCount} / ${stat.maxUses}',
-                  style: TextStyle(
-                    color: isFull ? Colors.red : Colors.green,
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+          // 招待数バッジ
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.blueAccent.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blueAccent, width: 1),
+            ),
+            child: Text(
+              '${stat.usedCount} 人',
+              style: const TextStyle(
+                color: Colors.blueAccent,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(height: 6),
-              // プログレスバー
-              SizedBox(
-                width: 80,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress.clamp(0.0, 1.0),
-                    backgroundColor: Colors.grey[800],
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      isFull ? Colors.red : Colors.blueAccent,
-                    ),
-                    minHeight: 6,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                isFull ? '上限達成' : '残り $remaining 人',
-                style: TextStyle(
-                  color: isFull ? Colors.red[300] : Colors.grey,
-                  fontSize: 10,
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -391,7 +346,6 @@ class _InviteStats {
   final String? profileImageUrl;
   final String inviteCode;
   final int usedCount;
-  final int maxUses;
 
   const _InviteStats({
     required this.uid,
@@ -400,7 +354,6 @@ class _InviteStats {
     required this.profileImageUrl,
     required this.inviteCode,
     required this.usedCount,
-    required this.maxUses,
   });
 
   String get displayName =>

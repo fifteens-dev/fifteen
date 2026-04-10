@@ -14,9 +14,27 @@ class InviteCodeService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _inviteCodesCollection = 'invite_codes';
 
+  /// Firestore の app_config/global.inviteCode に設定したグローバルコードを取得
+  Future<String?> _getGlobalInviteCode() async {
+    try {
+      final doc = await _firestore.collection('app_config').doc('global').get();
+      return doc.data()?['inviteCode'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // 招待コードを検証（詳細な結果を返す）
   Future<InviteCodeValidationResult> validateInviteCodeDetailed(String code) async {
     try {
+      // グローバル招待コードを先にチェック（管理者が Firebase コンソールで任意設定可能）
+      final globalCode = await _getGlobalInviteCode();
+      if (globalCode != null &&
+          globalCode.isNotEmpty &&
+          code.toUpperCase() == globalCode.toUpperCase()) {
+        return InviteCodeValidationResult.valid;
+      }
+
       final doc = await _firestore
           .collection(_inviteCodesCollection)
           .doc(code.toUpperCase())
@@ -29,20 +47,7 @@ class InviteCodeService {
       final data = doc.data();
       if (data == null) return InviteCodeValidationResult.notFound;
 
-      // 使用回数制の場合
-      final maxUses = data['maxUses'] as int?;
-      final usedCount = data['usedCount'] as int? ?? 0;
-      if (maxUses != null) {
-        if (usedCount >= maxUses) {
-          return InviteCodeValidationResult.alreadyUsed;
-        }
-      } else {
-        // 従来の1回使い切り方式
-        final isUsed = data['isUsed'] ?? false;
-        if (isUsed) {
-          return InviteCodeValidationResult.alreadyUsed;
-        }
-      }
+      // 使用回数制限なし（usedCount はトラッキング用のみ）
 
       // 有効期限をチェック（オプション）
       if (data.containsKey('expiresAt')) {
@@ -69,29 +74,23 @@ class InviteCodeService {
 
   // 招待コードを使用済みにする
   Future<void> markInviteCodeAsUsed(String code, String userId) async {
-    try {
-      final docRef = _firestore
-          .collection(_inviteCodesCollection)
-          .doc(code.toUpperCase());
-      final doc = await docRef.get();
-      final data = doc.data();
+    // グローバルコードは使用済み記録不要
+    final globalCode = await _getGlobalInviteCode();
+    if (globalCode != null &&
+        globalCode.isNotEmpty &&
+        code.toUpperCase() == globalCode.toUpperCase()) {
+      return;
+    }
 
-      if (data != null && data['maxUses'] != null) {
-        // 使用回数制：カウントをインクリメント
-        await docRef.update({
-          'usedCount': FieldValue.increment(1),
-          'lastUsedBy': userId,
-          'lastUsedAt': FieldValue.serverTimestamp(),
-        });
-      } else {
-        // 従来方式：使用済みフラグ + usedCountも記録（管理パネル用）
-        await docRef.update({
-          'isUsed': true,
-          'usedBy': userId,
-          'usedAt': FieldValue.serverTimestamp(),
-          'usedCount': FieldValue.increment(1),
-        });
-      }
+    try {
+      await _firestore
+          .collection(_inviteCodesCollection)
+          .doc(code.toUpperCase())
+          .update({
+        'usedCount': FieldValue.increment(1),
+        'lastUsedBy': userId,
+        'lastUsedAt': FieldValue.serverTimestamp(),
+      });
     } catch (e) {
       if (kDebugMode) {
         print('Error marking invite code as used: $e');

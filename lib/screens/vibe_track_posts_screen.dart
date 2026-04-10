@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
@@ -173,13 +174,9 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
         children: [
           !_hasPostedTodayLoaded
               ? const Center(
-                  child: SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      color: Colors.white54,
-                      strokeWidth: 2,
-                    ),
+                  child: CupertinoActivityIndicator(
+                    color: Colors.white54,
+                    radius: 12,
                   ),
                 )
               : PageView.builder(
@@ -210,15 +207,11 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                               onLike: () {},
                               onComment: () {},
                               onAdd: () {},
-                              onShare: () => Navigator.push(
+                              onShare: () => showCardShareSheet(
                                 context,
-                                MaterialPageRoute(
-                                  builder: (_) => CardShareScreen(
-                                    post: post,
-                                    currentUserId: widget.currentUserId,
-                                    currentUserIconUrl: _currentUserIconUrl,
-                                  ),
-                                ),
+                                post: post,
+                                currentUserId: widget.currentUserId,
+                                currentUserIconUrl: _currentUserIconUrl,
                               ),
                             ),
                           ),

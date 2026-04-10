@@ -37,24 +37,37 @@ class UserModel {
 
   // Firestoreドキュメントから作成
   factory UserModel.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    // doc.data() が null の場合（極めてまれ）も空Mapとして安全に扱う
+    final data = (doc.data() as Map<String, dynamic>?) ?? {};
+
+    // 非String要素が混入していても TypeError を出さずにスキップする
+    List<String> safeStringList(String key) =>
+        (data[key] as List<dynamic>? ?? []).whereType<String>().toList();
+
+    // Timestamp 以外の型で保存されていた場合も null を返し CastError を防ぐ
+    DateTime? safeTimestamp(String key) {
+      final val = data[key];
+      return val is Timestamp ? val.toDate() : null;
+    }
 
     return UserModel(
-      uid: data['uid'] ?? '',
-      phoneNumber: data['phoneNumber'] ?? '',
-      name: data['name'],
-      username: data['username'],
-      profileImageUrl: data['profileImageUrl'],
-      bio: data['bio'],
-      university: data['university'],
-      followers: List<String>.from(data['followers'] ?? []),
-      following: List<String>.from(data['following'] ?? []),
-      savedPosts: List<String>.from(data['savedPosts'] ?? []),
-      postsCount: data['postsCount'] ?? 0,
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
-      isAdmin: data['isAdmin'] ?? false,
-      inviteCode: data['inviteCode'],
+      uid: data['uid']?.toString() ?? '',
+      phoneNumber: data['phoneNumber']?.toString() ?? '',
+      name: data['name']?.toString(),
+      username: data['username']?.toString(),
+      profileImageUrl: data['profileImageUrl']?.toString(),
+      bio: data['bio']?.toString(),
+      university: data['university']?.toString(),
+      followers: safeStringList('followers'),
+      following: safeStringList('following'),
+      savedPosts: safeStringList('savedPosts'),
+      // Firestore が int/double どちらで返しても int に統一
+      postsCount: (data['postsCount'] as num?)?.toInt() ?? 0,
+      createdAt: safeTimestamp('createdAt'),
+      updatedAt: safeTimestamp('updatedAt'),
+      // 非bool型が保存されていた場合 == true で安全にfalseとして扱う
+      isAdmin: data['isAdmin'] == true,
+      inviteCode: data['inviteCode']?.toString(),
     );
   }
 

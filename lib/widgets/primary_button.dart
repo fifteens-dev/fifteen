@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
@@ -33,13 +34,9 @@ class PrimaryButton extends StatelessWidget {
           disabledBackgroundColor: AppColors.buttonPrimary.withOpacity(0.5),
         ),
         child: isLoading
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.buttonText),
-                ),
+            ? const CupertinoActivityIndicator(
+                color: AppColors.buttonText,
+                radius: 12,
               )
             : Text(
                 text,

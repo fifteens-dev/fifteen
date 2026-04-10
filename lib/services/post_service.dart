@@ -4,21 +4,52 @@ import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../models/vibe_ranking_item.dart';
 import '../models/track_model.dart';
-import '../models/notification_model.dart';
 import '../utils/campus_vibe_utils.dart';
-import 'notification_service.dart';
-import 'user_service.dart';
+import 'post_fetch_service.dart';
+import 'post_write_service.dart';
+import 'post_check_service.dart';
 
-/// 投稿データを管理するサービス
+/// 投稿データを管理するサービス（ファサード）
+/// 各責務は PostFetchService / PostWriteService / PostCheckService に委譲
 class PostService {
+  final PostFetchService _fetchService = PostFetchService();
+  final PostWriteService _writeService = PostWriteService();
+  final PostCheckService _checkService = PostCheckService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _postsCollection = 'posts';
-  final NotificationService _notificationService = NotificationService();
-  final UserService _userService = UserService();
 
-  // ユーザー情報のインメモリキャッシュ（TTL: 30分）
-  static final Map<String, ({String? username, String? iconUrl, DateTime fetchedAt})> _userInfoCache = {};
-  static const Duration _userCacheTtl = Duration(minutes: 30);
+  // ─── Fetch ───────────────────────────────────────
+
+  /// 投稿を取得（ページネーション付き、24時間以内のみ）
+  Future<List<PostModel>> getPosts({
+    int limit = 20,
+    DocumentSnapshot? startAfter,
+  }) => _fetchService.getPosts(limit: limit, startAfter: startAfter);
+
+  /// フォロー中のユーザーの投稿を取得
+  Future<List<PostModel>> getPostsForFollowing(List<String> userIds, {int limit = 50}) =>
+      _fetchService.getPostsForFollowing(userIds, limit: limit);
+
+  /// 特定のユーザーの投稿を取得（Future版）
+  Future<List<PostModel>> getPostsByUserId(String userId, {int limit = 20}) =>
+      _fetchService.getPostsByUserId(userId, limit: limit);
+
+  /// ユーザーの投稿をカーソルページネーション付きで取得
+  Future<({List<PostModel> posts, DocumentSnapshot? lastDoc, bool hasMore})>
+      getPostsByUserIdPaged(
+    String userId, {
+    int limit = 20,
+    DocumentSnapshot? startAfter,
+  }) => _fetchService.getPostsWithPagination(userId, limit: limit, startAfter: startAfter);
+
+  /// 特定のユーザーが保存した投稿を取得
+  Future<List<PostModel>> getPostsSavedByUser(String userId, {int limit = 50}) =>
+      _fetchService.getPostsSavedByUser(userId, limit: limit);
+
+  /// 特定の投稿を取得
+  Future<PostModel?> getPost(String postId) => _fetchService.getPost(postId);
+
+  // ─── Write ───────────────────────────────────────
 
   /// 投稿を作成
   Future<String> createPost({
@@ -41,231 +72,88 @@ class PostService {
     String? vibeTopicId,
     String? vibeTopicTitle,
     String? emotionTag,
-    PostTheme? theme, // アルバムアートから抽出した色テーマ
-    String? lyricsText, // 歌詞テキスト
-    int audioStartMs = 0, // 音楽再生開始位置（ミリ秒）
-    int audioDurationSec = 15, // 音楽再生時間（秒）
-    String? university, // 投稿者の大学名
-    bool campusVibeParticipating = true, // Campus Vibe参加フラグ
-  }) async {
-    try {
-      final postRef = _firestore.collection(_postsCollection).doc();
+    PostTheme? theme,
+    String? lyricsText,
+    int audioStartMs = 0,
+    int audioDurationSec = 15,
+    String? university,
+    bool campusVibeParticipating = true,
+  }) => _writeService.createPost(
+    userId: userId,
+    username: username,
+    userIconUrl: userIconUrl,
+    trackData: trackData,
+    photoUrl: photoUrl,
+    imageOffsetX: imageOffsetX,
+    imageOffsetY: imageOffsetY,
+    imageScale: imageScale,
+    imageNaturalWidth: imageNaturalWidth,
+    imageNaturalHeight: imageNaturalHeight,
+    selectedLayoutIndex: selectedLayoutIndex,
+    cardPositionX: cardPositionX,
+    cardPositionY: cardPositionY,
+    cardScale: cardScale,
+    cardRotation: cardRotation,
+    isVibe: isVibe,
+    vibeTopicId: vibeTopicId,
+    vibeTopicTitle: vibeTopicTitle,
+    emotionTag: emotionTag,
+    theme: theme,
+    lyricsText: lyricsText,
+    audioStartMs: audioStartMs,
+    audioDurationSec: audioDurationSec,
+    university: university,
+    campusVibeParticipating: campusVibeParticipating,
+  );
 
-      // Vibe投稿の日付（年月日のみ、時刻は00:00:00）
-      final now = DateTime.now();
-      final vibeDate = isVibe
-          ? DateTime(now.year, now.month, now.day)
-          : null;
+  /// 投稿を削除
+  Future<void> deletePost(String postId) => _writeService.deletePost(postId);
 
-      final postData = {
-        'userId': userId,
-        'username': username,
-        'userIconUrl': userIconUrl,
-        'track': trackData,
-        'likeCount': 0,
-        'commentCount': 0,
-        'likedUserIds': [],
-        'likedByUserIconUrls': [],
-        'savedByUserIds': [],
-        'savedByUserIconUrls': [],
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'photoUrl': photoUrl,
-        'imageOffsetX': imageOffsetX,
-        'imageOffsetY': imageOffsetY,
-        'imageScale': imageScale,
-        'imageNaturalWidth': imageNaturalWidth,
-        'imageNaturalHeight': imageNaturalHeight,
-        'selectedLayoutIndex': selectedLayoutIndex,
-        'cardPositionX': cardPositionX,
-        'cardPositionY': cardPositionY,
-        'cardScale': cardScale,
-        'cardRotation': cardRotation,
-        'isVibe': isVibe,
-        'vibeTopicId': vibeTopicId,
-        'vibeTopicTitle': vibeTopicTitle,
-        'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
-        'emotionTag': emotionTag,
-        'theme': theme != null ? theme.toMap() : null, // 抽出した色テーマを保存
-        'lyricsText': lyricsText,
-        'audioStartMs': audioStartMs,
-        'audioDurationSec': audioDurationSec,
-        'university': university,
-        'campusVibeParticipating': campusVibeParticipating,
-      };
-
-      await postRef.set(postData);
-      return postRef.id;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error creating post: $e');
-      }
-      rethrow;
-    }
-  }
-
-  /// 投稿の歌詞テキストを更新（フォールバック取得後の保存用）
+  /// 投稿の歌詞テキストを更新
   Future<void> updateLyricsText({
     required String postId,
     required String lyricsText,
-  }) async {
-    try {
-      await _firestore.collection(_postsCollection).doc(postId).update({
-        'lyricsText': lyricsText,
-      });
-      if (kDebugMode) {
-        print('✅ 歌詞をFirebaseに保存しました: postId=$postId');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 歌詞の保存エラー: $e');
-      }
-      // エラーは無視（次回また取得すればいい）
-    }
-  }
+  }) => _writeService.updateLyricsText(postId: postId, lyricsText: lyricsText);
 
-  /// 投稿を取得（ページネーション付き、24時間以内のみ）
-  Future<List<PostModel>> getPosts({
-    int limit = 20,
-    DocumentSnapshot? startAfter,
-  }) async {
-    try {
-      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+  /// いいねをトグル（追加/削除）
+  Future<void> toggleLike({
+    required String postId,
+    required String userId,
+  }) => _writeService.toggleLike(postId: postId, userId: userId);
 
-      Query query = _firestore
-          .collection(_postsCollection)
-          .where('createdAt', isGreaterThan: Timestamp.fromDate(cutoff))
-          .orderBy('createdAt', descending: true)
-          .limit(limit);
+  /// コメント数を更新
+  Future<void> updateCommentCount(String postId, int commentCount) =>
+      _writeService.updateCommentCount(postId, commentCount);
 
-      if (startAfter != null) {
-        query = query.startAfterDocument(startAfter);
-      }
+  /// アナリティクスイベントを記録
+  Future<void> trackAnalyticsEvent({required String uid, required String type}) =>
+      _writeService.trackAnalyticsEvent(uid: uid, type: type);
 
-      final snapshot = await query.get();
-      final posts = snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
+  // ─── Check ───────────────────────────────────────
 
-      return await _applyLatestUserInfo(posts);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting posts: $e');
-      }
-      return [];
-    }
-  }
+  /// 特定ユーザーが指定した日に投稿しているかチェック
+  Future<bool> hasUserPostedOnDate(String userId, DateTime date) =>
+      _checkService.hasUserPostedOnDate(userId, date);
 
-  /// 投稿リストのユーザー名・アイコンを最新のプロフィール情報で更新
-  Future<List<PostModel>> _applyLatestUserInfo(List<PostModel> posts) async {
-    if (posts.isEmpty) return posts;
+  /// 特定ユーザーが今日投稿しているかチェック
+  Future<bool> hasUserPostedToday(String userId) =>
+      _checkService.hasUserPostedToday(userId);
 
-    // 投稿者 + いいねユーザー全員のIDを収集
-    final allUserIds = <String>{};
-    for (final post in posts) {
-      allUserIds.add(post.userId);
-      allUserIds.addAll(post.likedUserIds);
-    }
+  /// 特定ユーザーが今週末（金〜日）に投稿しているかチェック（Campus Vibe用）
+  Future<bool> hasUserPostedInCurrentWeekend(String userId) =>
+      _checkService.hasUserPostedInCurrentWeekend(userId);
 
-    final userMap = <String, ({String? username, String? iconUrl})>{};
-    final now = DateTime.now();
+  /// 特定ユーザーの今日の投稿を取得
+  Future<List<PostModel>> getTodaysPosts(String userId) =>
+      _checkService.getTodaysPosts(userId);
 
-    // 全ユーザー情報を並列取得（キャッシュ済みの場合はFirestoreスキップ）
-    final futures = allUserIds.map((uid) async {
-      final cached = _userInfoCache[uid];
-      if (cached != null && now.difference(cached.fetchedAt) < _userCacheTtl) {
-        return MapEntry(uid, (username: cached.username, iconUrl: cached.iconUrl));
-      }
-      try {
-        final user = await _userService.getUser(uid);
-        if (user != null) {
-          _userInfoCache[uid] = (
-            username: user.username,
-            iconUrl: user.profileImageUrl,
-            fetchedAt: DateTime.now(),
-          );
-          return MapEntry(uid, (username: user.username, iconUrl: user.profileImageUrl));
-        }
-      } catch (_) {}
-      return null;
-    }).toList();
+  /// 特定ユーザーの今日以外の投稿を取得
+  Future<List<PostModel>> getPostsExcludingToday(String userId, {int limit = 20}) =>
+      _checkService.getPostsExcludingToday(userId, limit: limit);
 
-    final results = await Future.wait(futures);
-    for (final entry in results) {
-      if (entry != null) {
-        userMap[entry.key] = entry.value;
-      }
-    }
-
-    return posts.map((post) {
-      final userInfo = userMap[post.userId];
-
-      // いいねユーザーのアイコンURLを最新に更新
-      final updatedLikedByIconUrls = post.likedUserIds.map((uid) {
-        final info = userMap[uid];
-        return info?.iconUrl ?? '';
-      }).toList();
-
-      return post.copyWith(
-        username: userInfo?.username ?? post.username,
-        userIconUrl: userInfo?.iconUrl ?? post.userIconUrl,
-        likedByUserIconUrls: updatedLikedByIconUrls,
-      );
-    }).toList();
-  }
-
-  /// フォロー中のユーザーの投稿を取得（Firestore whereIn のバッチ処理）
-  Future<List<PostModel>> getPostsForFollowing(List<String> userIds, {int limit = 50}) async {
-    if (userIds.isEmpty) return [];
-
-    try {
-      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
-      final allPosts = <PostModel>[];
-
-      // Firestore whereIn は最大30件制限のためバッチ処理
-      for (int i = 0; i < userIds.length; i += 30) {
-        final batch = userIds.skip(i).take(30).toList();
-        final snapshot = await _firestore
-            .collection(_postsCollection)
-            .where('userId', whereIn: batch)
-            .limit(limit)
-            .get();
-
-        allPosts.addAll(
-          snapshot.docs
-              .map((doc) => PostModel.fromFirestore(doc))
-              .where((post) => post.createdAt.isAfter(cutoff)),
-        );
-      }
-
-      allPosts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      final limited = allPosts.take(limit).toList();
-      return await _applyLatestUserInfo(limited);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting posts for following: $e');
-      }
-      return [];
-    }
-  }
+  // ─── Streams (kept in PostService) ───────────────
 
   /// 投稿のリアルタイムストリームを取得
-  ///
-  /// このメソッドはFirestoreのsnapshotsを使用して、リアルタイムで投稿データを取得します。
-  /// 他のユーザーがいいねを押したり、新しい投稿を作成した場合、
-  /// 自動的にStreamが更新され、すべてのクライアントに変更が反映されます。
-  ///
-  /// [limit] 取得する投稿の最大数（デフォルト: 20）
-  ///
-  /// 使用例：
-  /// ```dart
-  /// StreamBuilder<List<PostModel>>(
-  ///   stream: postService.getPostsStream(limit: 20),
-  ///   builder: (context, snapshot) {
-  ///     // UIを構築
-  ///   },
-  /// )
-  /// ```
   Stream<List<PostModel>> getPostsStream({int limit = 20}) {
     final cutoff = DateTime.now().subtract(const Duration(hours: 24));
 
@@ -279,93 +167,8 @@ class PostService {
       final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
           .toList();
-      return await _applyLatestUserInfo(posts);
+      return await _fetchService.applyLatestUserInfo(posts);
     });
-  }
-
-  /// 特定のユーザーの投稿を取得（Future版）
-  Future<List<PostModel>> getPostsByUserId(String userId, {int limit = 20}) async {
-    try {
-      final snapshot = await _firestore
-          .collection(_postsCollection)
-          .where('userId', isEqualTo: userId)
-          .orderBy('createdAt', descending: true)
-          .limit(limit)
-          .get();
-
-      final posts = snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
-      return await _applyLatestUserInfo(posts);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting posts by userId: $e');
-      }
-      return [];
-    }
-  }
-
-  /// ユーザーの投稿をカーソルページネーション付きで取得
-  Future<({List<PostModel> posts, DocumentSnapshot? lastDoc, bool hasMore})>
-      getPostsByUserIdPaged(
-    String userId, {
-    int limit = 20,
-    DocumentSnapshot? startAfter,
-  }) async {
-    try {
-      var query = _firestore
-          .collection(_postsCollection)
-          .where('userId', isEqualTo: userId)
-          .orderBy('createdAt', descending: true)
-          .limit(limit);
-
-      if (startAfter != null) {
-        query = query.startAfterDocument(startAfter);
-      }
-
-      final snapshot = await query.get();
-      final posts = snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
-
-      return (
-        posts: await _applyLatestUserInfo(posts),
-        lastDoc: snapshot.docs.isNotEmpty ? snapshot.docs.last : null,
-        hasMore: snapshot.docs.length == limit,
-      );
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting posts by userId paged: $e');
-      }
-      return (posts: <PostModel>[], lastDoc: null, hasMore: false);
-    }
-  }
-
-  /// 特定のユーザーが保存した投稿を取得
-  Future<List<PostModel>> getPostsSavedByUser(String userId, {int limit = 50}) async {
-    try {
-      // arrayContainsとorderByの組み合わせは複合インデックスが必要なため
-      // クライアント側でソートする
-      final snapshot = await _firestore
-          .collection(_postsCollection)
-          .where('savedByUserIds', arrayContains: userId)
-          .limit(limit)
-          .get();
-
-      // クライアント側でソート
-      final posts = snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
-
-      posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-      return await _applyLatestUserInfo(posts);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting saved posts by userId: $e');
-      }
-      return [];
-    }
   }
 
   /// 特定のユーザーの投稿を取得（Stream版）
@@ -383,137 +186,6 @@ class PostService {
     });
   }
 
-  /// いいねをトグル（追加/削除）
-  Future<void> toggleLike({
-    required String postId,
-    required String userId,
-  }) async {
-    try {
-      final postRef = _firestore.collection(_postsCollection).doc(postId);
-
-      String? postOwnerId;
-      String? albumArtUrl;
-      String? trackName;
-      bool wasLiked = false;
-
-      // ユーザー情報を事前に取得（トランザクション外）
-      final currentUser = await _userService.getUser(userId);
-      final userIconUrl = currentUser?.profileImageUrl ?? '';
-
-      await _firestore.runTransaction((transaction) async {
-        final postDoc = await transaction.get(postRef);
-
-        if (!postDoc.exists) {
-          throw Exception('Post not found');
-        }
-
-        final data = postDoc.data()!;
-        final likedUserIds = List<String>.from(data['likedUserIds'] ?? []);
-        final likedByUserIconUrls =
-            List<String>.from(data['likedByUserIconUrls'] ?? []);
-        final isLiked = likedUserIds.contains(userId);
-
-        // いいね追加時のみ投稿者情報を保存（通知用）
-        if (!isLiked) {
-          postOwnerId = data['userId'];
-          final trackData = data['track'] as Map<String, dynamic>?;
-          albumArtUrl = trackData?['albumImageUrl'];
-          trackName = trackData?['trackName'];
-        }
-
-        wasLiked = isLiked;
-
-        if (isLiked) {
-          // いいねを削除
-          final index = likedUserIds.indexOf(userId);
-          likedUserIds.remove(userId);
-          if (index >= 0 && index < likedByUserIconUrls.length) {
-            likedByUserIconUrls.removeAt(index);
-          }
-        } else {
-          // いいねを追加
-          likedUserIds.add(userId);
-          likedByUserIconUrls.add(userIconUrl);
-        }
-
-        transaction.update(postRef, {
-          'likedUserIds': likedUserIds,
-          'likedByUserIconUrls': likedByUserIconUrls,
-          'likeCount': likedUserIds.length,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      });
-
-      // トランザクション外で通知を作成（いいね追加時のみ）
-      if (!wasLiked && postOwnerId != null) {
-
-        await _notificationService.createNotification(
-          type: NotificationType.like,
-          recipientId: postOwnerId!,
-          senderId: userId,
-          senderUsername: currentUser?.username ?? 'Unknown',
-          senderIconUrl: currentUser?.profileImageUrl,
-          postId: postId,
-          albumArtUrl: albumArtUrl,
-          trackName: trackName,
-        );
-
-        if (kDebugMode) {
-          print('✅ いいね通知作成: postId=$postId, recipient=$postOwnerId');
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error toggling like: $e');
-      }
-      rethrow;
-    }
-  }
-
-  /// コメント数を更新
-  Future<void> updateCommentCount(String postId, int commentCount) async {
-    try {
-      await _firestore.collection(_postsCollection).doc(postId).update({
-        'commentCount': commentCount,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error updating comment count: $e');
-      }
-      rethrow;
-    }
-  }
-
-  /// 投稿を削除
-  Future<void> deletePost(String postId) async {
-    try {
-      await _firestore.collection(_postsCollection).doc(postId).delete();
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error deleting post: $e');
-      }
-      rethrow;
-    }
-  }
-
-  /// 特定の投稿を取得
-  Future<PostModel?> getPost(String postId) async {
-    try {
-      final doc = await _firestore.collection(_postsCollection).doc(postId).get();
-
-      if (doc.exists) {
-        return PostModel.fromFirestore(doc);
-      }
-      return null;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting post: $e');
-      }
-      return null;
-    }
-  }
-
   /// 投稿のストリームを取得
   Stream<PostModel?> getPostStream(String postId) {
     return _firestore
@@ -528,110 +200,7 @@ class PostService {
     });
   }
 
-  /// 特定ユーザーが指定した日に投稿しているかチェック
-  Future<bool> hasUserPostedOnDate(String userId, DateTime date) async {
-    try {
-      final startOfDay = DateTime(date.year, date.month, date.day);
-      final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
-
-      final snapshot = await _firestore
-          .collection(_postsCollection)
-          .where('userId', isEqualTo: userId)
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
-          .orderBy('createdAt', descending: true)
-          .limit(1)
-          .get();
-
-      return snapshot.docs.isNotEmpty;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error checking if user posted on date: $e');
-      }
-      return false;
-    }
-  }
-
-  /// 特定ユーザーが今日投稿しているかチェック
-  Future<bool> hasUserPostedToday(String userId) async {
-    try {
-      final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-      final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
-      final snapshot = await _firestore
-          .collection(_postsCollection)
-          .where('userId', isEqualTo: userId)
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
-          .orderBy('createdAt', descending: true)
-          .limit(1)
-          .get();
-
-      return snapshot.docs.isNotEmpty;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error checking if user posted today: $e');
-      }
-      return false;
-    }
-  }
-
-  /// 特定ユーザーの今日の投稿を取得
-  Future<List<PostModel>> getTodaysPosts(String userId) async {
-    try {
-      // 今日の0時0分0秒
-      final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-      // 今日の23時59分59秒
-      final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
-      final snapshot = await _firestore
-          .collection(_postsCollection)
-          .where('userId', isEqualTo: userId)
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
-          .orderBy('createdAt', descending: true)
-          .get();
-
-      final posts = snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
-      return await _applyLatestUserInfo(posts);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting today\'s posts: $e');
-      }
-      return [];
-    }
-  }
-
-  /// 特定ユーザーの今日以外の投稿を取得
-  Future<List<PostModel>> getPostsExcludingToday(String userId, {int limit = 20}) async {
-    try {
-      // 今日の0時0分0秒
-      final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-
-      final snapshot = await _firestore
-          .collection(_postsCollection)
-          .where('userId', isEqualTo: userId)
-          .where('createdAt', isLessThan: Timestamp.fromDate(startOfDay))
-          .orderBy('createdAt', descending: true)
-          .limit(limit)
-          .get();
-
-      final posts = snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
-      return await _applyLatestUserInfo(posts);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting posts excluding today: $e');
-      }
-      return [];
-    }
-  }
+  // ─── Vibe ─────────────────────────────────────────
 
   /// 特定のお題のVibe投稿を取得
   Future<List<PostModel>> getVibePostsByTopic(
@@ -639,7 +208,6 @@ class PostService {
     DateTime date,
   ) async {
     try {
-      // 日付を正規化（時刻を00:00:00に設定）
       final normalizedDate = DateTime(date.year, date.month, date.day);
       final nextDay = normalizedDate.add(const Duration(days: 1));
 
@@ -654,7 +222,7 @@ class PostService {
       final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
           .toList();
-      return await _applyLatestUserInfo(posts);
+      return await _fetchService.applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
         print('Error getting vibe posts by topic: $e');
@@ -670,18 +238,15 @@ class PostService {
     int limit = 10,
   }) async {
     try {
-      // Vibe投稿を取得
       final vibePosts = await getVibePostsByTopic(topicId, date);
 
       if (vibePosts.isEmpty) {
         return [];
       }
 
-      // trackId（またはtrackName + artistName）でグループ化
       final Map<String, List<PostModel>> groupedPosts = {};
 
       for (final post in vibePosts) {
-        // trackIdがある場合はtrackIdを使用、ない場合はtrackName + artistNameを使用
         final trackKey = post.track.trackId.isNotEmpty
             ? post.track.trackId
             : '${post.track.trackName}_${post.track.artistName}';
@@ -692,15 +257,12 @@ class PostService {
         groupedPosts[trackKey]!.add(post);
       }
 
-      // 各グループの投稿数をカウント＆ソート
       final List<Map<String, dynamic>> rankingData = [];
 
       for (final entry in groupedPosts.entries) {
         final posts = entry.value;
         final postCount = posts.length;
         final userIds = posts.map((p) => p.userId).toList();
-
-        // 代表的なトラック情報を使用（最初の投稿のトラック）
         final representativeTrack = posts.first.track;
 
         rankingData.add({
@@ -710,10 +272,8 @@ class PostService {
         });
       }
 
-      // 投稿数の降順でソート
       rankingData.sort((a, b) => (b['postCount'] as int).compareTo(a['postCount'] as int));
 
-      // 上位limit件をVibeRankingItemに変換
       final List<VibeRankingItem> ranking = [];
       for (int i = 0; i < rankingData.length && i < limit; i++) {
         final data = rankingData[i];
@@ -734,48 +294,76 @@ class PostService {
     }
   }
 
-  // ────────────────────────────────────────────
-  // Campus Vibe
-  // ────────────────────────────────────────────
+  // ─── Campus Vibe ─────────────────────────────────
 
   /// Campus Vibe投稿一覧を取得（今週末・大学一致・参加フラグtrue）
-  /// campusVibeParticipating のフィルタはクライアント側で行う
-  /// （university + createdAt の2フィールドインデックスのみで動作させるため）
   Future<List<PostModel>> getCampusVibePosts(String university) async {
     try {
       final range = CampusVibeUtils.weekendRange();
       final snapshot = await _firestore
           .collection(_postsCollection)
           .where('university', isEqualTo: university)
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(range.start))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(range.end))
-          .orderBy('createdAt', descending: false)
           .get();
 
-      return snapshot.docs
+      final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
-          .where((p) => p.campusVibeParticipating)
-          .toList();
+          .where((p) =>
+              p.campusVibeParticipating &&
+              !p.createdAt.isBefore(range.start) &&
+              !p.createdAt.isAfter(range.end))
+          .toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      return posts;
     } catch (e) {
       if (kDebugMode) print('getCampusVibePosts error: $e');
       return [];
     }
   }
 
+  /// 今週末より古い Campus Vibe 投稿を非表示化（campusVibeParticipating: false）
+  /// 画面オープン時にバックグラウンドで呼び出す
+  Future<void> archiveOldCampusVibePosts(String university) async {
+    try {
+      final weekendStart = CampusVibeUtils.weekendRange().start;
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('university', isEqualTo: university)
+          .where('campusVibeParticipating', isEqualTo: true)
+          .where('createdAt', isLessThan: Timestamp.fromDate(weekendStart))
+          .limit(50)
+          .get();
+
+      if (snapshot.docs.isEmpty) return;
+
+      final batch = _firestore.batch();
+      for (final doc in snapshot.docs) {
+        batch.update(doc.reference, {'campusVibeParticipating': false});
+      }
+      await batch.commit();
+      if (kDebugMode) {
+        print('🗂 Campus Vibe 旧投稿アーカイブ: ${snapshot.docs.length}件');
+      }
+    } catch (e) {
+      if (kDebugMode) print('archiveOldCampusVibePosts error: $e');
+    }
+  }
+
   /// Campus Vibe投稿件数をリアルタイムで流すStream
-  /// campusVibeParticipating のフィルタはクライアント側で行う
-  /// （university + createdAt の2フィールドインデックスのみで動作させるため）
   Stream<int> streamCampusVibePostCount(String university) {
     final range = CampusVibeUtils.weekendRange();
     return _firestore
         .collection(_postsCollection)
         .where('university', isEqualTo: university)
-        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(range.start))
-        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(range.end))
         .snapshots()
-        .map((snap) => snap.docs
-            .where((doc) =>
-                (doc.data()['campusVibeParticipating'] as bool?) != false)
-            .length);
+        .map((snap) => snap.docs.where((doc) {
+              final data = doc.data();
+              if ((data['campusVibeParticipating'] as bool?) == false) {
+                return false;
+              }
+              final ts = data['createdAt'];
+              if (ts is! Timestamp) return false;
+              final date = ts.toDate();
+              return !date.isBefore(range.start) && !date.isAfter(range.end);
+            }).length);
   }
 }

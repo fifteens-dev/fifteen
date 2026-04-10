@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../services/user_service.dart';
@@ -137,13 +138,9 @@ class _FollowListScreenState extends State<FollowListScreen> {
         ),
         child: Center(
           child: isLoading
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white54,
-                  ),
+              ? const CupertinoActivityIndicator(
+                  color: Colors.white54,
+                  radius: 7,
                 )
               : const Text(
                   '削除',
@@ -177,13 +174,9 @@ class _FollowListScreenState extends State<FollowListScreen> {
         ),
         child: Center(
           child: isLoading
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
+              ? const CupertinoActivityIndicator(
+                  color: Colors.white,
+                  radius: 7,
                 )
               : Text(
                   isFollowing ? 'フォロー中' : 'フォロー',
@@ -206,13 +199,14 @@ class _FollowListScreenState extends State<FollowListScreen> {
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         backgroundColor: const Color(0xFF121212),
-        title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+        title: Text(title, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+        centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
       ),
       body: _isLoading
           ? const Center(
-              child: CircularProgressIndicator(color: Colors.white),
+              child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
             )
           : _users.isEmpty
               ? Center(
@@ -257,13 +251,13 @@ class _FollowListScreenState extends State<FollowListScreen> {
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
-                          vertical: 10,
+                          vertical: 8,
                         ),
                         child: Row(
                           children: [
                             Container(
-                              width: 48,
-                              height: 48,
+                              width: 54,
+                              height: 54,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: Colors.grey[800],
@@ -271,7 +265,7 @@ class _FollowListScreenState extends State<FollowListScreen> {
                               child: ClipOval(
                                 child: ProfileImage(
                                   imageUrl: user.profileImageUrl,
-                                  size: 48,
+                                  size: 54,
                                 ),
                               ),
                             ),

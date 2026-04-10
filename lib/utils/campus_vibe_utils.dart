@@ -3,6 +3,10 @@
 class CampusVibeUtils {
   CampusVibeUtils._();
 
+  /// 今週の Campus Vibe 対象大学
+  /// プレリリース期間は固定。将来的には週替わりで切り替える。
+  static const String targetUniversity = '青山学院大学';
+
   /// 今日が Campus Vibe 表示期間（金・土・日）かどうか
   static bool isWeekend([DateTime? now]) {
     final w = (now ?? DateTime.now()).weekday;
@@ -18,8 +22,12 @@ class CampusVibeUtils {
     return (start: friday, end: sundayEnd);
   }
 
-  /// 大学名が設定されており、かつ今週末であれば Campus Vibe を表示すべきか判定
-  static bool shouldShow(String? university) {
-    return university != null && university.isNotEmpty && isWeekend();
-  }
+  /// Campus Vibe カードの表示条件
+  /// 閲覧は全ユーザー対象のため、所属大学を問わず週末であれば true
+  static bool shouldShow([DateTime? now]) => isWeekend(now);
+
+  /// Campus Vibe への投稿可否
+  /// 対象大学に所属しており、かつ週末のみ投稿可能
+  static bool canPost(String? university, [DateTime? now]) =>
+      university == targetUniversity && isWeekend(now);
 }

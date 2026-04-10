@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
 /// 音楽再生を管理するサービス（Singleton）
@@ -64,7 +65,7 @@ class AudioPlayerService {
         _player.seek(_startFrom).then((_) {
           if (_currentUrl != null) {
             _player.play().catchError((e) {
-              print('❌ Loop re-play error: $e');
+              if (kDebugMode) print('❌ Loop re-play error: $e');
             });
           }
         });
@@ -79,24 +80,24 @@ class AudioPlayerService {
     int durationSeconds = 15,
   }) async {
     try {
-      print('🎵 Attempting to play: $url');
+      if (kDebugMode) print('🎵 Attempting to play: $url');
 
       // URLの妥当性チェック
       if (url.isEmpty) {
-        print('❌ Empty URL provided');
+        if (kDebugMode) print('❌ Empty URL provided');
         return;
       }
 
       // 既に同じURLが再生中の場合は何もしない
       if (_currentUrl == url && _player.playing &&
           _startFrom == startFrom && _durationSeconds == durationSeconds) {
-        print('⏭️ Already playing this URL');
+        if (kDebugMode) print('⏭️ Already playing this URL');
         return;
       }
 
       // 別のURLが再生中の場合は停止
       if (_currentUrl != url && _player.playing) {
-        print('⏹️ Stopping current playback');
+        if (kDebugMode) print('⏹️ Stopping current playback');
         await stop();
       }
 
@@ -105,7 +106,7 @@ class AudioPlayerService {
       _durationSeconds = durationSeconds;
 
       // 新しいURLをセット
-      print('📥 Loading audio from URL...');
+      if (kDebugMode) print('📥 Loading audio from URL...');
       _currentUrl = url;
       await _player.setUrl(url);
 
@@ -122,16 +123,18 @@ class AudioPlayerService {
 
       // 再生開始（awaitしない: ループはモニター内で管理するため、
       // play()の完了を待つ必要はなく、即座にreturnして呼び出し元をブロックしない）
-      print('▶️ Starting playback...');
+      if (kDebugMode) print('▶️ Starting playback...');
       _player.play().catchError((e) {
-        print('❌ Play error: $e');
+        if (kDebugMode) print('❌ Play error: $e');
       });
 
-      print('✅ Successfully playing preview');
+      if (kDebugMode) print('✅ Successfully playing preview');
     } catch (e, stackTrace) {
-      print('❌ Error playing preview: $e');
-      print('Stack trace: $stackTrace');
-      print('Failed URL: $url');
+      if (kDebugMode) {
+        print('❌ Error playing preview: $e');
+        print('Stack trace: $stackTrace');
+        print('Failed URL: $url');
+      }
 
       // ユーザーにもエラーを通知
       rethrow;
@@ -150,9 +153,9 @@ class AudioPlayerService {
   Future<void> pause() async {
     try {
       await _player.pause();
-      print('Paused playback');
+      if (kDebugMode) print('Paused playback');
     } catch (e) {
-      print('Error pausing playback: $e');
+      if (kDebugMode) print('Error pausing playback: $e');
     }
   }
 
@@ -160,9 +163,9 @@ class AudioPlayerService {
   Future<void> resume() async {
     try {
       await _player.play();
-      print('Resumed playback');
+      if (kDebugMode) print('Resumed playback');
     } catch (e) {
-      print('Error resuming playback: $e');
+      if (kDebugMode) print('Error resuming playback: $e');
     }
   }
 
@@ -177,9 +180,9 @@ class AudioPlayerService {
       _startFrom = Duration.zero;
       _durationSeconds = 15;
       await _player.stop();
-      print('Stopped playback');
+      if (kDebugMode) print('Stopped playback');
     } catch (e) {
-      print('Error stopping playback: $e');
+      if (kDebugMode) print('Error stopping playback: $e');
     }
   }
 

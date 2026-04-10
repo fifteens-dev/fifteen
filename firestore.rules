@@ -183,5 +183,25 @@ service cloud.firestore {
       allow update: if isAuthenticated();
       allow delete: if isAdmin();
     }
+
+    // ── app_open_events コレクション ──────────────────────────
+    // DAU/MAU 計測用。1ユーザー1日1件（docId: {uid}_{date}）
+    // 作成・更新：本人のみ（set はべき等）
+    // 読み取り：管理者のみ（集計用）
+    match /app_open_events/{docId} {
+      allow create, update: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin();
+    }
+
+    // ── analytics_events コレクション ────────────────────────
+    // 投稿開始数などのイベント計測用
+    // 作成：本人のみ
+    // 読み取り：管理者のみ（集計用）
+    match /analytics_events/{docId} {
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin();
+    }
   }
 }

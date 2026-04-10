@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -217,17 +218,25 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
 
                   // 既読化はTimerで3秒後に行う（initStateで設定済み）
 
-                  return RefreshIndicator(
-                    onRefresh: () async {
-                      await _refreshIcons();
-                    },
-                    child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      itemCount: notifications.length,
-                      itemBuilder: (context, index) {
-                        return _buildNotificationCell(notifications[index]);
-                      },
+                  return CustomScrollView(
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
                     ),
+                    slivers: [
+                      CupertinoSliverRefreshControl(
+                        onRefresh: _refreshIcons,
+                      ),
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (context, index) =>
+                                _buildNotificationCell(notifications[index]),
+                            childCount: notifications.length,
+                          ),
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),

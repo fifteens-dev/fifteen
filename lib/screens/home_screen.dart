@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
+import '../models/user_model.dart';
 import '../providers/post_ui_state.dart';
 import '../models/vibe_ranking_item.dart';
 import '../widgets/post_card.dart';
@@ -34,7 +35,16 @@ import '../widgets/campus_vibe_card.dart';
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
   final List<PostModel>? initialPosts;
-  const HomeScreen({super.key, this.initialPosts});
+  final Map<String, dynamic>? initialVibeData;
+  final UserModel? initialUserModel;
+  final bool initialHasPostedToday;
+  const HomeScreen({
+    super.key,
+    this.initialPosts,
+    this.initialVibeData,
+    this.initialUserModel,
+    this.initialHasPostedToday = false,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -58,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   // 各PostCardのGlobalKey（可視性チェック・flipToFront用）
   final Map<String, GlobalKey<PostCardState>> _postCardKeys = {};
+
 
   // 現在再生中の投稿ID
   String? _playingPostId;
@@ -91,17 +102,27 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     print('🏠 ホーム画面: initState()が呼ばれました');
-    _vibeDataFuture = _loadVibeData();
+    _vibeDataFuture = widget.initialVibeData != null
+        ? Future.value(widget.initialVibeData)
+        : _loadVibeData();
     _loadRevealedPostIds();
-    _loadCurrentUserIconUrl();
+    // initialUserModel があればFirestoreアクセス不要
+    if (widget.initialUserModel != null) {
+      _currentUserIconUrl = widget.initialUserModel!.profileImageUrl;
+    } else {
+      _loadCurrentUserIconUrl();
+    }
     _updateLastActive();
     if (widget.initialPosts != null) {
       // バックグラウンドで事前取得済みのデータをそのまま表示（追加フェッチ不要）
       _cachedPosts = widget.initialPosts;
-      _prefetchBacksideImages(widget.initialPosts!);
+      _hasPostedToday = widget.initialHasPostedToday;
+      // precacheImage は MediaQuery を使うため initState 完了後に実行
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _prefetchBacksideImages(widget.initialPosts!);
+      });
       _prefetchPreviewUrls(widget.initialPosts!);
-      _loadHasPostedToday();
-      _initializePostUIState(widget.initialPosts!);
+      _initializePostUIState(widget.initialPosts!, userModel: widget.initialUserModel);
     } else {
       _loadPosts();
     }
@@ -129,14 +150,16 @@ class _HomeScreenState extends State<HomeScreen>
   void didPop() {}
 
   /// PostUIState を投稿リストから初期化する（initialPosts 使用時に呼ぶ）
-  Future<void> _initializePostUIState(List<PostModel> posts) async {
+  Future<void> _initializePostUIState(List<PostModel> posts, {UserModel? userModel}) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return;
-    List<String> savedPostIds = [];
-    try {
-      final userModel = await _userService.getUser(currentUser.uid);
-      savedPostIds = userModel?.savedPosts ?? [];
-    } catch (_) {}
+    List<String> savedPostIds = userModel?.savedPosts ?? [];
+    if (userModel == null) {
+      try {
+        final fetched = await _userService.getUser(currentUser.uid);
+        savedPostIds = fetched?.savedPosts ?? [];
+      } catch (_) {}
+    }
     if (mounted) {
       context.read<PostUIState>().resetAndInitialize(
         posts: posts,
@@ -221,15 +244,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// 今日投稿済みかチェック（initialPosts使用時に個別呼び出し）
-  Future<void> _loadHasPostedToday() async {
-    final currentUser = _auth.currentUser;
-    if (currentUser == null) return;
-    final result = await _postService.hasUserPostedToday(currentUser.uid);
-    if (mounted) setState(() => _hasPostedToday = result);
-  }
-
-  /// 投稿データをFirestoreから取得して返す（setState なし・_loadPosts/_onRefresh 共用）
+/// 投稿データをFirestoreから取得して返す（setState なし・_loadPosts/_onRefresh 共用）
   Future<({List<PostModel> posts, bool hasPostedToday, List<String> savedPostIds})> _fetchPostsData() async {
     try {
       final currentUser = _auth.currentUser;
@@ -557,9 +572,6 @@ class _HomeScreenState extends State<HomeScreen>
               index: _selectedIndex <= 1 ? _selectedIndex : (_selectedIndex == 3 ? 2 : 0),
               children: [
                 // index 0: ホーム
-                // Column で固定ヘッダー分のスペースを確保し、
-                // スクロールビューをヘッダーの下から開始させることで
-                // プロフィール画面と同じ引っ張り距離・位置でリフレッシュできる
                 NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
                     if (notification is ScrollUpdateNotification) {
@@ -579,12 +591,32 @@ class _HomeScreenState extends State<HomeScreen>
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     slivers: [
+                      // 透明ヘッダー（ピン留め）
+                      SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _HomeHeaderDelegate(
+                          height: headerHeight,
+                          topPadding: topPadding,
+                          bellOpacity: _bellOpacity,
+                          bellButton: NotificationBadge(
+                            child: IconButton(
+                              icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+                              onPressed: () {
+                                _homeAudioService.stop();
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const NotificationListScreen()),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                      // リフレッシュコントロール（ヘッダーの下に表示される）
                       CupertinoSliverRefreshControl(
                         onRefresh: _onRefresh,
                       ),
-                      SliverToBoxAdapter(child: SizedBox(height: headerHeight)),
                       if (_cachedPosts == null) ...[
-                        // 初回ローディング中：センタースピナーのみ（Vibeも非表示）
                         const SliverFillRemaining(
                           hasScrollBody: false,
                           child: Center(
@@ -612,13 +644,9 @@ class _HomeScreenState extends State<HomeScreen>
                               ),
                             ),
                           ),
-                        const SliverToBoxAdapter(
-                          child: SizedBox(height: 9),
-                        ),
+                        const SliverToBoxAdapter(child: SizedBox(height: 9)),
                         _buildTimelineSliver(postUIState),
-                        const SliverToBoxAdapter(
-                          child: SizedBox(height: 80),
-                        ),
+                        const SliverToBoxAdapter(child: SizedBox(height: 80)),
                       ],
                     ],
                   ),
@@ -630,63 +658,6 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
 
-            // 固定ヘッダー（15sロゴ + ベルアイコン）
-            if (_selectedIndex == 0)
-              Positioned(
-                left: 0,
-                right: 0,
-                top: 0,
-                child: Container(
-                  height: headerHeight,
-                  color: Colors.transparent,
-                  padding: EdgeInsets.only(left: 16, right: 16, top: topPadding),
-                  child: Stack(
-                    children: [
-                      // 15sロゴ（中央固定）
-                      const Center(
-                        child: Text(
-                          '15s',
-                          style: TextStyle(
-                            fontSize: 30,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      // 通知アイコン（スクロールでフェードアウト）
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        child: ValueListenableBuilder<double>(
-                          valueListenable: _bellOpacity,
-                          builder: (context, opacity, child) {
-                            return Opacity(
-                              opacity: opacity,
-                              child: IgnorePointer(
-                                ignoring: opacity < 0.1,
-                                child: child,
-                              ),
-                            );
-                          },
-                          child: NotificationBadge(
-                            child: IconButton(
-                              icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                              onPressed: () {
-                                _homeAudioService.stop();
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (context) => const NotificationListScreen()),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
 
             // フローティングボトムナビゲーション（キーボード表示中は非表示）
             if (MediaQuery.of(context).viewInsets.bottom == 0)
@@ -822,16 +793,12 @@ class _HomeScreenState extends State<HomeScreen>
                   onPlayStarted: () {
                     _playingPostId = post.postId;
                   },
-                  onShare: () => Navigator.push(
+                  onShare: () => showCardShareSheet(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => CardShareScreen(
-                        post: post,
-                        currentUserId: currentUserId,
-                        currentUserIconUrl: _currentUserIconUrl,
-                        isSaved: postUIState.isSaved(post.postId),
-                      ),
-                    ),
+                    post: post,
+                    currentUserId: currentUserId,
+                    currentUserIconUrl: _currentUserIconUrl,
+                    isSaved: postUIState.isSaved(post.postId),
                   ),
                 ),
               ),
@@ -980,4 +947,64 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+}
+
+/// ホーム画面の透明ピン留めヘッダー用デリゲート
+class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double height;
+  final double topPadding;
+  final ValueNotifier<double> bellOpacity;
+  final Widget bellButton;
+
+  _HomeHeaderDelegate({
+    required this.height,
+    required this.topPadding,
+    required this.bellOpacity,
+    required this.bellButton,
+  });
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: Colors.transparent,
+      padding: EdgeInsets.only(left: 16, right: 16, top: topPadding),
+      child: Stack(
+        children: [
+          const Center(
+            child: Text(
+              '15s',
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: ValueListenableBuilder<double>(
+              valueListenable: bellOpacity,
+              builder: (_, opacity, child) => Opacity(
+                opacity: opacity,
+                child: IgnorePointer(ignoring: opacity < 0.1, child: child),
+              ),
+              child: bellButton,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_HomeHeaderDelegate old) =>
+      old.height != height || old.topPadding != topPadding;
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/app_colors.dart';
@@ -18,6 +19,7 @@ class PostDetailScreen extends StatefulWidget {
   final bool autoFlipAfterDelay;
   final bool disableInteractions;
   /// true のとき hasUserPostedOnDate チェックをスキップして常にカード裏面を表示
+  /// ※ 通知タップ時は false を渡し、通常の投稿チェックを行うこと
   final bool alwaysShowBack;
 
   const PostDetailScreen({
@@ -223,13 +225,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       body: !_hasPostedTodayLoaded
           // 投稿状態の確認が完了するまでローディング表示
           ? const Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  color: Colors.white54,
-                  strokeWidth: 2,
-                ),
+              child: CupertinoActivityIndicator(
+                color: Colors.white54,
+                radius: 12,
               ),
             )
           // VibeTrackPostsScreen と同じレイアウト

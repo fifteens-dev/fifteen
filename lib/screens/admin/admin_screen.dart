@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_constants.dart';
@@ -11,6 +12,7 @@ import 'dev_tools_tab.dart';
 import 'invitation_stats_tab.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'reports_tab.dart';
+import 'analytics_tab.dart';
 
 /// 管理者画面
 /// 一斉通知とVibeお題管理のタブを持つ
@@ -31,7 +33,7 @@ class _AdminScreenState extends State<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 7, vsync: this);
+    _tabController = TabController(length: 8, vsync: this);
     _checkAdminStatus();
   }
 
@@ -68,7 +70,7 @@ class _AdminScreenState extends State<AdminScreen>
       return const Scaffold(
         backgroundColor: AppColors.backgroundElevated,
         body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
+          child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
         ),
       );
     }
@@ -106,6 +108,10 @@ class _AdminScreenState extends State<AdminScreen>
           unselectedLabelColor: Colors.grey,
           tabs: const [
             Tab(
+              icon: Icon(Icons.bar_chart),
+              text: '集計',
+            ),
+            Tab(
               icon: Icon(Icons.notifications),
               text: '一斉通知',
             ),
@@ -139,6 +145,7 @@ class _AdminScreenState extends State<AdminScreen>
       body: TabBarView(
         controller: _tabController,
         children: const [
+          AnalyticsTab(),
           BroadcastNotificationTab(),
           VibeTopicManagementTab(),
           VibePostsViewerTab(),
@@ -291,11 +298,7 @@ class _OfficialAccountTabState extends State<_OfficialAccountTab> {
                 ),
               ),
               icon: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                    )
+                  ? const CupertinoActivityIndicator(color: Colors.white, radius: 10)
                   : Icon(
                       isLoggedInAsOfficial ? Icons.check_circle : Icons.login,
                       color: Colors.white,

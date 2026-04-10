@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../models/post_model.dart';
 import '../../models/post_theme.dart';
@@ -126,12 +127,9 @@ class PostPhotoImage extends StatelessWidget {
       fit: BoxFit.cover,
       progressIndicatorBuilder: (context, url, progress) {
         return Center(
-          child: CircularProgressIndicator(
-            value: progress.totalSize != null
-                ? progress.downloaded /
-                    progress.totalSize!
-                : null,
+          child: CupertinoActivityIndicator(
             color: Colors.white,
+            radius: 14,
           ),
         );
       },

@@ -310,16 +310,12 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                       onDelete: (_currentUserId != null && post.userId == _currentUserId)
                           ? () => _handleDelete(post)
                           : null,
-                      onShare: () => Navigator.push(
+                      onShare: () => showCardShareSheet(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) => CardShareScreen(
-                            post: post,
-                            currentUserId: _currentUserId,
-                            currentUserIconUrl: _currentUserIconUrl,
-                            isSaved: _savedPostIds.contains(post.postId),
-                          ),
-                        ),
+                        post: post,
+                        currentUserId: _currentUserId,
+                        currentUserIconUrl: _currentUserIconUrl,
+                        isSaved: _savedPostIds.contains(post.postId),
                       ),
                     ),
                   ),
@@ -338,7 +334,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                 child: Text(
                   '投稿',
                   style: TextStyle(
-                    fontSize: 20,
+                    fontSize: 15,
                     fontWeight: FontWeight.w600,
                     color: Colors.white,
                   ),

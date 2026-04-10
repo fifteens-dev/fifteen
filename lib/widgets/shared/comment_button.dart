@@ -69,10 +69,10 @@ class CommentButton extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            Icon(
-              Icons.send,
-              size: IconSizes.medium,
-              color: iconColor.withValues(alpha: 0.7),
+            Image.asset(
+              'assets/icons/comment_send_button.png',
+              width: IconSizes.medium,
+              height: IconSizes.medium,
             ),
             const SizedBox(width: 12),
           ],

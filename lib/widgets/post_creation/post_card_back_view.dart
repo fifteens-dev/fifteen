@@ -43,6 +43,9 @@ class PostCardBackView extends StatefulWidget {
   /// false のとき歌詞カードを非表示にする（アニメーション中など）
   final bool showLyricsCard;
 
+  /// false のときユーザー情報バッジを非表示にする
+  final bool showUserBadge;
+
   /// 写真エリア内で歌詞カードの「下」に置くウィジェット群
   /// ジェスチャー検出レイヤー（PostCardEditScreen）はここに渡す
   final List<Widget> photoOverlaysBefore;
@@ -67,6 +70,7 @@ class PostCardBackView extends StatefulWidget {
     this.preExtractedGradientStart,
     this.preExtractedGradientEnd,
     this.showLyricsCard = true,
+    this.showUserBadge = true,
     this.photoOverlaysBefore = const [],
     this.photoOverlaysAfter = const [],
   });
@@ -278,18 +282,19 @@ class _PostCardBackViewState extends State<PostCardBackView> {
           ...widget.photoOverlaysAfter,
 
           // ⑤ ユーザー情報バッジ（常に最前面）
-          Positioned(
-            top: 15,
-            left: 15,
-            child: UserInfoBadge(
-              username: widget.username.isNotEmpty ? widget.username : 'ユーザー',
-              iconUrl: widget.userIconUrl,
-              hashtagText: widget.isVibe && widget.vibeTopicTitle != null
-                  ? '#${widget.vibeTopicTitle}'
-                  : null,
-              showBackground: false,
+          if (widget.showUserBadge)
+            Positioned(
+              top: 15,
+              left: 15,
+              child: UserInfoBadge(
+                username: widget.username.isNotEmpty ? widget.username : 'ユーザー',
+                iconUrl: widget.userIconUrl,
+                hashtagText: widget.isVibe && widget.vibeTopicTitle != null
+                    ? '#${widget.vibeTopicTitle}'
+                    : null,
+                showBackground: false,
+              ),
             ),
-          ),
         ],
       ),
     );

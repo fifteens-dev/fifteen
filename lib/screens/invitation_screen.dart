@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/user_service.dart';
@@ -122,13 +123,9 @@ class _InvitationScreenState extends State<InvitationScreen> {
               : () => _copyInvitationCode(context),
           child: _isLoading
               ? const Center(
-                  child: SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
+                  child: CupertinoActivityIndicator(
+                    color: Colors.white,
+                    radius: 12,
                   ),
                 )
               : Column(

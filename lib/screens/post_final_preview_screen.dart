@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -26,7 +27,7 @@ import '../utils/color_extractor.dart';
 import '../utils/current_user_helper.dart';
 import '../utils/photo_helper.dart';
 import '../widgets/campus_vibe_toggle_bar.dart';
-import '../widgets/shared/user_info_badge.dart';
+import '../services/vibe_topic_service.dart';
 
 /// 投稿カード最終プレビュー画面
 /// PostPreviewScreenと同じカード仕様（フリップ・音楽再生）で表示する
@@ -127,6 +128,12 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   Set<double> _prevSnapAngles = {};
   bool _isTwoFingerAccepted = false;
   bool _rotationLocked = true;
+  // 水平スナップ（0°/180°）フラグ
+  bool _isHorizontalSnap = false;
+  // 水平スナップ時の回転ロック
+  bool _horizontalSnapLockActive = false;
+  double _snapStartGestureRotation = 0.0; // スナップした瞬間の details.rotation
+  double _snapLockedAngle = 0.0;          // スナップ先の角度（0 or π）
 
   // 写真パン・ズーム
   late Offset _imageOffset;
@@ -144,9 +151,19 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   // Campus Vibe 参加フラグ（デフォルトON）
   bool _campusVibeParticipating = true;
 
+  // Vibe/感情 選択状態（最終プレビューで選択可能に）
+  late bool _isVibe;
+  String? _vibeTopicId;
+  String? _vibeTopicTitle;
+
   @override
   void initState() {
     super.initState();
+    _isVibe = widget.isVibe;
+    _vibeTopicId = widget.vibeTopicId;
+    _vibeTopicTitle = widget.vibeTopicTitle;
+    _loadTodaysTopic();
+
     _currentUniversity = widget.initialUniversity;
     if (widget.initialUsername != null && widget.initialUsername!.isNotEmpty) {
       _currentUsername = widget.initialUsername!;
@@ -244,6 +261,23 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         _currentUsername = userInfo.username;
         _currentUserIconUrl = userInfo.iconUrl;
       });
+    }
+  }
+
+  /// 今日のVibeお題を読み込み
+  Future<void> _loadTodaysTopic() async {
+    try {
+      final topic = await VibeTopicService().getTodaysTopic();
+      if (mounted) {
+        setState(() {
+          if (topic != null) {
+            _vibeTopicId = topic.topicId;
+            _vibeTopicTitle = topic.title;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading today\'s topic: $e');
     }
   }
 
@@ -393,8 +427,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
 
     // 歌詞カードの実際の位置・スケール・回転に基づいて判定
     final cardSize = PostCardBackView.cardSizeForLayout(_editState.selectedLayoutIndex);
-    final halfW = cardSize.width * _editState.cardScale / 2;
-    final halfH = cardSize.height * _editState.cardScale / 2;
+    final hitMultiplier = _editState.selectedLayoutIndex == 2 ? 3.0 : 1.5;
+    final halfW = cardSize.width * _editState.cardScale / 2 * hitMultiplier;
+    final halfH = cardSize.height * _editState.cardScale / 2 * hitMultiplier;
     final center = _editState.cardCenter;
 
     // カード中心からの相対座標を求め、カードの回転を逆に適用
@@ -430,6 +465,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     _startRotation = _editState.cardRotation;
     _isTwoFingerAccepted = false;
     _rotationLocked = true;
+    _horizontalSnapLockActive = false;
+    _isHorizontalSnap = false;
     if (details.pointerCount >= 2 &&
         _isInCardHitArea(details.localFocalPoint)) {
       _isTwoFingerAccepted = true;
@@ -472,15 +509,37 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       if (_isTwoFingerAccepted) {
         newScale =
             (_startScale * (1.0 + (details.scale - 1.0) * 0.6)).clamp(0.3, 3.0);
-        // 10度未満は回転をロック（拡縮優先）
+
         const rotationThreshold = 10.0 * pi / 180.0;
+
+        // ── 回転計算 ────────────────────────────────────────────────
+        // ① ジェスチャー開始ロック（最初の10度は回転しない）
+        double intendedRotation;
         if (_rotationLocked && details.rotation.abs() < rotationThreshold) {
-          newRotation = _startRotation;
+          intendedRotation = _startRotation;
         } else {
           _rotationLocked = false;
-          newRotation = _startRotation + details.rotation * 0.6;
+          intendedRotation = _startRotation + details.rotation * 0.6;
         }
 
+        // ② 水平スナップロック（平行になった瞬間も再ロック）
+        if (_horizontalSnapLockActive) {
+          final cardDelta =
+              (details.rotation - _snapStartGestureRotation) * 0.6;
+          if (cardDelta.abs() < rotationThreshold) {
+            // ロック範囲内 → スナップ角に固定
+            newRotation = _snapLockedAngle;
+          } else {
+            // 10度以上動かした → ロック解除して継続
+            _horizontalSnapLockActive = false;
+            _isHorizontalSnap = false;
+            newRotation = _snapLockedAngle + cardDelta;
+          }
+        } else {
+          newRotation = intendedRotation;
+        }
+
+        // ── 斜めスナップ検出 ─────────────────────────────────────
         double deg = (newRotation * 180 / pi) % 360;
         if (deg < 0) deg += 360;
         final newSnaps = <double>{};
@@ -495,6 +554,25 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         }
         _prevSnapAngles = newSnaps;
         _activeSnapAngles = newSnaps;
+
+        // ── 水平スナップ検出（ロック中は再検出しない）────────────
+        if (!_horizontalSnapLockActive) {
+          bool isHoriz = false;
+          for (final h in [0.0, 180.0]) {
+            double diff = (deg - h).abs();
+            if (diff > 180) diff = 360 - diff;
+            if (diff <= _snapThreshold) { isHoriz = true; break; }
+          }
+          if (isHoriz && !_isHorizontalSnap) {
+            // 平行になった瞬間：振動 + ロック発動
+            HapticFeedback.lightImpact();
+            _snapStartGestureRotation = details.rotation;
+            _snapLockedAngle = _nearestHorizontalRad(newRotation);
+            _horizontalSnapLockActive = true;
+            newRotation = _snapLockedAngle;
+          }
+          _isHorizontalSnap = isHoriz;
+        }
       }
     }
 
@@ -524,6 +602,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       _isTwoFingerAccepted = false;
       _activeSnapAngles = {};
       _prevSnapAngles = {};
+      _isHorizontalSnap = false;
+      _horizontalSnapLockActive = false;
 
       if ((_editState.cardCenter - snapCenter).distance <= 40.0) {
         _editState.updateCardSilent(
@@ -537,12 +617,23 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     });
   }
 
-  /// 投稿を完了
-  Future<void> _onPost() async {
+  /// 0° と 180° のうち、rotation に近い方をラジアンで返す
+  double _nearestHorizontalRad(double rotation) {
+    double deg = (rotation * 180 / pi) % 360;
+    if (deg < 0) deg += 360;
+    final diff0 = deg <= 180 ? deg : 360 - deg;
+    final diff180 = (deg - 180).abs();
+    return diff0 <= diff180 ? 0.0 : pi;
+  }
+
+  /// 投稿を完了（isVibeを引数で指定）
+  Future<void> _onPost({required bool asVibe}) async {
     if (_isPosting) return;
 
     final confirmed = await ActionDialog.showPostConfirm(context);
     if (!confirmed) return;
+
+    setState(() => _isVibe = asVibe);
 
     setState(() => _isPosting = true);
 
@@ -593,12 +684,20 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       final cardSize = PostCardBackView.cardSizeForLayout(_editState.selectedLayoutIndex);
       final cardPos = _editState.cardPositionForSize(cardSize);
 
+      // プレビューURLをtrackDataに含める（キャッシュ済み→そのまま、未取得→ここで取得）
+      String? previewUrl = _cachedPreviewUrl ?? widget.track.previewUrl;
+      if (previewUrl == null || previewUrl.isEmpty) {
+        previewUrl = await _getPreviewUrlFromItunes();
+      }
+      final trackData = widget.track.toMap()
+        ..['previewUrl'] = previewUrl;
+
       // 投稿を作成
       final postId = await _postService.createPost(
         userId: userId,
         username: username,
         userIconUrl: userIconUrl,
-        trackData: widget.track.toMap(),
+        trackData: trackData,
         photoUrl: photoUrl,
         imageOffsetX: _imageOffset.dx,
         imageOffsetY: _imageOffset.dy,
@@ -610,9 +709,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         cardPositionY: cardPos.dy,
         cardScale: _editState.cardScale,
         cardRotation: _editState.cardRotation,
-        isVibe: widget.isVibe,
-        vibeTopicId: widget.vibeTopicId,
-        vibeTopicTitle: widget.vibeTopicTitle,
+        isVibe: _isVibe,
+        vibeTopicId: _isVibe ? _vibeTopicId : null,
+        vibeTopicTitle: _isVibe ? _vibeTopicTitle : null,
         theme: extractedTheme,
         lyricsText: lyricsText,
         audioStartMs: widget.audioStartMs,
@@ -661,9 +760,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         bottom: false,
         child: Column(
           children: [
-            _buildHeader(),
             Expanded(
               child: SingleChildScrollView(
+                physics: const NeverScrollableScrollPhysics(),
                 child: Builder(
                   builder: (context) {
                     final cardW = MediaQuery.of(context).size.width - 2;
@@ -712,111 +811,168 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                 ),
               ),
             ),
-            if (CampusVibeUtils.shouldShow(_currentUniversity))
+            if (CampusVibeUtils.canPost(_currentUniversity))
               CampusVibeToggleBar(
-                university: _currentUniversity!,
+                university: CampusVibeUtils.targetUniversity,
                 participating: _campusVibeParticipating,
                 onChanged: (v) => setState(() => _campusVibeParticipating = v),
               ),
+            // Vibe / 今の気分 切り替えバー
+            _buildPostTypeBar(),
           ],
         ),
       ),
+          // ボタンオーバーレイ（カードの上に重ねる）
+          Positioned(
+            top: 0, left: 0, right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: _buildButtonsOverlay(),
+            ),
+          ),
         ],
       ),
     );
   }
 
-/// ヘッダー
-  Widget _buildHeader() {
-    return Hero(
-      tag: 'post_flow_header',
-      flightShuttleBuilder: (_, __, ___, ____, _____) => const Material(
-        color: Colors.transparent,
-        child: SizedBox(
-          height: 50,
-          child: Center(
-            child: Text(
-              '新規投稿',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          height: 50,
-          padding: const EdgeInsets.symmetric(horizontal: 19),
-          child: Row(
-            children: [
-              // 戻るボタン（くの字）- ダイアログなし
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: GestureDetector(
-                    onTap: _isPosting ? null : () => Navigator.pop(context),
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.5),
-                        shape: BoxShape.circle,
+  /// Vibe / 今の気分 投稿タイプバー
+  Widget _buildPostTypeBar() {
+    final topicLabel = _vibeTopicTitle != null ? '\n【#$_vibeTopicTitle】' : '';
+    return Container(
+      padding: const EdgeInsets.only(left: 12, right: 12, top: 12, bottom: 6),
+      color: const Color(0xFF121212),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            // Vibeで投稿ボタン
+            Expanded(
+              child: GestureDetector(
+                onTap: _isPosting ? null : () => _onPost(asVibe: true),
+                child: Container(
+                  height: 50,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.asset(
+                        'assets/icons/vibe_post_bg.png',
+                        fit: BoxFit.cover,
                       ),
-                      child: Icon(
-                        Icons.arrow_back_ios_new,
-                        color: _isPosting ? Colors.grey : Colors.white,
-                        size: 20,
+                      Padding(
+                        padding: const EdgeInsets.only(left: 34, right: 8),
+                        child: Align(
+                          alignment: Alignment.center,
+                          child: Text.rich(
+                            TextSpan(
+                              children: [
+                                const TextSpan(
+                                  text: 'Vibeで投稿',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                if (topicLabel.isNotEmpty)
+                                  TextSpan(
+                                    text: topicLabel,
+                                    style: const TextStyle(
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
-
-              // タイトル
-              const Text(
-                '新規投稿',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-
-              // 投稿するボタン
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: _isPosting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Color(0xFF5D8FFF),
-                            ),
-                          ),
-                        )
-                      : GestureDetector(
-                          onTap: _onPost,
-                          child: const Text(
-                            '投稿する',
+            ),
+            const SizedBox(width: 6),
+            // 今の気分で投稿ボタン
+            Expanded(
+              child: GestureDetector(
+                onTap: _isPosting ? null : () => _onPost(asVibe: false),
+                child: Container(
+                  height: 50,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.asset(
+                        'assets/icons/emotion_post_bg.png',
+                        fit: BoxFit.cover,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 34, right: 8),
+                        child: const Align(
+                          alignment: Alignment.center,
+                          child: Text(
+                            '今の気分で投稿',
                             style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF5D8FFF),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildButtonsOverlay() {
+    return Container(
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 19),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: _isPosting ? null : () => Navigator.pop(context),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.arrow_back_ios_new,
+                color: _isPosting ? Colors.grey : Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
+          const Spacer(),
+          if (_isPosting)
+            const CupertinoActivityIndicator(
+              color: Color(0xFF5D8FFF),
+              radius: 8,
+            ),
+        ],
       ),
     );
   }
@@ -943,6 +1099,18 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                       child: Container(color: const Color(0xFF121212)),
                     ),
 
+                  // 水平スナップ時の横点線（歌詞カードの後ろ）
+                  if (_isTwoFingerGesture && _isHorizontalSnap)
+                    Positioned.fill(
+                      child: RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _HorizontalDottedLinePainter(
+                            y: _editState.cardCenter.dy,
+                          ),
+                        ),
+                      ),
+                    ),
+
                   // 歌詞カード
                   _buildLyricsCardBack(),
 
@@ -969,12 +1137,6 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
           child: _buildPlayButton(),
         ),
 
-        // ユーザー情報（左上）
-        Positioned(
-          left: 15,
-          top: 15,
-          child: _buildUserInfoBack(),
-        ),
       ],
     );
   }
@@ -1067,18 +1229,6 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     );
   }
 
-  /// ユーザー情報（裏面）
-  Widget _buildUserInfoBack() {
-    return UserInfoBadge(
-      username: _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
-      iconUrl: _currentUserIconUrl,
-      hashtagText: widget.isVibe && widget.vibeTopicTitle != null
-          ? '#${widget.vibeTopicTitle}'
-          : null,
-      showBackground: false,
-    );
-  }
-
   /// 情報セクション（裏面）
   Widget _buildInfoSectionBack() {
     final theme = _getDynamicThemeForBack();
@@ -1095,6 +1245,35 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       onAdd: () {},
     );
   }
+}
+
+class _HorizontalDottedLinePainter extends CustomPainter {
+  final double y;
+
+  const _HorizontalDottedLinePainter({required this.y});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.7)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    const dashWidth = 8.0;
+    const dashSpace = 6.0;
+    double x = 0;
+    while (x < size.width) {
+      canvas.drawLine(
+        Offset(x, y),
+        Offset((x + dashWidth).clamp(0.0, size.width), y),
+        paint,
+      );
+      x += dashWidth + dashSpace;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HorizontalDottedLinePainter old) => old.y != y;
 }
 
 class _GuideLinePainter extends CustomPainter {

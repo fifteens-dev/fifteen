@@ -133,7 +133,7 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
       return const Scaffold(
         backgroundColor: Color(0xFF121212),
         body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
+          child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
         ),
       );
     }
@@ -312,13 +312,9 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
           TextButton(
             onPressed: _isSaving ? null : _handleSave,
             child: _isSaving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF5D8FFF),
-                      strokeWidth: 2,
-                    ),
+                ? const CupertinoActivityIndicator(
+                    color: Color(0xFF5D8FFF),
+                    radius: 10,
                   )
                 : const Text(
                     '保存',

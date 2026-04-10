@@ -11,7 +11,6 @@ class UserService {
   final NotificationService _notificationService = NotificationService();
 
   final String _inviteCodesCollection = 'invite_codes';
-  static const int _maxInviteUses = 3;
 
   /// 7文字のランダムな英数字招待コードを生成
   String _generateInviteCode() {
@@ -20,12 +19,11 @@ class UserService {
     return List.generate(7, (_) => chars[random.nextInt(chars.length)]).join();
   }
 
-  /// invite_codesコレクションにエントリを作成（maxUses: 3）
+  /// invite_codesコレクションにエントリを作成（回数制限なし）
   Future<void> _createInviteCodeEntry(String code, String ownerUid, WriteBatch batch) async {
     final inviteDoc = _firestore.collection(_inviteCodesCollection).doc(code);
     batch.set(inviteDoc, {
       'code': code,
-      'maxUses': _maxInviteUses,
       'usedCount': 0,
       'ownerUid': ownerUid,
       'createdAt': FieldValue.serverTimestamp(),
@@ -121,6 +119,29 @@ class UserService {
     } catch (e) {
       return 0;
     }
+  }
+
+  /// アクティブを記録（DAU/MAU 計測用）
+  /// ドキュメントID = "{uid}_{YYYY-MM-DD}" で 1ユーザー1日1件に制限
+  Future<void> updateLastActive(String uid) async {
+    try {
+      final now = DateTime.now();
+      final dateStr =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final monthKey =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}';
+
+      // set() はべき等（同じドキュメントIDに何度呼んでも1件のまま）
+      await _firestore
+          .collection('app_open_events')
+          .doc('${uid}_$dateStr')
+          .set({
+        'userId': uid,
+        'date': dateStr,
+        'monthKey': monthKey,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
   }
 
   // ユーザーデータを更新

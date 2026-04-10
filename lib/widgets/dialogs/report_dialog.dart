@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/report_service.dart';
@@ -140,13 +141,9 @@ class _ReportSheetState extends State<_ReportSheet> {
                       horizontal: 24, vertical: 14),
                   child: _isSubmitting
                       ? const Center(
-                          child: SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              color: Colors.white54,
-                              strokeWidth: 2,
-                            ),
+                          child: CupertinoActivityIndicator(
+                            color: Colors.white54,
+                            radius: 9,
                           ),
                         )
                       : Text(

@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -136,8 +137,9 @@ class _NotificationSettingsScreenState
             Expanded(
               child: _isLoading
                   ? const Center(
-                      child: CircularProgressIndicator(
+                      child: CupertinoActivityIndicator(
                         color: Color(0xFF5D8FFF),
+                        radius: 14,
                       ),
                     )
                   : SingleChildScrollView(
@@ -188,13 +190,9 @@ class _NotificationSettingsScreenState
           TextButton(
             onPressed: _isSaving ? null : _saveSettings,
             child: _isSaving
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFF5D8FFF),
-                    ),
+                ? const CupertinoActivityIndicator(
+                    color: Color(0xFF5D8FFF),
+                    radius: 8,
                   )
                 : const Text(
                     '保存',

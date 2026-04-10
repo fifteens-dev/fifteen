@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -210,8 +211,9 @@ class _CommentScreenState extends State<CommentScreen> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
-            child: CircularProgressIndicator(
+            child: CupertinoActivityIndicator(
               color: _theme.textColor,
+              radius: 14,
             ),
           );
         }
@@ -412,18 +414,14 @@ class _CommentScreenState extends State<CommentScreen> {
                     child: Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: _isPosting
-                          ? SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: _theme.textColor,
-                              ),
+                          ? CupertinoActivityIndicator(
+                              color: _theme.textColor,
+                              radius: 10,
                             )
-                          : Icon(
-                              Icons.send,
-                              color: _theme.textColor.withOpacity(0.7),
-                              size: 24,
+                          : Image.asset(
+                              'assets/icons/comment_send_button.png',
+                              width: 24,
+                              height: 24,
                             ),
                     ),
                   ),

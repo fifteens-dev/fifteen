@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../models/vibe_topic_model.dart';
 import '../../services/admin_service.dart';
@@ -354,13 +355,9 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
                 ),
               ),
               child: _isCreating
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
+                  ? const CupertinoActivityIndicator(
+                      color: Colors.white,
+                      radius: 10,
                     )
                   : const Text(
                       'お題を作成',
@@ -480,7 +477,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(32),
-          child: CircularProgressIndicator(color: Colors.white),
+          child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
         ),
       );
     }

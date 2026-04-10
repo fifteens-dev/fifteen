@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../constants/app_colors.dart';
@@ -238,7 +240,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
             ),
             const SizedBox(height: 8),
             _isLoadingAdminCodes
-                ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                ? const Center(child: CupertinoActivityIndicator(color: Colors.white, radius: 14))
                 : _adminCodes.isEmpty
                     ? const Text('管理者作成コードがありません', style: TextStyle(color: Colors.grey))
                     : Column(
@@ -307,6 +309,42 @@ class _DevToolsTabState extends State<DevToolsTab> {
                           );
                         }).toList(),
                       ),
+
+            const SizedBox(height: AppDimensions.paddingXLarge),
+
+            // ── Vibe通知テスト ──
+            const Text('Vibe通知テスト', style: AppTextStyles.heading),
+            const SizedBox(height: 8),
+            const Text(
+              '自分のアカウントにVibe通知をテスト送信します。\n（投稿済みチェックをスキップして送信）',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: AppDimensions.paddingMedium),
+            PrimaryButton(
+              text: '自分にVibe通知を送信',
+              onPressed: () async {
+                final uid = FirebaseAuth.instance.currentUser?.uid;
+                if (uid == null) return;
+                await _executeAction(
+                  loadingMessage: 'Vibe通知を送信中...',
+                  successMessage: '✅ Vibe通知を送信しました。通知センターを確認してください。',
+                  snackBarMessage: 'Vibe通知を送信しました',
+                  action: () async {
+                    final result = await FirebaseFunctions.instance
+                        .httpsCallable('testVibeNotification')
+                        .call({
+                      'targetUserId': uid,
+                      'skipPostedCheck': true,
+                    });
+                    final data = result.data as Map<String, dynamic>;
+                    if (data['notificationCount'] == 0) {
+                      throw Exception('送信対象が0人でした: ${data['message']}');
+                    }
+                  },
+                );
+              },
+              isLoading: _isLoading,
+            ),
 
             const SizedBox(height: AppDimensions.paddingXLarge),
           ],

@@ -58,8 +58,9 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
             Expanded(
               child: _isLoading
                   ? const Center(
-                      child: CircularProgressIndicator(
+                      child: CupertinoActivityIndicator(
                         color: Color(0xFF5D8FFF),
+                        radius: 14,
                       ),
                     )
                   : SingleChildScrollView(

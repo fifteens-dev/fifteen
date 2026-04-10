@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
@@ -167,7 +168,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: AppColors.background,
-        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+        body: Center(child: CupertinoActivityIndicator(color: Colors.white, radius: 14)),
       );
     }
 
@@ -208,10 +209,27 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
                 onPressed: _handleNext,
                 isLoading: _isLoading,
               ),
+              const SizedBox(height: 24),
+              GestureDetector(
+                onTap: _isLoading ? null : _handleSkip,
+                child: Text(
+                  '招待コードをお持ちでない方はこちら',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white.withValues(alpha: 0.45),
+                    decoration: TextDecoration.underline,
+                    decorationColor: Colors.white.withValues(alpha: 0.45),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  void _handleSkip() {
+    Navigator.pushNamed(context, '/name-input');
   }
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 /// 統一ヘッダーウィジェット
@@ -124,15 +125,9 @@ class PostCreationHeader extends StatelessWidget {
 
           // 投稿ボタン
           if (isSubmitting)
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  Color(0xFF5D8FFF),
-                ),
-              ),
+            const CupertinoActivityIndicator(
+              color: Color(0xFF5D8FFF),
+              radius: 8,
             )
           else
             GestureDetector(

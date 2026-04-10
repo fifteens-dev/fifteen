@@ -738,7 +738,7 @@ class _AllAlbumsBottomSheetState extends State<_AllAlbumsBottomSheet> {
                   onTap: () => Navigator.pop(context),
                   child: const Text(
                     'キャンセル',
-                    style: TextStyle(color: Color(0xFF5D8FFF), fontSize: 16),
+                    style: TextStyle(color: Color(0xFF5D8FFF), fontSize: 15),
                   ),
                 ),
                 const Expanded(

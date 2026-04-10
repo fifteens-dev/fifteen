@@ -96,6 +96,11 @@ flutter:
     - assets/icons/post_icon.svg
     - assets/icons/grid.svg
     - assets/icons/message_circle.svg
+    - assets/icons/vibe_post_bg.png
+    - assets/icons/emotion_post_bg.png
+    - assets/icons/share_button.png
+    - assets/icons/save_button.png
+    - assets/icons/comment_send_button.png
     - assets/icons/lyrics/layout_1_selected.svg
     - assets/icons/lyrics/layout_1_unselected.svg
     - assets/icons/lyrics/layout_2_selected.svg

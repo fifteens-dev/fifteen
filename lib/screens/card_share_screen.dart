@@ -3,16 +3,34 @@ import '../models/post_model.dart';
 import '../services/audio_player_service.dart';
 import '../widgets/post_card.dart';
 
-/// 投稿カード共有画面
-/// カード1枚のみを表示し、画像として保存・シェアできる
-class CardShareScreen extends StatefulWidget {
+/// 投稿カード共有ボトムシートを表示
+Future<void> showCardShareSheet(
+  BuildContext context, {
+  required PostModel post,
+  String? currentUserId,
+  String? currentUserIconUrl,
+  bool isSaved = false,
+}) {
+  return showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _CardShareSheet(
+      post: post,
+      currentUserId: currentUserId,
+      currentUserIconUrl: currentUserIconUrl,
+      isSaved: isSaved,
+    ),
+  );
+}
+
+class _CardShareSheet extends StatefulWidget {
   final PostModel post;
   final String? currentUserId;
   final String? currentUserIconUrl;
   final bool isSaved;
 
-  const CardShareScreen({
-    super.key,
+  const _CardShareSheet({
     required this.post,
     this.currentUserId,
     this.currentUserIconUrl,
@@ -20,10 +38,10 @@ class CardShareScreen extends StatefulWidget {
   });
 
   @override
-  State<CardShareScreen> createState() => _CardShareScreenState();
+  State<_CardShareSheet> createState() => _CardShareSheetState();
 }
 
-class _CardShareScreenState extends State<CardShareScreen> {
+class _CardShareSheetState extends State<_CardShareSheet> {
   late final AudioPlayerService _audioService;
   final _cardKey = GlobalKey<PostCardState>();
 
@@ -41,61 +59,115 @@ class _CardShareScreenState extends State<CardShareScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // ヘッダー
-            SizedBox(
-              height: 50,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // 閉じるボタン（左）
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white, size: 24),
-                      onPressed: () => Navigator.pop(context),
-                    ),
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
 
-                    // 共有ボタン（右）
-                    TextButton(
-                      onPressed: () => _cardKey.currentState?.shareCard(),
-                      child: const Text(
-                        '共有',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.92,
+      decoration: const BoxDecoration(
+        color: Color(0xFF212327),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
+      ),
+      child: Column(
+        children: [
+          // ドラッグハンドル
+          Padding(
+            padding: const EdgeInsets.only(top: 7),
+            child: Container(
+              width: 50,
+              height: 3,
+              decoration: BoxDecoration(
+                color: const Color(0xFFD9D9D9),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+
+          // ヘッダー
+          Padding(
+            padding: const EdgeInsets.only(left: 14, right: 14, top: 20),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // キャンセル（左）
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: const Text(
+                      'キャンセル',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF99999B),
+                        letterSpacing: -0.13,
                       ),
                     ),
-                  ],
+                  ),
                 ),
+                // タイトル（中央）
+                const Text(
+                  '投稿を共有',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white,
+                    letterSpacing: -0.13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // 投稿カード（裏面から表示）
+          Expanded(
+            child: Center(
+              child: PostCard(
+                key: _cardKey,
+                post: widget.post,
+                currentUserId: null,
+                currentUserIconUrl: widget.currentUserIconUrl,
+                audioService: _audioService,
+                isSaved: widget.isSaved,
+                hideReactionCounts: true,
+                backSideEnabled: true,
+                startFromBack: true,
               ),
             ),
+          ),
 
-            // カード（タップで表裏反転）
-            Expanded(
-              child: Center(
-                child: PostCard(
-                  key: _cardKey,
-                  post: widget.post,
-                  currentUserId: null, // 共有ボタンを非表示にするため null
-                  currentUserIconUrl: widget.currentUserIconUrl,
-                  audioService: _audioService,
-                  isSaved: widget.isSaved,
-                  hideReactionCounts: true,
-                  backSideEnabled: true,
-                ),
+          // 保存ボタン
+          Padding(
+            padding: EdgeInsets.only(bottom: bottomPadding + 16, top: 12),
+            child: GestureDetector(
+              onTap: () => _cardKey.currentState?.shareCard(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Image.asset(
+                    'assets/icons/save_button.png',
+                    width: 55,
+                    height: 55,
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '保存',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                      letterSpacing: -0.1,
+                    ),
+                  ),
+                ],
               ),
             ),
-
-            const SizedBox(height: 24),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

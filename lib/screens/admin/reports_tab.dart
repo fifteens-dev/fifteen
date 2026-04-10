@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 /// 通報管理タブ
@@ -53,7 +54,7 @@ class _ReportsTabState extends State<ReportsTab> {
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                  child: CircularProgressIndicator(color: Colors.white54),
+                  child: CupertinoActivityIndicator(color: Colors.white54, radius: 14),
                 );
               }
               if (snapshot.hasError) {

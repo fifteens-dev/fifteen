@@ -164,7 +164,11 @@ class PostUIState extends ChangeNotifier {
   // ==================== 表示用ヘルパー ====================
 
   /// 表示用のPostModelを取得（楽観的UI状態を適用）
-  PostModel getDisplayPost(PostModel post, {String? currentUserId}) {
+  PostModel getDisplayPost(
+    PostModel post, {
+    String? currentUserId,
+    String? currentUserIconUrl,
+  }) {
     var displayPost = post;
 
     // コメント数のオーバーライド
@@ -179,22 +183,61 @@ class PostUIState extends ChangeNotifier {
       displayPost = displayPost.copyWith(likeCount: likeCount);
     }
 
-    // いいね状態のオーバーライド
-    if (currentUserId != null) {
+    // いいね状態・likedUserIds・likedByUserIconUrls のオーバーライド
+    if (currentUserId != null && _likeCounts.containsKey(post.postId)) {
       final isLikedByUser = _likedPostIds.contains(post.postId);
-      final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
 
+      // likedUserIds の更新
+      final updatedLikedUserIds = List<String>.from(displayPost.likedUserIds);
       if (isLikedByUser && !updatedLikedUserIds.contains(currentUserId)) {
         updatedLikedUserIds.add(currentUserId);
         displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
-      } else if (!isLikedByUser && _likeCounts.containsKey(post.postId)) {
-        // いいね解除した場合
+      } else if (!isLikedByUser && updatedLikedUserIds.contains(currentUserId)) {
         updatedLikedUserIds.remove(currentUserId);
         displayPost = displayPost.copyWith(likedUserIds: updatedLikedUserIds);
+      }
+
+      // likedByUserIconUrls の更新（アイコンの即時表示用）
+      if (currentUserIconUrl != null) {
+        final updatedIconUrls = List<String>.from(displayPost.likedByUserIconUrls);
+        if (isLikedByUser && !updatedIconUrls.contains(currentUserIconUrl)) {
+          updatedIconUrls.add(currentUserIconUrl);
+          displayPost = displayPost.copyWith(likedByUserIconUrls: updatedIconUrls);
+        } else if (!isLikedByUser && updatedIconUrls.contains(currentUserIconUrl)) {
+          updatedIconUrls.remove(currentUserIconUrl);
+          displayPost = displayPost.copyWith(likedByUserIconUrls: updatedIconUrls);
+        }
       }
     }
 
     return displayPost;
+  }
+
+  // ==================== 初期化（一括リセット） ====================
+
+  /// 投稿リストと保存済み投稿IDから状態をリセット＆初期化する
+  /// 画面ロード・プルダウンリフレッシュ時に呼ぶ
+  void resetAndInitialize({
+    required List<PostModel> posts,
+    required String currentUserId,
+    Set<String> savedPostIds = const {},
+  }) {
+    _likeCounts.clear();
+    _likedPostIds.clear();
+    _savedPostIds.clear();
+    _commentCounts.clear();
+    _likedUserIconUrls.clear();
+    _likedUserIds.clear();
+
+    for (final post in posts) {
+      _likeCounts[post.postId] = post.likeCount;
+      if (post.likedUserIds.contains(currentUserId)) {
+        _likedPostIds.add(post.postId);
+      }
+    }
+    _savedPostIds.addAll(savedPostIds);
+
+    notifyListeners();
   }
 
   // ==================== クリア ====================

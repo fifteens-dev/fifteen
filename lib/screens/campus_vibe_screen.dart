@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
@@ -6,17 +7,20 @@ import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../utils/current_user_helper.dart';
+import 'card_share_screen.dart';
 import 'home/home_bottom_nav.dart';
 
-/// Campus Vibe 投稿一覧画面（TikTok式縦スクロール）
+/// Campus Vibe 投稿一覧画面（Vibe画面と同じTikTok式縦スクロール）
 class CampusVibeScreen extends StatefulWidget {
   final String university;
   final String currentUserId;
+  final void Function(int tabIndex)? onTabSwitch;
 
   const CampusVibeScreen({
     super.key,
     required this.university,
     required this.currentUserId,
+    this.onTabSwitch,
   });
 
   @override
@@ -34,6 +38,9 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
   int _currentPage = 0;
   String? _currentUserIconUrl;
 
+  bool _hasPostedThisWeekend = false;
+  bool _hasPostedThisWeekendLoaded = false;
+
   int? _playingPageIndex;
   final Map<int, GlobalKey<PostCardState>> _cardKeys = {};
   final Map<int, String?> _previewUrlCache = {};
@@ -44,6 +51,9 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
     super.initState();
     _loadPosts();
     _loadCurrentUserIconUrl();
+    _loadHasPostedThisWeekend();
+    // 過去週の Campus Vibe 投稿をバックグラウンドでアーカイブ
+    _postService.archiveOldCampusVibePosts(widget.university);
   }
 
   Future<void> _loadPosts() async {
@@ -58,6 +68,17 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
         _playingPageIndex = 0;
         _playMusicForPage(0);
       }
+    }
+  }
+
+  Future<void> _loadHasPostedThisWeekend() async {
+    final hasPosted =
+        await _postService.hasUserPostedInCurrentWeekend(widget.currentUserId);
+    if (mounted) {
+      setState(() {
+        _hasPostedThisWeekend = hasPosted;
+        _hasPostedThisWeekendLoaded = true;
+      });
     }
   }
 
@@ -114,7 +135,9 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
 
   void _onPageChanged(int index) {
     if (_playingPageIndex != null && _playingPageIndex != index) {
-      _cardKeys[_playingPageIndex]?.currentState?.flipToBack();
+      if (_hasPostedThisWeekend) {
+        _cardKeys[_playingPageIndex]?.currentState?.flipToBack();
+      }
     }
     _playingPageIndex = index;
     setState(() => _currentPage = index);
@@ -130,157 +153,202 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+    final headerAreaHeight = topPadding + 16.0 + 40.0 + 8.0;
+
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        forceMaterialTransparency: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          onPressed: () {
-            _audioService.stop();
-            Navigator.pop(context);
-          },
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Text('🔥', style: TextStyle(fontSize: 14)),
-                SizedBox(width: 4),
-                Text(
-                  'Campus Vibe',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-            Text(
-              widget.university,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.white.withOpacity(0.7),
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-        centerTitle: true,
-        actions: [
-          if (!_isLoading && _posts.isNotEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Text(
-                  '${_currentPage + 1}/${_posts.length}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white.withOpacity(0.7),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  color: Colors.white54,
-                  strokeWidth: 2,
-                ),
+      body: Stack(
+        children: [
+          // ── メインコンテンツ ──────────────────────────────
+          if (_isLoading || !_hasPostedThisWeekendLoaded)
+            const Center(
+              child: CupertinoActivityIndicator(
+                color: Colors.white54,
+                radius: 12,
               ),
             )
-          : _posts.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('🏫',
-                          style: TextStyle(fontSize: 48)),
-                      const SizedBox(height: 16),
-                      Text(
-                        'まだ投稿がありません',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.white.withOpacity(0.7),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '今週末の${widget.university}の\n投稿をお待ちください',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.white.withOpacity(0.4),
-                        ),
-                      ),
-                    ],
+          else if (_posts.isEmpty)
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('🏫', style: TextStyle(fontSize: 48)),
+                  const SizedBox(height: 16),
+                  Text(
+                    'まだ投稿がありません',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
                   ),
-                )
-              : Stack(
+                  const SizedBox(height: 8),
+                  Text(
+                    '今週末の${widget.university}の\n投稿をお待ちください',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.white.withValues(alpha: 0.4),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            PageView.builder(
+              controller: _pageController,
+              scrollDirection: Axis.vertical,
+              onPageChanged: _onPageChanged,
+              itemCount: _posts.length,
+              itemBuilder: (context, index) {
+                final post = _posts[index];
+                _cardKeys.putIfAbsent(
+                    index, () => GlobalKey<PostCardState>());
+                return Padding(
+                  padding:
+                      EdgeInsets.only(top: headerAreaHeight, bottom: 71),
+                  child: Center(
+                    child: SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: PostCard(
+                          key: _cardKeys[index],
+                          post: post,
+                          currentUserId: widget.currentUserId,
+                          currentUserIconUrl: _currentUserIconUrl,
+                          audioService: _audioService,
+                          startFromBack: _hasPostedThisWeekend,
+                          audioManagedExternally: true,
+                          externalPreviewUrl: _previewUrlCache[index],
+                          backSideEnabled: _hasPostedThisWeekend,
+                          onLike: () {},
+                          onComment: () {},
+                          onAdd: () {},
+                          onShare: () => showCardShareSheet(
+                            context,
+                            post: post,
+                            currentUserId: widget.currentUserId,
+                            currentUserIconUrl: _currentUserIconUrl,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+
+          // ── フローティングヘッダー ────────────────────────
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SizedBox(
+              height: headerAreaHeight,
+              child: Padding(
+                padding: EdgeInsets.only(top: topPadding),
+                child: Row(
                   children: [
-                    PageView.builder(
-                      controller: _pageController,
-                      scrollDirection: Axis.vertical,
-                      onPageChanged: _onPageChanged,
-                      itemCount: _posts.length,
-                      itemBuilder: (context, index) {
-                        final post = _posts[index];
-                        _cardKeys.putIfAbsent(
-                            index, () => GlobalKey<PostCardState>());
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 71),
-                          child: Center(
-                            child: SingleChildScrollView(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: PostCard(
-                                  key: _cardKeys[index],
-                                  post: post,
-                                  currentUserId: widget.currentUserId,
-                                  currentUserIconUrl: _currentUserIconUrl,
-                                  audioService: _audioService,
-                                  startFromBack: false,
-                                  audioManagedExternally: true,
-                                  externalPreviewUrl: _previewUrlCache[index],
-                                  backSideEnabled: false,
-                                  onLike: () {},
-                                  onComment: () {},
-                                  onAdd: () {},
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: GestureDetector(
+                        onTap: () {
+                          _audioService.stop();
+                          Navigator.pop(context);
+                        },
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.5),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.arrow_back_ios_new,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('🔥', style: TextStyle(fontSize: 14)),
+                              SizedBox(width: 4),
+                              Text(
+                                'Campus Vibe',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
                                 ),
                               ),
-                            ),
+                            ],
                           ),
-                        );
-                      },
+                          Text(
+                            widget.university,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: HomeBottomNavigation(
-                        selectedIndex: 0,
-                        onItemTapped: (i) {
-                          if (i == 0) {
-                            _audioService.stop();
-                            Navigator.pop(context);
-                          }
-                        },
+                    Padding(
+                      padding: const EdgeInsets.only(right: 16),
+                      child: SizedBox(
+                        width: 40,
+                        child: _posts.isNotEmpty
+                            ? Text(
+                                '${_currentPage + 1}/${_posts.length}',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color:
+                                      Colors.white.withValues(alpha: 0.7),
+                                ),
+                                textAlign: TextAlign.right,
+                              )
+                            : const SizedBox.shrink(),
                       ),
                     ),
                   ],
                 ),
+              ),
+            ),
+          ),
+
+          // ── ボトムナビゲーション ──────────────────────────
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: HomeBottomNavigation(
+              selectedIndex: 0,
+              onItemTapped: (i) {
+                _audioService.stop();
+                if (i == 0) {
+                  Navigator.pop(context);
+                } else {
+                  widget.onTabSwitch?.call(i);
+                  final route = ModalRoute.of(context);
+                  if (route != null) {
+                    Navigator.of(context).removeRoute(route);
+                  }
+                }
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

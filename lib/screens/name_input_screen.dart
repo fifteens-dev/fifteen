@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
@@ -131,7 +132,7 @@ class _NameInputScreenState extends State<NameInputScreen> {
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: AppColors.background,
-        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+        body: Center(child: CupertinoActivityIndicator(color: Colors.white, radius: 14)),
       );
     }
 

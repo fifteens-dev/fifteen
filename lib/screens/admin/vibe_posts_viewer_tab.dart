@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -238,7 +239,7 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
   Widget _buildContent() {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(color: Colors.white),
+        child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
       );
     }
 

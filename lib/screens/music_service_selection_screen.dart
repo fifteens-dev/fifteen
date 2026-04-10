@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../models/music_service_type.dart';
 import '../services/music_service_manager.dart';
@@ -129,7 +130,7 @@ class _MusicServiceSelectionScreenState
       ),
       body: _isLoading
           ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF5D8FFF)),
+              child: CupertinoActivityIndicator(color: Color(0xFF5D8FFF), radius: 14),
             )
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16),

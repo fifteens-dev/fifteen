@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../services/admin_service.dart';
 
@@ -193,13 +194,9 @@ class _BroadcastNotificationTabState extends State<BroadcastNotificationTab> {
                 ),
               ),
               child: _isSending
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
+                  ? const CupertinoActivityIndicator(
+                      color: Colors.white,
+                      radius: 10,
                     )
                   : const Text(
                       '通知を送信',
@@ -319,7 +316,7 @@ class _BroadcastNotificationTabState extends State<BroadcastNotificationTab> {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(32),
-          child: CircularProgressIndicator(color: Colors.white),
+          child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
         ),
       );
     }

@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../models/vibe_topic_model.dart';
 import '../../services/admin_service.dart';
+import '../../widgets/common/app_toast.dart';
 
 /// Vibeお題管理タブ
 class VibeTopicManagementTab extends StatefulWidget {
@@ -68,12 +69,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
 
   Future<void> _createTopic() async {
     if (_titleController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('お題のタイトルを入力してください'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      AppToast.show(context, 'お題のタイトルを入力してください');
       return;
     }
 
@@ -86,12 +82,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vibeお題を作成しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        AppToast.show(context, 'Vibeお題を作成しました');
 
         // フォームをクリア
         _titleController.clear();
@@ -104,12 +95,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('作成に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        AppToast.show(context, '作成に失敗しました: $e');
       }
     } finally {
       if (mounted) {
@@ -125,22 +111,12 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
         status: VibeTopicStatus.active,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('「${topic.title}」をアクティブにしました'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        AppToast.show(context, '「${topic.title}」をアクティブにしました');
         _loadTopics();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('更新に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        AppToast.show(context, '更新に失敗しました: $e');
       }
     }
   }
@@ -180,22 +156,12 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
       await _adminService.deleteVibeTopic(topic.topicId);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('お題を削除しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        AppToast.show(context, 'お題を削除しました');
         _loadTopics();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('削除に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        AppToast.show(context, '削除に失敗しました: $e');
       }
     }
   }
@@ -299,22 +265,12 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('お題を更新しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        AppToast.show(context, 'お題を更新しました');
         _loadTopics();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('更新に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        AppToast.show(context, '更新に失敗しました: $e');
       }
     }
   }

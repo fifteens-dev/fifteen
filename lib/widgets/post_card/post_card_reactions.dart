@@ -170,12 +170,29 @@ class ShareButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hsl = HSLColor.fromColor(theme.gradientEnd);
+    final newLightness = hsl.lightness > 0.5
+        ? (hsl.lightness - 0.1).clamp(0.0, 1.0)
+        : (hsl.lightness + 0.1).clamp(0.0, 1.0);
+    final bgColor = hsl.withLightness(newLightness).toColor();
     return GestureDetector(
       onTap: onTap,
-      child: Image.asset(
-        'assets/icons/share_button.png',
+      child: Container(
         width: size,
         height: size,
+        decoration: BoxDecoration(
+          color: bgColor,
+          shape: BoxShape.circle,
+        ),
+        child: Center(
+          child: Image.asset(
+            'assets/icons/share_button.png',
+            width: size,
+            height: size,
+            color: theme.textColor,
+            colorBlendMode: BlendMode.srcIn,
+          ),
+        ),
       ),
     );
   }

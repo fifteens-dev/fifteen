@@ -7,6 +7,7 @@ import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
 import '../services/user_service.dart';
 import '../services/auth_service.dart';
+import '../widgets/common/app_toast.dart';
 
 /// ユーザーネーム作成画面
 class UsernameCreationScreen extends StatefulWidget {
@@ -47,12 +48,7 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
     final username = _usernameController.text.trim().toLowerCase();
     if (username.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ユーザーネームを入力してください'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, 'ユーザーネームを入力してください');
       }
       return;
     }
@@ -60,12 +56,7 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
     // ユーザーネームのバリデーション（英数字とアンダースコアのみ）
     if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(username)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ユーザーネームは英数字とアンダースコアのみ使用できます'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, 'ユーザーネームは英数字とアンダースコアのみ使用できます');
       }
       return;
     }
@@ -73,12 +64,7 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
     // 長さのバリデーション
     if (username.length < 3 || username.length > 20) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ユーザーネームは3〜20文字で設定してください'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, 'ユーザーネームは3〜20文字で設定してください');
       }
       return;
     }
@@ -113,12 +99,7 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
           setState(() {
             _isLoading = false;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('このユーザーネームは既に使用されています'),
-              backgroundColor: AppColors.error,
-            ),
-          );
+          AppToast.show(context, 'このユーザーネームは既に使用されています');
         }
         return;
       }
@@ -148,12 +129,7 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ユーザーネームの保存に失敗しました'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, 'ユーザーネームの保存に失敗しました');
       }
     }
   }

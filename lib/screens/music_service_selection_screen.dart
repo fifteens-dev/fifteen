@@ -4,6 +4,7 @@ import '../models/music_service_type.dart';
 import '../services/music_service_manager.dart';
 import '../services/apple_music_service.dart';
 import '../widgets/dialogs/bottom_sheet_dialog.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 音楽サービス選択画面
 class MusicServiceSelectionScreen extends StatefulWidget {
@@ -60,28 +61,13 @@ class _MusicServiceSelectionScreenState
             if (mounted && !hasSubscription) {
               await BottomSheetDialog.showAppleMusicNoSubscription(context);
             } else if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${service.displayName}に連携しました'),
-                  backgroundColor: const Color(0xFF4CAF50),
-                ),
-              );
+              AppToast.show(context, '${service.displayName}に連携しました');
             }
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('${service.displayName}に連携しました'),
-                backgroundColor: const Color(0xFF4CAF50),
-              ),
-            );
+            AppToast.show(context, '${service.displayName}に連携しました');
           }
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${service.displayName}の連携に失敗しました'),
-              backgroundColor: const Color(0xFFE53935),
-            ),
-          );
+          AppToast.show(context, '${service.displayName}の連携に失敗しました');
         }
       }
     }
@@ -96,12 +82,7 @@ class _MusicServiceSelectionScreenState
     await _manager.setSelectedService(MusicServiceType.none);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('音楽サービスとの連携を解除しました'),
-          backgroundColor: Color(0xFF9F9F9F),
-        ),
-      );
+      AppToast.show(context, '音楽サービスとの連携を解除しました');
     }
 
     await _loadCurrentService();

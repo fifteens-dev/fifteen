@@ -13,6 +13,7 @@ import '../providers/post_ui_state.dart';
 import '../models/vibe_ranking_item.dart';
 import '../widgets/post_card.dart';
 import '../widgets/notification_badge.dart';
+import '../widgets/dialogs/delete_post_dialog.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
@@ -31,6 +32,7 @@ import 'card_share_screen.dart';
 import 'home/vibe_bar_section.dart';
 import 'home/home_bottom_nav.dart';
 import '../widgets/campus_vibe_card.dart';
+import '../widgets/common/app_toast.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -897,30 +899,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// 削除ボタンが押されたときの処理
   Future<void> _handleDelete(PostModel post) async {
-    final confirmed = await showCupertinoDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('投稿を削除'),
-        content: const Padding(
-          padding: EdgeInsets.only(top: 4),
-          child: Text('この投稿を削除しますか？'),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除'),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await showDeletePostConfirmDialog(context);
 
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     try {
       await _postService.deletePost(post.postId);
@@ -938,12 +919,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// メッセージを表示
   void _showMessage(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      AppToast.show(context, message);
     }
   }
 
@@ -983,6 +959,7 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
                 fontSize: 30,
                 fontWeight: FontWeight.w600,
                 color: Colors.white,
+                fontFamily: 'SFPro',
               ),
             ),
           ),

@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../services/storage_service.dart';
 import '../utils/context_menu_builder.dart';
+import '../widgets/common/app_toast.dart';
 
 /// プロフィール設定画面
 class ProfileSetupScreen extends StatefulWidget {
@@ -117,13 +118,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                       setState(() {
                         _selectedImageBytes = result;
                       });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('写真を選択しました'),
-                          backgroundColor: AppColors.success,
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
+                      AppToast.show(context, '写真を選択しました');
                     }
                   },
                   child: Container(
@@ -152,13 +147,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 // 写真を撮るオプション
                 InkWell(
                   onTap: () {
-                    Navigator.pop(context); // ダイアログを閉じる
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('カメラ機能は今後実装予定です'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
+                    Navigator.pop(context); // AppToast.show(context, 'カメラ機能は今後実装予定です');
                   },
                   child: Container(
                     height: 45,
@@ -198,22 +187,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
     // バリデーション
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('名前を入力してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      AppToast.show(context, '名前を入力してください');
       return;
     }
 
     if (username.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ユーザー名を入力してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      AppToast.show(context, 'ユーザー名を入力してください');
       return;
     }
 
@@ -262,12 +241,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         setState(() {
           _isSaving = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('プロフィールの保存に失敗しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, 'プロフィールの保存に失敗しました: $e');
       }
     }
   }

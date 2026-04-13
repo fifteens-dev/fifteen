@@ -74,7 +74,7 @@ class PostCardBackInfo extends StatelessWidget {
                   text: track.trackName,
                   style: TextStyle(
                     fontSize: 21,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     color: theme.textColor,
                   ),
                   width: cardWidth * (285 / 363),
@@ -293,19 +293,28 @@ class PostCardBackInfo extends StatelessWidget {
 
   /// 共有ボタン
   Widget _buildShareButton() {
+    final hsl = HSLColor.fromColor(theme.gradientEnd);
+    final newLightness = hsl.lightness > 0.5
+        ? (hsl.lightness - 0.1).clamp(0.0, 1.0)
+        : (hsl.lightness + 0.1).clamp(0.0, 1.0);
+    final bgColor = hsl.withLightness(newLightness).toColor();
     return GestureDetector(
       onTap: onShare,
       child: Container(
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.6),
+          color: bgColor,
           shape: BoxShape.circle,
         ),
-        child: const Icon(
-          Icons.share,
-          color: Colors.white,
-          size: 20,
+        child: Center(
+          child: Image.asset(
+            'assets/icons/share_button.png',
+            width: 36,
+            height: 36,
+            color: theme.textColor,
+            colorBlendMode: BlendMode.srcIn,
+          ),
         ),
       ),
     );

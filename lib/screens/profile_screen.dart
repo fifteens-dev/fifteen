@@ -12,6 +12,7 @@ import '../widgets/profile_widgets.dart';
 import 'settings_screen.dart';
 import 'post_detail_screen.dart';
 import 'follow_list_screen.dart';
+import '../widgets/common/app_toast.dart';
 
 /// プロフィール画面（自分）
 class ProfileScreen extends StatefulWidget {
@@ -255,9 +256,7 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('削除に失敗しました')),
-        );
+        AppToast.show(context, '削除に失敗しました');
       }
     }
   }

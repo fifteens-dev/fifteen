@@ -5,6 +5,7 @@ import '../services/music_service_manager.dart';
 import '../services/apple_music_service.dart';
 import '../models/music_service_type.dart';
 import '../widgets/dialogs/dialogs.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 連携サービス画面
 class LinkedServicesScreen extends StatefulWidget {
@@ -375,20 +376,10 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
             if (mounted && !hasSubscription) {
               await BottomSheetDialog.showAppleMusicNoSubscription(context);
             } else if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${service.displayName}に連携しました'),
-                  backgroundColor: const Color(0xFF4CAF50),
-                ),
-              );
+              AppToast.show(context, '${service.displayName}に連携しました');
             }
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('${service.displayName}に連携しました'),
-                backgroundColor: const Color(0xFF4CAF50),
-              ),
-            );
+            AppToast.show(context, '${service.displayName}に連携しました');
           }
           await _loadSettings();
         } else {
@@ -400,13 +391,7 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
             errorMessage = 'Apple Musicの連携に失敗しました。Apple Musicのサブスクリプションが有効か確認してください。';
           }
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(errorMessage),
-              backgroundColor: const Color(0xFFE53935),
-              duration: const Duration(seconds: 4),
-            ),
-          );
+          AppToast.show(context, errorMessage);
           setState(() => _isLoading = false);
         }
       }
@@ -414,12 +399,7 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
       // 例外時も前のサービスに戻す
       await _manager.setSelectedService(previousService);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: const Color(0xFFE53935),
-          ),
-        );
+        AppToast.show(context, 'エラーが発生しました: $e');
         setState(() => _isLoading = false);
       }
     }
@@ -434,22 +414,12 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
       await _manager.setSelectedService(MusicServiceType.none);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('音楽サービスとの連携を解除しました'),
-            backgroundColor: Color(0xFF9F9F9F),
-          ),
-        );
+        AppToast.show(context, '音楽サービスとの連携を解除しました');
         await _loadSettings();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: const Color(0xFFE53935),
-          ),
-        );
+        AppToast.show(context, 'エラーが発生しました: $e');
         setState(() => _isLoading = false);
       }
     }

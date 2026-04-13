@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -26,6 +28,7 @@ import 'services/fcm_handler_service.dart';
 import 'services/auth_service.dart';
 import 'services/settings_service.dart';
 import 'services/post_service.dart';
+import 'services/font_service.dart';
 import 'services/user_service.dart';
 import 'services/vibe_topic_service.dart';
 import 'models/post_model.dart';
@@ -80,6 +83,9 @@ void main() async {
     ),
   );
 
+  // SF Pro フォントをロード（iOS のみ・失敗時はフォールバック）
+  await FontService.loadSFPro();
+
   // runApp を先に呼んで「15s」をすぐ表示し、FCM初期化はバックグラウンドで実行
   runApp(const FifteenApp());
   _initializePostLaunch();
@@ -118,9 +124,15 @@ Future<void> _initializePostLaunch() async {
   }
 }
 
-/// OS標準フォント（iOS: SF Pro, Android: Roboto）をそのまま使用
+/// iOS: Hiragino Sans を明示指定し全ウェイト(W0-W9)を有効化
+/// Android: Noto Sans JP にフォールバック
 TextTheme _buildTextTheme(TextTheme base) {
-  return base;
+  // iOS: SF Pro（ネイティブロード済み）、Android: Inter
+  final fontFamily = Platform.isIOS ? 'SFPro' : GoogleFonts.inter().fontFamily;
+  return base.apply(
+    fontFamily: fontFamily,
+    fontFamilyFallback: ['Hiragino Sans', 'Noto Sans JP', 'Roboto'],
+  );
 }
 
 class FifteenApp extends StatelessWidget {
@@ -157,6 +169,8 @@ class FifteenApp extends StatelessWidget {
           primary: AppColors.buttonPrimary,
           surface: AppColors.surface,
         ),
+        fontFamily: Platform.isIOS ? 'SFPro' : GoogleFonts.inter().fontFamily,
+        fontFamilyFallback: const ['Hiragino Sans', 'Noto Sans JP', 'Roboto'],
         textTheme: _buildTextTheme(ThemeData(brightness: Brightness.dark).textTheme),
         useMaterial3: true,
       ),

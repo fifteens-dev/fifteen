@@ -13,6 +13,7 @@ import 'invitation_stats_tab.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'reports_tab.dart';
 import 'analytics_tab.dart';
+import '../../widgets/common/app_toast.dart';
 
 /// 管理者画面
 /// 一斉通知とVibeお題管理のタブを持つ
@@ -48,12 +49,7 @@ class _AdminScreenState extends State<AdminScreen>
       if (!isAdmin) {
         // 管理者でない場合は前の画面に戻る
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('管理者権限がありません'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        AppToast.show(context, '管理者権限がありません');
       }
     }
   }
@@ -175,12 +171,7 @@ class _OfficialAccountTabState extends State<_OfficialAccountTab> {
     final password = dotenv.env['OFFICIAL_ACCOUNT_PASSWORD'] ?? '';
 
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('.env に OFFICIAL_ACCOUNT_EMAIL と OFFICIAL_ACCOUNT_PASSWORD を設定してください'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppToast.show(context, '.env に OFFICIAL_ACCOUNT_EMAIL と OFFICIAL_ACCOUNT_PASSWORD を設定してください');
       return;
     }
 
@@ -215,12 +206,7 @@ class _OfficialAccountTabState extends State<_OfficialAccountTab> {
       Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.message ?? 'ログインに失敗しました'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppToast.show(context, e.message ?? 'ログインに失敗しました');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

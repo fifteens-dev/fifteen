@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../widgets/common/app_toast.dart';
 
 /// 集計メトリクスの時系列種別
 enum MetricSeriesType {
@@ -282,13 +283,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
 
   void _copyAsCsv() {
     Clipboard.setData(ClipboardData(text: _buildCsv()));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('CSVをクリップボードにコピーしました'),
-        duration: Duration(seconds: 2),
-        backgroundColor: Color(0xFF2D2D2D),
-      ),
-    );
+    AppToast.show(context, 'CSVをクリップボードにコピーしました');
   }
 
   // ──────────────────────────────────────────

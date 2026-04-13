@@ -6,9 +6,9 @@ import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_service.dart';
 import '../services/storage_service.dart';
-import '../constants/app_colors.dart';
 import '../widgets/dialogs/glass_popup.dart';
 import '../utils/context_menu_builder.dart';
+import '../widgets/common/app_toast.dart';
 
 /// アカウント編集画面
 class AccountEditScreen extends StatefulWidget {
@@ -109,21 +109,10 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
         setState(() {
           _selectedImageBytes = pickerResult;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('写真を選択しました'),
-            backgroundColor: AppColors.success,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        AppToast.show(context, '写真を選択しました');
       }
     } else if (result == 'camera') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('カメラ機能は今後実装予定です'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      AppToast.show(context, 'カメラ機能は今後実装予定です');
     }
   }
 
@@ -179,42 +168,22 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
 
     // バリデーション
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('名前を入力してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      AppToast.show(context, '名前を入力してください');
       return;
     }
 
     if (username.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ユーザー名を入力してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      AppToast.show(context, 'ユーザー名を入力してください');
       return;
     }
 
     if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(username)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ユーザー名は英数字とアンダースコアのみ使用できます'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      AppToast.show(context, 'ユーザー名は英数字とアンダースコアのみ使用できます');
       return;
     }
 
     if (username.length < 3 || username.length > 20) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ユーザー名は3〜20文字で入力してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      AppToast.show(context, 'ユーザー名は3〜20文字で入力してください');
       return;
     }
 
@@ -255,14 +224,8 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
         setState(() {
           _isSaving = false;
         });
-        final messenger = ScaffoldMessenger.of(context);
         final navigator = Navigator.of(context);
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('プロフィールを保存しました'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        AppToast.show(context, 'プロフィールを保存しました');
         // キーボードが完全に閉じてから画面を戻す
         await Future.delayed(const Duration(milliseconds: 100));
         if (mounted) {
@@ -274,12 +237,7 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
         setState(() {
           _isSaving = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('保存に失敗しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, '保存に失敗しました: $e');
       }
     }
   }

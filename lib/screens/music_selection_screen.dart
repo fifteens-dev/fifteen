@@ -23,6 +23,7 @@ import '../widgets/common/common.dart';
 import '../widgets/music/music_search_bar.dart';
 import '../widgets/music/music_track_list_item.dart';
 import 'home/home_bottom_nav.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 投稿用楽曲選択画面
 class MusicSelectionScreen extends StatefulWidget {
@@ -494,13 +495,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('音楽が見つかりません'),
-            backgroundColor: Color(0xFF333333),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        AppToast.show(context, '音楽が見つかりません');
       }
     }
   }
@@ -508,12 +503,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   /// 次へ進む
   Future<void> _onNext() async {
     if (_selectedTrack == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('楽曲を選択してください'),
-          backgroundColor: Color(0xFFE53935),
-        ),
-      );
+      AppToast.show(context, '楽曲を選択してください');
       return;
     }
 

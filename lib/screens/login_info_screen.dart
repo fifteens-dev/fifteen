@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../widgets/dialogs/confirm_dialog.dart';
+import '../widgets/common/app_toast.dart';
 
 /// ログイン情報画面
 class LoginInfoScreen extends StatefulWidget {
@@ -61,9 +62,7 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
       if (userId == null) {
         setState(() => _isDeleting = false);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('ログインが必要です')),
-          );
+          AppToast.show(context, 'ログインが必要です');
         }
         return;
       }
@@ -93,16 +92,12 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
           cancelText: '',
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('削除に失敗しました: ${e.message}')),
-        );
+        AppToast.show(context, '削除に失敗しました: ${e.message}');
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isDeleting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('削除中にエラーが発生しました')),
-      );
+      AppToast.show(context, '削除中にエラーが発生しました');
     }
   }
 

@@ -6,6 +6,7 @@ import '../services/apple_music_service.dart';
 import '../models/music_service_type.dart';
 import '../widgets/dialogs/bottom_sheet_dialog.dart';
 import 'home_screen.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 音楽ライブラリ接続画面
 ///
@@ -233,13 +234,7 @@ class MusicConnectionScreen extends StatelessWidget {
         await BottomSheetDialog.showAppleMusicNoSubscription(context);
         if (!context.mounted) return;
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Apple Musicと連携しました'),
-            backgroundColor: Color(0xFF4CAF50),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        AppToast.show(context, 'Apple Musicと連携しました');
       }
 
       // ホーム画面へ遷移
@@ -252,14 +247,7 @@ class MusicConnectionScreen extends StatelessWidget {
         appleMusicConnected: false,
       );
 
-      // エラーメッセージを表示
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Apple Musicの連携に失敗しました。Apple Musicのサブスクリプションが有効か確認してください。'),
-          backgroundColor: Color(0xFFE53935),
-          duration: Duration(seconds: 4),
-        ),
-      );
+      // AppToast.show(context, 'Apple Musicの連携に失敗しました。Apple Musicのサブスクリプションが有効か確認してください。');
 
       if (context.mounted) {
         Navigator.pushReplacementNamed(context, '/home');
@@ -287,26 +275,12 @@ class MusicConnectionScreen extends StatelessWidget {
         appleMusicConnected: false,
       );
 
-      // 成功メッセージ
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Spotifyと連携しました'),
-          backgroundColor: Color(0xFF4CAF50),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      // AppToast.show(context, 'Spotifyと連携しました');
 
       // ホーム画面へ遷移
       Navigator.pushReplacementNamed(context, '/home');
     } else {
-      // 認証失敗またはキャンセル: エラーメッセージを表示
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Spotifyの連携に失敗しました。もう一度お試しください。'),
-          backgroundColor: Color(0xFFE53935),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      // 認証失敗またはキャンセル: AppToast.show(context, 'Spotifyの連携に失敗しました。もう一度お試しください。');
 
       // 連携なしでホーム画面へ遷移
       await settingsService.saveAllLinkedServicesSettings(

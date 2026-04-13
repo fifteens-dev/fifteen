@@ -9,6 +9,8 @@ import '../services/post_service.dart';
 import '../services/user_service.dart';
 import '../utils/current_user_helper.dart';
 import 'card_share_screen.dart';
+import '../widgets/common/app_toast.dart';
+import '../widgets/dialogs/delete_post_dialog.dart';
 
 /// プロフィールからの投稿一覧画面（インスタ式縦スクロール）
 /// 音楽制御はこの画面が一括管理（PostCardのフリップに依存しない）
@@ -216,30 +218,9 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
   }
 
   Future<void> _handleDelete(PostModel post) async {
-    final confirmed = await showCupertinoDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('投稿を削除'),
-        content: const Padding(
-          padding: EdgeInsets.only(top: 4),
-          child: Text('この投稿を削除しますか？'),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除'),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await showDeletePostConfirmDialog(context);
 
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
 
     try {
       await _postService.deletePost(post.postId);
@@ -253,9 +234,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('削除に失敗しました'), backgroundColor: Color(0xFFE53935)),
-        );
+        AppToast.show(context, '削除に失敗しました');
       }
     }
   }

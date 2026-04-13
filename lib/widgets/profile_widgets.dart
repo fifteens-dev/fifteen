@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dialogs/glass_popup.dart';
+import 'dialogs/delete_post_dialog.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/post_model.dart';
 import '../services/audio_player_service.dart';
@@ -143,29 +144,8 @@ class ProfilePostGridItem extends StatelessWidget {
   }
 
   void _showDeleteConfirm(BuildContext context) {
-    showCupertinoDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('投稿を削除'),
-        content: const Padding(
-          padding: EdgeInsets.only(top: 4),
-          child: Text('この操作は取り消せません。'),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除'),
-          ),
-        ],
-      ),
-    ).then((confirmed) {
-      if (confirmed == true) {
+    showDeletePostConfirmDialog(context).then((confirmed) {
+      if (confirmed) {
         onDelete?.call();
       }
     });

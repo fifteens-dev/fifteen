@@ -457,13 +457,7 @@ class _VibePostsViewerTabState extends State<VibePostsViewerTab> {
               // Post ID（タップでコピー）
               GestureDetector(
                 onTap: () {
-                  // クリップボードにコピー
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Post ID: ${post.postId}'),
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
+                  // AppToast.show(context, 'Post ID: ${post.postId}');
                 },
                 child: Text(
                   'ID: ${post.postId.substring(0, 8)}...',

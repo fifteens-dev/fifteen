@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/report_service.dart';
+import '../common/app_toast.dart';
 
 const _reasons = [
   'スパム',
@@ -76,19 +77,12 @@ class _ReportSheetState extends State<_ReportSheet> {
       }
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('通報しました。ご報告ありがとうございます。'),
-            duration: Duration(seconds: 3),
-          ),
-        );
+        AppToast.show(context, '通報しました。ご報告ありがとうございます。');
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('通報に失敗しました。もう一度お試しください。')),
-        );
+        AppToast.show(context, '通報に失敗しました。もう一度お試しください。');
       }
     }
   }

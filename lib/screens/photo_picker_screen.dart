@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:image_picker/image_picker.dart';
-import '../constants/app_colors.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 写真選択画面
 ///
@@ -40,12 +40,7 @@ class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('画像の選択に失敗しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, '画像の選択に失敗しました: $e');
       }
     }
   }
@@ -55,12 +50,7 @@ class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
       // 選択した画像のバイトデータを返す
       Navigator.pop(context, _imageBytes);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('写真を選択してください'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      AppToast.show(context, '写真を選択してください');
     }
   }
 

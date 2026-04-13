@@ -8,6 +8,7 @@ import '../widgets/common_input_field.dart';
 import '../services/post_service.dart';
 import '../services/user_service.dart';
 import '../models/track_model.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 投稿作成画面
 class CreatePostScreen extends StatefulWidget {
@@ -96,12 +97,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   /// メッセージを表示
   void _showMessage(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      AppToast.show(context, message);
     }
   }
 

@@ -8,6 +8,7 @@ import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../constants/app_dimensions.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/common/app_toast.dart';
 
 /// 開発者ツールタブ（管理者パネル内）
 class DevToolsTab extends StatefulWidget {
@@ -87,12 +88,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
           _statusMessage = successMessage;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(snackBarMessage),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        AppToast.show(context, snackBarMessage);
       }
     } catch (e) {
       if (mounted) {
@@ -101,12 +97,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
           _statusMessage = '❌ エラー: $e';
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, 'エラーが発生しました: $e');
       }
     }
   }
@@ -196,12 +187,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
                 final code = _codeController.text.trim().toUpperCase();
                 final maxUses = int.tryParse(_maxUsesController.text.trim()) ?? 10;
                 if (code.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('招待コードを入力してください'),
-                      backgroundColor: AppColors.error,
-                    ),
-                  );
+                  AppToast.show(context, '招待コードを入力してください');
                   return;
                 }
                 final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';

@@ -7,3 +7,4 @@ export 'action_dialog.dart';
 export 'bottom_sheet_dialog.dart';
 export 'restriction_notification.dart';
 export 'report_dialog.dart';
+export 'delete_post_dialog.dart';

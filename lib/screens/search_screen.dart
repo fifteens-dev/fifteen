@@ -10,6 +10,7 @@ import '../models/user_model.dart';
 import '../widgets/profile_widgets.dart';
 import '../widgets/common/common.dart';
 import 'other_user_profile_screen.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 検索画面
 class SearchScreen extends StatefulWidget {
@@ -203,12 +204,7 @@ class _SearchScreenState extends State<SearchScreen> {
           _isSearching = false;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('検索中にエラーが発生しました'),
-            backgroundColor: Color(0xFFDC3545),
-          ),
-        );
+        AppToast.show(context, '検索中にエラーが発生しました');
       }
     }
   }

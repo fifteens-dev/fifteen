@@ -7,12 +7,12 @@ import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../models/comment_model.dart';
 import '../services/comment_service.dart';
-import '../constants/app_colors.dart';
 import '../utils/current_user_helper.dart';
 import '../utils/context_menu_builder.dart';
 import '../widgets/dialogs/dialogs.dart';
 import '../services/report_service.dart';
 import '../widgets/native_pull_down_button.dart';
+import '../widgets/common/app_toast.dart';
 
 /// コメント画面（ボトムシート）
 class CommentScreen extends StatefulWidget {
@@ -131,12 +131,7 @@ class _CommentScreenState extends State<CommentScreen> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('コメントの投稿に失敗しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, 'コメントの投稿に失敗しました: $e');
       }
     } finally {
       if (mounted) {
@@ -565,18 +560,11 @@ class _CommentScreenState extends State<CommentScreen> {
         reason: reason,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('通報しました。ご報告ありがとうございます。'),
-            duration: Duration(seconds: 3),
-          ),
-        );
+        AppToast.show(context, '通報しました。ご報告ありがとうございます。');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('通報に失敗しました。もう一度お試しください。')),
-        );
+        AppToast.show(context, '通報に失敗しました。もう一度お試しください。');
       }
     }
   }
@@ -604,12 +592,7 @@ class _CommentScreenState extends State<CommentScreen> {
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('コメントの削除に失敗しました: $e'),
-              backgroundColor: AppColors.error,
-            ),
-          );
+          AppToast.show(context, 'コメントの削除に失敗しました: $e');
         }
       }
     }

@@ -8,6 +8,7 @@ import '../widgets/primary_button.dart';
 import '../constants/app_constants.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 認証コード入力画面
 class VerificationCodeScreen extends StatefulWidget {
@@ -46,24 +47,14 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen> {
     final code = _codeController.text.trim();
     if (code.isEmpty || code.length != 6) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('6桁の認証コードを入力してください'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, '6桁の認証コードを入力してください');
       }
       return;
     }
 
     if (_verificationId == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('認証情報が見つかりません'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, '認証情報が見つかりません');
       }
       return;
     }
@@ -134,23 +125,13 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen> {
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, e.toString().replaceAll('Exception: ', ''));
       }
     }
   }
 
   void _handleResendCode() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('認証コードを再送信しました'),
-        backgroundColor: AppColors.success,
-      ),
-    );
+    AppToast.show(context, '認証コードを再送信しました');
   }
 
   @override

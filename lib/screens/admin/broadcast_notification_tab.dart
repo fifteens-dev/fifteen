@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../services/admin_service.dart';
+import '../../widgets/common/app_toast.dart';
 
 /// 一斉通知タブ
 class BroadcastNotificationTab extends StatefulWidget {
@@ -51,12 +52,7 @@ class _BroadcastNotificationTabState extends State<BroadcastNotificationTab> {
 
   Future<void> _sendNotification() async {
     if (_titleController.text.isEmpty || _bodyController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('タイトルと本文を入力してください'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      AppToast.show(context, 'タイトルと本文を入力してください');
       return;
     }
 
@@ -119,12 +115,7 @@ class _BroadcastNotificationTabState extends State<BroadcastNotificationTab> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('一斉通知を送信しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        AppToast.show(context, '一斉通知を送信しました');
 
         // フォームをクリア
         _titleController.clear();
@@ -136,12 +127,7 @@ class _BroadcastNotificationTabState extends State<BroadcastNotificationTab> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('送信に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        AppToast.show(context, '送信に失敗しました: $e');
       }
     } finally {
       if (mounted) {

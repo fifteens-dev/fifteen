@@ -7,6 +7,7 @@ import '../widgets/phone_input_field.dart';
 import '../widgets/primary_button.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 電話番号認証画面
 class PhoneAuthScreen extends StatefulWidget {
@@ -35,12 +36,7 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
 
     if (phoneNumber.length != 11) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('正しい電話番号を入力してください'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, '正しい電話番号を入力してください');
       }
       return;
     }
@@ -76,12 +72,7 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
             setState(() {
               _isLoading = false;
             });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(error),
-                backgroundColor: AppColors.error,
-              ),
-            );
+            AppToast.show(context, error);
           }
         },
         onAutoVerify: (credential) async {
@@ -122,23 +113,13 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('認証の送信に失敗しました'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, '認証の送信に失敗しました');
       }
     }
   }
 
   void _handleCountryCodeTap() {
-    // TODO: 国コード選択ダイアログを実装
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('国コード選択機能は開発中です'),
-      ),
-    );
+    // TODO: AppToast.show(context, '国コード選択機能は開発中です');
   }
 
   Widget _buildTermsText(BuildContext context) {

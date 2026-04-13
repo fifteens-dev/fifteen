@@ -5,6 +5,7 @@ import '../models/vibe_topic_model.dart';
 import '../services/vibe_topic_service.dart';
 import '../constants/app_colors.dart';
 import '../constants/predefined_vibe_topics.dart';
+import '../widgets/common/app_toast.dart';
 
 /// Vibeお題投票画面
 class VibeTopicVotingScreen extends StatefulWidget {
@@ -90,12 +91,7 @@ class _VibeTopicVotingScreenState extends State<VibeTopicVotingScreen> {
       await _vibeTopicService.voteForTopic(userId, topicId);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('投票しました'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        AppToast.show(context, '投票しました');
       }
     } catch (e) {
       // エラー時は楽観的更新を逆算して元に戻す（全体再読み込みを避ける）
@@ -284,12 +280,7 @@ class _VibeTopicVotingScreenState extends State<VibeTopicVotingScreen> {
       await _loadVotingData();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('「$title」に投票しました'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        AppToast.show(context, '「$title」に投票しました');
       }
     } catch (e) {
       if (mounted) {

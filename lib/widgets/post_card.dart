@@ -31,6 +31,7 @@ import 'dialogs/report_dialog.dart';
 import 'package:path_provider/path_provider.dart';
 import 'native_pull_down_button.dart';
 import 'package:share_plus/share_plus.dart';
+import 'common/app_toast.dart';
 
 part 'post_card/mixins/post_card_color_mixin.dart';
 part 'post_card/mixins/post_card_lyrics_mixin.dart';
@@ -514,11 +515,29 @@ class PostCardState extends State<PostCard>
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
                           onTap: widget.onShare ?? _handleShare,
-                          child: Image.asset(
-                            'assets/icons/share_button.png',
-                            width: 36,
-                            height: 36,
-                          ),
+                          child: () {
+                            final hsl = HSLColor.fromColor(theme.gradientEnd);
+                            final newL = hsl.lightness > 0.5
+                                ? (hsl.lightness - 0.1).clamp(0.0, 1.0)
+                                : (hsl.lightness + 0.1).clamp(0.0, 1.0);
+                            return Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: hsl.withLightness(newL).toColor(),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Image.asset(
+                                  'assets/icons/share_button.png',
+                                  width: 36,
+                                  height: 36,
+                                  color: theme.textColor,
+                                  colorBlendMode: BlendMode.srcIn,
+                                ),
+                              ),
+                            );
+                          }(),
                         ),
                       ),
 
@@ -778,11 +797,29 @@ class PostCardState extends State<PostCard>
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: widget.onShare ?? _handleShare,
-                  child: Image.asset(
-                    'assets/icons/share_button.png',
-                    width: 36,
-                    height: 36,
-                  ),
+                  child: () {
+                    final hsl = HSLColor.fromColor(theme.gradientEnd);
+                    final newL = hsl.lightness > 0.5
+                        ? (hsl.lightness - 0.1).clamp(0.0, 1.0)
+                        : (hsl.lightness + 0.1).clamp(0.0, 1.0);
+                    return Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: hsl.withLightness(newL).toColor(),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Image.asset(
+                          'assets/icons/share_button.png',
+                          width: 36,
+                          height: 36,
+                          color: theme.textColor,
+                          colorBlendMode: BlendMode.srcIn,
+                        ),
+                      ),
+                    );
+                  }(),
                 ),
               ),
 
@@ -1090,50 +1127,15 @@ class PostCardState extends State<PostCard>
   }
 
   /// MarqueeText 用: 文字単位で日本語 +200 補正を行った InlineSpan を返す
+  /// テキストを TextSpan として返す（補正なし、指定ウェイトをそのまま適用）
   static InlineSpan _buildWeightAdjustedSpan(
     String text, {
     required TextStyle baseStyle,
   }) {
-    const allWeights = [
-      FontWeight.w100, FontWeight.w200, FontWeight.w300, FontWeight.w400,
-      FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800, FontWeight.w900,
-    ];
-    final base = baseStyle.fontWeight ?? FontWeight.w400;
-    final idx = allWeights.indexOf(base);
-    final jaWeight = idx >= 0
-        ? allWeights[(idx + 2).clamp(0, allWeights.length - 1)]
-        : base;
-
-    final japaneseRegex = RegExp(r'[\u3040-\u30FF\u4E00-\u9FFF\uF900-\uFAFF\u3000-\u303F]+');
-    final spans = <InlineSpan>[];
-    int lastEnd = 0;
-
-    for (final match in japaneseRegex.allMatches(text)) {
-      if (match.start > lastEnd) {
-        spans.add(TextSpan(
-          text: text.substring(lastEnd, match.start),
-          style: TextStyle(fontWeight: base),
-        ));
-      }
-      spans.add(TextSpan(
-        text: match.group(0),
-        style: TextStyle(fontWeight: jaWeight),
-      ));
-      lastEnd = match.end;
-    }
-    if (lastEnd < text.length) {
-      spans.add(TextSpan(
-        text: text.substring(lastEnd),
-        style: TextStyle(fontWeight: base),
-      ));
-    }
-
-    if (spans.isEmpty) return TextSpan(text: text, style: baseStyle);
-    return TextSpan(style: baseStyle, children: spans);
+    return TextSpan(text: text, style: baseStyle);
   }
 
-  /// RichText 用: 日本語ランと英語ランを分割し、文字単位で fontWeight を補正する
-  /// 日本語部分は baseWeight +200、英語部分は baseWeight をそのまま適用
+  /// テキストを Text ウィジェットとして返す（補正なし、指定ウェイトをそのまま適用）
   static Widget _buildWeightAdjustedText(
     String text, {
     required double fontSize,
@@ -1142,41 +1144,7 @@ class PostCardState extends State<PostCard>
     int maxLines = 1,
     TextOverflow overflow = TextOverflow.ellipsis,
   }) {
-    const allWeights = [
-      FontWeight.w100, FontWeight.w200, FontWeight.w300, FontWeight.w400,
-      FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800, FontWeight.w900,
-    ];
-    final idx = allWeights.indexOf(baseWeight);
-    final jaWeight = idx >= 0
-        ? allWeights[(idx + 2).clamp(0, allWeights.length - 1)]
-        : baseWeight;
-
-    final japaneseRegex = RegExp(r'[\u3040-\u30FF\u4E00-\u9FFF\uF900-\uFAFF\u3000-\u303F]+');
-    final spans = <TextSpan>[];
-    int lastEnd = 0;
-
-    for (final match in japaneseRegex.allMatches(text)) {
-      if (match.start > lastEnd) {
-        spans.add(TextSpan(
-          text: text.substring(lastEnd, match.start),
-          style: TextStyle(fontWeight: baseWeight),
-        ));
-      }
-      spans.add(TextSpan(
-        text: match.group(0),
-        style: TextStyle(fontWeight: jaWeight),
-      ));
-      lastEnd = match.end;
-    }
-    if (lastEnd < text.length) {
-      spans.add(TextSpan(
-        text: text.substring(lastEnd),
-        style: TextStyle(fontWeight: baseWeight),
-      ));
-    }
-
-    // 日本語なし → 通常の Text で返す
-    if (spans.isEmpty || spans.length == 1 && spans.first.style?.fontWeight == baseWeight) {
+    {
       return Text(
         text,
         style: TextStyle(fontSize: fontSize, fontWeight: baseWeight, color: color),
@@ -1184,15 +1152,6 @@ class PostCardState extends State<PostCard>
         overflow: overflow,
       );
     }
-
-    return Text.rich(
-      TextSpan(
-        style: TextStyle(fontSize: fontSize, color: color),
-        children: spans,
-      ),
-      maxLines: maxLines,
-      overflow: overflow,
-    );
   }
 
   /// 再生ボタン（裏面用 - タップ時のみ表示）

@@ -61,24 +61,13 @@ extension PostCardAudioMethods on PostCardState {
         } catch (e) {
           if (kDebugMode) print('❌ Playback error: $e');
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('音楽の再生に失敗しました: ${e.toString()}'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 3),
-              ),
-            );
+            AppToast.show(context, '音楽の再生に失敗しました: ${e.toString()}');
           }
         }
       } else {
         if (kDebugMode) print('⚠️  No preview URL available');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('この曲のプレビューURLが見つかりません'),
-              duration: Duration(seconds: 2),
-            ),
-          );
+          AppToast.show(context, 'この曲のプレビューURLが見つかりません');
         }
       }
     } finally {

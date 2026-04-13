@@ -10,6 +10,7 @@ import '../services/post_service.dart';
 import '../services/user_service.dart';
 import 'other_user_profile_screen.dart';
 import 'post_detail_screen.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 通知一覧画面
 class NotificationListScreen extends StatefulWidget {
@@ -905,14 +906,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
               _notificationService
                   .deleteNotification(notification.notificationId)
                   .catchError((_) {});
-              ScaffoldMessenger.of(context)
-                ..clearSnackBars()
-                ..showSnackBar(
-                  const SnackBar(
-                    content: Text('投稿が見つかりませんでした'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
+              AppToast.show(context, '投稿が見つかりませんでした');
               await Future.delayed(const Duration(seconds: 2));
             }
           }

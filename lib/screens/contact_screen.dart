@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/context_menu_builder.dart';
+import '../widgets/common/app_toast.dart';
 
 /// お問い合わせ画面
 class ContactScreen extends StatefulWidget {
@@ -146,22 +147,11 @@ class _ContactScreenState extends State<ContactScreen> {
   void _handleSend() {
     final message = _messageController.text.trim();
     if (message.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('お問い合わせ内容を入力してください'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppToast.show(context, 'お問い合わせ内容を入力してください');
       return;
     }
 
-    // TODO: 実際の送信処理を実装
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('お問い合わせを送信しました'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    // TODO: AppToast.show(context, 'お問い合わせを送信しました');
     Navigator.pop(context);
   }
 }

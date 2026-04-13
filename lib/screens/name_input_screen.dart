@@ -7,6 +7,7 @@ import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
 import '../services/user_service.dart';
 import '../services/auth_service.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 名前入力画面
 class NameInputScreen extends StatefulWidget {
@@ -66,12 +67,7 @@ class _NameInputScreenState extends State<NameInputScreen> {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('名前を入力してください'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, '名前を入力してください');
       }
       return;
     }
@@ -117,12 +113,7 @@ class _NameInputScreenState extends State<NameInputScreen> {
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('名前の保存に失敗しました: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, '名前の保存に失敗しました: $e');
       }
     }
   }

@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private let musicKitChannel = "com.fifteen.musickit"
+  private let fontsChannel = "com.fifteen.fonts"
   private var nativeMenuChannel: AnyObject?
 
   // MARK: - FlutterTextInputView swizzle: ペーストを常に許可
@@ -59,6 +60,7 @@ import ObjectiveC.runtime
     // Setup MusicKit Method Channel + Native Menu Channel
     if let controller = window?.rootViewController as? FlutterViewController {
       setupMusicKitChannel(controller: controller)
+      setupFontsChannel(controller: controller)
       if #available(iOS 14.0, *) {
         let menuChannel = NativeMenuChannel()
         menuChannel.setup(controller: controller)
@@ -93,6 +95,68 @@ import ObjectiveC.runtime
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
+
+  // MARK: - SF Pro フォントチャンネル
+
+  private func setupFontsChannel(controller: FlutterViewController) {
+    let channel = FlutterMethodChannel(
+      name: fontsChannel,
+      binaryMessenger: controller.binaryMessenger
+    )
+    channel.setMethodCallHandler { [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) in
+      guard self != nil else {
+        result(FlutterError(code: "UNAVAILABLE", message: "App delegate not available", details: nil))
+        return
+      }
+      switch call.method {
+      case "getSFProFonts":
+        self?.getSFProFonts(result: result)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  /// SF Pro の固有フォントファイルデータをリストで返す
+  /// UIFont.systemFont を使うことで iOS が正しく SF Pro を解決する
+  private func getSFProFonts(result: @escaping FlutterResult) {
+    // UIFont.Weight で各ウェイトのシステムフォントを取得
+    let weights: [(name: String, uiWeight: UIFont.Weight)] = [
+      ("w100", .ultraLight),
+      ("w200", .thin),
+      ("w300", .light),
+      ("w400", .regular),
+      ("w500", .medium),
+      ("w600", .semibold),
+      ("w700", .bold),
+      ("w800", .heavy),
+      ("w900", .black),
+    ]
+
+    var seenURLs = Set<String>()
+    var fontDataList: [FlutterStandardTypedData] = []
+
+    for (_, uiWeight) in weights {
+      let uiFont = UIFont.systemFont(ofSize: 17, weight: uiWeight)
+      let ctFont = uiFont as CTFont
+      guard let fontURL = CTFontCopyAttribute(ctFont, kCTFontURLAttribute) as? URL else { continue }
+
+      let urlString = fontURL.absoluteString
+      guard !seenURLs.contains(urlString) else { continue }
+      seenURLs.insert(urlString)
+
+      guard let data = try? Data(contentsOf: fontURL) else { continue }
+      fontDataList.append(FlutterStandardTypedData(bytes: data))
+    }
+
+    if fontDataList.isEmpty {
+      result(FlutterError(code: "FONT_ERROR", message: "Failed to load any SF Pro fonts", details: nil))
+    } else {
+      result(fontDataList)
+    }
+  }
+
+  // MARK: - MusicKit チャンネル
 
   private func setupMusicKitChannel(controller: FlutterViewController) {
     let channel = FlutterMethodChannel(

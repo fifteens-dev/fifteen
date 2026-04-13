@@ -10,6 +10,7 @@ import '../services/post_service.dart';
 import '../services/audio_player_service.dart';
 import '../widgets/profile_widgets.dart';
 import 'follow_list_screen.dart';
+import '../widgets/common/app_toast.dart';
 
 /// プロフィール画面（他人）
 class OtherUserProfileScreen extends StatefulWidget {
@@ -212,9 +213,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
         setState(() {
           _isFollowing = previousState;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラーが発生しました: $e')),
-        );
+        AppToast.show(context, 'エラーが発生しました: $e');
       }
     }
   }

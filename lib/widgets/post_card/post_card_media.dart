@@ -304,7 +304,7 @@ class TrackInfoDisplay extends StatelessWidget {
             text: track.trackName,
             style: TextStyle(
               fontSize: titleFontSize,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w700,
               color: theme.textColor,
             ),
             width: availableWidth!,
@@ -314,7 +314,7 @@ class TrackInfoDisplay extends StatelessWidget {
             track.trackName,
             style: TextStyle(
               fontSize: titleFontSize,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w700,
               color: theme.textColor,
             ),
             maxLines: 1,

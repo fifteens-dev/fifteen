@@ -9,6 +9,7 @@ import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
 import '../services/invite_code_service.dart';
 import '../services/user_service.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 招待コード入力画面
 class InviteCodeScreen extends StatefulWidget {
@@ -68,12 +69,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
     final inviteCode = _inviteCodeController.text.trim().toUpperCase();
     if (inviteCode.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('招待コードを入力してください'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, '招待コードを入力してください');
       }
       return;
     }
@@ -111,12 +107,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
           setState(() {
             _isLoading = false;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(errorMessage),
-              backgroundColor: AppColors.error,
-            ),
-          );
+          AppToast.show(context, errorMessage);
         }
         return;
       }
@@ -153,12 +144,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: ${e.toString().replaceFirst('Exception: ', '')}'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        AppToast.show(context, 'エラーが発生しました: ${e.toString().replaceFirst('Exception: ', '')}');
       }
     }
   }

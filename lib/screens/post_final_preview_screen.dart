@@ -28,6 +28,7 @@ import '../utils/current_user_helper.dart';
 import '../utils/photo_helper.dart';
 import '../widgets/campus_vibe_toggle_bar.dart';
 import '../services/vibe_topic_service.dart';
+import '../widgets/common/app_toast.dart';
 
 /// 投稿カード最終プレビュー画面
 /// PostPreviewScreenと同じカード仕様（フリップ・音楽再生）で表示する
@@ -732,12 +733,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       print('投稿作成エラー: $e');
       if (mounted) {
         setState(() => _isPosting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('投稿の作成に失敗しました'),
-            backgroundColor: Color(0xFFE53935),
-          ),
-        );
+        AppToast.show(context, '投稿の作成に失敗しました');
       }
     }
   }
@@ -767,43 +763,64 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                   builder: (context) {
                     final cardW = MediaQuery.of(context).size.width - 2;
                     final cardH = cardW * (644.0 / 363.0);
+                    // 裏面の写真領域は 484/644、情報領域は残り
+                    final infoH = cardH * (160.0 / 644.0);
+                    // トグル下端 = 情報領域上端から18px上
+                    final toggleBottom = infoH + 18;
                     return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 1),
                       child: SizedBox(
                         width: cardW,
                         height: cardH,
-                        child: FittedBox(
-                          fit: BoxFit.fill,
-                          child: SizedBox(
-                            width: 363.0,
-                            height: 644.0,
-                            child: AnimatedBuilder(
-                              animation: _flipAnimation,
-                              builder: (context, child) {
-                                final angle = _flipAnimation.value * pi;
-                                final isFront = angle < pi / 2;
+                        child: Stack(
+                          children: [
+                            Positioned.fill(
+                              child: FittedBox(
+                                fit: BoxFit.fill,
+                                child: SizedBox(
+                                  width: 363.0,
+                                  height: 644.0,
+                                  child: AnimatedBuilder(
+                                    animation: _flipAnimation,
+                                    builder: (context, child) {
+                                      final angle = _flipAnimation.value * pi;
+                                      final isFront = angle < pi / 2;
 
-                                return Transform(
-                                  alignment: Alignment.center,
-                                  transform: Matrix4.identity()
-                                    ..setEntry(3, 2, 0.001)
-                                    ..rotateY(angle),
-                                  child: isFront
-                                      ? PostCard(
-                                          post: _createDummyPost(),
-                                          audioService: _audioService,
-                                          showFrontOnly: true,
-                                          hideReactionCounts: true,
-                                          onCardTap: _flipCard,
-                                          preExtractedGradientStart: _extractedGradientStart,
-                                          preExtractedGradientEnd: _extractedGradientEnd,
-                                          externalPreviewUrl: _cachedPreviewUrl,
-                                        )
-                                      : _buildBackCard(),
-                                );
-                              },
+                                      return Transform(
+                                        alignment: Alignment.center,
+                                        transform: Matrix4.identity()
+                                          ..setEntry(3, 2, 0.001)
+                                          ..rotateY(angle),
+                                        child: isFront
+                                            ? PostCard(
+                                                post: _createDummyPost(),
+                                                audioService: _audioService,
+                                                showFrontOnly: true,
+                                                hideReactionCounts: true,
+                                                onCardTap: _flipCard,
+                                                preExtractedGradientStart: _extractedGradientStart,
+                                                preExtractedGradientEnd: _extractedGradientEnd,
+                                                externalPreviewUrl: _cachedPreviewUrl,
+                                              )
+                                            : _buildBackCard(),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
+                            // Campus Vibe トグル（写真領域の右下、情報領域から18px上）
+                            if (CampusVibeUtils.canPost(_currentUniversity))
+                              Positioned(
+                                right: 9,
+                                bottom: toggleBottom,
+                                child: CampusVibeToggleBar(
+                                  university: CampusVibeUtils.targetUniversity,
+                                  participating: _campusVibeParticipating,
+                                  onChanged: (v) => setState(() => _campusVibeParticipating = v),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     );
@@ -811,12 +828,6 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                 ),
               ),
             ),
-            if (CampusVibeUtils.canPost(_currentUniversity))
-              CampusVibeToggleBar(
-                university: CampusVibeUtils.targetUniversity,
-                participating: _campusVibeParticipating,
-                onChanged: (v) => setState(() => _campusVibeParticipating = v),
-              ),
             // Vibe / 今の気分 切り替えバー
             _buildPostTypeBar(),
           ],
@@ -839,7 +850,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   Widget _buildPostTypeBar() {
     final topicLabel = _vibeTopicTitle != null ? '\n【#$_vibeTopicTitle】' : '';
     return Container(
-      padding: const EdgeInsets.only(left: 12, right: 12, top: 12, bottom: 6),
+      padding: const EdgeInsets.only(left: 12, right: 12, top: 6, bottom: 6),
       color: const Color(0xFF121212),
       child: SafeArea(
         top: false,

@@ -19,6 +19,8 @@ import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/user_service.dart';
+import '../services/notification_service.dart';
+import '../models/notification_model.dart';
 import '../services/vibe_topic_service.dart';
 import '../utils/campus_vibe_utils.dart';
 import '../utils/current_user_helper.dart';
@@ -115,6 +117,7 @@ class _HomeScreenState extends State<HomeScreen>
       _loadCurrentUserIconUrl();
     }
     _updateLastActive();
+    _processPendingFollowNotification();
     if (widget.initialPosts != null) {
       // バックグラウンドで事前取得済みのデータをそのまま表示（追加フェッチ不要）
       _cachedPosts = widget.initialPosts;
@@ -208,6 +211,38 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  /// 招待コードによる自動フォローの通知を遅延送信（認証フロー完了後）
+  Future<void> _processPendingFollowNotification() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final ownerUid = prefs.getString('pending_follow_owner_uid');
+      if (ownerUid == null || ownerUid.isEmpty) return;
+
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) return;
+
+      // ユーザー情報が揃ってから通知を送信
+      final senderUser = await _userService.getUser(currentUser.uid);
+      if (senderUser == null) return;
+
+      final username = senderUser.username;
+      if (username == null || username.isEmpty || username == 'unknown') return;
+
+      // 通知を送信
+      final notificationService = NotificationService();
+      await notificationService.createNotification(
+        type: NotificationType.follow,
+        recipientId: ownerUid,
+        senderId: currentUser.uid,
+        senderUsername: username,
+        senderIconUrl: senderUser.profileImageUrl,
+      );
+
+      // 送信済みのpendingを削除
+      await prefs.remove('pending_follow_owner_uid');
+    } catch (_) {}
+  }
+
   /// lastActiveAt を Firestore に書き込む（DAU/MAU 計測）
   Future<void> _updateLastActive() async {
     final uid = _auth.currentUser?.uid;
@@ -217,6 +252,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// プルダウン更新（投稿リスト＋ユーザー情報＋Vibeを再取得）
   /// setState を1回にまとめてカクつきを防止
   Future<void> _onRefresh() async {
+    final refreshStart = DateTime.now();
     // Vibe Future をセットするだけ（setState なし）
     _vibeDataFuture = _loadVibeData();
 
@@ -228,6 +264,12 @@ class _HomeScreenState extends State<HomeScreen>
 
     final postsResult = results[0] as ({List<PostModel> posts, bool hasPostedToday, List<String> savedPostIds});
     final userInfo = results[1] as ({String username, String? iconUrl, String? university});
+
+    // 最低1秒間はリフレッシュインジケーターを表示
+    final elapsed = DateTime.now().difference(refreshStart);
+    if (elapsed < const Duration(seconds: 1)) {
+      await Future.delayed(Duration(seconds: 1) - elapsed);
+    }
 
     if (mounted) {
       setState(() {
@@ -528,23 +570,16 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     // ホームタブを既に表示中にもう一度タップ
-    // → 先頭へ戻り、そのままリフレッシュトリガー位置まで自動スクロール
+    // → 先頭へスムーズに戻ってからリフレッシュを実行
     if (index == 0 && _selectedIndex == 0) {
       if (!_scrollController.hasClients) return;
-      // 先頭以外にいる場合はまず先頭へ
-      if (_scrollController.offset > 0) {
-        await _scrollController.animateTo(
-          0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-      // デフォルトのトリガー距離（100px）を超えてネガティブ方向へスクロール
-      // → CupertinoSliverRefreshControl が検知して onRefresh を自動呼び出し
-      _scrollController.animateTo(
-        -130,
-        duration: const Duration(milliseconds: 600),
-        curve: Curves.easeInOut,
+      // 現在位置から直接リフレッシュトリガー位置まで一気にスクロール
+      final distance = _scrollController.offset - (-100);
+      final duration = (distance.abs() / 2000 * 1000).clamp(300, 600).toInt();
+      await _scrollController.animateTo(
+        -100,
+        duration: Duration(milliseconds: duration),
+        curve: Curves.easeOut,
       );
       return;
     }

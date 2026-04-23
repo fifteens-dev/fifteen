@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
@@ -124,10 +125,16 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
               .get();
           final ownerUid = codeDoc.data()?['ownerUid'] as String?;
           if (ownerUid != null && ownerUid.isNotEmpty && ownerUid != uid) {
+            // 通知はスキップ（username未設定のため）。認証フロー完了後に送信
             _userService.followUser(
               currentUserId: uid,
               targetUserId: ownerUid,
+              skipNotification: true,
             ).catchError((_) {});
+            // フォロー通知を後で送るためにownerUidを保存
+            SharedPreferences.getInstance().then((prefs) {
+              prefs.setString('pending_follow_owner_uid', ownerUid);
+            });
           }
         } catch (_) {}
       }

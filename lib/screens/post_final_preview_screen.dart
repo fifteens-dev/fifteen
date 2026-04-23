@@ -631,9 +631,6 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   Future<void> _onPost({required bool asVibe}) async {
     if (_isPosting) return;
 
-    final confirmed = await ActionDialog.showPostConfirm(context);
-    if (!confirmed) return;
-
     setState(() => _isVibe = asVibe);
 
     setState(() => _isPosting = true);

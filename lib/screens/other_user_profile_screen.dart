@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
@@ -106,10 +107,16 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
 
   /// データを全て再読み込み
   Future<void> _refresh() async {
+    final refreshStart = DateTime.now();
     await Future.wait([
       _loadData(),
       _loadSavedPosts(),
     ]);
+    // 最低1秒はリフレッシュインジケーターを表示
+    final elapsed = DateTime.now().difference(refreshStart);
+    if (elapsed < const Duration(seconds: 1)) {
+      await Future.delayed(Duration(seconds: 1) - elapsed);
+    }
   }
 
   /// データを読み込み
@@ -190,6 +197,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
 
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     if (currentUserId == null) return;
+
+    HapticFeedback.mediumImpact();
 
     final previousState = _isFollowing;
     setState(() {
@@ -340,7 +349,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 左側: 名前・ユーザーID・bio
+              // 左側: 名前・bio
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -395,6 +404,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
               ProfileStatItem(count: '$_tracksCount', label: 'Tracks'),
               const SizedBox(width: 20),
               GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () {
                   Navigator.push(
                     context,
@@ -406,11 +416,14 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
                     ),
                   );
                 },
-                child: ProfileStatItem(
-                    count: '$_followersCount', label: 'Followers'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: ProfileStatItem(
+                      count: '$_followersCount', label: 'Followers'),
+                ),
               ),
-              const SizedBox(width: 20),
               GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () {
                   Navigator.push(
                     context,
@@ -422,8 +435,11 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
                     ),
                   );
                 },
-                child: ProfileStatItem(
-                    count: '$_followingCount', label: 'Following'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: ProfileStatItem(
+                      count: '$_followingCount', label: 'Following'),
+                ),
               ),
             ],
           ),

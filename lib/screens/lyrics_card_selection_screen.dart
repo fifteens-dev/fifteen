@@ -192,7 +192,7 @@ class _LyricsCardSelectionScreenState
               '新規投稿',
               style: TextStyle(
                 fontSize: 15,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
                 color: Colors.white,
               ),
             ),

@@ -698,7 +698,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
               '新規投稿',
               style: TextStyle(
                 fontSize: 15,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
                 color: Colors.white,
               ),
             ),
@@ -747,7 +747,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                 '新規投稿',
                 style: TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                   color: Colors.white,
                 ),
               ),
@@ -765,7 +765,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
                         '次へ',
                         style: TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                           color: _selectedTrack != null
                               ? const Color(0xFF5D8FFF)
                               : const Color(0xFF5B5B5B),

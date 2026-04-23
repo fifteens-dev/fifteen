@@ -112,6 +112,8 @@ class NotificationService {
           return await _settingsService.getPostNotification();
         case NotificationType.vibe:
           return await _settingsService.getVibeNotification();
+        case NotificationType.mention:
+          return await _settingsService.getLikeCommentNotification();
       }
     } catch (e) {
       if (kDebugMode) {

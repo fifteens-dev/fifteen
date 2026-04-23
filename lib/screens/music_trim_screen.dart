@@ -298,7 +298,7 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
                       'キャンセル',
                       style: TextStyle(
                         color: Color(0xFF5D8FFF),
-                        fontSize: 16,
+                        fontSize: 15,
                       ),
                     ),
                   ),
@@ -308,8 +308,8 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
                       '完了',
                       style: TextStyle(
                         color: Color(0xFF5D8FFF),
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),

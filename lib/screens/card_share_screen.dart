@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../services/audio_player_service.dart';
+import '../services/instagram_stories_service.dart';
+import '../widgets/common/app_toast.dart';
 import '../widgets/post_card.dart';
 
 /// 投稿カード共有ボトムシートを表示
@@ -44,6 +46,7 @@ class _CardShareSheet extends StatefulWidget {
 class _CardShareSheetState extends State<_CardShareSheet> {
   late final AudioPlayerService _audioService;
   final _cardKey = GlobalKey<PostCardState>();
+  bool _isSharingInstagram = false;
 
   @override
   void initState() {
@@ -55,6 +58,25 @@ class _CardShareSheetState extends State<_CardShareSheet> {
   void dispose() {
     _audioService.dispose();
     super.dispose();
+  }
+
+  Future<void> _shareToInstagram() async {
+    setState(() => _isSharingInstagram = true);
+    try {
+      final bytes = await _cardKey.currentState?.captureAsImage();
+      if (!mounted) return;
+      if (bytes == null) {
+        AppToast.show(context, '画像の取得に失敗しました');
+        return;
+      }
+      final success = await InstagramStoriesService.share(bytes);
+      if (!mounted) return;
+      if (!success) {
+        AppToast.show(context, 'Instagramが見つかりません');
+      }
+    } finally {
+      if (mounted) setState(() => _isSharingInstagram = false);
+    }
   }
 
   @override
@@ -140,31 +162,89 @@ class _CardShareSheetState extends State<_CardShareSheet> {
             ),
           ),
 
-          // 保存ボタン
+          // 共有ボタン群
           Padding(
             padding: EdgeInsets.only(bottom: bottomPadding + 16, top: 12),
-            child: GestureDetector(
-              onTap: () => _cardKey.currentState?.shareCard(),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Image.asset(
-                    'assets/icons/save_button.png',
-                    width: 55,
-                    height: 55,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // 保存ボタン
+                GestureDetector(
+                  onTap: () => _cardKey.currentState?.shareCard(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Image.asset(
+                        'assets/icons/save_button.png',
+                        width: 55,
+                        height: 55,
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        '保存',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    '保存',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.white,
-                      letterSpacing: -0.1,
-                    ),
+                ),
+                const SizedBox(width: 32),
+                // Instagramストーリーズボタン
+                GestureDetector(
+                  onTap: _isSharingInstagram ? null : _shareToInstagram,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _isSharingInstagram
+                          ? const SizedBox(
+                              width: 55,
+                              height: 55,
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            )
+                          : Container(
+                              width: 55,
+                              height: 55,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topRight,
+                                  end: Alignment.bottomLeft,
+                                  colors: [
+                                    Color(0xFF833AB4),
+                                    Color(0xFFFD1D1D),
+                                    Color(0xFFF77737),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                Icons.camera_alt_rounded,
+                                color: Colors.white,
+                                size: 26,
+                              ),
+                            ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Instagram',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],

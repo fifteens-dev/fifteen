@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -28,9 +27,8 @@ import 'post_card/post_card_constants.dart';
 import 'post_card/marquee_text.dart';
 import 'dialogs/restriction_notification.dart';
 import 'dialogs/report_dialog.dart';
-import 'package:path_provider/path_provider.dart';
 import 'native_pull_down_button.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'common/app_toast.dart';
 
 part 'post_card/mixins/post_card_color_mixin.dart';
@@ -63,7 +61,6 @@ class PostCard extends StatefulWidget {
   final bool autoPlay; // trueの場合、裏面スタート時に自動で音楽を再生
   final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
   final VoidCallback? onFlipToBack; // 初めて裏面に反転したときのコールバック（閲覧済み記録用）
-  final bool persistentPlayButton; // trueの場合、停止中は再生ボタンを常時表示・再生中は非表示
   final VoidCallback? onShare; // 共有ボタンタップ時のコールバック（未指定時はPNG保存）
 
   const PostCard({
@@ -91,7 +88,6 @@ class PostCard extends StatefulWidget {
     this.autoPlay = false, // デフォルトは自動再生なし
     this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
     this.onFlipToBack, // 裏面反転コールバック（オプション）
-    this.persistentPlayButton = false, // デフォルトはアニメーション表示
     this.onShare, // 共有コールバック（オプション）
   });
 
@@ -107,15 +103,6 @@ class PostCardState extends State<PostCard>
 
   // カードキャプチャ用
   final GlobalKey _cardRepaintKey = GlobalKey();
-
-  // 再生ボタンアニメーション用
-  late AnimationController _playButtonAnimationController;
-  late Animation<double> _playButtonScaleAnimation;
-  late Animation<double> _playButtonOpacityAnimation;
-
-  // persistentPlayButton モード用の状態管理
-  bool _lastPersistentPlayingState = false;
-  IconData _persistentTransitionIcon = Icons.play_arrow;
 
   // 裏面無効タップ時のリジェクトシェイク用
   late AnimationController _rejectController;
@@ -226,40 +213,6 @@ class PostCardState extends State<PostCard>
       CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
     );
 
-    // 再生ボタンアニメーション
-    _playButtonAnimationController = AnimationController(
-      duration: PostCardConstants.playButtonAnimationDuration,
-      vsync: this,
-    );
-
-    // スケールアニメーション（0.5秒で拡大→0.5秒で縮小）
-    _playButtonScaleAnimation = TweenSequence<double>([
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 0.0, end: 1.0)
-            .chain(CurveTween(curve: Curves.easeOut)),
-        weight: 50,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 1.0, end: 0.0)
-            .chain(CurveTween(curve: Curves.easeIn)),
-        weight: 50,
-      ),
-    ]).animate(_playButtonAnimationController);
-
-    // 不透明度アニメーション（0.5秒で表示→0.5秒でフェードアウト）
-    _playButtonOpacityAnimation = TweenSequence<double>([
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 0.0, end: 1.0)
-            .chain(CurveTween(curve: Curves.easeOut)),
-        weight: 50,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 1.0, end: 0.0)
-            .chain(CurveTween(curve: Curves.easeIn)),
-        weight: 50,
-      ),
-    ]).animate(_playButtonAnimationController);
-
     // 裏面無効タップ時のリジェクトシェイクアニメーション（カチカチ）
     // 裏面無効タップ時のピーク反転アニメーション
     // 少しだけ反転しかけて弾むように戻る
@@ -287,7 +240,6 @@ class PostCardState extends State<PostCard>
   @override
   void dispose() {
     _flipController.dispose();
-    _playButtonAnimationController.dispose();
     _rejectController.dispose();
     super.dispose();
   }
@@ -339,12 +291,7 @@ class PostCardState extends State<PostCard>
       // 裏面に反転 → 閲覧済みとして記録
       widget.onFlipToBack?.call();
 
-      _flipController.forward().then((_) {
-        // フリップアニメーション完了後、再生ボタンのアニメーションを表示
-        if (mounted && !_showFront) {
-          _playButtonAnimationController.forward(from: 0.0);
-        }
-      });
+      _flipController.forward();
 
       // 外部制御モードでない場合のみPostCardが音楽を再生
       if (!widget.audioManagedExternally) {
@@ -654,13 +601,6 @@ class PostCardState extends State<PostCard>
 
             // 歌詞カード
             _buildLyricsCardOverlay(),
-
-            // 再生ボタン（写真エリアの中央）
-            Positioned(
-              left: (cardWidth - PostCardConstants.playButtonSize) / 2,
-              top: (photoHeight - PostCardConstants.playButtonSize) / 2,
-              child: _buildPlayButton(),
-            ),
 
             // 下部グラデーション背景
             Positioned(
@@ -1154,137 +1094,6 @@ class PostCardState extends State<PostCard>
     }
   }
 
-  /// 再生ボタン（裏面用 - タップ時のみ表示）
-  Widget _buildPlayButton() {
-    return StreamBuilder<PlayerState>(
-      stream: widget.audioService.playerStateStream,
-      builder: (context, snapshot) {
-        // audioManagedExternally の場合 _cachedPreviewUrl は null のまま
-        // なので externalPreviewUrl を fallback として使用する
-        final previewUrl = _cachedPreviewUrl ?? widget.externalPreviewUrl;
-        final isThisTrackPlaying = previewUrl != null &&
-            widget.audioService.isPlayingUrl(previewUrl);
-
-        return GestureDetector(
-          onTap: () => _handlePlayButtonTap(isThisTrackPlaying, previewUrl),
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            width: PostCardConstants.playButtonSize,
-            height: PostCardConstants.playButtonSize,
-            color: Colors.transparent,
-            child: widget.persistentPlayButton
-                // 常時表示モード:
-                //   停止中 → ▶ を常に表示
-                //   再生開始時 → ‖ がポップアップ後に非表示
-                //   停止時 → ▶ がポップアップ後に常に表示
-                ? Builder(
-                    builder: (context) {
-                      // 再生状態の変化を検知してアニメーションを制御
-                      if (_lastPersistentPlayingState != isThisTrackPlaying) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted) return;
-                          if (_lastPersistentPlayingState == isThisTrackPlaying) return;
-                          setState(() {
-                            _lastPersistentPlayingState = isThisTrackPlaying;
-                            _persistentTransitionIcon =
-                                isThisTrackPlaying ? Icons.pause : Icons.play_arrow;
-                          });
-                          _playButtonAnimationController.forward(from: 0.0);
-                        });
-                      }
-                      return Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // 停止中は ▶ を常に表示
-                          AnimatedOpacity(
-                            opacity: isThisTrackPlaying ? 0.0 : 1.0,
-                            duration: const Duration(milliseconds: 300),
-                            child: Container(
-                              width: PostCardConstants.playButtonSize,
-                              height: PostCardConstants.playButtonSize,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.black.withOpacity(PostCardConstants.playButtonBackgroundOpacity),
-                                border: Border.all(
-                                  color: Colors.white,
-                                  width: PostCardConstants.playButtonBorderWidth,
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.play_arrow,
-                                color: Colors.white,
-                                size: PostCardConstants.playButtonIconSize,
-                              ),
-                            ),
-                          ),
-                          // 状態変化時のポップアニメーション（▶ or ‖）
-                          AnimatedBuilder(
-                            animation: _playButtonAnimationController,
-                            builder: (context, child) {
-                              return Opacity(
-                                opacity: _playButtonOpacityAnimation.value,
-                                child: Transform.scale(
-                                  scale: _playButtonScaleAnimation.value,
-                                  child: Container(
-                                    width: PostCardConstants.playButtonSize,
-                                    height: PostCardConstants.playButtonSize,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Colors.black.withOpacity(PostCardConstants.playButtonBackgroundOpacity),
-                                      border: Border.all(
-                                        color: Colors.white,
-                                        width: PostCardConstants.playButtonBorderWidth,
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      _persistentTransitionIcon,
-                                      color: Colors.white,
-                                      size: PostCardConstants.playButtonIconSize,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      );
-                    },
-                  )
-                // アニメーションモード（通常）
-                : AnimatedBuilder(
-                    animation: _playButtonAnimationController,
-                    builder: (context, child) {
-                      return Opacity(
-                        opacity: _playButtonOpacityAnimation.value,
-                        child: Transform.scale(
-                          scale: _playButtonScaleAnimation.value,
-                          child: Container(
-                            width: PostCardConstants.playButtonSize,
-                            height: PostCardConstants.playButtonSize,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.black.withOpacity(PostCardConstants.playButtonBackgroundOpacity),
-                              border: Border.all(
-                                color: Colors.white,
-                                width: PostCardConstants.playButtonBorderWidth,
-                              ),
-                            ),
-                            child: Icon(
-                              isThisTrackPlaying ? Icons.pause : Icons.play_arrow,
-                              color: Colors.white,
-                              size: PostCardConstants.playButtonIconSize,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        );
-      },
-    );
-  }
-
   /// リアクションボタン（いいね、コメント、追加）
   Widget _buildReactionButton({
     required IconData icon,
@@ -1408,6 +1217,7 @@ class PostCardState extends State<PostCard>
               'assets/icons/comment_send_button.png',
               width: 20,
               height: 20,
+              color: theme.textColor.withOpacity(0.6),
             ),
             const SizedBox(width: 12),
           ],
@@ -1774,29 +1584,49 @@ class PostCardState extends State<PostCard>
   /// 外部から共有を実行（CardShareScreenのボタンから呼び出す）
   void shareCard() => _handleShare();
 
-  /// カードをPNG画像としてシェア（現在表示中の面を保存）
+  /// カードをPNG画像として返す（Instagram Stories共有等に使用）
+  Future<Uint8List?> captureAsImage() async {
+    try {
+      final boundary = _cardRepaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return null;
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      return byteData?.buffer.asUint8List();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// カードをPNG画像として写真ライブラリに保存
   Future<void> _handleShare() async {
+    final ctx = context;
     try {
       final boundary = _cardRepaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
       if (boundary == null) return;
 
-      // iOS用: シェアポップオーバーの表示位置をカード自身の画面座標から取得
-      final shareRect = boundary.localToGlobal(Offset.zero) & boundary.size;
-
       final image = await boundary.toImage(pixelRatio: 3.0);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData == null) return;
+      final bytes = byteData.buffer.asUint8List();
 
-      final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/fifteen_card.png');
-      await file.writeAsBytes(byteData.buffer.asUint8List());
+      // 写真ライブラリのパーミッション確認
+      final permission = await PhotoManager.requestPermissionExtend();
+      if (!permission.isAuth) {
+        if (ctx.mounted) AppToast.show(ctx, '写真へのアクセスを許可してください');
+        return;
+      }
 
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        sharePositionOrigin: shareRect,
+      // ギャラリーに保存
+      final asset = await PhotoManager.editor.saveImage(
+        bytes,
+        filename: 'fifteen_card_${DateTime.now().millisecondsSinceEpoch}.png',
       );
+
+      if (!ctx.mounted) return;
+      AppToast.show(ctx, '写真に保存しました');
     } catch (e) {
-      if (kDebugMode) print('❌ Share error: $e');
+      if (kDebugMode) print('❌ Save error: $e');
+      if (ctx.mounted) AppToast.show(ctx, '保存に失敗しました');
     }
   }
 }

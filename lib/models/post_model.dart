@@ -39,6 +39,7 @@ class PostModel {
   final int audioDurationSec; // 音楽再生時間（秒）
   final String? university; // 投稿者の大学名（Campus Vibe用）
   final bool campusVibeParticipating; // Campus Vibe参加フラグ（デフォルトtrue）
+  final bool campusVibePost; // Campus Vibe参加投稿フラグ（作成時確定・変更不可）
 
   PostModel({
     required this.postId,
@@ -76,6 +77,7 @@ class PostModel {
     this.audioDurationSec = 15,
     this.university,
     this.campusVibeParticipating = true,
+    this.campusVibePost = false,
   });
 
   // Firestoreドキュメントから作成
@@ -140,6 +142,7 @@ class PostModel {
       university: data['university']?.toString(),
       // null の場合デフォルト true、false が明示されている場合のみ false
       campusVibeParticipating: data['campusVibeParticipating'] != false,
+      campusVibePost: data['campusVibePost'] == true,
     );
   }
 
@@ -257,6 +260,7 @@ class PostModel {
       audioDurationSec: audioDurationSec ?? this.audioDurationSec,
       university: university ?? this.university,
       campusVibeParticipating: campusVibeParticipating ?? this.campusVibeParticipating,
+      campusVibePost: this.campusVibePost,
     );
   }
 

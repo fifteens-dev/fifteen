@@ -4,12 +4,14 @@ import '../models/comment_model.dart';
 import '../models/notification_model.dart';
 import 'notification_service.dart';
 import 'post_service.dart';
+import 'user_service.dart';
 
 /// コメント管理サービス
 class CommentService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final NotificationService _notificationService = NotificationService();
   final PostService _postService = PostService();
+  final UserService _userService = UserService();
 
   /// コメントを作成
   Future<void> createComment({
@@ -60,9 +62,70 @@ class CommentService {
         if (kDebugMode) {
           print('✅ コメント通知作成: postId=$postId, recipient=${post.userId}');
         }
+
+        // @メンション検出・通知
+        await _processMentions(
+          content: content,
+          postId: postId,
+          senderId: userId,
+          senderUsername: username,
+          senderIconUrl: userIconUrl,
+          postOwnerId: post.userId,
+          albumArtUrl: post.track.albumImageUrl,
+          trackName: post.track.trackName,
+        );
       }
     } catch (e) {
       throw Exception('コメントの作成に失敗しました: $e');
+    }
+  }
+
+  /// コメント内の@メンションを検出し通知を送信
+  Future<void> _processMentions({
+    required String content,
+    required String postId,
+    required String senderId,
+    required String senderUsername,
+    String? senderIconUrl,
+    required String postOwnerId,
+    String? albumArtUrl,
+    String? trackName,
+  }) async {
+    // @username を抽出（英数字・アンダースコアのみ）
+    final mentionRegex = RegExp(r'@([\w]+)');
+    final matches = mentionRegex.allMatches(content);
+    if (matches.isEmpty) return;
+
+    final mentionedUsernames = matches.map((m) => m.group(1)!).toSet();
+
+    for (final username in mentionedUsernames) {
+      try {
+        // usernameからユーザーを検索
+        final users = await _userService.searchUsers(query: username, limit: 5);
+        final target = users.where((u) => u.username == username).firstOrNull;
+        if (target == null) continue;
+
+        // 自分自身・投稿者へのメンションは通知しない（投稿者はコメント通知で受け取る）
+        if (target.uid == senderId) continue;
+
+        await _notificationService.createNotification(
+          type: NotificationType.mention,
+          recipientId: target.uid,
+          senderId: senderId,
+          senderUsername: senderUsername,
+          senderIconUrl: senderIconUrl,
+          postId: postId,
+          albumArtUrl: albumArtUrl,
+          trackName: trackName,
+          commentText: content.length > 50 ? '${content.substring(0, 50)}...' : content,
+        );
+
+        if (kDebugMode) {
+          print('✅ メンション通知: @$username → ${target.uid}');
+        }
+      } catch (e) {
+        if (kDebugMode) print('メンション通知エラー (@$username): $e');
+      }
     }
   }
 

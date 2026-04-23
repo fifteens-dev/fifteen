@@ -282,7 +282,6 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                       audioManagedExternally: true,
                       externalPreviewUrl: _previewUrlCache[index],
                       disableInteractions: widget.disableInteractions,
-                      persistentPlayButton: false,
                       onPlayStarted: () => setState(() { _playingIndex = index; }),
                       isSaved: _savedPostIds.contains(post.postId),
                       onAdd: () => _handleSave(post),
@@ -314,7 +313,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                   '投稿',
                   style: TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                     color: Colors.white,
                   ),
                 ),

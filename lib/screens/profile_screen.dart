@@ -27,7 +27,9 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
   final PostService _postService = PostService();
   final AudioPlayerService _audioService = AudioPlayerService();
   late TabController _tabController;
+  late PageController _pageController;
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _gridScrollController = ScrollController();
 
   // ユーザーデータ
   UserModel? _userData;
@@ -41,8 +43,9 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
   DocumentSnapshot? _lastPostDoc;
   bool _hasMorePosts = true;
   bool _isLoadingMore = false;
+  int _totalPostCount = 0;
 
-  int get _tracksCount => _otherPosts.length;
+  int get _tracksCount => _totalPostCount;
   int get _followersCount => _userData?.followersCount ?? 0;
   int get _followingCount => _userData?.followingCount ?? 0;
 
@@ -50,15 +53,22 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _pageController = PageController();
+    _loadPostCount();
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         setState(() {});
+        _pageController.animateToPage(
+          _tabController.index,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+        );
       }
       if (_tabController.index == 1 && _savedPosts.isEmpty) {
         _loadSavedPosts();
       }
     });
-    _scrollController.addListener(_onScroll);
+    _gridScrollController.addListener(_onScroll);
     _loadUserData();
     _loadUserPosts();
   }
@@ -66,9 +76,21 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
   @override
   void dispose() {
     _tabController.dispose();
+    _pageController.dispose();
     _scrollController.dispose();
+    _gridScrollController.dispose();
     _audioService.stop();
     super.dispose();
+  }
+
+  /// 投稿総数を取得（グリッド表示数とは独立して取得）
+  Future<void> _loadPostCount() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+    try {
+      final count = await _postService.getPostCountByUserId(currentUser.uid);
+      if (mounted) setState(() => _totalPostCount = count);
+    } catch (_) {}
   }
 
   /// ユーザーデータを読み込み
@@ -131,8 +153,8 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
 
   /// スクロール末尾付近で追加取得
   void _onScroll() {
-    if (!_scrollController.hasClients) return;
-    final pos = _scrollController.position;
+    if (!_gridScrollController.hasClients) return;
+    final pos = _gridScrollController.position;
     if (pos.pixels >= pos.maxScrollExtent - 300) {
       _loadMorePosts();
     }
@@ -237,12 +259,17 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
 
   /// データを全て再読み込み
   Future<void> _refresh() async {
-    print('[ProfileScreen] refresh started');
+    final refreshStart = DateTime.now();
     await Future.wait([
       _loadUserData(),
       _loadUserPosts(limit: 20),
+      _loadPostCount(),
     ]);
-    print('[ProfileScreen] refresh completed');
+    // 最低1秒はリフレッシュインジケーターを表示
+    final elapsed = DateTime.now().difference(refreshStart);
+    if (elapsed < const Duration(seconds: 1)) {
+      await Future.delayed(Duration(seconds: 1) - elapsed);
+    }
   }
 
   /// 投稿を削除
@@ -364,7 +391,7 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 左側: 名前・ユーザーID・bio
+              // 左側: 名前・bio
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -419,6 +446,7 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
               ProfileStatItem(count: '$_tracksCount', label: 'Tracks'),
               const SizedBox(width: 20),
               GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () {
                   final userId = FirebaseAuth.instance.currentUser?.uid;
                   if (userId != null) {
@@ -433,10 +461,13 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
                     );
                   }
                 },
-                child: ProfileStatItem(count: '$_followersCount', label: 'Followers'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: ProfileStatItem(count: '$_followersCount', label: 'Followers'),
+                ),
               ),
-              const SizedBox(width: 20),
               GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () {
                   final userId = FirebaseAuth.instance.currentUser?.uid;
                   if (userId != null) {
@@ -451,7 +482,10 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
                     );
                   }
                 },
-                child: ProfileStatItem(count: '$_followingCount', label: 'Following'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: ProfileStatItem(count: '$_followingCount', label: 'Following'),
+                ),
               ),
             ],
           ),
@@ -466,10 +500,13 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
     const indicatorHeight = 2.0;
 
     return AnimatedBuilder(
-      animation: _tabController.animation!,
+      animation: _pageController,
       builder: (context, _) {
-        // スワイプ中も含め 0.0〜1.0 の連続値
-        final t = _tabController.animation!.value.clamp(0.0, 1.0);
+        // PageControllerからリアルタイムのスワイプ量を取得
+        final t = (_pageController.hasClients
+                ? (_pageController.page ?? _tabController.index.toDouble())
+                : _tabController.index.toDouble())
+            .clamp(0.0, 1.0);
 
         // アイコン色：スワイプ量に応じて白⇔グレーを補間
         final color0 = Color.lerp(Colors.grey, Colors.white, 1.0 - t)!;
@@ -546,96 +583,92 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
     );
   }
 
-  /// アクティブなタブのスライバーリストを返す
+  /// タブコンテンツをPageViewで返す（横スワイプ対応）
   List<Widget> _buildActiveTabSlivers() {
-    if (_tabController.index == 0) {
-      return _buildPostsGridSlivers();
-    } else {
-      return _buildSavedPostsGridSlivers();
-    }
-  }
-
-  /// 投稿グリッドのスライバーリスト
-  List<Widget> _buildPostsGridSlivers() {
-    if (_otherPosts.isEmpty) {
-      return [
-        const SliverFillRemaining(
-          child: Center(
-            child: Text(
-              '投稿がありません',
-              style: TextStyle(color: Colors.white54, fontSize: 14),
-            ),
-          ),
-        ),
-      ];
-    }
-
     return [
-      SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          childAspectRatio: 131 / 192,
-          crossAxisSpacing: 0,
-          mainAxisSpacing: 8,
-        ),
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final post = _otherPosts[index];
-            return ProfilePostGridItem(
-              post: post,
-              allPosts: _otherPosts,
-              initialIndex: index,
-              onDelete: () => _deletePost(post),
-              disableInteractions: true,
-            );
+      SliverFillRemaining(
+        child: PageView(
+          controller: _pageController,
+          onPageChanged: (index) {
+            _tabController.animateTo(index);
+            if (index == 1 && _savedPosts.isEmpty) {
+              _loadSavedPosts();
+            }
           },
-          childCount: _otherPosts.length,
+          children: [
+            _buildPostsGrid(),
+            _buildSavedPostsGrid(),
+          ],
         ),
       ),
-      if (_isLoadingMore)
-        const SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Center(
+    ];
+  }
+
+  /// 投稿グリッド
+  Widget _buildPostsGrid() {
+    if (_otherPosts.isEmpty) {
+      return const Center(
+        child: Text(
+          '投稿がありません',
+          style: TextStyle(color: Colors.white54, fontSize: 14),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      controller: _gridScrollController,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 131 / 192,
+        crossAxisSpacing: 0,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: _otherPosts.length + (_isLoadingMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _otherPosts.length) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(8),
               child: CupertinoActivityIndicator(
                 color: Colors.white54,
-                radius: 12,
+                radius: 10,
               ),
             ),
-          ),
-        ),
-    ];
+          );
+        }
+        final post = _otherPosts[index];
+        return ProfilePostGridItem(
+          post: post,
+          allPosts: _otherPosts,
+          initialIndex: index,
+          onDelete: () => _deletePost(post),
+          disableInteractions: true,
+        );
+      },
+    );
   }
 
-  /// 保存済み投稿グリッドのスライバーリスト
-  List<Widget> _buildSavedPostsGridSlivers() {
+  /// 保存済み投稿グリッド
+  Widget _buildSavedPostsGrid() {
     if (_savedPosts.isEmpty) {
-      return [
-        const SliverFillRemaining(
-          child: Center(
-            child: Text(
-              '保存済みの投稿がありません',
-              style: TextStyle(color: Colors.white54, fontSize: 14),
-            ),
-          ),
+      return const Center(
+        child: Text(
+          '保存済みの投稿がありません',
+          style: TextStyle(color: Colors.white54, fontSize: 14),
         ),
-      ];
+      );
     }
 
-    return [
-      SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          childAspectRatio: 1,
-          crossAxisSpacing: 1,
-          mainAxisSpacing: 1,
-        ),
-        delegate: SliverChildBuilderDelegate(
-          (context, index) => _buildSavedPostItem(_savedPosts[index]),
-          childCount: _savedPosts.length,
-        ),
+    return GridView.builder(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 1,
+        crossAxisSpacing: 1,
+        mainAxisSpacing: 1,
       ),
-    ];
+      itemCount: _savedPosts.length,
+      itemBuilder: (context, index) => _buildSavedPostItem(_savedPosts[index]),
+    );
   }
 
   /// 保存済み投稿アイテム（アルバムアートのみ）

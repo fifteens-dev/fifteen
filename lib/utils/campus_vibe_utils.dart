@@ -22,6 +22,14 @@ class CampusVibeUtils {
     return (start: friday, end: sundayEnd);
   }
 
+  /// 任意の日付が属する金〜日の週末範囲を返す
+  static ({DateTime start, DateTime end}) weekendRangeFor(DateTime date) {
+    final daysFromFriday = (date.weekday - DateTime.friday) % 7;
+    final friday = DateTime(date.year, date.month, date.day - daysFromFriday);
+    final sundayEnd = DateTime(friday.year, friday.month, friday.day + 2, 23, 59, 59);
+    return (start: friday, end: sundayEnd);
+  }
+
   /// Campus Vibe カードの表示条件
   /// 閲覧は全ユーザー対象のため、所属大学を問わず週末であれば true
   static bool shouldShow([DateTime? now]) => isWeekend(now);

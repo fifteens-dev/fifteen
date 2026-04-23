@@ -6,11 +6,15 @@ import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
+import '../services/post_service.dart';
 import '../models/user_model.dart';
 import '../widgets/profile_widgets.dart';
 import '../widgets/common/common.dart';
 import 'other_user_profile_screen.dart';
 import '../widgets/common/app_toast.dart';
+import 'vibe_history_screen.dart';
+import 'campus_vibe_history_screen.dart';
+import 'vibe_posts_list_screen.dart';
 
 /// 検索画面
 class SearchScreen extends StatefulWidget {
@@ -24,10 +28,12 @@ class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final UserService _userService = UserService();
+  final PostService _postService = PostService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   // 検索状態管理
-  List<UserModel> _searchResults = [];
+  List<UserModel> _userResults = [];
+  List<({String topicTitle, String topicId, DateTime date, int count})> _topicResults = [];
   bool _isSearching = false;
   bool _isFocused = false;
   String _currentQuery = '';
@@ -38,8 +44,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
   // 招待コード
   String? _inviteCode;
-  int _inviteUsedCount = 0;
-  static const int _maxInvites = 3;
   String? _currentUserProfileImageUrl;
 
   // デバウンス時間（ミリ秒）
@@ -63,11 +67,9 @@ class _SearchScreenState extends State<SearchScreen> {
         _userService.ensureInviteCode(uid),
         _userService.getUser(uid),
       ).wait;
-      final used = await _userService.getInviteCodeUsedCount(code);
       if (mounted) {
         setState(() {
           _inviteCode = code;
-          _inviteUsedCount = used;
           _currentUserProfileImageUrl = user?.profileImageUrl;
         });
       }
@@ -167,7 +169,8 @@ class _SearchScreenState extends State<SearchScreen> {
     // 空のクエリの場合は結果をクリア
     if (trimmedQuery.isEmpty) {
       setState(() {
-        _searchResults = [];
+        _userResults = [];
+        _topicResults = [];
         _isSearching = false;
         _currentQuery = '';
       });
@@ -185,25 +188,25 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final results = await _userService.searchUsers(
-        query: trimmedQuery,
-        limit: 20,
-      );
+      final results = await Future.wait([
+        _userService.searchUsers(query: trimmedQuery, limit: 20),
+        _postService.searchVibeTopics(trimmedQuery),
+      ]);
 
       if (mounted) {
         setState(() {
-          _searchResults = results;
+          _userResults = results[0] as List<UserModel>;
+          _topicResults = results[1] as List<({String topicTitle, String topicId, DateTime date, int count})>;
           _isSearching = false;
         });
       }
     } catch (e) {
-      print('Search error: $e');
       if (mounted) {
         setState(() {
-          _searchResults = [];
+          _userResults = [];
+          _topicResults = [];
           _isSearching = false;
         });
-
         AppToast.show(context, '検索中にエラーが発生しました');
       }
     }
@@ -216,7 +219,8 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchFocusNode.unfocus();
     setState(() {
       _currentQuery = '';
-      _searchResults = [];
+      _userResults = [];
+      _topicResults = [];
     });
   }
 
@@ -236,6 +240,12 @@ class _SearchScreenState extends State<SearchScreen> {
             // 招待コードカード（未フォーカス時のみ表示）
             if (!_isFocused && _currentQuery.isEmpty)
               _buildInviteCodeCard(),
+
+            // 過去のVibe・CampusVibeカード（未フォーカス時のみ表示）
+            if (!_isFocused && _currentQuery.isEmpty) ...[
+              _buildVibeHistoryCard(),
+              _buildCampusVibeHistoryCard(),
+            ],
 
             // メインコンテンツエリア
             Expanded(
@@ -285,7 +295,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// 招待コードカード（BeReal風コンパクトレイアウト）
   Widget _buildInviteCodeCard() {
-    final isExhausted = _inviteUsedCount >= _maxInvites;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
       child: Container(
@@ -297,7 +306,7 @@ class _SearchScreenState extends State<SearchScreen> {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: _inviteCode == null || isExhausted ? null : _copyInviteCode,
+            onTap: _inviteCode == null ? null : _copyInviteCode,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: _inviteCode == null
@@ -331,19 +340,17 @@ class _SearchScreenState extends State<SearchScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                isExhausted ? '招待枠が上限に達しました' : '友達を招待する',
+                              const Text(
+                                '友達を招待する',
                                 style: TextStyle(
-                                  color: isExhausted ? Colors.grey : Colors.white,
+                                  color: Colors.white,
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                isExhausted
-                                    ? '残り0人'
-                                    : '招待コード: ${_inviteCode!}　残り${_maxInvites - _inviteUsedCount}人',
+                                '招待コード: ${_inviteCode!}',
                                 style: const TextStyle(
                                   color: Color(0xFF9F9F9F),
                                   fontSize: 12,
@@ -355,11 +362,133 @@ class _SearchScreenState extends State<SearchScreen> {
                         // 右: コピーアイコン
                         Icon(
                           Icons.copy,
-                          color: isExhausted ? Colors.grey[600] : Colors.white,
+                          color: Colors.white,
                           size: 20,
                         ),
                       ],
                     ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 過去のVibeを見るカード
+  Widget _buildVibeHistoryCard() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF282828),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const VibeHistoryScreen()),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3A3A3A),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.history, color: Colors.white70, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '過去のVibeを見る',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          '過去のお題と投稿を振り返る',
+                          style: TextStyle(color: Color(0xFF9F9F9F), fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.white38, size: 20),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 過去のCampusVibeを見るカード
+  Widget _buildCampusVibeHistoryCard() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF282828),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CampusVibeHistoryScreen()),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3A3A3A),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.school_outlined, color: Colors.white70, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '過去のCampusVibeを見る',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          '大学別・週末ごとのVibeを振り返る',
+                          style: TextStyle(color: Color(0xFF9F9F9F), fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.white38, size: 20),
+                ],
+              ),
             ),
           ),
         ),
@@ -390,37 +519,58 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     // 検索結果が0件の場合
-    if (_searchResults.isEmpty) {
+    if (_userResults.isEmpty && _topicResults.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.search_off,
-              size: 64,
-              color: Color(0xFF9F9F9F),
-            ),
+            const Icon(Icons.search_off, size: 64, color: Color(0xFF9F9F9F)),
             const SizedBox(height: 16),
             Text(
-              '"$_currentQuery" に一致するユーザーが見つかりませんでした',
+              '"$_currentQuery" に一致する結果が見つかりませんでした',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 16,
-                color: Color(0xFF9F9F9F),
-              ),
+              style: const TextStyle(fontSize: 16, color: Color(0xFF9F9F9F)),
             ),
           ],
         ),
       );
     }
 
-    // 検索結果リスト
-    return ListView.builder(
+    // 検索結果リスト（ユーザー + お題）
+    return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      itemCount: _searchResults.length,
-      itemBuilder: (context, index) {
-        return _buildUserListItem(_searchResults[index]);
-      },
+      children: [
+        // ユーザー結果
+        if (_userResults.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.only(top: 4, bottom: 8),
+            child: Text(
+              'ユーザー',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF9F9F9F),
+              ),
+            ),
+          ),
+          ..._userResults.map(_buildUserListItem),
+        ],
+        // Vibeお題結果
+        if (_topicResults.isNotEmpty) ...[
+          Padding(
+            padding: EdgeInsets.only(top: _userResults.isNotEmpty ? 16 : 4, bottom: 8),
+            child: const Text(
+              'Vibeお題',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF9F9F9F),
+              ),
+            ),
+          ),
+          ..._topicResults.map(_buildTopicListItem),
+        ],
+      ],
     );
   }
 
@@ -481,8 +631,8 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             // プロフィール画像
             Container(
-              width: 44,
-              height: 44,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.grey[800],
@@ -492,7 +642,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   imageUrl: (entry['profileImageUrl']?.isNotEmpty == true)
                       ? entry['profileImageUrl']
                       : null,
-                  size: 44,
+                  size: 50,
                 ),
               ),
             ),
@@ -506,7 +656,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   Text(
                     entry['username'] ?? 'unknown',
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
                     ),
@@ -517,8 +667,8 @@ class _SearchScreenState extends State<SearchScreen> {
                     Text(
                       entry['name']!,
                       style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF9F9F9F),
+                        fontSize: 13,
+                        color: Colors.white54,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -539,6 +689,69 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Vibeお題検索結果アイテム
+  Widget _buildTopicListItem(({String topicTitle, String topicId, DateTime date, int count}) topic) {
+    final currentUserId = _auth.currentUser?.uid ?? '';
+    final dateLabel = '${topic.date.month}月${topic.date.day}日';
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VibePostsListScreen(
+              title: '$dateLabel ${topic.topicTitle}',
+              currentUserId: currentUserId,
+              fetchPosts: () => _postService.getVibePostsByTopicAndDate(
+                topic.topicId,
+                topic.date,
+              ),
+            ),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2D2D2D),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.music_note, color: Colors.white54, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    topic.topicTitle,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$dateLabel　${topic.count}件',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF9F9F9F)),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white24, size: 18),
           ],
         ),
       ),
@@ -570,14 +783,14 @@ class _SearchScreenState extends State<SearchScreen> {
           );
         }
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: [
             // プロフィール画像
             Container(
-              width: 44,
-              height: 44,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.grey[800],
@@ -585,7 +798,7 @@ class _SearchScreenState extends State<SearchScreen> {
               child: ClipOval(
                 child: ProfileImage(
                   imageUrl: user.profileImageUrl,
-                  size: 44,
+                  size: 50,
                 ),
               ),
             ),
@@ -607,7 +820,6 @@ class _SearchScreenState extends State<SearchScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
 
                   // displayName
                   if (user.name != null && user.name!.isNotEmpty)
@@ -615,7 +827,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       user.name!,
                       style: const TextStyle(
                         fontSize: 13,
-                        color: Color(0xFF9F9F9F),
+                        color: Colors.white54,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

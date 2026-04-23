@@ -683,7 +683,7 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
                 style: TextStyle(
                     color: Color(0xFF5D8FFF),
                     fontSize: 15,
-                    fontWeight: FontWeight.w600),
+                    fontWeight: FontWeight.w700),
               ),
             ),
           ],

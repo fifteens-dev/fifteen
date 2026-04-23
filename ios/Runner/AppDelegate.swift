@@ -8,6 +8,7 @@ import ObjectiveC.runtime
 @objc class AppDelegate: FlutterAppDelegate {
   private let musicKitChannel = "com.fifteen.musickit"
   private let fontsChannel = "com.fifteen.fonts"
+  private let instagramChannel = "com.fifteen.instagram"
   private var nativeMenuChannel: AnyObject?
 
   // MARK: - FlutterTextInputView swizzle: ペーストを常に許可
@@ -61,6 +62,7 @@ import ObjectiveC.runtime
     if let controller = window?.rootViewController as? FlutterViewController {
       setupMusicKitChannel(controller: controller)
       setupFontsChannel(controller: controller)
+      setupInstagramChannel(controller: controller)
       if #available(iOS 14.0, *) {
         let menuChannel = NativeMenuChannel()
         menuChannel.setup(controller: controller)
@@ -94,6 +96,37 @@ import ObjectiveC.runtime
     application.registerForRemoteNotifications()
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // MARK: - Instagram Storiesチャンネル
+
+  private func setupInstagramChannel(controller: FlutterViewController) {
+    let channel = FlutterMethodChannel(
+      name: instagramChannel,
+      binaryMessenger: controller.binaryMessenger
+    )
+    channel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
+      switch call.method {
+      case "shareToStories":
+        guard let args = call.arguments as? [String: Any],
+              let imageTypedData = args["imageData"] as? FlutterStandardTypedData else {
+          result(FlutterError(code: "INVALID_ARGS", message: "imageData is required", details: nil))
+          return
+        }
+        let imageData = imageTypedData.data
+        // UIPasteboardにInstagram用キーで書き込む
+        UIPasteboard.general.setItems(
+          [["com.instagram.sharedSticker.stickerImage": imageData]],
+          options: [.expirationDate: Date().addingTimeInterval(300)]
+        )
+        result(true)
+      case "isInstagramAvailable":
+        let url = URL(string: "instagram-stories://share")!
+        result(UIApplication.shared.canOpenURL(url))
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
 
   // MARK: - SF Pro フォントチャンネル

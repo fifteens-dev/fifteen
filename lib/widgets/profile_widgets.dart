@@ -83,21 +83,22 @@ class ProfileStatItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           count,
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
           ),
         ),
         Text(
           label,
           style: const TextStyle(
             color: Color(0xFF919191),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
+            fontSize: 11,
+            fontWeight: FontWeight.normal,
           ),
         ),
       ],

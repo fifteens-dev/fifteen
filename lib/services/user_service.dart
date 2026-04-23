@@ -284,10 +284,32 @@ class UserService {
     });
   }
 
+  /// フォロー中のユーザー一覧を取得（UserModelのリスト）
+  Future<List<UserModel>> getFollowingUsers(String userId) async {
+    try {
+      final doc = await _firestore.collection(_usersCollection).doc(userId).get();
+      if (!doc.exists) return [];
+      final data = doc.data()!;
+      final followingIds = List<String>.from(data['following'] ?? []);
+      if (followingIds.isEmpty) return [];
+      final results = await Future.wait(
+        followingIds.map((id) => _firestore.collection(_usersCollection).doc(id).get()),
+      );
+      return results
+          .where((d) => d.exists)
+          .map((d) => UserModel.fromFirestore(d))
+          .toList();
+    } catch (e) {
+      if (kDebugMode) print('getFollowingUsers error: $e');
+      return [];
+    }
+  }
+
   // ユーザーをフォローする
   Future<void> followUser({
     required String currentUserId,
     required String targetUserId,
+    bool skipNotification = false,
   }) async {
     if (currentUserId == targetUserId) {
       throw Exception('自分自身をフォローすることはできません');
@@ -311,6 +333,8 @@ class UserService {
       });
 
       await batch.commit();
+
+      if (skipNotification) return;
 
       // フォロー通知を作成
       final currentUser = await getUser(currentUserId);

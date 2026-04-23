@@ -79,6 +79,11 @@
 	<string>投稿に写真を撮影するために使用します</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>投稿に写真を選択するために使用します</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>instagram-stories</string>
+		<string>instagram</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

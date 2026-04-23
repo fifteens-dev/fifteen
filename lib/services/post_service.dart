@@ -49,6 +49,34 @@ class PostService {
   /// 特定の投稿を取得
   Future<PostModel?> getPost(String postId) => _fetchService.getPost(postId);
 
+  /// ユーザーの投稿数を取得（Firestoreカウントクエリ）
+  Future<int> getPostCountByUserId(String userId) async {
+    try {
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .count()
+          .get();
+      return snapshot.count ?? 0;
+    } catch (e) {
+      if (kDebugMode) print('getPostCountByUserId error: $e');
+      return 0;
+    }
+  }
+
+  /// 複数の投稿IDから投稿リストを取得
+  Future<List<PostModel>> getPostsByIds(List<String> postIds) async {
+    if (postIds.isEmpty) return [];
+    try {
+      final futures = postIds.map((id) => _fetchService.getPost(id));
+      final results = await Future.wait(futures);
+      return results.whereType<PostModel>().toList();
+    } catch (e) {
+      if (kDebugMode) print('getPostsByIds error: $e');
+      return [];
+    }
+  }
+
   // ─── Write ───────────────────────────────────────
 
   /// 投稿を作成
@@ -312,7 +340,7 @@ class PostService {
               !p.createdAt.isBefore(range.start) &&
               !p.createdAt.isAfter(range.end))
           .toList()
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return posts;
     } catch (e) {
       if (kDebugMode) print('getCampusVibePosts error: $e');
@@ -346,6 +374,139 @@ class PostService {
     } catch (e) {
       if (kDebugMode) print('archiveOldCampusVibePosts error: $e');
     }
+  }
+
+  // ─── 過去履歴 ─────────────────────────────────────
+
+  /// 過去のVibeお題一覧を取得（topicTitle + date のユニーク一覧、新しい順、0件除外）
+  Future<List<({String topicTitle, String topicId, DateTime date, int count})>> getPastVibeTopics() async {
+    try {
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('isVibe', isEqualTo: true)
+          .get();
+
+      final groups = <String, ({String topicTitle, String topicId, DateTime date, int count})>{};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final title = data['vibeTopicTitle'] as String?;
+        if (title == null || title.isEmpty) continue;
+        final topicId = (data['vibeTopicId'] as String?) ?? '';
+        final ts = data['vibeDate'] ?? data['createdAt'];
+        final date = ts is Timestamp ? ts.toDate() : DateTime.now();
+        final normalized = DateTime(date.year, date.month, date.day);
+        final key = '${topicId}_${normalized.millisecondsSinceEpoch}';
+        if (!groups.containsKey(key)) {
+          groups[key] = (topicTitle: title, topicId: topicId, date: normalized, count: 1);
+        } else {
+          final e = groups[key]!;
+          groups[key] = (topicTitle: e.topicTitle, topicId: e.topicId, date: e.date, count: e.count + 1);
+        }
+      }
+
+      final today = DateTime.now();
+      final yesterdayNormalized = DateTime(today.year, today.month, today.day - 1);
+
+      final result = groups.values
+          .where((e) => e.date.isBefore(yesterdayNormalized))
+          .toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+      return result;
+    } catch (e) {
+      if (kDebugMode) print('getPastVibeTopics error: $e');
+      return [];
+    }
+  }
+
+  /// 特定のVibeお題・日付の全投稿を取得
+  Future<List<PostModel>> getVibePostsByTopicAndDate(String topicId, DateTime date) async {
+    try {
+      final normalized = DateTime(date.year, date.month, date.day);
+      final nextDay = normalized.add(const Duration(days: 1));
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('isVibe', isEqualTo: true)
+          .where('vibeTopicId', isEqualTo: topicId)
+          .where('vibeDate', isGreaterThanOrEqualTo: Timestamp.fromDate(normalized))
+          .where('vibeDate', isLessThan: Timestamp.fromDate(nextDay))
+          .get();
+      final posts = snapshot.docs.map((d) => PostModel.fromFirestore(d)).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return posts;
+    } catch (e) {
+      if (kDebugMode) print('getVibePostsByTopicAndDate error: $e');
+      return [];
+    }
+  }
+
+  /// 過去のCampusVibe一覧を取得（university + 週開始日のユニーク一覧、新しい順、0件除外）
+  Future<List<({String university, DateTime weekStart, int count})>> getPastCampusVibeEntries() async {
+    try {
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('university', isGreaterThan: '')
+          .get();
+
+      final groups = <String, ({String university, DateTime weekStart, int count})>{};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        // campusVibePost: true のもの（参加選択した投稿）のみ集計
+        if (data['campusVibePost'] != true) continue;
+        final university = data['university'] as String?;
+        if (university == null || university.isEmpty) continue;
+        final ts = data['createdAt'];
+        final date = ts is Timestamp ? ts.toDate() : DateTime.now();
+        // 週の土曜日を基準に（Campus Vibeは週末開催）
+        final range = CampusVibeUtils.weekendRangeFor(date);
+        final weekStart = range.start;
+        final key = '${university}_${weekStart.millisecondsSinceEpoch}';
+        if (!groups.containsKey(key)) {
+          groups[key] = (university: university, weekStart: weekStart, count: 1);
+        } else {
+          final e = groups[key]!;
+          groups[key] = (university: e.university, weekStart: e.weekStart, count: e.count + 1);
+        }
+      }
+
+      final result = groups.values.toList()
+        ..sort((a, b) => b.weekStart.compareTo(a.weekStart));
+      return result;
+    } catch (e) {
+      if (kDebugMode) print('getPastCampusVibeEntries error: $e');
+      return [];
+    }
+  }
+
+  /// 特定の週・大学のCampusVibe投稿を取得
+  Future<List<PostModel>> getCampusVibePostsByWeekAndUniversity(DateTime weekStart, String university) async {
+    try {
+      final range = CampusVibeUtils.weekendRangeFor(weekStart);
+      // 複合インデックス不要のため university のみで絞り込み、日付はクライアント側でフィルタリング
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('university', isEqualTo: university)
+          .get();
+      final posts = snapshot.docs
+          .map((d) => PostModel.fromFirestore(d))
+          .where((p) =>
+              p.campusVibePost &&
+              !p.createdAt.isBefore(range.start) &&
+              !p.createdAt.isAfter(range.end))
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return posts;
+    } catch (e) {
+      if (kDebugMode) print('getCampusVibePostsByWeekAndUniversity error: $e');
+      return [];
+    }
+  }
+
+  /// Vibeお題をキーワード検索（topicTitleの前方一致）
+  Future<List<({String topicTitle, String topicId, DateTime date, int count})>> searchVibeTopics(String query) async {
+    if (query.trim().isEmpty) return [];
+    final all = await getPastVibeTopics();
+    final lower = query.toLowerCase();
+    return all.where((t) => t.topicTitle.toLowerCase().contains(lower)).toList();
   }
 
   /// Campus Vibe投稿件数をリアルタイムで流すStream

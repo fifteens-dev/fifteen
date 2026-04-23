@@ -16,9 +16,7 @@ class InvitationScreen extends StatefulWidget {
 class _InvitationScreenState extends State<InvitationScreen> {
   final UserService _userService = UserService();
   String? _inviteCode;
-  int _usedCount = 0;
   bool _isLoading = true;
-  static const int _maxInvites = 3;
 
   @override
   void initState() {
@@ -34,11 +32,9 @@ class _InvitationScreenState extends State<InvitationScreen> {
     }
     try {
       final code = await _userService.ensureInviteCode(uid);
-      final used = await _userService.getInviteCodeUsedCount(code);
       if (mounted) {
         setState(() {
           _inviteCode = code;
-          _usedCount = used;
           _isLoading = false;
         });
       }
@@ -118,7 +114,7 @@ class _InvitationScreenState extends State<InvitationScreen> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(15),
-          onTap: _isLoading || _inviteCode == null || _usedCount >= _maxInvites
+          onTap: _isLoading || _inviteCode == null
               ? null
               : () => _copyInvitationCode(context),
           child: _isLoading
@@ -146,14 +142,6 @@ class _InvitationScreenState extends State<InvitationScreen> {
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '残り：${_maxInvites - _usedCount}人',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
-                      ),
                     ),
                   ],
                 ),

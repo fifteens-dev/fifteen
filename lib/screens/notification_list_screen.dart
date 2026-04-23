@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/notification_model.dart';
@@ -11,6 +12,7 @@ import '../services/user_service.dart';
 import 'other_user_profile_screen.dart';
 import 'post_detail_screen.dart';
 import '../widgets/common/app_toast.dart';
+import 'batch_posts_screen.dart';
 
 /// 通知一覧画面
 class NotificationListScreen extends StatefulWidget {
@@ -86,10 +88,15 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     final postIds = notifications
         .where((n) =>
             (n.albumArtUrl == null || n.albumArtUrl!.isEmpty) &&
-            n.postId != null &&
-            n.postId!.isNotEmpty &&
-            !_albumArtCache.containsKey(n.postId))
-        .map((n) => n.postId!)
+            // バッチ通知は postIds[0] を使用、単独通知は postId を使用
+            ((n.postIds != null && n.postIds!.isNotEmpty)
+                ? !_albumArtCache.containsKey(n.postIds!.first)
+                : (n.postId != null &&
+                    n.postId!.isNotEmpty &&
+                    !_albumArtCache.containsKey(n.postId))))
+        .map((n) => n.postIds != null && n.postIds!.isNotEmpty
+            ? n.postIds!.first
+            : n.postId!)
         .toSet()
         .toList();
 
@@ -113,30 +120,38 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
 
   /// 通知送信者の最新アイコンURLをまとめて取得（並列・未取得分のみ）
   Future<void> _refreshIcons() async {
-    if (_latestNotifications.isEmpty) return;
+    final refreshStart = DateTime.now();
 
-    // system など固定送信者を除外し、キャッシュ済みのIDはスキップ
-    final senderIds = _latestNotifications
-        .map((n) => n.senderId)
-        .where((id) => id.isNotEmpty && id != 'system' && !_freshIconUrls.containsKey(id))
-        .toSet()
-        .toList();
+    if (_latestNotifications.isNotEmpty) {
+      // system など固定送信者を除外し、キャッシュ済みのIDはスキップ
+      final senderIds = _latestNotifications
+          .map((n) => n.senderId)
+          .where((id) => id.isNotEmpty && id != 'system' && !_freshIconUrls.containsKey(id))
+          .toSet()
+          .toList();
 
-    if (senderIds.isEmpty) return;
+      if (senderIds.isNotEmpty) {
+        final results = await Future.wait(
+          senderIds.map((id) async {
+            final user = await _userService.getUser(id);
+            return MapEntry(id, user?.profileImageUrl);
+          }),
+        );
 
-    final results = await Future.wait(
-      senderIds.map((id) async {
-        final user = await _userService.getUser(id);
-        return MapEntry(id, user?.profileImageUrl);
-      }),
-    );
-
-    if (mounted) {
-      setState(() {
-        for (final entry in results) {
-          _freshIconUrls[entry.key] = entry.value;
+        if (mounted) {
+          setState(() {
+            for (final entry in results) {
+              _freshIconUrls[entry.key] = entry.value;
+            }
+          });
         }
-      });
+      }
+    }
+
+    // 最低1秒はリフレッシュインジケーターを表示
+    final elapsed = DateTime.now().difference(refreshStart);
+    if (elapsed < const Duration(seconds: 1)) {
+      await Future.delayed(Duration(seconds: 1) - elapsed);
     }
   }
 
@@ -302,6 +317,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         return _buildPostNotification(notification);
       case NotificationType.vibe:
         return _buildVibeNotification(notification);
+      case NotificationType.mention:
+        return _buildMentionNotification(notification);
     }
   }
 
@@ -367,6 +384,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         final isFollowing = snapshot.data ?? false;
         return GestureDetector(
           onTap: () async {
+            HapticFeedback.mediumImpact();
             try {
               if (isFollowing) {
                 await _userService.unfollowUser(
@@ -481,8 +499,12 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
             ),
           ),
           () {
+            // バッチ通知は最初の投稿のアルバムアートを使用
+            final lookupId = notification.postIds != null && notification.postIds!.isNotEmpty
+                ? notification.postIds!.first
+                : notification.postId;
             final artUrl = notification.albumArtUrl ??
-                (notification.postId != null ? _albumArtCache[notification.postId] : null);
+                (lookupId != null ? _albumArtCache[lookupId] : null);
             if (artUrl != null && artUrl.isNotEmpty) {
               return Row(mainAxisSize: MainAxisSize.min, children: [
                 const SizedBox(width: 16),
@@ -491,6 +513,63 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
             }
             return const SizedBox.shrink();
           }(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMentionNotification(NotificationModel notification) {
+    final artUrl = notification.albumArtUrl ??
+        (notification.postId != null ? _albumArtCache[notification.postId] : null);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildUserIcon(notification.senderIconUrl, senderId: notification.senderId),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      notification.senderUsername,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      notification.getRelativeTime(),
+                      style: const TextStyle(fontSize: 14, color: Color(0x80FFFFFF)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  notification.getMessage(),
+                  style: const TextStyle(fontSize: 14, color: Color(0x80FFFFFF)),
+                ),
+                if (notification.commentText != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '"${notification.commentText}"',
+                    style: const TextStyle(fontSize: 12, color: Color(0x60FFFFFF)),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          if (artUrl != null && artUrl.isNotEmpty)
+            _buildAlbumArt(artUrl),
         ],
       ),
     );
@@ -788,16 +867,19 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         ? _freshIconUrls[senderId]
         : fallbackUrl;
 
-    return Container(
+    return SizedBox(
       width: 42,
       height: 42,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        color: Color(0xFF2D2D2D),
-      ),
-      child: url != null && url.isNotEmpty
-          ? ClipOval(
-              child: CachedNetworkImage(
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          color: Color(0xFF2D2D2D),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: url != null && url.isNotEmpty
+            ? CachedNetworkImage(
                 imageUrl: url,
                 width: 42,
                 height: 42,
@@ -809,13 +891,13 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                   color: Color(0x40FFFFFF),
                   size: 24,
                 ),
+              )
+            : const Icon(
+                Icons.person,
+                color: Color(0x40FFFFFF),
+                size: 24,
               ),
-            )
-          : const Icon(
-              Icons.person,
-              color: Color(0x40FFFFFF),
-              size: 24,
-            ),
+      ),
     );
   }
 
@@ -888,7 +970,19 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         case NotificationType.like:
         case NotificationType.comment:
         case NotificationType.post:
-          if (notification.postId != null && notification.postId!.isNotEmpty) {
+        case NotificationType.mention:
+          // バッチ通知（複数postIds）→ スクロール可能な投稿リスト画面へ
+          if (notification.postIds != null && notification.postIds!.length > 1) {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => BatchPostsScreen(
+                  postIds: notification.postIds!,
+                  currentUserId: currentUserId,
+                ),
+              ),
+            );
+          } else if (notification.postId != null && notification.postId!.isNotEmpty) {
             final post = await _postService.getPost(notification.postId!);
             if (mounted && post != null) {
               await Navigator.push(

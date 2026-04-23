@@ -8,6 +8,7 @@ enum NotificationType {
   official, // 公式通知
   post,     // フォロー中ユーザーの投稿通知
   vibe,     // 毎日20:00のVibe通知
+  mention,  // コメントでのタグ付け（@メンション）
 }
 
 /// 通知モデル
@@ -21,6 +22,7 @@ class NotificationModel {
 
   // いいね・コメント通知用フィールド
   final String? postId;
+  final List<String>? postIds; // バッチ投稿通知用（複数投稿ID）
   final String? albumArtUrl;
   final String? trackName;
 
@@ -45,6 +47,7 @@ class NotificationModel {
     required this.senderUsername,
     this.senderIconUrl,
     this.postId,
+    this.postIds,
     this.albumArtUrl,
     this.trackName,
     this.commentText,
@@ -72,6 +75,9 @@ class NotificationModel {
       senderUsername: data['senderUsername'] ?? '',
       senderIconUrl: data['senderIconUrl'],
       postId: data['postId'],
+      postIds: data['postIds'] != null
+          ? List<String>.from(data['postIds'] as List)
+          : null,
       albumArtUrl: data['albumArtUrl'],
       trackName: data['trackName'],
       commentText: data['commentText'],
@@ -94,6 +100,7 @@ class NotificationModel {
       'senderUsername': senderUsername,
       'senderIconUrl': senderIconUrl,
       'postId': postId,
+      'postIds': postIds,
       'albumArtUrl': albumArtUrl,
       'trackName': trackName,
       'commentText': commentText,
@@ -120,6 +127,7 @@ class NotificationModel {
       senderUsername: senderUsername,
       senderIconUrl: senderIconUrl,
       postId: postId,
+      postIds: postIds,
       albumArtUrl: albumArtUrl,
       trackName: trackName,
       commentText: commentText,
@@ -148,6 +156,8 @@ class NotificationModel {
         return body ?? '';
       case NotificationType.vibe:
         return body ?? '';
+      case NotificationType.mention:
+        return 'があなたをタグ付けしました';
     }
   }
 

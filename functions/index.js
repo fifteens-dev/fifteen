@@ -292,7 +292,7 @@ function getJstDateString() {
  * 通知ドキュメントを作成してFCMプッシュを送信するヘルパー
  * notifDocId を固定化することで冪等性を保証
  */
-async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername, senderIconUrl, message, notifDocId, postId, albumArtUrl) {
+async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername, senderIconUrl, message, notifDocId, postId, albumArtUrl, postIds) {
   // 重複チェック
   const notifRef = db.collection('notifications').doc(notifDocId);
   const existing = await notifRef.get();
@@ -309,6 +309,7 @@ async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername
     senderIconUrl: senderIconUrl || null,
     postId: postId || null,
     albumArtUrl: albumArtUrl || null,
+    postIds: postIds && postIds.length > 0 ? postIds : null,
     body: message,
     isRead: false,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -387,11 +388,13 @@ async function processPostNotificationForRecipient(db, recipientId, senderId, se
 
       if (isNewCycle) {
         // 新しいタイマーサイクルを開始
+        // ※ 最初の投稿者は即時通知で名前が出るため、バッチには含めない
+        //   → 3時間後バッチには2人目以降のみ蓄積し、誰も投稿しなければ通知なし
         tx.set(stateRef, {
           phase: 'TIMER_ACTIVE',
-          batchedSenderIds: [senderId],
-          batchedSenderUsernames: [senderUsername],
-          batchedPostIds: [postId],
+          batchedSenderIds: [],
+          batchedSenderUsernames: [],
+          batchedPostIds: [],
           timerStartedAt: admin.firestore.FieldValue.serverTimestamp(),
           lastResetDate: today,
         });
@@ -491,8 +494,9 @@ exports.onPostCreated = onDocumentCreated(
 /**
  * 15分ごとに TIMER_ACTIVE 状態をチェックし、3時間経過したものを処理
  *
- * - batchedSenderIds > 0 → パターンA: 「〇人が投稿しました」まとめ通知 → DONE
- * - batchedSenderIds == 0 → パターンC: TIMER_EXPIRED_EMPTY へ遷移
+ * - batchedSenderIds > 0 → 「〇人が投稿しました」まとめ通知 → DONE
+ *   ※ バッチには最初の投稿者(即時通知済み)は含まれず、2人目以降のみ
+ * - batchedSenderIds == 0 → 通知なし → DONE（最初の1人しか投稿しなかった場合）
  */
 exports.checkPostNotificationTimers = onSchedule(
   { schedule: '*/15 * * * *', timeZone: 'Asia/Tokyo' },
@@ -533,8 +537,8 @@ exports.checkPostNotificationTimers = onSchedule(
         const uniqueSenderIds = [...new Set(batchedSenderIds)];
         const count = uniqueSenderIds.length;
         const firstUsername = batchedSenderUsernames[0] || 'Unknown';
-        // 最新の投稿（最後に追加されたエントリ）のIDでナビゲート
-        const latestPostId = batchedPostIds[batchedPostIds.length - 1] || null;
+        // 最初に投稿したもの（先着順）のIDを表示・ナビゲートに使用
+        const firstPostId = batchedPostIds[0] || null;
         const message = count === 1
           ? `${firstUsername}が投稿しました。`
           : `${firstUsername}など${count}人が投稿しました。`;
@@ -551,7 +555,7 @@ exports.checkPostNotificationTimers = onSchedule(
         await sendPostNotificationDoc(
           db, recipientId,
           batchedSenderIds[0], firstUsername, null,
-          message, notifDocId, latestPostId, null
+          message, notifDocId, firstPostId, null, batchedPostIds
         );
 
         console.log(`checkPostNotificationTimers: batch sent to ${recipientId} (${count} unique senders, ${batchedSenderIds.length} posts)`);

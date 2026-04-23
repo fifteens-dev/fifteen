@@ -283,6 +283,7 @@ class PostCardBackInfo extends StatelessWidget {
               'assets/icons/comment_send_button.png',
               width: 20,
               height: 20,
+              color: theme.textColor.withOpacity(0.6),
             ),
             const SizedBox(width: 12),
           ],

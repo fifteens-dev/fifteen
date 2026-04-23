@@ -83,6 +83,8 @@ class PostWriteService {
         'audioDurationSec': audioDurationSec,
         'university': university,
         'campusVibeParticipating': campusVibeParticipating,
+        // 作成時の参加状態を永続保持（archiveで上書きされない）
+        'campusVibePost': campusVibeParticipating == true && university != null,
       };
 
       await postRef.set(postData);

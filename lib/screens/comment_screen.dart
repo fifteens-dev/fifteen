@@ -6,13 +6,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../models/comment_model.dart';
+import '../models/user_model.dart';
 import '../services/comment_service.dart';
+import '../services/user_service.dart';
 import '../utils/current_user_helper.dart';
 import '../utils/context_menu_builder.dart';
 import '../widgets/dialogs/dialogs.dart';
 import '../services/report_service.dart';
 import '../widgets/native_pull_down_button.dart';
 import '../widgets/common/app_toast.dart';
+import 'other_user_profile_screen.dart';
 
 /// コメント画面（ボトムシート）
 class CommentScreen extends StatefulWidget {
@@ -54,11 +57,18 @@ class CommentScreen extends StatefulWidget {
 class _CommentScreenState extends State<CommentScreen> {
   final TextEditingController _commentController = TextEditingController();
   final CommentService _commentService = CommentService();
+  final UserService _userService = UserService();
   final ReportService _reportService = ReportService();
   final ScrollController _scrollController = ScrollController();
   bool _isPosting = false;
   String _currentUsername = '';
   String? _currentUserIconUrl;
+  String? _currentUserId;
+
+  // @メンション サジェスト用
+  List<UserModel> _mentionSuggestions = [];
+  bool _showMentionSuggestions = false;
+  String _mentionQuery = '';
 
   PostTheme get _theme => widget.post.theme;
 
@@ -74,8 +84,72 @@ class _CommentScreenState extends State<CommentScreen> {
       setState(() {
         _currentUsername = userInfo.username;
         _currentUserIconUrl = userInfo.iconUrl;
+        _currentUserId = FirebaseAuth.instance.currentUser?.uid;
       });
     }
+  }
+
+  /// テキスト変更時に@メンションを検出してサジェストを更新
+  void _onCommentChanged(String text) {
+    final cursorPos = _commentController.selection.baseOffset;
+    if (cursorPos < 0) return;
+    final beforeCursor = text.substring(0, cursorPos.clamp(0, text.length));
+    final atIndex = beforeCursor.lastIndexOf('@');
+    if (atIndex == -1) {
+      if (_showMentionSuggestions) setState(() => _showMentionSuggestions = false);
+      return;
+    }
+    // @ の直前がスペースまたは行頭か確認
+    if (atIndex > 0 && beforeCursor[atIndex - 1] != ' ') {
+      if (_showMentionSuggestions) setState(() => _showMentionSuggestions = false);
+      return;
+    }
+    final query = beforeCursor.substring(atIndex + 1);
+    // スペースが入ったらメンション終了
+    if (query.contains(' ')) {
+      if (_showMentionSuggestions) setState(() => _showMentionSuggestions = false);
+      return;
+    }
+    _mentionQuery = query;
+    _fetchMentionSuggestions(query);
+  }
+
+  Future<void> _fetchMentionSuggestions(String query) async {
+    final uid = _currentUserId;
+    if (uid == null) return;
+    try {
+      // フォロー中ユーザーを取得してフィルタリング
+      final following = await _userService.getFollowingUsers(uid);
+      final filtered = following.where((u) {
+        final username = (u.username ?? '').toLowerCase();
+        return query.isEmpty || username.startsWith(query.toLowerCase());
+      }).take(6).toList();
+      if (mounted) {
+        setState(() {
+          _mentionSuggestions = filtered;
+          _showMentionSuggestions = filtered.isNotEmpty;
+        });
+      }
+    } catch (_) {}
+  }
+
+  /// サジェストからユーザーを選択して挿入
+  void _selectMentionUser(UserModel user) {
+    final text = _commentController.text;
+    final cursorPos = _commentController.selection.baseOffset.clamp(0, text.length);
+    final beforeCursor = text.substring(0, cursorPos);
+    final atIndex = beforeCursor.lastIndexOf('@');
+    if (atIndex == -1) return;
+    final afterCursor = text.substring(cursorPos);
+    final newText = '${text.substring(0, atIndex)}@${user.username} $afterCursor';
+    _commentController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: atIndex + (user.username?.length ?? 0) + 2),
+    );
+    setState(() {
+      _showMentionSuggestions = false;
+      _mentionSuggestions = [];
+    });
   }
 
   @override
@@ -304,14 +378,8 @@ class _CommentScreenState extends State<CommentScreen> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                // コメント本文
-                Text(
-                  comment.content,
-                  style: TextStyle(
-                    color: _theme.textColor,
-                    fontSize: 14,
-                  ),
-                ),
+                // コメント本文（@メンションをハイライト）
+                _buildCommentText(comment.content),
               ],
             ),
           ),
@@ -340,93 +408,195 @@ class _CommentScreenState extends State<CommentScreen> {
     );
   }
 
-  /// コメント入力欄（Figma準拠）
+  /// コメント入力欄（@メンションサジェスト付き）
   Widget _buildCommentInput() {
-    return Container(
-      padding: EdgeInsets.only(
-        left: 19,
-        right: 19,
-        top: 10,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Row(
-        children: [
-          // 現在のユーザーアイコン（40x40）
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // @メンションサジェスト
+        if (_showMentionSuggestions && _mentionSuggestions.isNotEmpty)
           Container(
-            width: 40,
-            height: 40,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.grey,
+            constraints: const BoxConstraints(maxHeight: 200),
+            decoration: BoxDecoration(
+              color: _theme.commentButtonColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
             ),
-            child: _currentUserIconUrl != null &&
-                    _currentUserIconUrl!.isNotEmpty
-                ? ClipOval(
-                    child: _buildUserIcon(_currentUserIconUrl!, 40),
-                  )
-                : Icon(Icons.person, size: 24, color: _theme.textColor),
-          ),
-          const SizedBox(width: 10),
-
-          // 入力フィールド（commentButtonColor背景、角丸12px）
-          Expanded(
-            child: Container(
-              height: 40,
-              decoration: BoxDecoration(
-                color: _theme.commentButtonColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _commentController,
-                      style: TextStyle(
-                        color: _theme.textColor,
-                        fontSize: 13,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'コメントする',
-                        hintStyle: TextStyle(
-                          color: _theme.textColor.withOpacity(0.6),
-                          fontSize: 13,
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              itemCount: _mentionSuggestions.length,
+              itemBuilder: (context, index) {
+                final user = _mentionSuggestions[index];
+                return InkWell(
+                  onTap: () => _selectMentionUser(user),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.grey),
+                          child: user.profileImageUrl != null && user.profileImageUrl!.isNotEmpty
+                              ? ClipOval(child: _buildUserIcon(user.profileImageUrl!, 32))
+                              : Icon(Icons.person, size: 18, color: _theme.textColor),
                         ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.only(
-                          left: 13,
-                          bottom: 10,
-                        ),
-                        isCollapsed: true,
-                      ),
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _postComment(),
-                      contextMenuBuilder: buildTextContextMenu,
-                    ),
-                  ),
-                  // 送信ボタン
-                  GestureDetector(
-                    onTap: _isPosting ? null : _postComment,
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: _isPosting
-                          ? CupertinoActivityIndicator(
-                              color: _theme.textColor,
-                              radius: 10,
-                            )
-                          : Image.asset(
-                              'assets/icons/comment_send_button.png',
-                              width: 24,
-                              height: 24,
+                        const SizedBox(width: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '@${user.username ?? ''}',
+                              style: TextStyle(
+                                color: _theme.textColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
+                            if (user.name != null && user.name!.isNotEmpty)
+                              Text(
+                                user.name!,
+                                style: TextStyle(
+                                  color: _theme.textColor.withOpacity(0.6),
+                                  fontSize: 11,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ),
-        ],
-      ),
+
+        // 入力エリア
+        Container(
+          padding: EdgeInsets.only(
+            left: 19,
+            right: 19,
+            top: 10,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          child: Row(
+            children: [
+              // 現在のユーザーアイコン
+              Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.grey),
+                child: _currentUserIconUrl != null && _currentUserIconUrl!.isNotEmpty
+                    ? ClipOval(child: _buildUserIcon(_currentUserIconUrl!, 40))
+                    : Icon(Icons.person, size: 24, color: _theme.textColor),
+              ),
+              const SizedBox(width: 10),
+
+              // 入力フィールド
+              Expanded(
+                child: Container(
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: _theme.commentButtonColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _commentController,
+                          cursorColor: Colors.black,
+                          style: TextStyle(color: _theme.textColor, fontSize: 13),
+                          decoration: InputDecoration(
+                            hintText: 'コメントする',
+                            hintStyle: TextStyle(
+                              color: _theme.textColor.withOpacity(0.6),
+                              fontSize: 13,
+                            ),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 0),
+                            isCollapsed: true,
+                          ),
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _postComment(),
+                          onChanged: _onCommentChanged,
+                          contextMenuBuilder: buildTextContextMenu,
+                        ),
+                      ),
+                      // 送信ボタン
+                      GestureDetector(
+                        onTap: _isPosting ? null : _postComment,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _isPosting
+                              ? CupertinoActivityIndicator(color: _theme.textColor, radius: 10)
+                              : Image.asset(
+                                  'assets/icons/comment_send_button.png',
+                                  width: 24,
+                                  height: 24,
+                                  color: _theme.textColor.withOpacity(0.6),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
+  }
+
+  /// @メンションをハイライトしたコメント本文
+  Widget _buildCommentText(String content) {
+    final mentionRegex = RegExp(r'@([\w]+)');
+    final spans = <InlineSpan>[];
+    int lastEnd = 0;
+    for (final match in mentionRegex.allMatches(content)) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: content.substring(lastEnd, match.start),
+          style: TextStyle(color: _theme.textColor, fontSize: 14),
+        ));
+      }
+      final username = match.group(1)!;
+      spans.add(WidgetSpan(
+        child: GestureDetector(
+          onTap: () async {
+            try {
+              final users = await _userService.searchUsers(query: username, limit: 5);
+              final target = users.where((u) => u.username == username).firstOrNull;
+              if (target != null && mounted) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => OtherUserProfileScreen(userId: target.uid),
+                  ),
+                );
+              }
+            } catch (_) {}
+          },
+          child: Text(
+            '@$username',
+            style: TextStyle(
+              color: _theme.textColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ));
+      lastEnd = match.end;
+    }
+    if (lastEnd < content.length) {
+      spans.add(TextSpan(
+        text: content.substring(lastEnd),
+        style: TextStyle(color: _theme.textColor, fontSize: 14),
+      ));
+    }
+    return RichText(text: TextSpan(children: spans));
   }
 
   /// ユーザーアイコンを表示（アセットパスとネットワークURLの両方に対応）

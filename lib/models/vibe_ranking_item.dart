@@ -6,12 +6,16 @@ class VibeRankingItem {
   final TrackModel track; // 楽曲情報
   final int postCount; // この楽曲が投稿された回数
   final List<String> userIds; // 投稿したユーザーIDの一覧
+  final List<String> userIconUrls; // 投稿したユーザーのアイコンURL一覧
+  final List<String> usernames; // 投稿したユーザーのユーザー名一覧
 
   VibeRankingItem({
     required this.rank,
     required this.track,
     required this.postCount,
     this.userIds = const [],
+    this.userIconUrls = const [],
+    this.usernames = const [],
   });
 
   // Mapから作成
@@ -21,6 +25,8 @@ class VibeRankingItem {
       track: TrackModel.fromMap(map['track'] ?? {}),
       postCount: map['postCount'] ?? 0,
       userIds: List<String>.from(map['userIds'] ?? []),
+      userIconUrls: List<String>.from(map['userIconUrls'] ?? []),
+      usernames: List<String>.from(map['usernames'] ?? []),
     );
   }
 
@@ -31,6 +37,8 @@ class VibeRankingItem {
       'track': track.toMap(),
       'postCount': postCount,
       'userIds': userIds,
+      'userIconUrls': userIconUrls,
+      'usernames': usernames,
     };
   }
 
@@ -40,12 +48,16 @@ class VibeRankingItem {
     TrackModel? track,
     int? postCount,
     List<String>? userIds,
+    List<String>? userIconUrls,
+    List<String>? usernames,
   }) {
     return VibeRankingItem(
       rank: rank ?? this.rank,
       track: track ?? this.track,
       postCount: postCount ?? this.postCount,
       userIds: userIds ?? this.userIds,
+      userIconUrls: userIconUrls ?? this.userIconUrls,
+      usernames: usernames ?? this.usernames,
     );
   }
 }

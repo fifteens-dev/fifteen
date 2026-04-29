@@ -177,11 +177,10 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
       return;
     }
 
-    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(username)) {
-      AppToast.show(context, 'ユーザー名は英数字とアンダースコアのみ使用できます');
+    if (!RegExp(r'^[a-zA-Z0-9_.]+$').hasMatch(username)) {
+      AppToast.show(context, 'ユーザー名は英数字・アンダースコア・ドットのみ使用できます');
       return;
     }
-
     if (username.length < 3 || username.length > 20) {
       AppToast.show(context, 'ユーザー名は3〜20文字で入力してください');
       return;
@@ -530,7 +529,7 @@ class _EditDialogState extends State<_EditDialog> {
           controller: _controller,
           autofocus: true,
           placeholder: widget.isUsername
-              ? '英数字・アンダースコアのみ'
+              ? '英数字・_・.のみ'
               : '${widget.title}を入力',
           clearButtonMode: OverlayVisibilityMode.editing,
           keyboardType: widget.isUsername
@@ -539,7 +538,7 @@ class _EditDialogState extends State<_EditDialog> {
           autocorrect: !widget.isUsername,
           enableSuggestions: !widget.isUsername,
           inputFormatters: widget.isUsername
-              ? [FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_]'))]
+              ? [FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_.]'))]
               : null,
           contextMenuBuilder: buildTextContextMenu,
         ),

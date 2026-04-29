@@ -109,6 +109,23 @@ class PostWriteService {
     }
   }
 
+  /// 投稿の写真URLを更新（分割アップロード後にバックグラウンドで呼ぶ）
+  Future<void> updatePostPhotoUrl({
+    required String postId,
+    required String photoUrl,
+  }) async {
+    try {
+      await _firestore.collection(_postsCollection).doc(postId).update({
+        'photoUrl': photoUrl,
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error updating post photoUrl: $e');
+      }
+      rethrow;
+    }
+  }
+
   /// 投稿の歌詞テキストを更新（フォールバック取得後の保存用）
   Future<void> updateLyricsText({
     required String postId,

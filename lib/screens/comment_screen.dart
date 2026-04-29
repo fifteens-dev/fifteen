@@ -118,16 +118,16 @@ class _CommentScreenState extends State<CommentScreen> {
     final uid = _currentUserId;
     if (uid == null) return;
     try {
-      // フォロー中ユーザーを取得してフィルタリング
+      // 候補はフォロー中ユーザーのみ（クエリで前方一致フィルタ）
       final following = await _userService.getFollowingUsers(uid);
-      final filtered = following.where((u) {
+      final results = following.where((u) {
         final username = (u.username ?? '').toLowerCase();
         return query.isEmpty || username.startsWith(query.toLowerCase());
       }).take(6).toList();
       if (mounted) {
         setState(() {
-          _mentionSuggestions = filtered;
-          _showMentionSuggestions = filtered.isNotEmpty;
+          _mentionSuggestions = results;
+          _showMentionSuggestions = results.isNotEmpty;
         });
       }
     } catch (_) {}
@@ -551,7 +551,7 @@ class _CommentScreenState extends State<CommentScreen> {
 
   /// @メンションをハイライトしたコメント本文
   Widget _buildCommentText(String content) {
-    final mentionRegex = RegExp(r'@([\w]+)');
+    final mentionRegex = RegExp(r'@([a-zA-Z0-9_][a-zA-Z0-9_.]*[a-zA-Z0-9_]|[a-zA-Z0-9_])');
     final spans = <InlineSpan>[];
     int lastEnd = 0;
     for (final match in mentionRegex.allMatches(content)) {

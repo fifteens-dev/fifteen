@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
@@ -94,8 +96,8 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
     _requestedPageIndex = index;
     final post = _posts[index];
 
-    await _audioService.stop();
-
+    // playPreview 内で fire-and-forget の stop と preload swap を行うため
+    // ここでは事前 stop しない（不要な await を避ける）
     String? url = _previewUrlCache[index];
 
     if (url == null) {
@@ -131,6 +133,52 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
         );
       } catch (_) {}
     }
+
+    // 隣接ページの音声を事前 setUrl してタップ→再生のレイテンシを排除
+    _preloadNeighborAudio(index);
+  }
+
+  /// 次ページ音声の事前ロード
+  void _preloadNeighborAudio(int currentIndex) {
+    final next = currentIndex + 1;
+    if (next >= _posts.length) return;
+    final cached = _previewUrlCache[next];
+    if (cached != null && cached.isNotEmpty) {
+      _audioService.preload(
+        cached,
+        startFrom: Duration(milliseconds: _posts[next].audioStartMs),
+        durationSeconds: _posts[next].audioDurationSec,
+      );
+      return;
+    }
+    final nextPost = _posts[next];
+    if (nextPost.track.previewUrl != null &&
+        nextPost.track.previewUrl!.isNotEmpty) {
+      _previewUrlCache[next] = nextPost.track.previewUrl;
+      _audioService.preload(
+        nextPost.track.previewUrl!,
+        startFrom: Duration(milliseconds: nextPost.audioStartMs),
+        durationSeconds: nextPost.audioDurationSec,
+      );
+      return;
+    }
+    // URL未取得 → バックグラウンドで取得＋preloadまでつなげる
+    unawaited(_itunesService
+        .getPreviewUrlWithArt(
+      trackName: nextPost.track.trackName,
+      artistName: nextPost.track.artistName,
+    )
+        .then((result) {
+      if (!mounted) return;
+      final u = result?['previewUrl'];
+      if (u == null || u.isEmpty) return;
+      _previewUrlCache[next] = u;
+      _audioService.preload(
+        u,
+        startFrom: Duration(milliseconds: nextPost.audioStartMs),
+        durationSeconds: nextPost.audioDurationSec,
+      );
+    }));
   }
 
   void _onPageChanged(int index) {

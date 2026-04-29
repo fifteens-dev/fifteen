@@ -91,8 +91,8 @@ class CommentService {
     String? albumArtUrl,
     String? trackName,
   }) async {
-    // @username を抽出（英数字・アンダースコアのみ）
-    final mentionRegex = RegExp(r'@([\w]+)');
+    // @username を抽出（英数字・アンダースコア・ドット）
+    final mentionRegex = RegExp(r'@([a-zA-Z0-9_][a-zA-Z0-9_.]*[a-zA-Z0-9_]|[a-zA-Z0-9_])');
     final matches = mentionRegex.allMatches(content);
     if (matches.isEmpty) return;
 

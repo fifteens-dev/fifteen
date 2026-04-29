@@ -13,11 +13,26 @@ class InstagramStoriesService {
     }
   }
 
-  static Future<bool> share(Uint8List pngBytes) async {
+  static Future<bool> share(
+    Uint8List pngBytes, {
+    String? postId,
+    String? audioUrl,
+    int audioStartMs = 0,
+    int durationSec = 15,
+  }) async {
     try {
-      await _channel.invokeMethod('shareToStories', {'imageData': pngBytes});
-      // source_application にはFacebook App ID（登録済みの場合）またはバンドルIDを指定
-      const bundleId = 'com.fifteen.app'; // TODO: Facebook App IDに変更する
+      // Instagramリンクスタンプ用HTTPS URL
+      // このページが fifteenapp:// を呼び出してアプリを起動する
+      const contentUrl = 'https://fifteens-39cfe.web.app/';
+      final args = <String, dynamic>{
+        'imageData': pngBytes,
+        'contentURL': contentUrl,
+        if (audioUrl != null && audioUrl.isNotEmpty) 'audioURL': audioUrl,
+        'audioStartMs': audioStartMs,
+        'durationSec': durationSec,
+      };
+      await _channel.invokeMethod('shareToStories', args);
+      const bundleId = 'com.fifteen.app';
       final uri = Uri.parse('instagram-stories://share?source_application=$bundleId');
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri);

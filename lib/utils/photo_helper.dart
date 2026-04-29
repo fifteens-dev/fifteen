@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
@@ -55,6 +56,46 @@ class PhotoHelper {
     } catch (e) {
       if (kDebugMode) {
         print('❌ 写真処理エラー: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 写真をアップロードし、URL取得前のReferenceを返す（並列化用）
+  ///
+  /// Web版: Base64 URLを immediateUrl に返す（storageRef は null）
+  /// モバイル版: アップロード後の Reference を storageRef に返す（immediateUrl は null）
+  /// これにより呼び出し側で getDownloadURL() と createPost を並列実行できる
+  static Future<({String? immediateUrl, Reference? storageRef})> processPhotoSplit({
+    required XFile image,
+    required String userId,
+    required StorageService storageService,
+  }) async {
+    try {
+      final bytes = await image.readAsBytes();
+      final originalSize = bytes.length;
+
+      Uint8List processedBytes = bytes;
+      if (originalSize > PhotoConstants.maxImageSizeBytes) {
+        processedBytes = await _compressImage(bytes);
+      }
+
+      if (kIsWeb) {
+        final url = _convertToBase64(processedBytes, image.path);
+        return (immediateUrl: url, storageRef: null);
+      } else {
+        final ref = await storageService.uploadPostImageGetRef(
+          userId: userId,
+          imageBytes: processedBytes,
+        ).timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => throw Exception('アップロードがタイムアウトしました'),
+        );
+        return (immediateUrl: null, storageRef: ref);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 写真分割アップロードエラー: $e');
       }
       rethrow;
     }

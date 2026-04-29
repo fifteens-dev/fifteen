@@ -1,10 +1,11 @@
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
 import '../services/post_service.dart';
 import '../models/user_model.dart';
@@ -46,6 +47,15 @@ class _SearchScreenState extends State<SearchScreen> {
   String? _inviteCode;
   String? _currentUserProfileImageUrl;
 
+  // Vibe セクション（Figma 3986:7761 仕様）
+  List<({
+    String topicTitle,
+    String topicId,
+    DateTime date,
+    int count,
+    List<String> thumbnails,
+  })> _vibeTopics = [];
+
   // デバウンス時間（ミリ秒）
   static const int _debounceDuration = 500;
   static const String _recentSearchesKey = 'recent_searches';
@@ -56,6 +66,16 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchFocusNode.addListener(_onFocusChanged);
     _loadRecentSearches();
     _loadInviteCode();
+    _loadVibeTopics();
+  }
+
+  Future<void> _loadVibeTopics() async {
+    try {
+      final topics = await _postService.getVibeTopicsWithThumbnails(limit: 20);
+      if (mounted) {
+        setState(() => _vibeTopics = topics);
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadInviteCode() async {
@@ -241,6 +261,10 @@ class _SearchScreenState extends State<SearchScreen> {
             if (!_isFocused && _currentQuery.isEmpty)
               _buildInviteCodeCard(),
 
+            // Vibeセクション（Figma 3986:7761 仕様, 未フォーカス時のみ表示）
+            if (!_isFocused && _currentQuery.isEmpty && _vibeTopics.isNotEmpty)
+              _buildVibeSection(),
+
             // 過去のVibe・CampusVibeカード（未フォーカス時のみ表示）
             if (!_isFocused && _currentQuery.isEmpty) ...[
               _buildVibeHistoryCard(),
@@ -371,6 +395,205 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Vibeセクション（Figma 3986:7761）
+  /// - 見出し「Vibe」 + Vibeアイコン
+  /// - 横スクロールで個別 Vibe topic カードを表示
+  Widget _buildVibeSection() {
+    return SizedBox(
+      height: 218,
+      child: Stack(
+        children: [
+          // 見出し
+          Positioned(
+            left: 9,
+            top: 2,
+            right: 0,
+            height: 40,
+            child: Row(
+              children: [
+                Image.asset(
+                  'assets/icons/Vibe.png',
+                  width: 39.7,
+                  height: 40,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) =>
+                      const Icon(Icons.music_note, color: Colors.white, size: 28),
+                ),
+                const SizedBox(width: 9),
+                const Text(
+                  'Vibe',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFEFEFEF),
+                    height: 1.0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 横スクロールエリア（top=46, h=172）
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 46,
+            height: 172,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              itemCount: _vibeTopics.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 4),
+              itemBuilder: (context, index) {
+                return _buildVibeCard(_vibeTopics[index]);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Vibeカード（211×172: 写真コラージュ140 + ユーザーエリア24 + 余白）
+  Widget _buildVibeCard(({
+    String topicTitle,
+    String topicId,
+    DateTime date,
+    int count,
+    List<String> thumbnails,
+  }) topic) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VibePostsListScreen(
+              title: topic.topicTitle,
+              currentUserId: currentUserId,
+              fetchPosts: () => _postService.getVibePostsByTopicAndDate(
+                topic.topicId,
+                topic.date,
+              ),
+            ),
+          ),
+        );
+      },
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 211,
+        height: 172,
+        child: Stack(
+          children: [
+            // 写真コラージュ（211×140 rounded=15）
+            Positioned(
+              left: 0,
+              top: 0,
+              width: 211,
+              height: 140,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(15),
+                child: _buildVibeCollage(topic.thumbnails),
+              ),
+            ),
+            // ユーザーエリア（top=142, h=24, left=3, w=171）
+            Positioned(
+              left: 3 + 9, // Figma: 内側で left=9 のため合算
+              top: 142,
+              right: 0,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '#${topic.topicTitle}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                      letterSpacing: -0.11,
+                      height: 1.2,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    '${topic.count}件の投稿',
+                    style: const TextStyle(
+                      fontSize: 7,
+                      color: Color(0xFFA8A8A8),
+                      height: 1.2,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 4枚画像コラージュ（Figma仕様）
+  /// - 左 70×140 / 中央 70×140 → 写真のみ（縦幅にフィット、横はクリップ）
+  /// - 右上 70×70 / 右下 70×69 → アルバムアート（cover）
+  /// 各スロットの URL が空文字 or 未指定の場合は灰色プレースホルダ
+  Widget _buildVibeCollage(List<String> urls) {
+    bool hasUrl(int i) => i < urls.length && urls[i].isNotEmpty;
+
+    Widget photoCell(int i) {
+      if (!hasUrl(i)) return Container(color: Colors.grey[850]);
+      // 縦に等比拡大して縦幅いっぱいに表示、横はクリップ
+      return ClipRect(
+        child: SizedBox.expand(
+          child: CachedNetworkImage(
+            imageUrl: urls[i],
+            fit: BoxFit.fitHeight,
+            alignment: Alignment.center,
+            width: double.infinity,
+            height: double.infinity,
+            errorWidget: (_, __, ___) => Container(color: Colors.grey[850]),
+          ),
+        ),
+      );
+    }
+
+    Widget jacketCell(int i) {
+      if (!hasUrl(i)) return Container(color: Colors.grey[850]);
+      return SizedBox.expand(
+        child: CachedNetworkImage(
+          imageUrl: urls[i],
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          errorWidget: (_, __, ___) => Container(color: Colors.grey[850]),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        // 左カラム 70（写真）
+        Expanded(child: photoCell(0)),
+        const SizedBox(width: 1),
+        // 中央カラム 70（写真）
+        Expanded(child: photoCell(1)),
+        const SizedBox(width: 1),
+        // 右カラム 70（アルバムアート 上下2分割）
+        Expanded(
+          child: Column(
+            children: [
+              Expanded(child: jacketCell(2)),
+              const SizedBox(height: 1),
+              Expanded(child: jacketCell(3)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

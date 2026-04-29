@@ -53,14 +53,13 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
       return;
     }
 
-    // ユーザーネームのバリデーション（英数字とアンダースコアのみ）
-    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(username)) {
+    // ユーザーネームのバリデーション（英数字・アンダースコア・ドット）
+    if (!RegExp(r'^[a-zA-Z0-9_.]+$').hasMatch(username)) {
       if (mounted) {
-        AppToast.show(context, 'ユーザーネームは英数字とアンダースコアのみ使用できます');
+        AppToast.show(context, 'ユーザーネームは英数字・アンダースコア・ドットのみ使用できます');
       }
       return;
     }
-
     // 長さのバリデーション
     if (username.length < 3 || username.length > 20) {
       if (mounted) {
@@ -163,12 +162,12 @@ class _UsernameCreationScreenState extends State<UsernameCreationScreen> {
               const SizedBox(height: AppDimensions.paddingLarge),
               CommonInputField(
                 controller: _usernameController,
-                hintText: 'ユーザーネーム（英数字・アンダースコアのみ）',
+                hintText: 'ユーザーネーム（英数字・_・.のみ）',
                 keyboardType: TextInputType.visiblePassword,
                 autocorrect: false,
                 enableSuggestions: false,
                 inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_]')),
+                  FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_.]')),
                 ],
               ),
               const SizedBox(height: AppDimensions.paddingLarge),

@@ -1,13 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/post_model.dart';
-import 'user_service.dart';
 
 /// 投稿データの取得を担当するサービス
 class PostFetchService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _postsCollection = 'posts';
-  final UserService _userService = UserService();
 
   // ユーザー情報のインメモリキャッシュ（TTL: 30分）
   // PostService の static キャッシュを共有するため、外部から渡すか同じ参照を持つ
@@ -15,6 +13,8 @@ class PostFetchService {
   static const Duration _userCacheTtl = Duration(minutes: 30);
 
   /// 投稿リストのユーザー名・アイコンを最新のプロフィール情報で更新
+  /// スケーラビリティ対策: 個別 getUser ではなく `whereIn` で 10件単位バッチ取得し
+  /// N+1 パターンを解消。1回のホーム取得で 50〜200 reads → 5〜20 reads に削減。
   Future<List<PostModel>> applyLatestUserInfo(List<PostModel> posts) async {
     if (posts.isEmpty) return posts;
 
@@ -27,31 +27,44 @@ class PostFetchService {
 
     final userMap = <String, ({String? username, String? iconUrl})>{};
     final now = DateTime.now();
+    final missing = <String>[];
 
-    // 全ユーザー情報を並列取得（キャッシュ済みの場合はFirestoreスキップ）
-    final futures = allUserIds.map((uid) async {
+    // ① キャッシュからまず充足
+    for (final uid in allUserIds) {
       final cached = _userInfoCache[uid];
       if (cached != null && now.difference(cached.fetchedAt) < _userCacheTtl) {
-        return MapEntry(uid, (username: cached.username, iconUrl: cached.iconUrl));
+        userMap[uid] = (username: cached.username, iconUrl: cached.iconUrl);
+      } else {
+        missing.add(uid);
       }
-      try {
-        final user = await _userService.getUser(uid);
-        if (user != null) {
-          _userInfoCache[uid] = (
-            username: user.username,
-            iconUrl: user.profileImageUrl,
-            fetchedAt: DateTime.now(),
-          );
-          return MapEntry(uid, (username: user.username, iconUrl: user.profileImageUrl));
-        }
-      } catch (_) {}
-      return null;
-    }).toList();
+    }
 
-    final results = await Future.wait(futures);
-    for (final entry in results) {
-      if (entry != null) {
-        userMap[entry.key] = entry.value;
+    // ② 未取得分を whereIn で 10件単位にバッチ取得
+    if (missing.isNotEmpty) {
+      const chunkSize = 10; // Firestore whereIn の上限
+      for (var i = 0; i < missing.length; i += chunkSize) {
+        final chunk = missing.sublist(
+            i, i + chunkSize > missing.length ? missing.length : i + chunkSize);
+        try {
+          final snapshot = await _firestore
+              .collection('users')
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get();
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            final uid = doc.id;
+            final username = data['username'] as String?;
+            final iconUrl = data['profileImageUrl'] as String?;
+            _userInfoCache[uid] = (
+              username: username,
+              iconUrl: iconUrl,
+              fetchedAt: DateTime.now(),
+            );
+            userMap[uid] = (username: username, iconUrl: iconUrl);
+          }
+        } catch (e) {
+          if (kDebugMode) print('applyLatestUserInfo whereIn batch error: $e');
+        }
       }
     }
 

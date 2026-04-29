@@ -370,7 +370,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  const aspectRatio = 644.0 / 363.0;
+                  const aspectRatio = 645.0 / 363.0;
                   final screenW = MediaQuery.of(context).size.width - 2;
                   final byWidth = screenW;
                   final byHeight = constraints.maxHeight / aspectRatio;
@@ -384,7 +384,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
                         fit: BoxFit.fill,
                         child: SizedBox(
                           width: 363.0,
-                          height: 644.0,
+                          height: 645.0,
                           child: AnimatedBuilder(
                             animation: _flipAnimation,
                             builder: (context, child) {
@@ -487,16 +487,16 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
   /// 投稿カード（裏面） - Figmaデザインに基づく
   Widget _buildBackCard() {
-    const cardHeight = 644.0;
-    const photoHeight = 484.0; // 写真エリアの高さ
+    const cardHeight = 645.0;
+    const cardWidth = 363.0;
 
     return Transform(
       alignment: Alignment.center,
-      transform: Matrix4.identity()..rotateY(pi), // 裏面なので反転
+      transform: Matrix4.identity()..rotateY(pi),
       child: GestureDetector(
-        onTap: _flipCard, // タップで表面に戻る
+        onTap: _flipCard,
         child: Container(
-          width: 363,
+          width: cardWidth,
           height: cardHeight,
           decoration: BoxDecoration(
             color: const Color(0xFF121212),
@@ -506,16 +506,12 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
             borderRadius: BorderRadius.circular(18),
             child: Stack(
               children: [
-                // 上部エリア（写真選択部分）
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  width: 363,
-                  height: photoHeight,
+                // 写真（カード全体）
+                Positioned.fill(
                   child: _buildPhotoSectionBack(),
                 ),
 
-                // 下部エリア（楽曲情報）- bottomから配置してグラデーションが写真エリアと重なるようにする
+                // 楽曲情報オーバーレイ（下部174px）
                 Positioned(
                   left: 0,
                   right: 0,
@@ -523,6 +519,19 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
                   child: _buildInfoSectionBack(),
                 ),
 
+                // 再生ボタン（写真エリア中央）
+                Positioned(
+                  left: (cardWidth - PostCardConstants.playButtonSize) / 2,
+                  top: (cardHeight - 174 - PostCardConstants.playButtonSize) / 2,
+                  child: _buildPlayButton(),
+                ),
+
+                // ユーザー情報（左上）
+                Positioned(
+                  left: 23,
+                  top: 18,
+                  child: _buildUserInfoBack(),
+                ),
               ],
             ),
           ),
@@ -598,93 +607,52 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
     );
   }
 
-  /// 写真セクション（裏面）
+  /// 写真セクション（裏面・カード全体を覆う）
   Widget _buildPhotoSectionBack() {
-    // 画像表示サイズを事前計算
-    const frameW = 363.0;
-    const frameH = 484.0;
+    // 高さ基準でフィット: 縦幅=645になるまで等比拡大し横幅は363でクリップ
+    const frameH = 645.0;
     double? displayW, displayH;
     if (_imageNaturalSize != null) {
       final natW = _imageNaturalSize!.width;
       final natH = _imageNaturalSize!.height;
       if (natW > 0 && natH > 0) {
-        final baseScale = max(frameW / natW, frameH / natH);
+        final baseScale = frameH / natH;
         displayW = natW * baseScale;
         displayH = natH * baseScale;
       }
     }
 
     return Stack(
+      clipBehavior: Clip.hardEdge,
       children: [
-        // 白い枠
-        Positioned(
-          left: 0,
-          top: 0,
-          width: frameW,
-          height: frameH,
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white, width: 0.5),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  // 選択された写真または写真追加ボタン
-                  if (_selectedImage != null && displayW != null)
-                    Positioned(
-                      left: _imageOffset.dx,
-                      top: _imageOffset.dy,
-                      child: Transform.scale(
-                        scale: _imageScale,
-                        alignment: Alignment.topLeft,
-                        child: SizedBox(
-                          width: displayW,
-                          height: displayH!,
-                          child: kIsWeb
-                              ? Image.network(
-                                  _selectedImage!.path,
-                                  fit: BoxFit.fill,
-                                )
-                              : Image.file(
-                                  File(_selectedImage!.path),
-                                  fit: BoxFit.fill,
-                                ),
-                        ),
-                      ),
-                    )
-                  else if (_selectedImage != null)
-                    Positioned.fill(
-                      child: kIsWeb
-                          ? Image.network(_selectedImage!.path, fit: BoxFit.cover)
-                          : Image.file(File(_selectedImage!.path), fit: BoxFit.cover),
-                    )
-                  else
-                    _buildAddPhotoButtonBack(),
-
-                  // 歌詞カードプレビュー（写真選択後）
-                  if (_selectedImage != null) _buildLyricsCardBack(),
-                ],
+        // 選択された写真または暗い背景
+        if (_selectedImage != null && displayW != null)
+          Positioned(
+            left: _imageOffset.dx,
+            top: _imageOffset.dy,
+            child: Transform.scale(
+              scale: _imageScale,
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: displayW,
+                height: displayH!,
+                child: kIsWeb
+                    ? Image.network(_selectedImage!.path, fit: BoxFit.fill)
+                    : Image.file(File(_selectedImage!.path), fit: BoxFit.fill),
               ),
             ),
-          ),
-        ),
+          )
+        else if (_selectedImage != null)
+          Positioned.fill(
+            child: kIsWeb
+                ? Image.network(_selectedImage!.path, fit: BoxFit.cover)
+                : Image.file(File(_selectedImage!.path), fit: BoxFit.cover),
+          )
+        else
+          _buildAddPhotoButtonBack(),
 
-        // 再生ボタン（写真エリアの中央）
-        Positioned(
-          left: (frameW - PostCardConstants.playButtonSize) / 2,
-          top: (frameH - PostCardConstants.playButtonSize) / 2,
-          child: _buildPlayButton(),
-        ),
-
-        // ユーザー情報（左上）
-        Positioned(
-          left: 15,
-          top: 15,
-          child: _buildUserInfoBack(),
-        ),
+        // 歌詞カードプレビュー（写真選択後）
+        if (_selectedImage != null) _buildLyricsCardBack(),
       ],
     );
   }

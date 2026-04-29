@@ -16,13 +16,11 @@ import '../shared/user_info_badge.dart';
 /// PostCardEditScreen（編集中）と PostFinalPreviewScreen（最終確認）で共用する。
 ///
 /// カード寸法（固定）:
-///   全体: 363 × 644
-///   写真エリア: 363 × 484
-///   情報バー: 363 × 160
+///   全体: 363 × 645（写真がカード全体を覆う）
 class PostCardBackView extends StatefulWidget {
   static const double cardWidth = 363.0;
-  static const double photoHeight = 484.0;
-  static const double cardHeight = 644.0;
+  static const double photoHeight = 645.0; // 写真はカード全体の高さ
+  static const double cardHeight = 645.0;
 
   final TrackModel track;
   final XFile? selectedImage;
@@ -145,16 +143,15 @@ class _PostCardBackViewState extends State<PostCardBackView> {
   @override
   Widget build(BuildContext context) {
     const cardW = PostCardBackView.cardWidth;
-    const photoH = PostCardBackView.photoHeight;
     const cardH = PostCardBackView.cardHeight;
 
-    // 写真の表示サイズを事前計算
+    // 写真の表示サイズを事前計算（高さ基準でフィット）
     double? displayW, displayH;
     if (widget.imageNaturalSize != null) {
       final natW = widget.imageNaturalSize!.width;
       final natH = widget.imageNaturalSize!.height;
       if (natW > 0 && natH > 0) {
-        final baseScale = max(cardW / natW, photoH / natH);
+        final baseScale = cardH / natH;
         displayW = natW * baseScale;
         displayH = natH * baseScale;
       }
@@ -164,20 +161,19 @@ class _PostCardBackViewState extends State<PostCardBackView> {
       width: cardW,
       height: cardH,
       child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF121212),
-          borderRadius: BorderRadius.circular(18),
+        decoration: const BoxDecoration(
+          color: Color(0xFF121212),
+          borderRadius: BorderRadius.all(Radius.circular(18)),
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: const BorderRadius.all(Radius.circular(18)),
           child: Stack(
             children: [
-              // 写真エリア
-              Positioned(
-                left: 0, top: 0, width: cardW, height: photoH,
+              // 写真（カード全体）
+              Positioned.fill(
                 child: _buildPhotoArea(displayW, displayH),
               ),
-              // 情報バー（動的テーマ適用）
+              // 情報オーバーレイ（下部174px）
               Positioned(
                 left: 0, right: 0, bottom: 0,
                 child: PostCardBackInfo(
@@ -206,12 +202,7 @@ class _PostCardBackViewState extends State<PostCardBackView> {
       );
     }
 
-    return ClipRRect(
-      borderRadius: const BorderRadius.only(
-        topLeft: Radius.circular(18),
-        topRight: Radius.circular(18),
-      ),
-      child: Stack(
+    return Stack(
         clipBehavior: Clip.hardEdge,
         children: [
           // ① 写真背景
@@ -284,8 +275,8 @@ class _PostCardBackViewState extends State<PostCardBackView> {
           // ⑤ ユーザー情報バッジ（常に最前面）
           if (widget.showUserBadge)
             Positioned(
-              top: 15,
-              left: 15,
+              top: 18,
+              left: 23,
               child: UserInfoBadge(
                 username: widget.username.isNotEmpty ? widget.username : 'ユーザー',
                 iconUrl: widget.userIconUrl,
@@ -296,7 +287,6 @@ class _PostCardBackViewState extends State<PostCardBackView> {
               ),
             ),
         ],
-      ),
     );
   }
 }

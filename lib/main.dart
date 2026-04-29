@@ -25,6 +25,7 @@ import 'screens/photo_picker_screen.dart';
 import 'screens/music_selection_screen.dart';
 import 'constants/app_colors.dart';
 import 'services/fcm_handler_service.dart';
+import 'services/deep_link_service.dart';
 import 'services/auth_service.dart';
 import 'services/settings_service.dart';
 import 'services/post_service.dart';
@@ -100,6 +101,9 @@ Future<void> _initializePostLaunch() async {
     badge: true,
     sound: true,
   );
+
+  // ディープリンクハンドラを初期化（Instagram Storiesなどからの帰還リンク対応）
+  await DeepLinkService().initialize(navigatorKey);
 
   // FCM初期化（ログイン済みユーザーがいる場合）
   try {

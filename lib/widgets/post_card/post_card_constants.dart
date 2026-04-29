@@ -2,15 +2,15 @@
 class PostCardConstants {
   // カードサイズ
   static const double cardBaseWidth = 363.0;
-  static const double cardBaseHeight = 644.0;
+  static const double cardBaseHeight = 645.0;
   static const double cardBorderRadius = 18.0;
 
   // 写真エリア
-  static const double photoHeightRatio = 484.0 / 644.0;
+  static const double photoHeightRatio = 1.0; // 写真はカード全体の高さ
 
   // コンテンツエリア
-  static const double contentHeightRatioFront = 294.0 / 644.0;
-  static const double contentHeightRatioBack = 174.0 / 644.0;
+  static const double contentHeightRatioFront = 295.0 / 645.0;
+  static const double contentHeightRatioBack = 174.0 / 645.0;
 
   // いいねしたユーザーアイコン
   static const double likedUserIconSize = 25.0;

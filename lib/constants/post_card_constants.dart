@@ -8,16 +8,16 @@ class PostCardDimensions {
   static const double cardWidth = 363.0;
 
   /// カードの高さ
-  static const double cardHeight = 644.0;
+  static const double cardHeight = 645.0;
 
-  /// 写真エリアの高さ（裏面）
-  static const double photoHeight = 484.0;
+  /// 写真エリアの高さ（裏面・カード全体）
+  static const double photoHeight = 645.0;
 
   /// コンテンツエリアの高さ（裏面）
   static const double contentHeight = 174.0;
 
   /// 表面のコンテンツエリアの高さ
-  static const double frontContentHeight = 294.0;
+  static const double frontContentHeight = 295.0;
 
   /// カードの角丸
   static const double borderRadius = 18.0;
@@ -129,11 +129,11 @@ class PostCardPositionRatios {
   static const double shareButtonLeft = 314 / 363;
 
   // 垂直方向（bottomから）
-  static const double reactionBottom = 80 / 644;
-  static const double commentButtonBottom = 28 / 644;
-  static const double creditBottom = 9 / 644;
-  static const double trackInfoBottom = 110 / 644;
-  static const double shareButtonBottom = 120 / 644;
+  static const double reactionBottom = 80 / 645;
+  static const double commentButtonBottom = 28 / 645;
+  static const double creditBottom = 9 / 645;
+  static const double trackInfoBottom = 110 / 645;
+  static const double shareButtonBottom = 120 / 645;
 }
 
 /// テキストスタイルのプリセット

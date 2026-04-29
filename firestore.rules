@@ -102,12 +102,19 @@ service cloud.firestore {
       allow read: if isAuthenticated() &&
         resource.data.recipientId == request.auth.uid;
 
-      // 作成：ログイン済みユーザー（いいね/コメント/フォロー時にクライアントから作成）
-      allow create: if isAuthenticated();
+      // 作成：senderId が認証ユーザー本人で、自分宛て送信を禁止（スパム対策）
+      // 必須フィールドの存在も検証
+      allow create: if isAuthenticated() &&
+        request.resource.data.senderId == request.auth.uid &&
+        request.resource.data.recipientId is string &&
+        request.resource.data.recipientId != request.auth.uid &&
+        request.resource.data.keys().hasAll(['recipientId', 'senderId', 'type', 'createdAt']);
 
-      // 更新：自分宛ての通知のみ（既読フラグ更新用）
+      // 更新：自分宛ての通知のみ・既読フラグ等の限定フィールドのみ変更可
       allow update: if isAuthenticated() &&
-        resource.data.recipientId == request.auth.uid;
+        resource.data.recipientId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['isRead', 'readAt', 'updatedAt']);
 
       // 削除：自分宛て or 管理者
       allow delete: if isAuthenticated() &&

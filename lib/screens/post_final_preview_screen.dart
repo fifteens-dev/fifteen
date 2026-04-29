@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import '../models/track_model.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
@@ -29,6 +30,7 @@ import '../utils/photo_helper.dart';
 import '../widgets/campus_vibe_toggle_bar.dart';
 import '../services/vibe_topic_service.dart';
 import '../widgets/common/app_toast.dart';
+import '../widgets/shared/user_info_badge.dart';
 
 /// 投稿カード最終プレビュー画面
 /// PostPreviewScreenと同じカード仕様（フリップ・音楽再生）で表示する
@@ -422,7 +424,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   /// trueなら写真パン・ズームゾーン、falseなら歌詞カードゾーン
   bool _isInPhotoZone(Offset localPoint) {
     const photoW = 363.0;
-    const photoH = 484.0;
+    const photoH = 645.0;
     if (localPoint.dy < 0 || localPoint.dy > photoH) return false;
     if (localPoint.dx < 0 || localPoint.dx > photoW) return false;
 
@@ -446,7 +448,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
 
   bool _isInCardHitArea(Offset localFocalPoint) {
     const frameW = 363.0;
-    const frameH = 484.0;
+    const frameH = 645.0;
     return localFocalPoint.dx >= 0 &&
         localFocalPoint.dx <= frameW &&
         localFocalPoint.dy >= 0 &&
@@ -597,7 +599,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       setState(() => _isPhotoGestureMode = false);
       return;
     }
-    const snapCenter = Offset(363.0 / 2, 484.0 * 0.45);
+    const snapCenter = Offset(363.0 / 2, 645.0 * 0.45);
     setState(() {
       _isTwoFingerGesture = false;
       _isTwoFingerAccepted = false;
@@ -632,7 +634,6 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     if (_isPosting) return;
 
     setState(() => _isVibe = asVibe);
-
     setState(() => _isPosting = true);
 
     try {
@@ -643,32 +644,50 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
           : currentUser?.displayName ?? 'ユーザー';
       final userIconUrl = _currentUserIconUrl;
 
-      // 写真を処理
-      String? photoUrl;
-      if (widget.selectedImage != null) {
-        try {
-          photoUrl = await PhotoHelper.processPhoto(
-            image: widget.selectedImage!,
-            userId: userId,
-            storageService: _storageService,
-          );
-        } catch (e) {
-          print('⚠️ 写真の処理に失敗: $e');
-          photoUrl = null;
-        }
-      }
+      final String? previewUrlBase = _cachedPreviewUrl ?? widget.track.previewUrl;
 
-      // アルバムアートから色を抽出してテーマを生成
-      PostTheme? extractedTheme;
-      try {
-        extractedTheme = await ColorExtractor.extractThemeFromAlbumArt(
-          widget.track.albumImageUrl,
-        );
-      } catch (e) {
-        extractedTheme = null;
-      }
+      // Phase 1: アップロード(URL取得前)・テーマ抽出・プレビューURL を並列実行
+      // モバイル: putDataのみ実行→Reference返却（getDownloadURLはPhase2で並列化）
+      // Web: Base64変換→immediateUrlに格納
+      final Future<({String? immediateUrl, Reference? storageRef})> photoSplitFuture =
+          widget.selectedImage != null
+              ? PhotoHelper.processPhotoSplit(
+                  image: widget.selectedImage!,
+                  userId: userId,
+                  storageService: _storageService,
+                ).catchError((dynamic e) {
+                  print('⚠️ 写真のアップロードに失敗: $e');
+                  return (
+                    immediateUrl: null as String?,
+                    storageRef: null as Reference?,
+                  );
+                })
+              : Future.value((
+                  immediateUrl: null as String?,
+                  storageRef: null as Reference?,
+                ));
 
-      // 歌詞テキストを取得
+      final Future<PostTheme?> themeFuture =
+          ColorExtractor.extractThemeFromAlbumArt(widget.track.albumImageUrl)
+              .catchError((dynamic _) => null as PostTheme?);
+
+      final Future<String?> previewFuture =
+          (previewUrlBase == null || previewUrlBase.isEmpty)
+              ? _getPreviewUrlFromItunes()
+              : Future.value(previewUrlBase);
+
+      final results1 = await Future.wait<dynamic>([
+        photoSplitFuture,
+        themeFuture,
+        previewFuture,
+      ]);
+
+      final photoResult =
+          results1[0] as ({String? immediateUrl, Reference? storageRef});
+      final PostTheme? extractedTheme = results1[1] as PostTheme?;
+      final String? previewUrl = results1[2] as String?;
+
+      // ローカル処理（高速）
       String? lyricsText;
       if (widget.lyricsData != null) {
         final lyricsService = LyricsService();
@@ -678,25 +697,28 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         );
       }
 
-      // _editState から最終カード位置を計算
-      final cardSize = PostCardBackView.cardSizeForLayout(_editState.selectedLayoutIndex);
+      final cardSize =
+          PostCardBackView.cardSizeForLayout(_editState.selectedLayoutIndex);
       final cardPos = _editState.cardPositionForSize(cardSize);
+      final trackData = widget.track.toMap()..['previewUrl'] = previewUrl;
 
-      // プレビューURLをtrackDataに含める（キャッシュ済み→そのまま、未取得→ここで取得）
-      String? previewUrl = _cachedPreviewUrl ?? widget.track.previewUrl;
-      if (previewUrl == null || previewUrl.isEmpty) {
-        previewUrl = await _getPreviewUrlFromItunes();
-      }
-      final trackData = widget.track.toMap()
-        ..['previewUrl'] = previewUrl;
+      // Phase 2: getDownloadURL と createPost を並列実行
+      // モバイル: putData完了済みのRefからURLを取得しつつ、同時にFirestore書き込み
+      // Web: immediateUrl をそのまま使うので並列化は createPost のみ
+      final Future<String?> urlFuture = photoResult.storageRef != null
+          ? photoResult.storageRef!
+              .getDownloadURL()
+              .then((url) => url as String?)
+              .catchError((dynamic _) => null as String?)
+          : Future.value(photoResult.immediateUrl);
 
-      // 投稿を作成
-      final postId = await _postService.createPost(
+      final Future<String> postIdFuture = _postService.createPost(
         userId: userId,
         username: username,
         userIconUrl: userIconUrl,
         trackData: trackData,
-        photoUrl: photoUrl,
+        // モバイル: photoUrlは後でupdatePostPhotoUrlで反映 / Web: 即時URL
+        photoUrl: photoResult.immediateUrl,
         imageOffsetX: _imageOffset.dx,
         imageOffsetY: _imageOffset.dy,
         imageScale: _imageScale,
@@ -717,6 +739,17 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         university: _currentUniversity,
         campusVibeParticipating: _campusVibeParticipating,
       );
+
+      final results2 = await Future.wait<dynamic>([urlFuture, postIdFuture]);
+      final String? photoUrl = results2[0] as String?;
+      final String postId = results2[1] as String;
+
+      // モバイルのみ: getDownloadURLで取得したURLをバックグラウンドで反映
+      if (photoResult.storageRef != null && photoUrl != null) {
+        _postService
+            .updatePostPhotoUrl(postId: postId, photoUrl: photoUrl)
+            .ignore();
+      }
 
       print('✅ 投稿を作成しました: $postId');
 
@@ -759,9 +792,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                 child: Builder(
                   builder: (context) {
                     final cardW = MediaQuery.of(context).size.width - 2;
-                    final cardH = cardW * (644.0 / 363.0);
-                    // 裏面の写真領域は 484/644、情報領域は残り
-                    final infoH = cardH * (160.0 / 644.0);
+                    final cardH = cardW * (645.0 / 363.0);
+                    // 裏面の写真領域は 484/645、情報領域は残り
+                    final infoH = cardH * (160.0 / 645.0);
                     // トグル下端 = 情報領域上端から18px上
                     final toggleBottom = infoH + 18;
                     return Padding(
@@ -776,7 +809,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                                 fit: BoxFit.fill,
                                 child: SizedBox(
                                   width: 363.0,
-                                  height: 644.0,
+                                  height: 645.0,
                                   child: AnimatedBuilder(
                                     animation: _flipAnimation,
                                     builder: (context, child) {
@@ -987,8 +1020,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
 
   /// 投稿カード（裏面）
   Widget _buildBackCard() {
-    const cardHeight = 644.0;
-    const photoHeight = 484.0;
+    const cardHeight = 645.0;
+    const cardWidth = 363.0;
 
     return Transform(
       alignment: Alignment.center,
@@ -1000,7 +1033,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         onScaleEnd: _onGestureScaleEnd,
         behavior: HitTestBehavior.opaque,
         child: Container(
-          width: 363,
+          width: cardWidth,
           height: cardHeight,
           decoration: BoxDecoration(
             color: const Color(0xFF121212),
@@ -1010,21 +1043,38 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
             borderRadius: BorderRadius.circular(18),
             child: Stack(
               children: [
-                // 上部エリア（写真部分）
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  width: 363,
-                  height: photoHeight,
+                // 写真（カード全体）
+                Positioned.fill(
                   child: _buildPhotoSectionBack(),
                 ),
 
-                // 下部エリア（楽曲情報）
+                // 楽曲情報オーバーレイ（下部174px）
                 Positioned(
                   left: 0,
                   right: 0,
                   bottom: 0,
                   child: _buildInfoSectionBack(),
+                ),
+
+                // 再生ボタン（写真エリア中央）
+                Positioned(
+                  left: (cardWidth - PostCardConstants.playButtonSize) / 2,
+                  top: (cardHeight - 174 - PostCardConstants.playButtonSize) / 2,
+                  child: _buildPlayButton(),
+                ),
+
+                // ユーザー情報（左上）
+                Positioned(
+                  left: 23,
+                  top: 18,
+                  child: UserInfoBadge(
+                    username: _currentUsername.isNotEmpty ? _currentUsername : 'ユーザー',
+                    iconUrl: _currentUserIconUrl,
+                    hashtagText: widget.isVibe && widget.vibeTopicTitle != null
+                        ? '#${widget.vibeTopicTitle}'
+                        : null,
+                    showBackground: false,
+                  ),
                 ),
               ],
             ),
@@ -1034,117 +1084,77 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     );
   }
 
-  /// 写真セクション（裏面）
+  /// 写真セクション（裏面・カード全体を覆う）
   Widget _buildPhotoSectionBack() {
-    const frameW = 363.0;
-    const frameH = 484.0;
+    // 高さ基準でフィット: 縦幅=645になるまで等比拡大し横幅は363でクリップ
+    const frameH = 645.0;
 
-    // 画像表示サイズを事前計算
     double? displayW, displayH;
     if (widget.imageNaturalSize != null) {
       final natW = widget.imageNaturalSize!.width;
       final natH = widget.imageNaturalSize!.height;
       if (natW > 0 && natH > 0) {
-        final baseScale = max(frameW / natW, frameH / natH);
+        final baseScale = frameH / natH;
         displayW = natW * baseScale;
         displayH = natH * baseScale;
       }
     }
 
     return Stack(
+      clipBehavior: Clip.hardEdge,
       children: [
-        // 白い枠
-        Positioned(
-          left: 0,
-          top: 0,
-          width: frameW,
-          height: frameH,
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: ClipRRect(
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(18.0),
-                topRight: Radius.circular(18.0),
+        // 選択された写真
+        if (widget.selectedImage != null && displayW != null)
+          Positioned(
+            left: _imageOffset.dx,
+            top: _imageOffset.dy,
+            child: Transform.scale(
+              scale: _imageScale,
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: displayW,
+                height: displayH!,
+                child: kIsWeb
+                    ? Image.network(widget.selectedImage!.path, fit: BoxFit.fill)
+                    : Image.file(File(widget.selectedImage!.path), fit: BoxFit.fill),
               ),
-              child: Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  // 選択された写真
-                  if (widget.selectedImage != null && displayW != null)
-                    Positioned(
-                      left: _imageOffset.dx,
-                      top: _imageOffset.dy,
-                      child: Transform.scale(
-                        scale: _imageScale,
-                        alignment: Alignment.topLeft,
-                        child: SizedBox(
-                          width: displayW,
-                          height: displayH!,
-                          child: kIsWeb
-                              ? Image.network(
-                                  widget.selectedImage!.path,
-                                  fit: BoxFit.fill,
-                                )
-                              : Image.file(
-                                  File(widget.selectedImage!.path),
-                                  fit: BoxFit.fill,
-                                ),
-                        ),
-                      ),
-                    )
-                  else if (widget.selectedImage != null)
-                    Positioned.fill(
-                      child: kIsWeb
-                          ? Image.network(widget.selectedImage!.path,
-                              fit: BoxFit.cover)
-                          : Image.file(File(widget.selectedImage!.path),
-                              fit: BoxFit.cover),
-                    )
-                  else
-                    Positioned.fill(
-                      child: Container(color: const Color(0xFF121212)),
-                    ),
+            ),
+          )
+        else if (widget.selectedImage != null)
+          Positioned.fill(
+            child: kIsWeb
+                ? Image.network(widget.selectedImage!.path, fit: BoxFit.cover)
+                : Image.file(File(widget.selectedImage!.path), fit: BoxFit.cover),
+          )
+        else
+          const Positioned.fill(
+            child: ColoredBox(color: Color(0xFF121212)),
+          ),
 
-                  // 水平スナップ時の横点線（歌詞カードの後ろ）
-                  if (_isTwoFingerGesture && _isHorizontalSnap)
-                    Positioned.fill(
-                      child: RepaintBoundary(
-                        child: CustomPaint(
-                          painter: _HorizontalDottedLinePainter(
-                            y: _editState.cardCenter.dy,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  // 歌詞カード
-                  _buildLyricsCardBack(),
-
-                  // スナップガイドライン（2本指ジェスチャー中のみ）
-                  if (_isTwoFingerGesture)
-                    Positioned.fill(
-                      child: RepaintBoundary(
-                        child: CustomPaint(
-                          painter: _GuideLinePainter(
-                              activeSnapAngles: _activeSnapAngles),
-                        ),
-                      ),
-                    ),
-                ],
+        // 水平スナップ時の横点線（歌詞カードの後ろ）
+        if (_isTwoFingerGesture && _isHorizontalSnap)
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: _HorizontalDottedLinePainter(
+                  y: _editState.cardCenter.dy,
+                ),
               ),
             ),
           ),
-        ),
 
-        // 再生ボタン（写真エリア中央）
-        Positioned(
-          left: (frameW - PostCardConstants.playButtonSize) / 2,
-          top: (frameH - PostCardConstants.playButtonSize) / 2,
-          child: _buildPlayButton(),
-        ),
+        // 歌詞カード
+        _buildLyricsCardBack(),
 
+        // スナップガイドライン（2本指ジェスチャー中のみ）
+        if (_isTwoFingerGesture)
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: _GuideLinePainter(activeSnapAngles: _activeSnapAngles),
+              ),
+            ),
+          ),
       ],
     );
   }

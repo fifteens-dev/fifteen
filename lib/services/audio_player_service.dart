@@ -35,6 +35,12 @@ class AudioPlayerService {
   Duration _startFrom = Duration.zero;
   int _durationSeconds = 15;
 
+  // 次カード用プリローダー (setUrl 済みで待機)
+  AudioPlayer? _preloader;
+  String? _preloadedUrl;
+  Duration _preloadStartFrom = Duration.zero;
+  int _preloadDurationSec = 15;
+
   /// AudioPlayerのインスタンスを取得（必要に応じて作成）
   AudioPlayer get _player {
     _audioPlayer ??= AudioPlayer();
@@ -95,19 +101,34 @@ class AudioPlayerService {
         return;
       }
 
-      // 別のURLが再生中の場合は停止
-      if (_currentUrl != url && _player.playing) {
-        if (kDebugMode) print('⏹️ Stopping current playback');
-        await stop();
+      // プリローダーが該当URLを既にsetUrl済みなら、スワップして即再生（最速パス）
+      if (_promotePreloadedIfMatch(url, startFrom, durationSeconds)) {
+        if (kDebugMode) print('⚡ Swapped from preloader, starting playback');
+        _audioPlayer!.play().catchError((e) {
+          if (kDebugMode) print('❌ Play error: $e');
+        });
+        return;
       }
 
-      // 区間を保存
+      // 別のURLが再生中の場合: stop は fire-and-forget（await しない）
+      // _currentUrl を先に更新してループモニターのレースを防ぐ
+      final oldUrl = _currentUrl;
+      _currentUrl = url;
       _startFrom = startFrom;
       _durationSeconds = durationSeconds;
 
+      if (oldUrl != null && oldUrl != url && _player.playing) {
+        if (kDebugMode) print('⏹️ Stopping current playback (fire-and-forget)');
+        // 既存サブスクリプションは setUrl 後に再構築されるため先にキャンセル
+        _positionSubscription?.cancel();
+        _positionSubscription = null;
+        _stateSubscription?.cancel();
+        _stateSubscription = null;
+        unawaited(_player.stop());
+      }
+
       // 新しいURLをセット
       if (kDebugMode) print('📥 Loading audio from URL...');
-      _currentUrl = url;
       await _player.setUrl(url);
 
       // ループモードはoff（手動でループを制御）
@@ -139,6 +160,96 @@ class AudioPlayerService {
       // ユーザーにもエラーを通知
       rethrow;
     }
+  }
+
+  /// 次カードの音声を事前ロード（setUrl のみ、再生はしない）
+  /// タップ時に playPreview() がプリローダーを検出して即スワップ→再生する。
+  Future<void> preload(
+    String url, {
+    Duration startFrom = Duration.zero,
+    int durationSeconds = 15,
+  }) async {
+    if (url.isEmpty) return;
+    // 同じURLを再生中ならプリロード不要
+    if (_currentUrl == url) return;
+    // 既に同条件でプリロード済みならスキップ
+    if (_preloadedUrl == url &&
+        _preloadStartFrom == startFrom &&
+        _preloadDurationSec == durationSeconds) {
+      return;
+    }
+
+    // 既存プリローダーは破棄
+    final old = _preloader;
+    _preloader = null;
+    _preloadedUrl = null;
+    if (old != null) {
+      unawaited(_disposeIsolatedPlayer(old));
+    }
+
+    final p = AudioPlayer();
+    _preloader = p;
+    _preloadedUrl = url;
+    _preloadStartFrom = startFrom;
+    _preloadDurationSec = durationSeconds;
+
+    try {
+      await p.setUrl(url);
+      await p.setLoopMode(LoopMode.off);
+      if (startFrom > Duration.zero) {
+        await p.seek(startFrom);
+      }
+      if (kDebugMode) print('🧊 Preloaded: $url');
+    } catch (e) {
+      if (kDebugMode) print('⚠️ Preload failed: $e');
+      // 失敗時は破棄。次回 playPreview は通常パスで取得する
+      if (identical(_preloader, p)) {
+        _preloader = null;
+        _preloadedUrl = null;
+      }
+      unawaited(_disposeIsolatedPlayer(p));
+    }
+  }
+
+  /// プリローダーがリクエストURLと一致すればメインプレイヤーに昇格してスワップ。
+  /// 一致した場合 true を返し呼び出し側で play() を実行。
+  bool _promotePreloadedIfMatch(
+      String url, Duration startFrom, int durationSeconds) {
+    if (_preloader == null || _preloadedUrl != url) return false;
+    if (_preloadStartFrom != startFrom || _preloadDurationSec != durationSeconds) {
+      return false;
+    }
+
+    // 古いメインプレイヤーは fire-and-forget で停止+破棄
+    final oldMain = _audioPlayer;
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
+    _stateSubscription?.cancel();
+    _stateSubscription = null;
+    if (oldMain != null) {
+      unawaited(_disposeIsolatedPlayer(oldMain));
+    }
+
+    // スワップ
+    _audioPlayer = _preloader;
+    _preloader = null;
+    _currentUrl = url;
+    _startFrom = startFrom;
+    _durationSeconds = durationSeconds;
+    _preloadedUrl = null;
+
+    // 新しいプレイヤーでループ監視を再構築
+    _startLoopMonitor();
+    return true;
+  }
+
+  Future<void> _disposeIsolatedPlayer(AudioPlayer p) async {
+    try {
+      await p.stop();
+    } catch (_) {}
+    try {
+      await p.dispose();
+    } catch (_) {}
   }
 
   /// シーク
@@ -237,5 +348,11 @@ class AudioPlayerService {
     await _audioPlayer?.dispose();
     _audioPlayer = null;
     _currentUrl = null;
+    final pre = _preloader;
+    _preloader = null;
+    _preloadedUrl = null;
+    if (pre != null) {
+      await pre.dispose();
+    }
   }
 }

@@ -30,6 +30,7 @@ import 'profile_screen.dart';
 import 'music_selection_screen.dart';
 import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
+import 'vibe_playlist_screen.dart';
 import 'card_share_screen.dart';
 import 'home/vibe_bar_section.dart';
 import 'home/home_bottom_nav.dart';
@@ -391,6 +392,24 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  /// 再生開始した index の隣接（i+1）投稿の音声を AudioPlayerService にプリロード。
+  /// 次にタップされる可能性が高いカードの setUrl を先行実行し、
+  /// タップ→再生までのネットワーク待ちをスキップする。
+  void _preloadNeighborAudio(int currentIndex) {
+    final posts = _cachedPosts;
+    if (posts == null) return;
+    final nextIndex = currentIndex + 1;
+    if (nextIndex >= posts.length) return;
+    final next = posts[nextIndex];
+    final url = _previewUrlCache[next.postId];
+    if (url == null || url.isEmpty) return;
+    _homeAudioService.preload(
+      url,
+      startFrom: Duration(milliseconds: next.audioStartMs),
+      durationSeconds: next.audioDurationSec,
+    );
+  }
+
   /// 全投稿の音楽プレビューURLをバックグラウンドで先取りする
   /// カードタップ時の遅延をなくすため、投稿読み込み直後にiTunes APIを叩いておく
   /// 3件ずつバッチで並列処理してAPIレート制限を緩和する
@@ -535,20 +554,43 @@ class _HomeScreenState extends State<HomeScreen>
 
 
   // ボトムナビゲーションのタップ処理
-  /// Vibeの「投稿する」ボタンから楽曲選択画面へ遷移（Vibe事前選択済み）
+  /// VibeバーのVibeアイコン円タップでVibeプレイリスト画面へ遷移
   Future<void> _navigateToVibePost() async {
     _homeAudioService.stop();
-    final targetIndex = await Navigator.push<int>(
+
+    final data = await _vibeDataFuture;
+    if (!mounted) return;
+
+    final topic = data?['topic'];
+    final ranking = data?['ranking'] as List<VibeRankingItem>?;
+
+    if (topic == null) {
+      // お題がない場合は楽曲選択画面へフォールバック
+      final targetIndex = await Navigator.push<int>(
+        context,
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => const MusicSelectionScreen(initialCategoryType: 'vibe'),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+        ),
+      );
+      if (targetIndex != null && mounted) {
+        setState(() => _selectedIndex = targetIndex);
+      }
+      return;
+    }
+
+    await Navigator.push(
       context,
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const MusicSelectionScreen(initialCategoryType: 'vibe'),
-        transitionDuration: Duration.zero,
-        reverseTransitionDuration: Duration.zero,
+      MaterialPageRoute(
+        builder: (_) => VibePlaylistScreen(
+          topic: topic,
+          ranking: ranking ?? [],
+          currentUserId: _auth.currentUser?.uid ?? '',
+          hasPostedToday: _hasPostedToday,
+        ),
       ),
     );
-    if (targetIndex != null && mounted) {
-      setState(() => _selectedIndex = targetIndex);
-    }
   }
 
   Future<void> _onItemTapped(int index) async {
@@ -829,6 +871,7 @@ class _HomeScreenState extends State<HomeScreen>
                   onFlipToBack: () => _markPostRevealed(post.postId),
                   onPlayStarted: () {
                     _playingPostId = post.postId;
+                    _preloadNeighborAudio(index);
                   },
                   onShare: () => showCardShareSheet(
                     context,

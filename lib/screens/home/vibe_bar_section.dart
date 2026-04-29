@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../constants/app_colors.dart';
@@ -39,21 +38,35 @@ class VibeBarSection extends StatelessWidget {
           color: AppColors.background,
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(topic),
-              SizedBox(
-                height: ranking.isEmpty ? 40 : 100,
-                child: ranking.isEmpty
-                    ? _buildNoRankingMessage()
-                    : ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: ranking.length,
-                        itemBuilder: (context, index) {
-                          return _buildRankingItem(ranking[index], index + 1);
-                        },
+              Padding(
+                padding: const EdgeInsets.only(left: 10, top: 4, bottom: 4),
+                child: SizedBox(
+                  height: 78,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Vibeアイコン（円形バブル）
+                      _buildVibeBubble(),
+                      const SizedBox(width: 8),
+                      // ランキングアルバムアート（正方形、横スクロール）
+                      Expanded(
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: EdgeInsets.zero,
+                          itemCount: ranking.length,
+                          itemBuilder: (context, index) {
+                            return _buildRankingItem(ranking[index]);
+                          },
+                        ),
                       ),
+                    ],
+                  ),
+                ),
               ),
+              _buildBottomBar(ranking),
             ],
           ),
         );
@@ -61,110 +74,84 @@ class VibeBarSection extends StatelessWidget {
     );
   }
 
-  /// ヘッダー（お題タイトル）
+  /// ヘッダー（「Vibe」20px + 「【#お題】」13px を同一行、left=21）
   Widget _buildHeader(VibeTopicModel topic) {
     return Padding(
-      padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Image.asset(
-            'assets/icons/Vibe.png',
-            width: 40,
-            height: 40,
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.purple,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.music_note, color: Colors.white),
-              );
-            },
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: RichText(
-              text: TextSpan(
-                children: [
-                  const TextSpan(
-                    text: 'Vibe ',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                  TextSpan(
-                    text: '【#${topic.title}】',
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
+      padding: const EdgeInsets.only(left: 21, right: 16, top: 18, bottom: 0),
+      child: RichText(
+        text: TextSpan(
+          children: [
+            const TextSpan(
+              text: 'Vibe',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w500,
+                color: Colors.white,
               ),
             ),
-          ),
-          if (onPostTap != null)
-            GestureDetector(
-              onTap: onPostTap,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 17,
-                      height: 17,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.black, width: 1.5),
-                      ),
-                      child: const Icon(
-                        Icons.add,
-                        size: 10.2,
-                        color: Colors.black,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Text(
-                      '投稿する',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ],
-                ),
+            TextSpan(
+              text: '【#${topic.title}】',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Colors.white,
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  /// ランキングアイテム
-  Widget _buildRankingItem(VibeRankingItem item, int rank) {
+  /// Vibeアイコンバブル（78×78の円形、ラベルなし）
+  Widget _buildVibeBubble() {
+    return GestureDetector(
+      onTap: onPostTap,
+      child: Container(
+        width: 78,
+        height: 78,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: [Color(0xFF8B2FC9), Color(0xFFE91E8C), Color(0xFFFF6B00)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        padding: const EdgeInsets.all(3),
+        child: Container(
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.background,
+          ),
+          padding: const EdgeInsets.all(7),
+          child: Image.asset(
+            'assets/icons/Vibe.png',
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const Icon(
+              Icons.music_note,
+              color: Colors.white,
+              size: 30,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// ランキングアイテム（正方形アルバムアート形式）
+  Widget _buildRankingItem(VibeRankingItem item) {
     return GestureDetector(
       onTap: () => onRankingItemTap(item),
       child: Container(
-        width: 76,
+        width: 64,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // アルバムアートワーク
             Container(
-              width: 70,
-              height: 70,
+              width: 60,
+              height: 60,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(4),
               ),
@@ -173,8 +160,8 @@ class VibeBarSection extends StatelessWidget {
                 child: CachedNetworkImage(
                   imageUrl: item.track.albumImageUrl,
                   fit: BoxFit.cover,
-                  memCacheWidth: 140,
-                  memCacheHeight: 140,
+                  memCacheWidth: 120,
+                  memCacheHeight: 120,
                   errorWidget: (context, url, error) {
                     return Container(
                       color: Colors.grey[800],
@@ -185,25 +172,11 @@ class VibeBarSection extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-
-            // 楽曲名
             Text(
-              item.track.trackName,
-              style: const TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-            ),
-            // アーティスト名
-            Text(
-              item.track.artistName,
+              '${item.track.artistName}/${item.track.trackName}',
               style: TextStyle(
-                fontSize: 7,
-                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 8,
+                color: Colors.white.withValues(alpha: 0.8),
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -215,45 +188,155 @@ class VibeBarSection extends StatelessWidget {
     );
   }
 
+  /// ボトムバー（投稿者アイコン・投稿情報・投稿ボタン）
+  Widget _buildBottomBar(List<VibeRankingItem> ranking) {
+    if (onPostTap == null) return const SizedBox.shrink();
+
+    // 投稿者アイコンURL（重複なし、最大3件）
+    final iconUrls = ranking
+        .expand((r) => r.userIconUrls)
+        .toSet()
+        .take(3)
+        .toList();
+
+    // ユーザー名（重複なし、最大2件）
+    final names = ranking
+        .expand((r) => r.usernames)
+        .toSet()
+        .take(2)
+        .toList();
+
+    // 合計ユーザー数（重複なし）
+    final totalUsers = ranking.expand((r) => r.userIds).toSet().length;
+
+    // 曲数
+    final songCount = ranking.length;
+
+    // 表示テキスト: 🔥name1、name2などX人が追加・Y曲
+    final String infoText;
+    if (totalUsers == 0) {
+      infoText = '';
+    } else if (names.isEmpty) {
+      infoText = '🔥$totalUsers人が追加・$songCount曲';
+    } else if (names.length == 1) {
+      infoText = '🔥${names[0]}など$totalUsers人が追加・$songCount曲';
+    } else {
+      infoText = '🔥${names[0]}、${names[1]}など$totalUsers人が追加・$songCount曲';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(9, 0, 9, 8),
+      child: SizedBox(
+        height: 25,
+        child: Row(
+          children: [
+            if (iconUrls.isNotEmpty) _buildPosterAvatars(iconUrls),
+            const SizedBox(width: 6),
+            if (infoText.isNotEmpty)
+              Expanded(
+                child: Text(
+                  infoText,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFFB7BCC0),
+                    fontWeight: FontWeight.w400,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              )
+            else
+              const Spacer(),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onPostTap,
+              child: Container(
+                width: 115,
+                height: 25,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1937EF), Color(0xFFFE1F56)],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.only(left: 17),
+                child: const Text(
+                  '楽曲をVibeに追加',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w400,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 投稿者のアイコンを重ねて表示
+  Widget _buildPosterAvatars(List<String> iconUrls) {
+    const size = 25.0;
+    const overlap = 5.5;
+    final total = iconUrls.length;
+    final width = size + (total - 1) * (size - overlap);
+
+    return SizedBox(
+      width: width,
+      height: size,
+      child: Stack(
+        children: [
+          for (int i = 0; i < total; i++)
+            Positioned(
+              left: i * (size - overlap),
+              child: Container(
+                width: size,
+                height: size,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.background, width: 1),
+                ),
+                child: ClipOval(
+                  child: CachedNetworkImage(
+                    imageUrl: iconUrls[i],
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => Container(
+                      color: Colors.grey[700],
+                      child: const Icon(Icons.person, color: Colors.white54, size: 12),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   /// 空状態
   Widget _buildEmpty() {
     return Container(
       color: AppColors.background,
-      // Expanded は SliverToBoxAdapter 内の無制限高さコンテキストで使えないため
-      // Column を mainAxisSize.min にして高さを子要素に合わせる
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Image.asset(
-                  'assets/icons/Vibe.png',
-                  width: 40,
-                  height: 40,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.purple,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.music_note, color: Colors.white),
-                    );
-                  },
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Vibe',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
+            child: Text(
+              'Vibe',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Colors.white.withValues(alpha: 0.6),
+              ),
             ),
           ),
           Padding(
@@ -267,19 +350,6 @@ class VibeBarSection extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  /// ランキングがない場合
-  Widget _buildNoRankingMessage() {
-    return Center(
-      child: Text(
-        'まだ投稿がありません',
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.white.withValues(alpha: 0.6),
-        ),
       ),
     );
   }

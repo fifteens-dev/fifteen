@@ -137,6 +137,12 @@ class PostService {
   /// 投稿を削除
   Future<void> deletePost(String postId) => _writeService.deletePost(postId);
 
+  /// 投稿の写真URLを更新（分割アップロード後のバックグラウンド反映用）
+  Future<void> updatePostPhotoUrl({
+    required String postId,
+    required String photoUrl,
+  }) => _writeService.updatePostPhotoUrl(postId: postId, photoUrl: photoUrl);
+
   /// 投稿の歌詞テキストを更新
   Future<void> updateLyricsText({
     required String postId,
@@ -291,12 +297,22 @@ class PostService {
         final posts = entry.value;
         final postCount = posts.length;
         final userIds = posts.map((p) => p.userId).toList();
+        final userIconUrls = posts
+            .map((p) => p.userIconUrl ?? '')
+            .where((url) => url.isNotEmpty)
+            .toList();
+        final usernames = posts
+            .map((p) => p.username)
+            .where((name) => name.isNotEmpty)
+            .toList();
         final representativeTrack = posts.first.track;
 
         rankingData.add({
           'track': representativeTrack,
           'postCount': postCount,
           'userIds': userIds,
+          'userIconUrls': userIconUrls,
+          'usernames': usernames,
         });
       }
 
@@ -310,6 +326,8 @@ class PostService {
           track: data['track'] as TrackModel,
           postCount: data['postCount'] as int,
           userIds: List<String>.from(data['userIds']),
+          userIconUrls: List<String>.from(data['userIconUrls']),
+          usernames: List<String>.from(data['usernames']),
         ));
       }
 
@@ -325,22 +343,23 @@ class PostService {
   // ─── Campus Vibe ─────────────────────────────────
 
   /// Campus Vibe投稿一覧を取得（今週末・大学一致・参加フラグtrue）
+  /// スケーラビリティ対策: 週末範囲・参加フラグ・大学を Firestore 側で絞り込み + limit
   Future<List<PostModel>> getCampusVibePosts(String university) async {
     try {
       final range = CampusVibeUtils.weekendRange();
       final snapshot = await _firestore
           .collection(_postsCollection)
           .where('university', isEqualTo: university)
+          .where('campusVibeParticipating', isEqualTo: true)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(range.start))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(range.end))
+          .orderBy('createdAt', descending: true)
+          .limit(300)
           .get();
 
       final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
-          .where((p) =>
-              p.campusVibeParticipating &&
-              !p.createdAt.isBefore(range.start) &&
-              !p.createdAt.isAfter(range.end))
-          .toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          .toList();
       return posts;
     } catch (e) {
       if (kDebugMode) print('getCampusVibePosts error: $e');
@@ -379,11 +398,16 @@ class PostService {
   // ─── 過去履歴 ─────────────────────────────────────
 
   /// 過去のVibeお題一覧を取得（topicTitle + date のユニーク一覧、新しい順、0件除外）
+  /// スケーラビリティ対策: 直近30日 / 最大1000件に制限（300〜600 active users 想定）
   Future<List<({String topicTitle, String topicId, DateTime date, int count})>> getPastVibeTopics() async {
     try {
+      final cutoff = DateTime.now().subtract(const Duration(days: 30));
       final snapshot = await _firestore
           .collection(_postsCollection)
           .where('isVibe', isEqualTo: true)
+          .where('vibeDate', isGreaterThan: Timestamp.fromDate(cutoff))
+          .orderBy('vibeDate', descending: true)
+          .limit(1000)
           .get();
 
       final groups = <String, ({String topicTitle, String topicId, DateTime date, int count})>{};
@@ -414,6 +438,129 @@ class PostService {
       return result;
     } catch (e) {
       if (kDebugMode) print('getPastVibeTopics error: $e');
+      return [];
+    }
+  }
+
+  /// Vibeお題ごとのサムネイル付き集計を取得（検索画面のVibeセクション用）
+  /// - topic+date 単位で集計、件数の多い順
+  /// - 各 topic につき最大4枚のサムネイル（写真優先、不足時にアルバムアートで補完）
+  Future<List<({
+    String topicTitle,
+    String topicId,
+    DateTime date,
+    int count,
+    List<String> thumbnails,
+  })>> getVibeTopicsWithThumbnails({int limit = 20}) async {
+    try {
+      // スケーラビリティ対策: 直近14日 / 最大500件に制限
+      final cutoff = DateTime.now().subtract(const Duration(days: 14));
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('isVibe', isEqualTo: true)
+          .where('vibeDate', isGreaterThan: Timestamp.fromDate(cutoff))
+          .orderBy('vibeDate', descending: true)
+          .limit(500)
+          .get();
+
+      final groups = <String, ({
+        String topicTitle,
+        String topicId,
+        DateTime date,
+        int count,
+        List<String> photos,
+        List<String> jackets,
+      })>{};
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final title = data['vibeTopicTitle'] as String?;
+        if (title == null || title.isEmpty) continue;
+        final topicId = (data['vibeTopicId'] as String?) ?? '';
+        final ts = data['vibeDate'] ?? data['createdAt'];
+        final date = ts is Timestamp ? ts.toDate() : DateTime.now();
+        final normalized = DateTime(date.year, date.month, date.day);
+        final key = '${topicId}_${normalized.millisecondsSinceEpoch}';
+
+        final photo = data['photoUrl']?.toString();
+        final track = data['track'] as Map<String, dynamic>?;
+        final jacket = track?['albumImageUrl']?.toString();
+
+        final existing = groups[key];
+        if (existing == null) {
+          groups[key] = (
+            topicTitle: title,
+            topicId: topicId,
+            date: normalized,
+            count: 1,
+            photos: [
+              if (photo != null && photo.startsWith('http')) photo,
+            ],
+            jackets: [
+              if (jacket != null && jacket.startsWith('http')) jacket,
+            ],
+          );
+        } else {
+          final newPhotos = List<String>.of(existing.photos);
+          final newJackets = List<String>.of(existing.jackets);
+          if (photo != null && photo.startsWith('http') && newPhotos.length < 4) {
+            newPhotos.add(photo);
+          }
+          if (jacket != null &&
+              jacket.startsWith('http') &&
+              newJackets.length < 4 &&
+              !newJackets.contains(jacket)) {
+            newJackets.add(jacket);
+          }
+          groups[key] = (
+            topicTitle: existing.topicTitle,
+            topicId: existing.topicId,
+            date: existing.date,
+            count: existing.count + 1,
+            photos: newPhotos,
+            jackets: newJackets,
+          );
+        }
+      }
+
+      final result = groups.values.map((g) {
+        // スロットを位置で固定:
+        //   index 0,1 → 左・中央セル: 写真のみ（不足時は空文字）
+        //   index 2,3 → 右上・右下セル: アルバムアートのみ（不足時は写真で補完→それでも空なら空文字）
+        final picked = <String>['', '', '', ''];
+        // 左・中央: 写真のみ
+        final usedPhotos = <String>{};
+        for (var i = 0; i < 2 && i < g.photos.length; i++) {
+          picked[i] = g.photos[i];
+          usedPhotos.add(g.photos[i]);
+        }
+        // 右上・右下: アルバムアート優先、不足時のみ未使用写真で補完
+        final jacketsAvailable = g.jackets.toList();
+        final extraPhotos =
+            g.photos.where((p) => !usedPhotos.contains(p)).toList();
+        for (var slot = 2; slot < 4; slot++) {
+          if (jacketsAvailable.isNotEmpty) {
+            picked[slot] = jacketsAvailable.removeAt(0);
+          } else if (extraPhotos.isNotEmpty) {
+            picked[slot] = extraPhotos.removeAt(0);
+          }
+        }
+        return (
+          topicTitle: g.topicTitle,
+          topicId: g.topicId,
+          date: g.date,
+          count: g.count,
+          thumbnails: picked,
+        );
+      }).toList()
+        ..sort((a, b) => b.count.compareTo(a.count));
+
+      if (result.length > limit) {
+        return result.sublist(0, limit);
+      }
+      return result;
+    } catch (e) {
+      if (kDebugMode) print('getVibeTopicsWithThumbnails error: $e');
       return [];
     }
   }

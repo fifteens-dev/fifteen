@@ -55,7 +55,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
   final Map<int, String?> _previewUrlCache = {};
   int? _requestedPageIndex;
 
-  static const double _cardItemHeight = 668.0; // 644 card + 24 bottom padding
+  static const double _cardItemHeight = 669.0; // 645 card + 24 bottom padding
 
   @override
   void initState() {

@@ -4,10 +4,11 @@ import '../models/post_theme.dart';
 import '../models/track_model.dart';
 import 'post_card/marquee_text.dart';
 
-/// 投稿カード裏面の情報セクション（タイトルエリア）
+/// 投稿カード裏面の情報セクション（写真フルブリード上のオーバーレイ）
 /// PostCardとpost_preview_screenの両方で使用される共通ウィジェット
 class PostCardBackInfo extends StatelessWidget {
   final TrackModel track;
+  // theme は互換性のため残すが、色はすべて白系で固定
   final PostTheme theme;
   final int likeCount;
   final int commentCount;
@@ -16,26 +17,26 @@ class PostCardBackInfo extends StatelessWidget {
   final VoidCallback? onComment;
   final VoidCallback? onAdd;
   final VoidCallback? onShare;
-  final bool showCounts; // プレビューモードではfalseにしてカウントを非表示
+  final bool showCounts;
 
   const PostCardBackInfo({
     super.key,
     required this.track,
     required this.theme,
-    this.likeCount = 0, // デフォルトは0（新規投稿）
-    this.commentCount = 0, // デフォルトは0（新規投稿）
+    this.likeCount = 0,
+    this.commentCount = 0,
     this.isLiked = false,
     this.onLike,
     this.onComment,
     this.onAdd,
     this.onShare,
-    this.showCounts = true, // デフォルトは表示
+    this.showCounts = true,
   });
 
   @override
   Widget build(BuildContext context) {
     const cardWidth = 363.0;
-    const cardHeight = 644.0;
+    const cardHeight = 645.0;
     const contentHeight = 174.0;
 
     return SizedBox(
@@ -43,18 +44,14 @@ class PostCardBackInfo extends StatelessWidget {
       height: contentHeight,
       child: Stack(
         children: [
-          // グラデーション背景
+          // 暗いグラデーション（写真の上に重ねてテキストを読みやすくする）
           Positioned.fill(
             child: Container(
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    theme.gradientStart.withOpacity(0.0), // 上端は透明
-                    theme.gradientEnd, // 14px以降は不透明
-                  ],
-                  stops: const [0.0, 0.0805], // 上部8.05% (14px/174px)
+                  colors: [Colors.transparent, Color(0x80000000)],
                 ),
               ),
             ),
@@ -64,18 +61,17 @@ class PostCardBackInfo extends StatelessWidget {
           Positioned(
             left: cardWidth * (12 / 363),
             right: cardWidth * (66 / 363),
-            bottom: cardHeight * (110 / 644),  // top: 64px相当
+            bottom: cardHeight * (110 / 645),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // タイトル（長い場合は自動スクロール）
                 MarqueeText(
                   text: track.trackName,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 21,
                     fontWeight: FontWeight.w700,
-                    color: theme.textColor,
+                    color: Colors.white,
                   ),
                   width: cardWidth * (285 / 363),
                 ),
@@ -84,7 +80,7 @@ class PostCardBackInfo extends StatelessWidget {
                   track.artistName,
                   style: TextStyle(
                     fontSize: 11,
-                    color: theme.secondaryTextColor,
+                    color: Colors.white.withValues(alpha: 0.8),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -96,32 +92,28 @@ class PostCardBackInfo extends StatelessWidget {
           // リアクション（いいね、コメント、追加）
           Positioned(
             left: cardWidth * (12 / 363),
-            bottom: cardHeight * (80 / 644),
+            bottom: cardHeight * (80 / 645),
             child: Row(
               children: [
-                // いいね
                 _buildReactionButton(
                   icon: isLiked ? Icons.favorite : Icons.favorite_border,
-                  color: isLiked ? Colors.red : theme.iconColor,
+                  color: isLiked ? Colors.red : Colors.white,
                   count: showCounts ? likeCount : null,
                   onTap: onLike,
-                  textColor: isLiked ? Colors.red : theme.textColor,
+                  textColor: isLiked ? Colors.red : Colors.white,
                 ),
                 SizedBox(width: cardWidth * (15 / 363)),
-                // コメント
                 _buildCommentReaction(
                   count: showCounts ? commentCount : null,
                   onTap: onComment,
-                  theme: theme,
                 ),
                 SizedBox(width: cardWidth * (15 / 363)),
-                // 追加
                 _buildReactionButton(
                   icon: Icons.add_circle_outline,
-                  color: theme.iconColor,
+                  color: Colors.white,
                   count: null,
                   onTap: onAdd,
-                  textColor: theme.iconColor,
+                  textColor: Colors.white,
                 ),
               ],
             ),
@@ -131,10 +123,9 @@ class PostCardBackInfo extends StatelessWidget {
           if (showCounts)
             Positioned(
               right: cardWidth * (12 / 363),
-              bottom: cardHeight * (80 / 644),
+              bottom: cardHeight * (80 / 645),
               child: Row(
                 children: [
-                  // いいねした人のアバター（3人分）
                   _buildAvatar(),
                   SizedBox(width: cardWidth * (1 / 363)),
                   _buildAvatar(),
@@ -148,19 +139,19 @@ class PostCardBackInfo extends StatelessWidget {
           Positioned(
             left: cardWidth * (12 / 363),
             right: cardWidth * (12 / 363),
-            bottom: cardHeight * (28 / 644),
-            child: _buildCommentButton(theme),
+            bottom: cardHeight * (28 / 645),
+            child: _buildCommentButton(),
           ),
 
           // "Provided courtesy of Apple Music"
           Positioned(
             left: cardWidth * (17 / 363),
-            bottom: cardHeight * (9 / 644),
-            child: Text(
+            bottom: cardHeight * (9 / 645),
+            child: const Text(
               'Provided courtesy of Apple Music',
               style: TextStyle(
                 fontSize: 10,
-                color: theme.secondaryTextColor.withOpacity(0.7),
+                color: Color(0xFFB0B0B0),
               ),
             ),
           ),
@@ -169,7 +160,7 @@ class PostCardBackInfo extends StatelessWidget {
           if (onShare != null)
             Positioned(
               right: cardWidth * (13 / 363),
-              bottom: cardHeight * (120 / 644),
+              bottom: cardHeight * (120 / 645),
               child: _buildShareButton(),
             ),
         ],
@@ -177,7 +168,6 @@ class PostCardBackInfo extends StatelessWidget {
     );
   }
 
-  /// リアクションボタン
   Widget _buildReactionButton({
     required IconData icon,
     required Color color,
@@ -189,11 +179,7 @@ class PostCardBackInfo extends StatelessWidget {
       onTap: onTap,
       child: Row(
         children: [
-          Icon(
-            icon,
-            size: 23,
-            color: color,
-          ),
+          Icon(icon, size: 23, color: color),
           if (count != null) ...[
             const SizedBox(width: 6),
             Text(
@@ -210,12 +196,7 @@ class PostCardBackInfo extends StatelessWidget {
     );
   }
 
-  /// コメントリアクション（SVGアイコン使用）
-  Widget _buildCommentReaction({
-    required int? count,
-    VoidCallback? onTap,
-    required PostTheme theme,
-  }) {
+  Widget _buildCommentReaction({required int? count, VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Row(
@@ -224,19 +205,16 @@ class PostCardBackInfo extends StatelessWidget {
             'assets/icons/message_circle.svg',
             width: 23,
             height: 23,
-            colorFilter: ColorFilter.mode(
-              theme.iconColor,
-              BlendMode.srcIn,
-            ),
+            colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
           ),
           if (count != null) ...[
             const SizedBox(width: 6),
             Text(
               '$count',
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
-                color: theme.textColor,
+                color: Colors.white,
               ),
             ),
           ],
@@ -245,7 +223,6 @@ class PostCardBackInfo extends StatelessWidget {
     );
   }
 
-  /// アバター
   Widget _buildAvatar() {
     return Container(
       width: 25.0,
@@ -257,25 +234,24 @@ class PostCardBackInfo extends StatelessWidget {
     );
   }
 
-  /// コメントボタン
-  Widget _buildCommentButton(PostTheme theme) {
+  Widget _buildCommentButton() {
     return GestureDetector(
       onTap: onComment,
       child: Container(
         height: 43,
         decoration: BoxDecoration(
-          color: theme.commentButtonColor,
+          color: Colors.black.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
             const SizedBox(width: 12),
-            Text(
+            const Text(
               'コメントする',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
-                color: theme.textColor,
+                color: Colors.white,
               ),
             ),
             const Spacer(),
@@ -283,7 +259,7 @@ class PostCardBackInfo extends StatelessWidget {
               'assets/icons/comment_send_button.png',
               width: 20,
               height: 20,
-              color: theme.textColor.withOpacity(0.6),
+              color: Colors.white.withValues(alpha: 0.6),
             ),
             const SizedBox(width: 12),
           ],
@@ -292,20 +268,14 @@ class PostCardBackInfo extends StatelessWidget {
     );
   }
 
-  /// 共有ボタン
   Widget _buildShareButton() {
-    final hsl = HSLColor.fromColor(theme.gradientEnd);
-    final newLightness = hsl.lightness > 0.5
-        ? (hsl.lightness - 0.1).clamp(0.0, 1.0)
-        : (hsl.lightness + 0.1).clamp(0.0, 1.0);
-    final bgColor = hsl.withLightness(newLightness).toColor();
     return GestureDetector(
       onTap: onShare,
       child: Container(
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: bgColor,
+          color: Colors.black.withValues(alpha: 0.5),
           shape: BoxShape.circle,
         ),
         child: Center(
@@ -313,7 +283,7 @@ class PostCardBackInfo extends StatelessWidget {
             'assets/icons/share_button.png',
             width: 36,
             height: 36,
-            color: theme.textColor,
+            color: Colors.white,
             colorBlendMode: BlendMode.srcIn,
           ),
         ),

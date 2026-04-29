@@ -8,6 +8,11 @@ import 'package:flutter/foundation.dart';
 class StorageService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
 
+  /// 投稿/プロフィール画像のCDNキャッシュヘッダー（30日）
+  /// 同一画像の再ダウンロード時に Storage egress を発生させない。
+  /// プロフィール画像は変更頻度が低い投稿画像と同じ運用で十分。
+  static const String _imageCacheControl = 'public, max-age=2592000';
+
   /// プロフィール画像をアップロード
   ///
   /// [userId] ユーザーID
@@ -21,9 +26,10 @@ class StorageService {
       // ファイル名: profile_images/{userId}/profile.jpg
       final storageRef = _storage.ref().child('profile_images/$userId/profile.jpg');
 
-      // メタデータを設定
+      // メタデータを設定（CDNキャッシュ有効化で egress 抑制）
       final metadata = SettableMetadata(
         contentType: 'image/jpeg',
+        cacheControl: _imageCacheControl,
         customMetadata: {'uploaded': DateTime.now().toIso8601String()},
       );
 
@@ -83,9 +89,10 @@ class StorageService {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final storageRef = _storage.ref().child('post_images/$userId/$timestamp.jpg');
 
-      // メタデータを設定
+      // メタデータを設定（CDNキャッシュ有効化で egress 抑制）
       final metadata = SettableMetadata(
         contentType: 'image/jpeg',
+        cacheControl: _imageCacheControl,
         customMetadata: {'uploaded': DateTime.now().toIso8601String()},
       );
 
@@ -103,6 +110,34 @@ class StorageService {
     } catch (e) {
       if (kDebugMode) {
         print('Error uploading post image: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 投稿画像をアップロードし、Referenceを返す（getDownloadURLは呼ばない）
+  ///
+  /// getDownloadURL()を後で並列実行するための分割アップロード用
+  Future<Reference> uploadPostImageGetRef({
+    required String userId,
+    required Uint8List imageBytes,
+  }) async {
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final storageRef = _storage.ref().child('post_images/$userId/$timestamp.jpg');
+      final metadata = SettableMetadata(
+        contentType: 'image/jpeg',
+        cacheControl: _imageCacheControl,
+        customMetadata: {'uploaded': DateTime.now().toIso8601String()},
+      );
+      final taskSnapshot = await storageRef.putData(imageBytes, metadata);
+      if (kDebugMode) {
+        print('Post image uploaded, ref: ${taskSnapshot.ref.fullPath}');
+      }
+      return taskSnapshot.ref;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error uploading post image (get ref): $e');
       }
       rethrow;
     }

@@ -463,13 +463,11 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
           decoration: BoxDecoration(
             color: _isFollowing
                 ? Colors.transparent
-                : const Color(0xFF0095F6),
-            border: Border.all(
-              color: _isFollowing
-                  ? const Color(0xFF929292)
-                  : const Color(0xFF0095F6),
-            ),
-            borderRadius: BorderRadius.circular(4),
+                : const Color(0xFF0098FE),
+            border: _isFollowing
+                ? Border.all(color: const Color(0xFF929292))
+                : null,
+            borderRadius: BorderRadius.circular(9),
           ),
           child: Center(
             child: Text(
@@ -481,7 +479,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 12,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),

@@ -28,6 +28,7 @@ class PostCardEditScreen extends StatefulWidget {
   final bool isVibe;
   final String? vibeTopicId;
   final String? vibeTopicTitle;
+  final bool fromVibePlaylist;
   // 写真選択画面で事前取得済みのキャッシュ（アニメーション中の setState を防ぐ）
   final String? cachedPreviewUrl;
   final Color? cachedGradientStart;
@@ -45,6 +46,7 @@ class PostCardEditScreen extends StatefulWidget {
     this.isVibe = false,
     this.vibeTopicId,
     this.vibeTopicTitle,
+    this.fromVibePlaylist = false,
     this.cachedPreviewUrl,
     this.cachedGradientStart,
     this.cachedGradientEnd,
@@ -430,6 +432,7 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
           isVibe: widget.isVibe,
           vibeTopicId: widget.vibeTopicId,
           vibeTopicTitle: widget.vibeTopicTitle,
+          fromVibePlaylist: widget.fromVibePlaylist,
           lyricsData: _lyricsData,
           audioStartMs: _editState.audioStartMs,
           audioDurationSec: _durationSeconds,

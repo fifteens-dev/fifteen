@@ -45,6 +45,22 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
       _isLoading = true;
     });
 
+    // テストユーザー用バイパス
+    if (phoneNumber == '00000000000') {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        Navigator.pushNamed(
+          context,
+          '/verification',
+          arguments: {
+            'verificationId': '__TEST__',
+            'phoneNumber': '+810000000000',
+          },
+        );
+      }
+      return;
+    }
+
     // 国際電話番号形式に変換
     final fullPhoneNumber = '$_countryCode${phoneNumber.substring(1)}';
 

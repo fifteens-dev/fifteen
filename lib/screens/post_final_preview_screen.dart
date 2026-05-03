@@ -23,6 +23,7 @@ import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../services/lyrics_service.dart';
+import '../services/tutorial_controller.dart';
 import '../utils/campus_vibe_utils.dart';
 import '../utils/color_extractor.dart';
 import '../utils/current_user_helper.dart';
@@ -47,6 +48,7 @@ class PostFinalPreviewScreen extends StatefulWidget {
   final bool isVibe;
   final String? vibeTopicId;
   final String? vibeTopicTitle;
+  final bool fromVibePlaylist;
   final LyricsData? lyricsData;
   final int audioStartMs;
   final int audioDurationSec;
@@ -71,6 +73,7 @@ class PostFinalPreviewScreen extends StatefulWidget {
     this.isVibe = false,
     this.vibeTopicId,
     this.vibeTopicTitle,
+    this.fromVibePlaylist = false,
     this.lyricsData,
     this.audioStartMs = 0,
     this.audioDurationSec = 15,
@@ -267,8 +270,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     }
   }
 
-  /// 今日のVibeお題を読み込み
+  /// 今日のVibeお題を読み込み（既にトピックが指定されている場合はスキップ）
   Future<void> _loadTodaysTopic() async {
+    if (widget.vibeTopicId != null) return;
     try {
       final topic = await VibeTopicService().getTodaysTopic();
       if (mounted) {
@@ -649,22 +653,29 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       // Phase 1: アップロード(URL取得前)・テーマ抽出・プレビューURL を並列実行
       // モバイル: putDataのみ実行→Reference返却（getDownloadURLはPhase2で並列化）
       // Web: Base64変換→immediateUrlに格納
-      final Future<({String? immediateUrl, Reference? storageRef})> photoSplitFuture =
+      final Future<({String? immediateUrl, Reference? storageRef, int croppedWidth, int croppedHeight})> photoSplitFuture =
           widget.selectedImage != null
               ? PhotoHelper.processPhotoSplit(
                   image: widget.selectedImage!,
                   userId: userId,
                   storageService: _storageService,
+                  imageOffset: _imageOffset,
+                  imageScale: _imageScale,
+                  imageNaturalSize: widget.imageNaturalSize,
                 ).catchError((dynamic e) {
                   print('⚠️ 写真のアップロードに失敗: $e');
                   return (
                     immediateUrl: null as String?,
                     storageRef: null as Reference?,
+                    croppedWidth: 0,
+                    croppedHeight: 0,
                   );
                 })
               : Future.value((
                   immediateUrl: null as String?,
                   storageRef: null as Reference?,
+                  croppedWidth: 0,
+                  croppedHeight: 0,
                 ));
 
       final Future<PostTheme?> themeFuture =
@@ -683,7 +694,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       ]);
 
       final photoResult =
-          results1[0] as ({String? immediateUrl, Reference? storageRef});
+          results1[0] as ({String? immediateUrl, Reference? storageRef, int croppedWidth, int croppedHeight});
       final PostTheme? extractedTheme = results1[1] as PostTheme?;
       final String? previewUrl = results1[2] as String?;
 
@@ -719,11 +730,12 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         trackData: trackData,
         // モバイル: photoUrlは後でupdatePostPhotoUrlで反映 / Web: 即時URL
         photoUrl: photoResult.immediateUrl,
-        imageOffsetX: _imageOffset.dx,
-        imageOffsetY: _imageOffset.dy,
-        imageScale: _imageScale,
-        imageNaturalWidth: widget.imageNaturalSize?.width ?? 0,
-        imageNaturalHeight: widget.imageNaturalSize?.height ?? 0,
+        // クロップ済み画像をそのまま表示するため offset/scale はリセット
+        imageOffsetX: 0,
+        imageOffsetY: 0,
+        imageScale: 1.0,
+        imageNaturalWidth: photoResult.croppedWidth.toDouble(),
+        imageNaturalHeight: photoResult.croppedHeight.toDouble(),
         selectedLayoutIndex: _editState.selectedLayoutIndex,
         cardPositionX: cardPos.dx,
         cardPositionY: cardPos.dy,
@@ -752,6 +764,11 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       }
 
       print('✅ 投稿を作成しました: $postId');
+
+      // チュートリアル中なら次ステップ（Vibeプレイリスト誘導）へ
+      if (TutorialController.instance.step == TutorialStep.posting) {
+        await TutorialController.instance.goTo(TutorialStep.showVibePlaylistHint);
+      }
 
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil(
@@ -840,7 +857,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                               ),
                             ),
                             // Campus Vibe トグル（写真領域の右下、情報領域から18px上）
-                            if (CampusVibeUtils.canPost(_currentUniversity))
+                            if (false && CampusVibeUtils.canPost(_currentUniversity))
                               Positioned(
                                 right: 9,
                                 bottom: toggleBottom,
@@ -876,8 +893,71 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     );
   }
 
+  /// Vibeプレイリストからの投稿ボタン（Frame366）
+  Widget _buildVibePlaylistPostButton() {
+    return Container(
+      padding: const EdgeInsets.only(left: 10, right: 10, top: 6, bottom: 6),
+      color: const Color(0xFF121212),
+      child: SafeArea(
+        top: false,
+        child: GestureDetector(
+          onTap: _isPosting ? null : () => _onPost(asVibe: true),
+          child: Container(
+            height: 45,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(30),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF1937EF), Color(0xFFFE1F56)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: _isPosting
+                ? const Center(
+                    child: CupertinoActivityIndicator(color: Colors.white, radius: 8),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Image.asset('assets/icons/Vibe.png', width: 19, height: 19),
+                      const SizedBox(width: 8),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const Text(
+                            'Vibeにこの楽曲を追加',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          if (_vibeTopicTitle != null)
+                            Text(
+                              '【#$_vibeTopicTitle】',
+                              style: const TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.w400,
+                                color: Colors.white,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Vibe / 今の気分 投稿タイプバー
   Widget _buildPostTypeBar() {
+    // Vibeプレイリスト経由の場合は専用ボタンを表示
+    if (widget.fromVibePlaylist) return _buildVibePlaylistPostButton();
+
     final topicLabel = _vibeTopicTitle != null ? '\n【#$_vibeTopicTitle】' : '';
     return Container(
       padding: const EdgeInsets.only(left: 12, right: 12, top: 6, bottom: 6),

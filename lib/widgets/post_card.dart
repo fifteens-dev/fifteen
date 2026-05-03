@@ -667,7 +667,7 @@ class PostCardState extends State<PostCard>
                         : widget.onComment,
                   ),
                   SizedBox(width: cardWidth * (15 / 363)),
-                  _buildSaveButton(theme: theme),
+                  _buildSaveButton(theme: theme, color: Colors.white),
                 ],
               ),
             ),
@@ -731,7 +731,7 @@ class PostCardState extends State<PostCard>
               Positioned(
                 right: cardWidth * (11 / 363),
                 bottom: cardHeight * (110 / 645),
-                child: _buildMoreButton(theme),
+                child: _buildMoreButton(theme, color: Colors.white),
               ),
           ],
         ),
@@ -1540,7 +1540,8 @@ class PostCardState extends State<PostCard>
       widget.currentUserId != null &&
       widget.post.userId == widget.currentUserId;
 
-  Widget _buildMoreButton(PostTheme theme) {
+  Widget _buildMoreButton(PostTheme theme, {Color? color}) {
+    final _moreButtonColor = color;
     return NativePullDownButton(
       items: [
         if (_isOwner && widget.onDelete != null)
@@ -1561,13 +1562,12 @@ class PostCardState extends State<PostCard>
       child: SizedBox(
         width: 32,
         height: 36,
-        child: Icon(Icons.more_vert, color: theme.iconColor, size: 22),
+        child: Icon(Icons.more_vert, color: _moreButtonColor ?? theme.iconColor, size: 22),
       ),
     );
   }
 
-  /// 保存ボタン（表面用）
-  Widget _buildSaveButton({required PostTheme theme}) {
+  Widget _buildSaveButton({required PostTheme theme, Color? color}) {
     return GestureDetector(
       onTap: widget.onAdd,
       child: widget.isSaved
@@ -1575,7 +1575,7 @@ class PostCardState extends State<PostCard>
           : Icon(
               Icons.add_circle_outline,
               size: 24,
-              color: theme.iconColor,
+              color: color ?? theme.iconColor,
             ),
     );
   }
@@ -1628,14 +1628,39 @@ class PostCardState extends State<PostCard>
   /// 外部から共有を実行（CardShareScreenのボタンから呼び出す）
   void shareCard() => _handleShare();
 
+  /// 角丸マスクを適用してPNGバイト列を返す（角を透明にする）
+  Future<Uint8List?> _applyRoundedMask(Uint8List pngBytes, double pixelRatio) async {
+    final codec = await ui.instantiateImageCodec(pngBytes);
+    final frame = await codec.getNextFrame();
+    final src = frame.image;
+    final radius = PostCardConstants.cardBorderRadius * pixelRatio;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.clipRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, 0, src.width.toDouble(), src.height.toDouble()),
+        Radius.circular(radius),
+      ),
+    );
+    canvas.drawImage(src, Offset.zero, Paint());
+    final picture = recorder.endRecording();
+    final result = await picture.toImage(src.width, src.height);
+    final data = await result.toByteData(format: ui.ImageByteFormat.png);
+    return data?.buffer.asUint8List();
+  }
+
   /// カードをPNG画像として返す（Instagram Stories共有等に使用）
   Future<Uint8List?> captureAsImage() async {
     try {
       final boundary = _cardRepaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
       if (boundary == null) return null;
-      final image = await boundary.toImage(pixelRatio: 3.0);
+      const pixelRatio = 3.0;
+      final image = await boundary.toImage(pixelRatio: pixelRatio);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      return byteData?.buffer.asUint8List();
+      final raw = byteData?.buffer.asUint8List();
+      if (raw == null) return null;
+      return await _applyRoundedMask(raw, pixelRatio);
     } catch (_) {
       return null;
     }
@@ -1648,10 +1673,12 @@ class PostCardState extends State<PostCard>
       final boundary = _cardRepaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
       if (boundary == null) return;
 
-      final image = await boundary.toImage(pixelRatio: 3.0);
+      const pixelRatio = 3.0;
+      final image = await boundary.toImage(pixelRatio: pixelRatio);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData == null) return;
-      final bytes = byteData.buffer.asUint8List();
+      final raw = byteData.buffer.asUint8List();
+      final bytes = await _applyRoundedMask(raw, pixelRatio) ?? raw;
 
       // 写真ライブラリのパーミッション確認
       final permission = await PhotoManager.requestPermissionExtend();

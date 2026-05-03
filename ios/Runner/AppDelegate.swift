@@ -1,6 +1,5 @@
 import Flutter
 import UIKit
-import AVFoundation
 import MusicKit
 import StoreKit
 import ObjectiveC.runtime
@@ -121,33 +120,9 @@ import ObjectiveC.runtime
         }
         let imageData = imageTypedData.data
         let contentURL = args["contentURL"] as? String
-        let audioURLString = args["audioURL"] as? String
-        let audioStartMs = args["audioStartMs"] as? Int ?? 0
-        let durationSec = args["durationSec"] as? Int ?? 15
 
-        if let urlString = audioURLString, let audioURL = URL(string: urlString) {
-          // 音楽付き動画を生成してbackgroundVideoとして共有
-          self?.createStoryVideo(
-            imageData: imageData,
-            audioURL: audioURL,
-            audioStartMs: audioStartMs,
-            durationSec: durationSec
-          ) { videoData in
-            DispatchQueue.main.async {
-              if let videoData = videoData {
-                self?.writeInstagramPasteboard(videoData: videoData, contentURL: contentURL)
-              } else {
-                // 動画生成失敗 → 静止画フォールバック
-                self?.writeInstagramPasteboard(imageData: imageData, contentURL: contentURL)
-              }
-              result(true)
-            }
-          }
-        } else {
-          // previewURLなし → 静止画で共有
-          self?.writeInstagramPasteboard(imageData: imageData, contentURL: contentURL)
-          result(true)
-        }
+        self?.writeInstagramPasteboard(imageData: imageData, contentURL: contentURL)
+        result(true)
 
       case "isInstagramAvailable":
         let url = URL(string: "instagram-stories://share")!
@@ -160,185 +135,10 @@ import ObjectiveC.runtime
 
   // MARK: - Instagram Stories ペーストボード書き込み
 
-  private func writeInstagramPasteboard(videoData: Data, contentURL: String?) {
-    var items: [String: Any] = ["com.instagram.sharedSticker.backgroundVideo": videoData]
-    if let url = contentURL { items["com.instagram.sharedSticker.contentURL"] = url }
-    UIPasteboard.general.setItems([items], options: [.expirationDate: Date().addingTimeInterval(300)])
-  }
-
   private func writeInstagramPasteboard(imageData: Data, contentURL: String?) {
     var items: [String: Any] = ["com.instagram.sharedSticker.stickerImage": imageData]
     if let url = contentURL { items["com.instagram.sharedSticker.contentURL"] = url }
     UIPasteboard.general.setItems([items], options: [.expirationDate: Date().addingTimeInterval(300)])
-  }
-
-  // MARK: - ストーリー用動画生成（投稿カード画像 + 音楽）
-
-  /// 9:16 ストーリー動画を生成する
-  /// - 投稿カード画像を中央に配置した黒背景フレームを動画に変換
-  /// - iTunes previewを指定時刻からdurationSec秒だけ音声トラックとして合成
-  private func createStoryVideo(
-    imageData: Data,
-    audioURL: URL,
-    audioStartMs: Int,
-    durationSec: Int,
-    completion: @escaping (Data?) -> Void
-  ) {
-    guard let sourceImage = UIImage(data: imageData),
-          let storyImage = makeStoryImage(from: sourceImage) else {
-      completion(nil)
-      return
-    }
-
-    let tmp = FileManager.default.temporaryDirectory
-    let videoOnlyURL = tmp.appendingPathComponent("fif_vid_\(UUID().uuidString).mp4")
-    let outputURL   = tmp.appendingPathComponent("fif_story_\(UUID().uuidString).mp4")
-
-    // Step1: 静止画から無音動画を生成
-    writeImageVideo(image: storyImage, duration: durationSec, outputURL: videoOnlyURL) { ok in
-      guard ok else { completion(nil); return }
-
-      // Step2: iTunes previewをダウンロード
-      URLSession.shared.dataTask(with: audioURL) { [weak self] data, _, _ in
-        guard let self = self, let audioData = data else {
-          // ダウンロード失敗 → 無音動画をそのまま返す
-          let v = try? Data(contentsOf: videoOnlyURL)
-          try? FileManager.default.removeItem(at: videoOnlyURL)
-          completion(v)
-          return
-        }
-
-        let audioTmp = tmp.appendingPathComponent("fif_audio_\(UUID().uuidString).mp3")
-        try? audioData.write(to: audioTmp)
-
-        // Step3: 動画 + 音声を合成
-        self.mergeVideoAndAudio(
-          videoURL: videoOnlyURL,
-          audioURL: audioTmp,
-          audioStartMs: audioStartMs,
-          durationSec: durationSec,
-          outputURL: outputURL
-        ) { success in
-          try? FileManager.default.removeItem(at: videoOnlyURL)
-          try? FileManager.default.removeItem(at: audioTmp)
-          if success, let result = try? Data(contentsOf: outputURL) {
-            try? FileManager.default.removeItem(at: outputURL)
-            completion(result)
-          } else {
-            try? FileManager.default.removeItem(at: outputURL)
-            completion(nil)
-          }
-        }
-      }.resume()
-    }
-  }
-
-  /// 投稿カード画像を 1080×1920（9:16）の黒背景中央に配置する
-  private func makeStoryImage(from image: UIImage) -> UIImage? {
-    let sw: CGFloat = 1080, sh: CGFloat = 1920
-    let maxW = sw * 0.88, maxH = sh * 0.55
-    let s = min(maxW / image.size.width, maxH / image.size.height)
-    let iw = image.size.width * s, ih = image.size.height * s
-    let ix = (sw - iw) / 2, iy = (sh - ih) / 2
-
-    UIGraphicsBeginImageContextWithOptions(CGSize(width: sw, height: sh), true, 1)
-    defer { UIGraphicsEndImageContext() }
-    UIColor.black.setFill()
-    UIRectFill(CGRect(x: 0, y: 0, width: sw, height: sh))
-    image.draw(in: CGRect(x: ix, y: iy, width: iw, height: ih))
-    return UIGraphicsGetImageFromCurrentImageContext()
-  }
-
-  /// 静止画を繰り返すだけの無音 H.264 動画を生成
-  private func writeImageVideo(image: UIImage, duration: Int, outputURL: URL, completion: @escaping (Bool) -> Void) {
-    try? FileManager.default.removeItem(at: outputURL)
-    let w = Int(image.size.width), h = Int(image.size.height)
-
-    guard let writer = try? AVAssetWriter(outputURL: outputURL, fileType: .mp4) else {
-      completion(false); return
-    }
-    let videoSettings: [String: Any] = [
-      AVVideoCodecKey: AVVideoCodecType.h264,
-      AVVideoWidthKey: w, AVVideoHeightKey: h,
-      AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 1_500_000]
-    ]
-    let input = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
-    input.expectsMediaDataInRealTime = false
-    let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-      assetWriterInput: input,
-      sourcePixelBufferAttributes: [
-        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-        kCVPixelBufferWidthKey as String: w, kCVPixelBufferHeightKey as String: h
-      ]
-    )
-    writer.add(input)
-    writer.startWriting()
-    writer.startSession(atSourceTime: .zero)
-
-    guard let pixelBuffer = image.toPixelBuffer(width: w, height: h) else {
-      writer.cancelWriting(); completion(false); return
-    }
-
-    // 1fps: 0〜duration-1 フレームで durationSec 秒の動画を生成
-    var frame = 0
-    input.requestMediaDataWhenReady(on: DispatchQueue.global(qos: .userInitiated)) {
-      while input.isReadyForMoreMediaData {
-        if frame >= duration {
-          input.markAsFinished()
-          writer.finishWriting { completion(writer.status == .completed) }
-          return
-        }
-        adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: 1))
-        frame += 1
-      }
-    }
-  }
-
-  /// 無音動画 + 音声ファイルを合成して MP4 を出力
-  private func mergeVideoAndAudio(
-    videoURL: URL,
-    audioURL: URL,
-    audioStartMs: Int,
-    durationSec: Int,
-    outputURL: URL,
-    completion: @escaping (Bool) -> Void
-  ) {
-    try? FileManager.default.removeItem(at: outputURL)
-
-    let composition = AVMutableComposition()
-    let videoAsset = AVURLAsset(url: videoURL)
-    let audioAsset = AVURLAsset(url: audioURL)
-
-    let dur = CMTime(seconds: Double(durationSec), preferredTimescale: 600)
-    let videoRange = CMTimeRange(start: .zero, duration: dur)
-
-    guard
-      let vTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
-      let aTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid),
-      let vAssetTrack = videoAsset.tracks(withMediaType: .video).first,
-      let aAssetTrack = audioAsset.tracks(withMediaType: .audio).first
-    else { completion(false); return }
-
-    do {
-      try vTrack.insertTimeRange(videoRange, of: vAssetTrack, at: .zero)
-
-      // audioStartMs 分だけプレビューをオフセットして再生
-      let audioOffset = CMTime(value: CMTimeValue(audioStartMs), timescale: 1000)
-      let audioAvail  = CMTimeSubtract(audioAsset.duration, audioOffset)
-      let audioDur    = CMTimeMinimum(audioAvail > .zero ? audioAvail : audioAsset.duration, dur)
-      let audioRange  = CMTimeRange(start: audioOffset > .zero ? audioOffset : .zero, duration: audioDur)
-      try aTrack.insertTimeRange(audioRange, of: aAssetTrack, at: .zero)
-    } catch {
-      completion(false); return
-    }
-
-    guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetMediumQuality) else {
-      completion(false); return
-    }
-    export.outputURL = outputURL
-    export.outputFileType = .mp4
-    export.timeRange = videoRange
-    export.exportAsynchronously { completion(export.status == .completed) }
   }
 
   // MARK: - SF Pro フォントチャンネル
@@ -527,10 +327,13 @@ import ObjectiveC.runtime
       controller.requestUserToken(forDeveloperToken: devToken) { (userToken, error) in
         DispatchQueue.main.async {
           if let error = error {
+            let nsError = error as NSError
+            print("🔍 Token error - code: \(nsError.code), domain: \(nsError.domain)")
+            // 認証済み(authorized)後にトークン取得が失敗する主な原因はサブスクリプション未加入
             result(FlutterError(
-              code: "TOKEN_ERROR",
-              message: "Failed to get user token: \(error.localizedDescription)",
-              details: nil
+              code: "NO_SUBSCRIPTION",
+              message: "Apple Musicのサブスクリプションが必要です",
+              details: "\(nsError.code)"
             ))
           } else if let userToken = userToken, !userToken.isEmpty {
             result(userToken)
@@ -596,37 +399,3 @@ import ObjectiveC.runtime
   }
 }
 
-// MARK: - UIImage → CVPixelBuffer
-
-private extension UIImage {
-  func toPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
-    var buf: CVPixelBuffer?
-    let attrs: [String: Any] = [
-      kCVPixelBufferCGImageCompatibilityKey as String: true,
-      kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
-    ]
-    guard CVPixelBufferCreate(
-      kCFAllocatorDefault, width, height,
-      kCVPixelFormatType_32BGRA, attrs as CFDictionary, &buf
-    ) == kCVReturnSuccess, let buffer = buf else { return nil }
-
-    CVPixelBufferLockBaseAddress(buffer, [])
-    defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-
-    guard let ctx = CGContext(
-      data: CVPixelBufferGetBaseAddress(buffer),
-      width: width, height: height,
-      bitsPerComponent: 8,
-      bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-      space: CGColorSpaceCreateDeviceRGB(),
-      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-    ) else { return nil }
-
-    ctx.translateBy(x: 0, y: CGFloat(height))
-    ctx.scaleBy(x: 1, y: -1)
-    UIGraphicsPushContext(ctx)
-    draw(in: CGRect(x: 0, y: 0, width: width, height: height))
-    UIGraphicsPopContext()
-    return buffer
-  }
-}

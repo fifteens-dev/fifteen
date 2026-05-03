@@ -28,6 +28,7 @@ class PostPreviewScreen extends StatefulWidget {
   final bool isVibe;
   final String? vibeTopicId;
   final String? vibeTopicTitle; // Vibeお題のタイトル
+  final bool fromVibePlaylist;
   final Color? preExtractedGradientStart;
   final Color? preExtractedGradientEnd;
 
@@ -39,6 +40,7 @@ class PostPreviewScreen extends StatefulWidget {
     this.isVibe = false,
     this.vibeTopicId,
     this.vibeTopicTitle,
+    this.fromVibePlaylist = false,
     this.preExtractedGradientStart,
     this.preExtractedGradientEnd,
   });
@@ -344,6 +346,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
           isVibe: widget.isVibe,
           vibeTopicId: widget.vibeTopicId,
           vibeTopicTitle: widget.vibeTopicTitle,
+          fromVibePlaylist: widget.fromVibePlaylist,
         ),
       ),
     );

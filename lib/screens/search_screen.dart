@@ -13,8 +13,8 @@ import '../widgets/profile_widgets.dart';
 import '../widgets/common/common.dart';
 import 'other_user_profile_screen.dart';
 import '../widgets/common/app_toast.dart';
-import 'vibe_history_screen.dart';
 import 'campus_vibe_history_screen.dart';
+import 'vibe_history_screen.dart';
 import 'vibe_posts_list_screen.dart';
 
 /// 検索画面
@@ -66,16 +66,27 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchFocusNode.addListener(_onFocusChanged);
     _loadRecentSearches();
     _loadInviteCode();
-    _loadVibeTopics();
+    _loadVibeTopics(randomize: true);
   }
 
-  Future<void> _loadVibeTopics() async {
+  bool _vibeTopicsLoading = false;
+
+  Future<void> _loadVibeTopics({bool randomize = false}) async {
+    if (_vibeTopicsLoading) return;
+    setState(() => _vibeTopicsLoading = true);
     try {
-      final topics = await _postService.getVibeTopicsWithThumbnails(limit: 20);
+      final topics = await _postService.getVibeTopicsWithThumbnails(
+        limit: randomize ? 6 : 20,
+        minCount: randomize ? 2 : 1,
+        randomize: randomize,
+      );
       if (mounted) {
         setState(() => _vibeTopics = topics);
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _vibeTopicsLoading = false);
+    }
   }
 
   Future<void> _loadInviteCode() async {
@@ -257,23 +268,33 @@ class _SearchScreenState extends State<SearchScreen> {
             // 検索バー
             _buildSearchBar(),
 
-            // 招待コードカード（未フォーカス時のみ表示）
-            if (!_isFocused && _currentQuery.isEmpty)
-              _buildInviteCodeCard(),
-
-            // Vibeセクション（Figma 3986:7761 仕様, 未フォーカス時のみ表示）
-            if (!_isFocused && _currentQuery.isEmpty && _vibeTopics.isNotEmpty)
-              _buildVibeSection(),
-
-            // 過去のVibe・CampusVibeカード（未フォーカス時のみ表示）
-            if (!_isFocused && _currentQuery.isEmpty) ...[
-              _buildVibeHistoryCard(),
-              _buildCampusVibeHistoryCard(),
-            ],
-
             // メインコンテンツエリア
             Expanded(
-              child: _buildContent(),
+              child: !_isFocused && _currentQuery.isEmpty
+                  ? CustomScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        CupertinoSliverRefreshControl(
+                          onRefresh: () async {
+                            final refreshStart = DateTime.now();
+                            await _loadVibeTopics(randomize: true);
+                            final elapsed = DateTime.now().difference(refreshStart);
+                            if (elapsed < const Duration(seconds: 1)) {
+                              await Future.delayed(const Duration(seconds: 1) - elapsed);
+                            }
+                          },
+                        ),
+                        SliverToBoxAdapter(child: _buildInviteCodeCard()),
+                        if (_vibeTopics.isNotEmpty)
+                          SliverToBoxAdapter(child: _buildVibeSection()),
+                        SliverToBoxAdapter(child: _buildVibeHistoryCard()),
+                        const SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: SizedBox.shrink(),
+                        ),
+                      ],
+                    )
+                  : _buildContent(),
             ),
           ],
         ),
@@ -657,7 +678,6 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
     );
   }
-
   /// 過去のCampusVibeを見るカード
   Widget _buildCampusVibeHistoryCard() {
     return Padding(

@@ -13,6 +13,7 @@ class VibeTopicModel {
   final String emoji; // 例: "🌙"（カテゴリ固定絵文字）
   final DateTime date; // このお題がアクティブな日付
   final VibeTopicStatus status;
+  final int voteCount;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -22,6 +23,7 @@ class VibeTopicModel {
     this.emoji = '🎵',
     required this.date,
     this.status = VibeTopicStatus.active,
+    this.voteCount = 0,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -36,6 +38,7 @@ class VibeTopicModel {
       emoji: (data['emoji'] as String?) ?? '🎵',
       date: (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
       status: _statusFromString(data['status'] ?? 'active'),
+      voteCount: (data['voteCount'] as int?) ?? 0,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -48,6 +51,7 @@ class VibeTopicModel {
       'emoji': emoji,
       'date': Timestamp.fromDate(date),
       'status': status.name,
+      'voteCount': voteCount,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -60,6 +64,7 @@ class VibeTopicModel {
     String? emoji,
     DateTime? date,
     VibeTopicStatus? status,
+    int? voteCount,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -69,6 +74,7 @@ class VibeTopicModel {
       emoji: emoji ?? this.emoji,
       date: date ?? this.date,
       status: status ?? this.status,
+      voteCount: voteCount ?? this.voteCount,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

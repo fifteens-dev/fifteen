@@ -30,6 +30,7 @@ import 'services/auth_service.dart';
 import 'services/settings_service.dart';
 import 'services/post_service.dart';
 import 'services/font_service.dart';
+import 'services/tutorial_controller.dart';
 import 'services/user_service.dart';
 import 'services/vibe_topic_service.dart';
 import 'models/post_model.dart';
@@ -86,6 +87,9 @@ void main() async {
 
   // SF Pro フォントをロード（iOS のみ・失敗時はフォールバック）
   await FontService.loadSFPro();
+
+  // チュートリアル状態をロード（永続化されたステップを復元）
+  await TutorialController.instance.ensureInitialized();
 
   // runApp を先に呼んで「15s」をすぐ表示し、FCM初期化はバックグラウンドで実行
   runApp(const FifteenApp());

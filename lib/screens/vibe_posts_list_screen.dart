@@ -1,10 +1,12 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
+import '../services/user_service.dart';
 import '../utils/current_user_helper.dart';
 import 'card_share_screen.dart';
 
@@ -29,11 +31,13 @@ class _VibePostsListScreenState extends State<VibePostsListScreen> {
   final PageController _pageController = PageController();
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
+  final UserService _userService = UserService();
 
   List<PostModel> _posts = [];
   bool _isLoading = true;
   int _currentPage = 0;
   String? _currentUserIconUrl;
+  final Map<String, bool> _isSavedCache = {};
 
   int? _playingPageIndex;
   final Map<int, GlobalKey<PostCardState>> _cardKeys = {};
@@ -112,6 +116,22 @@ class _VibePostsListScreenState extends State<VibePostsListScreen> {
     _playMusicForPage(index);
   }
 
+  Future<void> _handleSave(PostModel post) async {
+    HapticFeedback.lightImpact();
+    final postId = post.postId;
+    final wasSaved = _isSavedCache[postId] ??
+        post.savedByUserIds.contains(widget.currentUserId);
+    setState(() => _isSavedCache[postId] = !wasSaved);
+    try {
+      await _userService.toggleSavePost(
+        userId: widget.currentUserId,
+        postId: postId,
+      );
+    } catch (_) {
+      if (mounted) setState(() => _isSavedCache[postId] = wasSaved);
+    }
+  }
+
   @override
   void dispose() {
     _audioService.stop();
@@ -166,7 +186,9 @@ class _VibePostsListScreenState extends State<VibePostsListScreen> {
                           backSideEnabled: true,
                           onLike: () {},
                           onComment: () {},
-                          onAdd: () {},
+                          isSaved: _isSavedCache[post.postId] ??
+                              post.savedByUserIds.contains(widget.currentUserId),
+                          onAdd: () => _handleSave(post),
                           onShare: () => showCardShareSheet(
                             context,
                             post: post,

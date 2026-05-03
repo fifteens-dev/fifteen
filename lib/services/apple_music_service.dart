@@ -70,7 +70,7 @@ class AppleMusicService {
             return false;
           }
 
-          // User Tokenを取得
+          // User Tokenを取得（失敗した場合はサブスクリプション未加入として扱う）
           final userToken = await _musicKit.getUserToken(developerToken: _developerToken);
 
           if (userToken != null) {
@@ -79,8 +79,9 @@ class AppleMusicService {
             print('✅ Apple Music User Token取得成功');
             return true;
           } else {
-            print('❌ User Token取得失敗');
-            return false;
+            // authorized後のトークン失敗 = サブスクリプション未加入
+            print('❌ User Token取得失敗（サブスクリプション未加入の可能性）');
+            throw AppleMusicNoSubscriptionException('Apple Musicのサブスクリプションが必要です');
           }
         } else {
           print('❌ MusicKit認証が拒否されました: $status');
@@ -105,6 +106,8 @@ class AppleMusicService {
           return false;
         }
       }
+    } on AppleMusicNoSubscriptionException {
+      rethrow;
     } catch (e) {
       print('❌ Apple Music login error: $e');
       return false;
@@ -331,31 +334,7 @@ class AppleMusicService {
         }
 
         final charts = results['songs'][0]['data'] as List;
-
-        return charts.map((chartData) {
-          final attributes = chartData['attributes'];
-
-          String albumImageUrl = '';
-          if (attributes['artwork'] != null) {
-            final artworkUrl = attributes['artwork']['url'] as String;
-            albumImageUrl =
-                artworkUrl.replaceAll('{w}', '640').replaceAll('{h}', '640');
-          }
-
-          String previewUrl = '';
-          if (attributes['previews'] != null &&
-              attributes['previews'].isNotEmpty) {
-            previewUrl = attributes['previews'][0]['url'] ?? '';
-          }
-
-          return TrackModel(
-            trackId: chartData['id'],
-            trackName: attributes['name'],
-            artistName: attributes['artistName'],
-            albumImageUrl: albumImageUrl,
-            previewUrl: previewUrl,
-          );
-        }).toList();
+        return charts.map((d) => _trackFromChartData(d)).toList();
       } else {
         print('Apple Music charts error: ${response.statusCode} ${response.body}');
         return [];
@@ -364,6 +343,131 @@ class AppleMusicService {
       print('Error getting Apple Music charts: $e');
       return [];
     }
+  }
+
+  /// 日本の急上昇プレイリスト（Hot Hits Japan）から楽曲を取得
+  Future<List<TrackModel>> getHotHitsJapan({int limit = 50}) async {
+    if (!await _checkDeveloperToken()) return [];
+    try {
+      // types=playlists で日本の編集プレイリストチャートを取得
+      final response = await http.get(
+        Uri.parse(
+            'https://api.music.apple.com/v1/catalog/jp/charts?types=playlists&limit=5&l=ja-JP'),
+        headers: {'Authorization': 'Bearer $_developerToken'},
+      );
+      if (response.statusCode != 200) {
+        print('getHotHitsJapan error: ${response.statusCode}');
+        return [];
+      }
+      final data = json.decode(response.body);
+      final playlists = data['results']?['playlists'] as List?;
+      if (playlists == null || playlists.isEmpty) return [];
+      final playlistId = playlists[0]['data']?[0]?['id'] as String?;
+      print('📊 急上昇プレイリストID: $playlistId (${playlists[0]['name']})');
+      if (playlistId == null) return [];
+      return await getPlaylistTracks(playlistId, limit: limit);
+    } catch (e) {
+      print('Error getHotHitsJapan: $e');
+      return [];
+    }
+  }
+
+  /// ジャンル別日本チャートを取得（Developer Tokenのみ）
+  Future<List<TrackModel>> getTopChartsByGenre(String genreId,
+      {int limit = 50}) async {
+    if (!await _checkDeveloperToken()) return [];
+    try {
+      final response = await http.get(
+        Uri.parse(
+            'https://api.music.apple.com/v1/catalog/jp/charts?types=songs&genre=$genreId&limit=$limit&l=ja-JP'),
+        headers: {'Authorization': 'Bearer $_developerToken'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final songs = data['results']?['songs'] as List?;
+        if (songs == null || songs.isEmpty) return [];
+        final charts = songs[0]['data'] as List;
+        return charts.map((d) => _trackFromChartData(d)).toList();
+      }
+      print('getTopChartsByGenre error: ${response.statusCode}');
+      return [];
+    } catch (e) {
+      print('Error getTopChartsByGenre: $e');
+      return [];
+    }
+  }
+
+  /// 日次グローバルTop100プレイリストから楽曲を取得（Developer Tokenのみ）
+  Future<List<TrackModel>> getDailyTopChartTracks({int limit = 50}) async {
+    if (!await _checkDeveloperToken()) return [];
+    try {
+      // Step1: dailyGlobalTopCharts プレイリスト一覧を取得
+      final response = await http.get(
+        Uri.parse(
+            'https://api.music.apple.com/v1/catalog/jp/charts?types=playlists&with=dailyGlobalTopCharts&limit=10&l=ja-JP'),
+        headers: {'Authorization': 'Bearer $_developerToken'},
+      );
+      if (response.statusCode != 200) {
+        print('getDailyTopChartTracks step1 error: ${response.statusCode} ${response.body}');
+        return [];
+      }
+      final data = json.decode(response.body);
+      final results = data['results'] as Map<String, dynamic>?;
+      if (results == null) return [];
+
+      // with=dailyGlobalTopCharts の場合、レスポンスキーを確認
+      print('📊 getDailyTopChartTracks results keys: ${results.keys.toList()}');
+
+      // dailyGlobalTopCharts キーを優先して探す
+      String? playlistId;
+      final dailyCharts = results['dailyGlobalTopCharts'] as List?;
+      if (dailyCharts != null && dailyCharts.isNotEmpty) {
+        playlistId = dailyCharts[0]['data']?[0]?['id'] as String?;
+        print('📊 dailyGlobalTopCharts playlist id: $playlistId');
+      }
+
+      // フォールバック: playlists キーから探す
+      if (playlistId == null) {
+        final playlists = results['playlists'] as List?;
+        if (playlists != null && playlists.isNotEmpty) {
+          playlistId = playlists[0]['data']?[0]?['id'] as String?;
+          print('📊 playlists fallback playlist id: $playlistId');
+        }
+      }
+
+      if (playlistId == null) {
+        print('⚠️ getDailyTopChartTracks: playlist id not found');
+        return [];
+      }
+
+      // Step2: プレイリストから楽曲を取得
+      return await getPlaylistTracks(playlistId, limit: limit);
+    } catch (e) {
+      print('Error getDailyTopChartTracks: $e');
+      return [];
+    }
+  }
+
+  /// チャートデータから TrackModel を生成する共通ヘルパー
+  TrackModel _trackFromChartData(Map<String, dynamic> chartData) {
+    final attributes = chartData['attributes'] as Map<String, dynamic>;
+    String albumImageUrl = '';
+    if (attributes['artwork'] != null) {
+      final url = attributes['artwork']['url'] as String;
+      albumImageUrl = url.replaceAll('{w}', '640').replaceAll('{h}', '640');
+    }
+    String previewUrl = '';
+    final previews = attributes['previews'] as List?;
+    if (previews != null && previews.isNotEmpty) {
+      previewUrl = (previews[0]['url'] as String?) ?? '';
+    }
+    return TrackModel(
+      trackId: chartData['id'] as String,
+      trackName: attributes['name'] as String,
+      artistName: attributes['artistName'] as String,
+      albumImageUrl: albumImageUrl,
+      previewUrl: previewUrl,
+    );
   }
 
   /// ユーザーのお気に入り楽曲を取得

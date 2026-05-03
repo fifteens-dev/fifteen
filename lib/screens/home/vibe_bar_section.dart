@@ -10,12 +10,20 @@ class VibeBarSection extends StatelessWidget {
   final Future<Map<String, dynamic>> vibeDataFuture;
   final void Function(VibeRankingItem item) onRankingItemTap;
   final VoidCallback? onPostTap;
+  final VoidCallback? onAddTap;
+
+  /// チュートリアルから誘導したい UI 要素のキー（任意）
+  final GlobalKey? vibeIconKey;
+  final GlobalKey? addButtonKey;
 
   const VibeBarSection({
     super.key,
     required this.vibeDataFuture,
     required this.onRankingItemTap,
     this.onPostTap,
+    this.onAddTap,
+    this.vibeIconKey,
+    this.addButtonKey,
   });
 
   @override
@@ -108,6 +116,7 @@ class VibeBarSection extends StatelessWidget {
     return GestureDetector(
       onTap: onPostTap,
       child: Container(
+        key: vibeIconKey,
         width: 78,
         height: 78,
         decoration: const BoxDecoration(
@@ -190,7 +199,7 @@ class VibeBarSection extends StatelessWidget {
 
   /// ボトムバー（投稿者アイコン・投稿情報・投稿ボタン）
   Widget _buildBottomBar(List<VibeRankingItem> ranking) {
-    if (onPostTap == null) return const SizedBox.shrink();
+    if (onAddTap == null) return const SizedBox.shrink();
 
     // 投稿者アイコンURL（重複なし、最大3件）
     final iconUrls = ranking
@@ -249,8 +258,9 @@ class VibeBarSection extends StatelessWidget {
               const Spacer(),
             const SizedBox(width: 8),
             GestureDetector(
-              onTap: onPostTap,
+              onTap: onAddTap,
               child: Container(
+                key: addButtonKey,
                 width: 115,
                 height: 25,
                 decoration: BoxDecoration(

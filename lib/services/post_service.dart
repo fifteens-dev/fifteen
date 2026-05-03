@@ -442,6 +442,43 @@ class PostService {
     }
   }
 
+  /// 指定した日付範囲のVibe投稿をトピック単位で集計（件数制限なし）
+  Future<List<({String topicTitle, String topicId, DateTime date, int count})>>
+      getVibeTopicsByDateRange(DateTime from, DateTime to) async {
+    try {
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('isVibe', isEqualTo: true)
+          .where('vibeDate', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
+          .where('vibeDate', isLessThan: Timestamp.fromDate(to))
+          .orderBy('vibeDate', descending: true)
+          .get();
+
+      final groups = <String, ({String topicTitle, String topicId, DateTime date, int count})>{};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final title = data['vibeTopicTitle'] as String?;
+        if (title == null || title.isEmpty) continue;
+        final topicId = (data['vibeTopicId'] as String?) ?? '';
+        final ts = data['vibeDate'] ?? data['createdAt'];
+        final date = ts is Timestamp ? ts.toDate() : DateTime.now();
+        final normalized = DateTime(date.year, date.month, date.day);
+        final key = '${topicId}_${normalized.millisecondsSinceEpoch}';
+        if (!groups.containsKey(key)) {
+          groups[key] = (topicTitle: title, topicId: topicId, date: normalized, count: 1);
+        } else {
+          final e = groups[key]!;
+          groups[key] = (topicTitle: e.topicTitle, topicId: e.topicId, date: e.date, count: e.count + 1);
+        }
+      }
+
+      return groups.values.toList()..sort((a, b) => b.date.compareTo(a.date));
+    } catch (e) {
+      if (kDebugMode) print('getVibeTopicsByDateRange error: $e');
+      return [];
+    }
+  }
+
   /// Vibeお題ごとのサムネイル付き集計を取得（検索画面のVibeセクション用）
   /// - topic+date 単位で集計、件数の多い順
   /// - 各 topic につき最大4枚のサムネイル（写真優先、不足時にアルバムアートで補完）
@@ -451,7 +488,7 @@ class PostService {
     DateTime date,
     int count,
     List<String> thumbnails,
-  })>> getVibeTopicsWithThumbnails({int limit = 20}) async {
+  })>> getVibeTopicsWithThumbnails({int limit = 20, int minCount = 1, bool randomize = false}) async {
     try {
       // スケーラビリティ対策: 直近14日 / 最大500件に制限
       final cutoff = DateTime.now().subtract(const Duration(days: 14));
@@ -523,18 +560,15 @@ class PostService {
         }
       }
 
-      final result = groups.values.map((g) {
-        // スロットを位置で固定:
-        //   index 0,1 → 左・中央セル: 写真のみ（不足時は空文字）
-        //   index 2,3 → 右上・右下セル: アルバムアートのみ（不足時は写真で補完→それでも空なら空文字）
+      final result = groups.values
+          .where((g) => g.count >= minCount)
+          .map((g) {
         final picked = <String>['', '', '', ''];
-        // 左・中央: 写真のみ
         final usedPhotos = <String>{};
         for (var i = 0; i < 2 && i < g.photos.length; i++) {
           picked[i] = g.photos[i];
           usedPhotos.add(g.photos[i]);
         }
-        // 右上・右下: アルバムアート優先、不足時のみ未使用写真で補完
         final jacketsAvailable = g.jackets.toList();
         final extraPhotos =
             g.photos.where((p) => !usedPhotos.contains(p)).toList();
@@ -552,8 +586,13 @@ class PostService {
           count: g.count,
           thumbnails: picked,
         );
-      }).toList()
-        ..sort((a, b) => b.count.compareTo(a.count));
+      }).toList();
+
+      if (randomize) {
+        result.shuffle();
+      } else {
+        result.sort((a, b) => b.count.compareTo(a.count));
+      }
 
       if (result.length > limit) {
         return result.sublist(0, limit);

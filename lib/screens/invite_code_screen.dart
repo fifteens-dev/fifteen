@@ -206,7 +206,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
               GestureDetector(
                 onTap: _isLoading ? null : _handleSkip,
                 child: Text(
-                  '招待コードをお持ちでない方はこちら',
+                  '招待コードをスキップ',
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.white.withValues(alpha: 0.45),

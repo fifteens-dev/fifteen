@@ -1,11 +1,14 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../services/settings_service.dart';
 import '../services/music_service_manager.dart';
 import '../services/apple_music_service.dart';
+import '../services/musickit_service.dart';
 import '../models/music_service_type.dart';
 import '../widgets/dialogs/bottom_sheet_dialog.dart';
 import 'home_screen.dart';
+import '../services/tutorial_controller.dart';
 import '../widgets/common/app_toast.dart';
 
 /// 音楽ライブラリ接続画面
@@ -13,8 +16,16 @@ import '../widgets/common/app_toast.dart';
 /// プロフィール設定完了後に表示される画面
 /// SpotifyまたはApple Musicとの連携を促す
 /// 背景にホーム画面を表示し、ダイアログ的なUIで接続オプションを表示
-class MusicConnectionScreen extends StatelessWidget {
+class MusicConnectionScreen extends StatefulWidget {
   const MusicConnectionScreen({super.key});
+
+  @override
+  State<MusicConnectionScreen> createState() => _MusicConnectionScreenState();
+}
+
+class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
+  bool _isAppleMusicLoading = false;
+  bool _isSpotifyLoading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -55,8 +66,8 @@ class MusicConnectionScreen extends StatelessWidget {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0x00C3C1BD), // 透明（グラデーション開始）
-              Color(0xFF807F7D), // グレー（グラデーション終了）
+              Color(0x00C3C1BD),
+              Color(0xFF807F7D),
             ],
             stops: [0.03925, 1.0],
           ),
@@ -99,27 +110,33 @@ class MusicConnectionScreen extends StatelessWidget {
           ),
           const SizedBox(height: 31),
 
-          // Apple Musicボタン（順序変更：Apple Music → Spotify）
+          // Apple Musicボタン
           _buildMusicServiceButton(
-            context: context,
-            iconAsset: 'assets/icons/Apple_Music.png', // TODO: アイコンを追加
+            iconAsset: 'assets/icons/Apple_Music.png',
             label: 'Apple Musicと連携する',
-            onTap: () => _handleAppleMusicConnection(context),
+            isLoading: _isAppleMusicLoading,
+            onTap: _isAppleMusicLoading || _isSpotifyLoading
+                ? null
+                : _handleAppleMusicConnection,
           ),
           const SizedBox(height: 21),
 
           // Spotifyボタン
           _buildMusicServiceButton(
-            context: context,
-            iconAsset: 'assets/icons/Spotify.png', // TODO: アイコンを追加
+            iconAsset: 'assets/icons/Spotify.png',
             label: 'Spotifyと連携する',
-            onTap: () => _handleSpotifyConnection(context),
+            isLoading: _isSpotifyLoading,
+            onTap: _isAppleMusicLoading || _isSpotifyLoading
+                ? null
+                : _handleSpotifyConnection,
           ),
           const SizedBox(height: 22),
 
           // 接続せずに続行
           TextButton(
-            onPressed: () => _skipConnection(context),
+            onPressed: _isAppleMusicLoading || _isSpotifyLoading
+                ? null
+                : _skipConnection,
             style: TextButton.styleFrom(
               padding: EdgeInsets.zero,
               minimumSize: Size.zero,
@@ -143,10 +160,10 @@ class MusicConnectionScreen extends StatelessWidget {
 
   /// 音楽サービス接続ボタン
   Widget _buildMusicServiceButton({
-    required BuildContext context,
     required String iconAsset,
     required String label,
-    required VoidCallback onTap,
+    required bool isLoading,
+    required VoidCallback? onTap,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -157,8 +174,8 @@ class MusicConnectionScreen extends StatelessWidget {
           color: const Color(0xFF121212),
           borderRadius: BorderRadius.circular(33),
         ),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             // アイコン
             ClipRRect(
@@ -169,7 +186,6 @@ class MusicConnectionScreen extends StatelessWidget {
                 height: 25,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
-                  // フォールバック: アイコンが見つからない場合
                   return Container(
                     width: 25,
                     height: 25,
@@ -189,14 +205,23 @@ class MusicConnectionScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
+            // ラベル（残りスペースを占有）
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
               ),
             ),
+            // 読み込みマーク（右端）
+            if (isLoading)
+              const CupertinoActivityIndicator(
+                color: Colors.white,
+                radius: 9,
+              ),
           ],
         ),
       ),
@@ -204,108 +229,117 @@ class MusicConnectionScreen extends StatelessWidget {
   }
 
   /// Apple Music接続処理
-  void _handleAppleMusicConnection(BuildContext context) async {
+  Future<void> _handleAppleMusicConnection() async {
+    setState(() => _isAppleMusicLoading = true);
+
     final musicServiceManager = MusicServiceManager();
     final settingsService = SettingsService();
     final appleMusicService = AppleMusicService();
 
-    // Apple Musicを一時的に選択（login()がgetSelectedService()を参照するため）
-    await musicServiceManager.setSelectedService(MusicServiceType.appleMusic);
+    try {
+      await musicServiceManager.setSelectedService(MusicServiceType.appleMusic);
 
-    // Apple Music認証を試行
-    final success = await musicServiceManager.login();
+      bool success;
+      try {
+        success = await musicServiceManager.login();
+      } on AppleMusicNoSubscriptionException {
+        if (mounted) {
+          AppToast.show(context, 'Apple Musicのサブスクリプションが必要です');
+          await musicServiceManager.setSelectedService(MusicServiceType.none);
+          await settingsService.saveAllLinkedServicesSettings(
+            spotifyConnected: false,
+            appleMusicConnected: false,
+          );
+        }
+        return;
+      }
 
-    if (!context.mounted) return;
+      if (!mounted) return;
 
-    if (success) {
-      // 認証成功: 連携サービス設定を保存
-      await settingsService.saveAllLinkedServicesSettings(
-        spotifyConnected: false,
-        appleMusicConnected: true,
-      );
+      if (success) {
+        await settingsService.saveAllLinkedServicesSettings(
+          spotifyConnected: false,
+          appleMusicConnected: true,
+        );
 
-      // サブスクリプション確認
-      final hasSubscription = await appleMusicService.checkSubscriptionAccess();
+        final hasSubscription = await appleMusicService.checkSubscriptionAccess();
 
-      if (!context.mounted) return;
+        if (!mounted) return;
 
-      if (!hasSubscription) {
-        // 未加入ダイアログを表示してからホームへ
-        await BottomSheetDialog.showAppleMusicNoSubscription(context);
-        if (!context.mounted) return;
+        if (!hasSubscription) {
+          await BottomSheetDialog.showAppleMusicNoSubscription(context);
+          if (!mounted) return;
+        } else {
+          AppToast.show(context, 'Apple Musicと連携しました');
+        }
+
+        _goToTutorial();
       } else {
-        AppToast.show(context, 'Apple Musicと連携しました');
+        // 認証拒否またはその他のエラー: リセットして画面に留まる
+        await musicServiceManager.setSelectedService(MusicServiceType.none);
+        await settingsService.saveAllLinkedServicesSettings(
+          spotifyConnected: false,
+          appleMusicConnected: false,
+        );
+        if (mounted) {
+          AppToast.show(context, 'Apple Musicの連携に失敗しました');
+        }
       }
-
-      // ホーム画面へ遷移
-      Navigator.pushReplacementNamed(context, '/home');
-    } else {
-      // 認証失敗: サービス選択をリセット
-      await musicServiceManager.setSelectedService(MusicServiceType.none);
-      await settingsService.saveAllLinkedServicesSettings(
-        spotifyConnected: false,
-        appleMusicConnected: false,
-      );
-
-      // AppToast.show(context, 'Apple Musicの連携に失敗しました。Apple Musicのサブスクリプションが有効か確認してください。');
-
-      if (context.mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
+    } finally {
+      if (mounted) setState(() => _isAppleMusicLoading = false);
     }
   }
 
   /// Spotify接続処理
-  void _handleSpotifyConnection(BuildContext context) async {
+  Future<void> _handleSpotifyConnection() async {
+    setState(() => _isSpotifyLoading = true);
+
     final musicServiceManager = MusicServiceManager();
     final settingsService = SettingsService();
 
-    // Spotifyを選択
-    await musicServiceManager.setSelectedService(MusicServiceType.spotify);
+    try {
+      await musicServiceManager.setSelectedService(MusicServiceType.spotify);
 
-    // Spotify OAuth認証を試行
-    final success = await musicServiceManager.login();
+      final success = await musicServiceManager.login();
 
-    if (!context.mounted) return;
+      if (!mounted) return;
 
-    if (success) {
-      // 認証成功: 連携サービス設定を保存
-      await settingsService.saveAllLinkedServicesSettings(
-        spotifyConnected: true,
-        appleMusicConnected: false,
-      );
-
-      // AppToast.show(context, 'Spotifyと連携しました');
-
-      // ホーム画面へ遷移
-      Navigator.pushReplacementNamed(context, '/home');
-    } else {
-      // 認証失敗またはキャンセル: AppToast.show(context, 'Spotifyの連携に失敗しました。もう一度お試しください。');
-
-      // 連携なしでホーム画面へ遷移
-      await settingsService.saveAllLinkedServicesSettings(
-        spotifyConnected: false,
-        appleMusicConnected: false,
-      );
-
-      if (context.mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
+      if (success) {
+        await settingsService.saveAllLinkedServicesSettings(
+          spotifyConnected: true,
+          appleMusicConnected: false,
+        );
+        _goToTutorial();
+      } else {
+        await settingsService.saveAllLinkedServicesSettings(
+          spotifyConnected: false,
+          appleMusicConnected: false,
+        );
       }
+    } finally {
+      if (mounted) setState(() => _isSpotifyLoading = false);
     }
   }
 
   /// 接続をスキップ
-  void _skipConnection(BuildContext context) async {
-    // 連携サービス設定を保存（両方オフ）
+  Future<void> _skipConnection() async {
     final settingsService = SettingsService();
     await settingsService.saveAllLinkedServicesSettings(
       spotifyConnected: false,
       appleMusicConnected: false,
     );
 
-    // ホーム画面へ遷移
-    if (context.mounted) {
-      Navigator.pushReplacementNamed(context, '/home');
+    if (mounted) {
+      _goToTutorial();
     }
+  }
+
+  /// チュートリアル状態を開始してホームへ。
+  /// 以降は実際のホーム画面・投稿フロー上にコーチマークが重ねて表示される。
+  Future<void> _goToTutorial() async {
+    await TutorialController.instance.ensureInitialized();
+    await TutorialController.instance.start();
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, '/home');
   }
 }

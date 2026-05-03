@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/post_service.dart';
 import 'vibe_posts_list_screen.dart';
 
-/// 過去のVibeお題一覧画面（新しい順）
 class VibeHistoryScreen extends StatefulWidget {
   const VibeHistoryScreen({super.key});
 
@@ -16,27 +15,41 @@ class _VibeHistoryScreenState extends State<VibeHistoryScreen> {
   final PostService _postService = PostService();
   List<({String topicTitle, String topicId, DateTime date, int count})> _topics = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  // 現在どこまで遡ったか（日数）
+  int _daysOffset = 0;
+  static const int _windowDays = 7;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadNext();
   }
 
-  Future<void> _load() async {
-    setState(() => _isLoading = true);
-    final topics = await _postService.getPastVibeTopics();
+  Future<void> _loadNext() async {
+    if (_isLoadingMore) return;
+    setState(() {
+      if (_topics.isEmpty) _isLoading = true;
+      _isLoadingMore = true;
+    });
+
+    final now = DateTime.now();
+    final to = now.subtract(Duration(days: _daysOffset));
+    final from = now.subtract(Duration(days: _daysOffset + _windowDays));
+
+    final newTopics = await _postService.getVibeTopicsByDateRange(from, to);
+
     if (mounted) {
       setState(() {
-        _topics = topics;
+        _topics = [..._topics, ...newTopics];
+        _daysOffset += _windowDays;
         _isLoading = false;
+        _isLoadingMore = false;
       });
     }
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.month}月${date.day}日';
-  }
+  String _formatDate(DateTime date) => '${date.month}月${date.day}日';
 
   @override
   Widget build(BuildContext context) {
@@ -75,10 +88,7 @@ class _VibeHistoryScreenState extends State<VibeHistoryScreen> {
             Expanded(
               child: _isLoading
                   ? const Center(
-                      child: CupertinoActivityIndicator(
-                        color: Colors.white,
-                        radius: 12,
-                      ),
+                      child: CupertinoActivityIndicator(color: Colors.white, radius: 12),
                     )
                   : _topics.isEmpty
                       ? Center(
@@ -92,14 +102,51 @@ class _VibeHistoryScreenState extends State<VibeHistoryScreen> {
                         )
                       : ListView.separated(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          itemCount: _topics.length,
-                          separatorBuilder: (_, __) => Divider(
-                            color: Colors.white.withValues(alpha: 0.08),
-                            height: 1,
-                          ),
+                          itemCount: _topics.length + 1,
+                          separatorBuilder: (_, index) => index < _topics.length - 1
+                              ? Divider(color: Colors.white.withValues(alpha: 0.08), height: 1)
+                              : const SizedBox.shrink(),
                           itemBuilder: (context, index) {
-                            final topic = _topics[index];
-                            return _buildTopicItem(topic);
+                            if (index < _topics.length) {
+                              return _buildTopicItem(_topics[index]);
+                            }
+                            // 末尾：「さらに過去7日間」ボタン
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              child: _isLoadingMore
+                                  ? const Center(
+                                      child: CupertinoActivityIndicator(
+                                        color: Colors.white,
+                                        radius: 10,
+                                      ),
+                                    )
+                                  : GestureDetector(
+                                      onTap: _loadNext,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 14, horizontal: 20),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF282828),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.history, color: Colors.white70, size: 18),
+                                            SizedBox(width: 8),
+                                            Text(
+                                              'さらに過去7日間のvibe投稿を見る',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                            );
                           },
                         ),
             ),
@@ -109,7 +156,8 @@ class _VibeHistoryScreenState extends State<VibeHistoryScreen> {
     );
   }
 
-  Widget _buildTopicItem(({String topicTitle, String topicId, DateTime date, int count}) topic) {
+  Widget _buildTopicItem(
+      ({String topicTitle, String topicId, DateTime date, int count}) topic) {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
     return InkWell(
       onTap: () {
@@ -154,11 +202,7 @@ class _VibeHistoryScreenState extends State<VibeHistoryScreen> {
                 ],
               ),
             ),
-            Icon(
-              Icons.chevron_right,
-              color: Colors.white.withValues(alpha: 0.3),
-              size: 20,
-            ),
+            Icon(Icons.chevron_right, color: Colors.white.withValues(alpha: 0.3), size: 20),
           ],
         ),
       ),

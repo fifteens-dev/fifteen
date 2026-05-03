@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
@@ -63,6 +64,19 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen> {
       _isLoading = true;
     });
 
+    // テストユーザー用バイパス
+    if (_verificationId == '__TEST__') {
+      if (code != '000000') {
+        if (mounted) {
+          AppToast.show(context, 'テスト用コードは 000000 です');
+          setState(() => _isLoading = false);
+        }
+        return;
+      }
+      await _handleTestSignIn();
+      return;
+    }
+
     try {
       // 認証コードで認証
       final userCredential = await _authService.signInWithVerificationCode(
@@ -126,6 +140,71 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen> {
           _isLoading = false;
         });
         AppToast.show(context, e.toString().replaceAll('Exception: ', ''));
+      }
+    }
+  }
+
+  // テスト専用: 固定メール/パスワードでサインイン（初回は自動作成）
+  Future<void> _handleTestSignIn() async {
+    const testEmail = 'testuser@fifteen.test';
+    const testPassword = 'TestFifteen2024!';
+    const testPhone = '+810000000000';
+    try {
+      User? user;
+      try {
+        final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: testEmail,
+          password: testPassword,
+        );
+        user = cred.user;
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+          final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+            email: testEmail,
+            password: testPassword,
+          );
+          user = cred.user;
+        } else {
+          rethrow;
+        }
+      }
+
+      if (user == null || !mounted) return;
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      if (userDoc.exists) {
+        final data = userDoc.data() ?? {};
+        final username = data['username'] as String?;
+        final name = data['name'] as String?;
+        if (username != null && username.isNotEmpty) {
+          Navigator.pushReplacementNamed(context, '/home');
+        } else if (name != null && name.isNotEmpty) {
+          Navigator.pushReplacementNamed(context, '/username-creation',
+              arguments: {'name': name});
+        } else {
+          Navigator.pushReplacementNamed(context, '/name-input');
+        }
+      } else {
+        await _userService.createUser(uid: user.uid, phoneNumber: testPhone);
+        _userService
+            .followUser(
+              currentUserId: user.uid,
+              targetUserId: AppConstants.officialAccountUid,
+            )
+            .catchError((_) {});
+        Navigator.pushReplacementNamed(context, '/invite-code');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        AppToast.show(context, 'テストサインインに失敗しました');
       }
     }
   }

@@ -10,7 +10,6 @@ import '../models/user_model.dart';
 import '../models/post_model.dart';
 import '../widgets/profile_widgets.dart';
 import 'settings_screen.dart';
-import 'post_detail_screen.dart';
 import 'follow_list_screen.dart';
 import '../widgets/common/app_toast.dart';
 
@@ -37,6 +36,7 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
 
   // 保存済み投稿
   List<PostModel> _savedPosts = [];
+  String? _playingTrackId;
 
   // 投稿（ページネーション）
   List<PostModel> _otherPosts = [];
@@ -648,64 +648,124 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
     );
   }
 
-  /// 保存済み投稿グリッド
+  /// 保存済み楽曲リスト（Figma 566:8620準拠）
   Widget _buildSavedPostsGrid() {
     if (_savedPosts.isEmpty) {
       return const Center(
         child: Text(
-          '保存済みの投稿がありません',
+          '保存済みの楽曲がありません',
           style: TextStyle(color: Colors.white54, fontSize: 14),
         ),
       );
     }
 
-    return GridView.builder(
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 1,
-        crossAxisSpacing: 1,
-        mainAxisSpacing: 1,
-      ),
-      itemCount: _savedPosts.length,
-      itemBuilder: (context, index) => _buildSavedPostItem(_savedPosts[index]),
+    // 同一トラックの重複を除去
+    final seen = <String>{};
+    final uniquePosts = _savedPosts.where((p) {
+      if (seen.contains(p.track.trackId)) return false;
+      seen.add(p.track.trackId);
+      return true;
+    }).toList();
+
+    return ListView.builder(
+      padding: EdgeInsets.zero,
+      itemCount: uniquePosts.length,
+      itemBuilder: (context, index) => _buildSavedTrackItem(uniquePosts[index]),
     );
   }
 
-  /// 保存済み投稿アイテム（アルバムアートのみ）
-  Widget _buildSavedPostItem(PostModel post) {
-    final albumArt = post.track.albumImageUrl;
-
+  /// 保存済み楽曲行（Figma準拠）
+  Widget _buildSavedTrackItem(PostModel post) {
+    final track = post.track;
+    final isPlaying = _playingTrackId == track.trackId;
     return GestureDetector(
-      onTap: () {
-        // 投稿詳細画面に遷移
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => PostDetailScreen(post: post),
-          ),
-        );
+      onTap: () async {
+        if (isPlaying) {
+          _audioService.stop();
+          setState(() => _playingTrackId = null);
+          return;
+        }
+        setState(() => _playingTrackId = track.trackId);
+        final url = track.previewUrl;
+        if (url != null && url.isNotEmpty) {
+          await _audioService.playPreview(url);
+        }
       },
       child: Container(
-        decoration: BoxDecoration(
-          color: Colors.grey[800],
-        ),
-        child: albumArt.isNotEmpty
-            ? CachedNetworkImage(
-                imageUrl: albumArt,
-                fit: BoxFit.cover,
-                errorWidget: (context, url, error) {
-                  return const Icon(
-                    Icons.album,
-                    size: 50,
-                    color: Colors.white54,
-                  );
-                },
-              )
-            : const Icon(
-                Icons.album,
-                size: 50,
-                color: Colors.white54,
+        height: 59,
+        color: isPlaying ? const Color(0xFF2A2A2A) : const Color(0xFF121212),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            // アルバムアート 47×47
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: SizedBox(
+                width: 47,
+                height: 47,
+                child: track.albumImageUrl.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: track.albumImageUrl,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, __, ___) => Container(
+                          color: Colors.grey[800],
+                          child: const Icon(Icons.album, size: 24, color: Colors.white38),
+                        ),
+                      )
+                    : Container(
+                        color: Colors.grey[800],
+                        child: const Icon(Icons.album, size: 24, color: Colors.white38),
+                      ),
               ),
+            ),
+            const SizedBox(width: 11),
+            // 曲名・アーティスト
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    track.trackName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    track.artistName,
+                    style: const TextStyle(
+                      color: Color(0xFF9F9F9F),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            // 保存済みチェックアイコン
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 19,
+                  height: 19,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF1DB954),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const Icon(Icons.check, color: Colors.white, size: 12),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

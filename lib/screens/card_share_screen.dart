@@ -69,13 +69,7 @@ class _CardShareSheetState extends State<_CardShareSheet> {
         AppToast.show(context, '画像の取得に失敗しました');
         return;
       }
-      final success = await InstagramStoriesService.share(
-        bytes,
-        postId: widget.post.postId,
-        audioUrl: widget.post.track.previewUrl,
-        audioStartMs: widget.post.audioStartMs,
-        durationSec: widget.post.audioDurationSec,
-      );
+      final success = await InstagramStoriesService.share(bytes);
       if (!mounted) return;
       if (!success) {
         AppToast.show(context, 'Instagramが見つかりません');

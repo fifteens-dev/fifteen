@@ -110,7 +110,9 @@ class MusicKitService {
       print('✅ Got user token (length: ${token.length})');
       return token;
     } on PlatformException catch (e) {
-      if (e.code == 'UNAVAILABLE') {
+      if (e.code == 'NO_SUBSCRIPTION') {
+        throw AppleMusicNoSubscriptionException(e.message ?? 'Apple Musicのサブスクリプションが必要です');
+      } else if (e.code == 'UNAVAILABLE') {
         print('❌ ${e.message ?? "MusicKit requires iOS 15.0 or later"}');
       } else if (e.code == 'TOKEN_ERROR') {
         print('❌ Failed to get user token: ${e.message}');
@@ -141,4 +143,12 @@ class MusicKitService {
     print('⚠️ MusicKit JS getUserToken not implemented yet');
     return null;
   }
+}
+
+/// Apple Music サブスクリプション未加入を示す例外
+class AppleMusicNoSubscriptionException implements Exception {
+  final String message;
+  const AppleMusicNoSubscriptionException(this.message);
+  @override
+  String toString() => message;
 }

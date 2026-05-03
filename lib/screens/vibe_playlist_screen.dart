@@ -14,9 +14,13 @@ import '../models/track_model.dart';
 import '../models/vibe_ranking_item.dart';
 import '../models/vibe_topic_model.dart';
 import '../services/audio_player_service.dart';
+import '../services/tutorial_controller.dart';
+import '../widgets/tutorial/animated_hand_cursor.dart';
+import '../widgets/tutorial/tutorial_coachmark.dart';
 import '../services/itunes_search_service.dart';
 import '../services/music_service_manager.dart';
 import '../services/post_service.dart';
+import '../services/user_service.dart';
 import '../widgets/profile_widgets.dart';
 import 'comment_screen.dart';
 import 'music_selection_screen.dart';
@@ -43,26 +47,27 @@ class VibePlaylistScreen extends StatefulWidget {
   State<VibePlaylistScreen> createState() => _VibePlaylistScreenState();
 }
 
-class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
+class _VibePlaylistScreenState extends State<VibePlaylistScreen>
+    with TickerProviderStateMixin {
+  late TabController _tabController;
+  late PageController _tabPageController;
   int _selectedTab = 0; // 0=投稿, 1=曲リスト
   List<PostModel>? _posts;
   bool _isLoading = true;
 
-  // Figma: card 814 + gap 8 = 822 / screen 874 → ≈0.9405
-  // padEnds:false で先頭ページが上端に揃い、下に次カードの先頭がピーク
-  static const double _viewportFraction = 822.0 / 874.0;
-
-  late final PageController _pageController = PageController(
-    viewportFraction: _viewportFraction,
-  );
+  // Figma: card 814px + gap 8px = page 822px
+  // viewportFraction を実際の画面高さで割ることで、機種問わず常に814pxのカード高さを維持する
+  PageController? _pageController;
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
   final PostService _postService = PostService();
+  final UserService _userService = UserService();
 
   int _currentPage = 0;
   final Map<int, String?> _previewUrlCache = {};
   final Map<String, int> _likeCountCache = {};
   final Map<String, bool> _isLikedCache = {};
+  final Map<String, bool> _isSavedCache = {};
 
   // 各投稿のランキングアイテムをキャッシュ
   final Map<String, VibeRankingItem?> _rankingItemCache = {};
@@ -76,8 +81,25 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabPageController = PageController();
+    _tabController.addListener(_onTabControllerChanged);
     _sortedRanking = _sortRanking(widget.ranking);
     _loadPosts();
+  }
+
+  void _onTabControllerChanged() {
+    if (_tabController.indexIsChanging) return;
+    if (_tabPageController.hasClients) {
+      _tabPageController.animateToPage(
+        _tabController.index,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+      );
+    }
+    if (_selectedTab != _tabController.index) {
+      setState(() => _selectedTab = _tabController.index);
+    }
   }
 
   List<VibeRankingItem> _sortRanking(List<VibeRankingItem> source) {
@@ -102,21 +124,21 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
         if (r.track.albumImageUrl.isNotEmpty) r.track.albumImageUrl,
     ]..shuffle(rng);
 
-    final picked = <String>[];
-    picked.addAll(photos.take(2));
-    picked.addAll(jackets.take(2));
-    // 4枚に満たない場合は残りで埋める
-    final pool = <String>[...photos, ...jackets]..shuffle(rng);
-    for (final url in pool) {
-      if (picked.length >= 4) break;
-      if (!picked.contains(url)) picked.add(url);
-    }
-    _summaryImages = picked;
+    // 左・中央: 写真のみ、右上・右下: アルバムアートのみ（不足時は空文字）
+    _summaryImages = [
+      photos.isNotEmpty ? photos[0] : '',
+      photos.length > 1 ? photos[1] : '',
+      jackets.isNotEmpty ? jackets[0] : '',
+      jackets.length > 1 ? jackets[1] : '',
+    ];
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _tabController.removeListener(_onTabControllerChanged);
+    _tabController.dispose();
+    _tabPageController.dispose();
+    _pageController?.dispose();
     _audioService.dispose();
     super.dispose();
   }
@@ -191,6 +213,10 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
   void _onPageChanged(int index) {
     setState(() => _currentPage = index);
     _playMusicForPage(index);
+    // チュートリアルの上スワイプ完了検出
+    if (TutorialController.instance.step == TutorialStep.swipeUpInPlaylist) {
+      TutorialController.instance.complete();
+    }
   }
 
   VibeRankingItem? _rankingFor(PostModel post) {
@@ -223,7 +249,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
       context,
       PageRouteBuilder(
         pageBuilder: (_, __, ___) =>
-            const MusicSelectionScreen(initialCategoryType: 'vibe'),
+            const MusicSelectionScreen(initialCategoryType: 'vibe', fromVibePlaylist: true),
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
       ),
@@ -243,6 +269,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
           isVibe: true,
           vibeTopicId: widget.topic.topicId,
           vibeTopicTitle: widget.topic.title,
+          fromVibePlaylist: true,
         ),
         transitionsBuilder: (context, animation, _, child) {
           final tween = Tween(begin: const Offset(0, 1), end: Offset.zero)
@@ -270,6 +297,19 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
           p.photoUrl!,
     ];
 
+    final matchingPost = (_posts ?? []).cast<PostModel?>().firstWhere(
+      (p) => p != null && (
+        p.track.trackId.isNotEmpty
+          ? p.track.trackId == item.track.trackId
+          : '${p.track.trackName}_${p.track.artistName}' == trackKey
+      ),
+      orElse: () => null,
+    );
+    final isSaved = matchingPost != null
+        ? (_isSavedCache[matchingPost.postId] ??
+            matchingPost.savedByUserIds.contains(widget.currentUserId))
+        : false;
+
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -277,6 +317,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
       builder: (ctx) => _SongActionSheet(
         item: item,
         photos: photos,
+        isSaved: isSaved,
         onPlayFull: () {
           Navigator.of(ctx).pop();
           _openExternalMusicService(item.track);
@@ -286,9 +327,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
           _navigateToPostPreviewWithTrack(item.track);
         },
         onSave: () {
-          Navigator.of(ctx).pop();
-          // 保存ロジックは既存の post 保存と分離が必要なため一旦 navigateToVibePost
-          _navigateToVibePost();
+          if (matchingPost != null) _handleSave(matchingPost);
         },
       ),
     );
@@ -338,6 +377,13 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
+    final screenH = MediaQuery.of(context).size.height;
+    // PageView の viewportFraction は 0..1 の範囲が安全。
+    // 小型端末（screenH < 822）では 1.0 にクランプして崩れを防ぐ。
+    final fraction = screenH > 0
+        ? (822.0 / screenH).clamp(0.5, 1.0)
+        : 1.0;
+    _pageController ??= PageController(viewportFraction: fraction);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -345,41 +391,72 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
         backgroundColor: AppColors.background,
         body: Stack(
           children: [
-            // ── コンテンツ ──
+            // ── コンテンツ（横スワイプで投稿⇔曲リスト） ──
             Positioned.fill(
-              child: _selectedTab == 0
-                  ? _buildPostsTab()
-                  : Padding(
-                      padding: EdgeInsets.only(top: topPadding + 35 + 31),
-                      child: _buildSongListTab(),
-                    ),
+              child: PageView(
+                controller: _tabPageController,
+                onPageChanged: (index) {
+                  _tabController.animateTo(index);
+                  setState(() => _selectedTab = index);
+                },
+                children: [
+                  _buildPostsTab(),
+                  Padding(
+                    padding: EdgeInsets.only(top: topPadding + 35 + 32),
+                    child: _buildSongListTab(),
+                  ),
+                ],
+              ),
             ),
 
             // ── 上部グラデーション（投稿タブ用・テキスト可読性） ──
-            if (_selectedTab == 0)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: topPadding + 35 + 31 + 20,
-                child: const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0xCC000000), Colors.transparent],
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: topPadding + 35 + 31 + 20,
+              child: AnimatedBuilder(
+                animation: _tabPageController,
+                builder: (context, _) {
+                  final t = _tabPageController.hasClients
+                      ? (_tabPageController.page ?? _tabController.index.toDouble()).clamp(0.0, 1.0)
+                      : _tabController.index.toDouble();
+                  // 投稿タブ(t=0)で不透明、曲リストタブ(t=1)で透明
+                  final opacity = (1.0 - t).clamp(0.0, 1.0);
+                  if (opacity == 0.0) return const SizedBox.shrink();
+                  return Opacity(
+                    opacity: opacity,
+                    child: const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0xCC000000), Colors.transparent],
+                        ),
+                      ),
+                      child: SizedBox.expand(),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
+            ),
 
             // ── ヘッダー＋タブバー（常に前面） ──
             Positioned(
               top: 0,
               left: 0,
               right: 0,
-              child: Container(
-                color: _selectedTab == 1 ? AppColors.background : Colors.transparent,
+              child: AnimatedBuilder(
+                animation: _tabPageController,
+                builder: (context, child) {
+                  final t = _tabPageController.hasClients
+                      ? (_tabPageController.page ?? _tabController.index.toDouble()).clamp(0.0, 1.0)
+                      : _tabController.index.toDouble();
+                  return Container(
+                    color: AppColors.background.withValues(alpha: t),
+                    child: child,
+                  );
+                },
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -388,6 +465,26 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
                     _buildTabBar(),
                   ],
                 ),
+              ),
+            ),
+
+            // チュートリアル: 上スワイプ誘導
+            Positioned.fill(
+              child: ListenableBuilder(
+                listenable: TutorialController.instance,
+                builder: (context, _) {
+                  final active = TutorialController.instance.step ==
+                      TutorialStep.swipeUpInPlaylist;
+                  return TutorialCoachmark(
+                    active: active,
+                    text: '上にスワイプしてください',
+                    subText: '次の投稿を見てみよう',
+                    handVariant: HandCursorVariant.swipeUp,
+                    placement: CoachmarkPlacement.center,
+                    handSize: 64,
+                    dimOpacity: 0.4,
+                  );
+                },
               ),
             ),
           ],
@@ -469,56 +566,88 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
   // ── タブバー ──────────────────────────────────
 
   Widget _buildTabBar() {
-    return SizedBox(
-      height: 31,
-      child: Row(
-        children: [
-          _buildTab(label: '投稿', index: 0),
-          _buildTab(label: '曲リスト', index: 1),
-        ],
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 31,
+          child: Stack(
+            children: [
+              // タブボタン
+              Row(
+                children: [
+                  _buildTabButton(label: '投稿', index: 0),
+                  _buildTabButton(label: '曲リスト', index: 1),
+                ],
+              ),
+              // スライドインジケーター
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: AnimatedBuilder(
+                  animation: _tabPageController,
+                  builder: (context, _) {
+                    final screenWidth = MediaQuery.of(context).size.width;
+                    final tabWidth = screenWidth / 2;
+                    const indicatorWidth = 64.0;
+                    final t = _tabPageController.hasClients
+                        ? (_tabPageController.page ?? _tabController.index.toDouble()).clamp(0.0, 1.0)
+                        : _tabController.index.toDouble();
+                    final left = tabWidth * (0.625 + 0.75 * t) - indicatorWidth / 2;
+                    return SizedBox(
+                      height: 2,
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            left: left,
+                            width: indicatorWidth,
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(1),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildTab({required String label, required int index}) {
-    final selected = _selectedTab == index;
-    // Figmaに合わせて中央寄り配置（左タブ=右寄り、右タブ=左寄り）
+  Widget _buildTabButton({required String label, required int index}) {
     final align = index == 0 ? const Alignment(0.25, 0) : const Alignment(-0.25, 0);
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _selectedTab = index),
+        onTap: () => _tabController.animateTo(index),
         behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          height: 31,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Align(
-                alignment: align,
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: selected ? Colors.white : const Color(0xFF858585),
-                  ),
+        child: Align(
+          alignment: align,
+          child: AnimatedBuilder(
+            animation: _tabPageController,
+            builder: (context, _) {
+              final t = _tabPageController.hasClients
+                  ? (_tabPageController.page ?? _tabController.index.toDouble()).clamp(0.0, 1.0)
+                  : _tabController.index.toDouble();
+              final opacity = index == 0 ? (1.0 - t) : t;
+              return Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white.withValues(alpha: 0.4 + 0.6 * opacity),
                 ),
-              ),
-              if (selected)
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Align(
-                    alignment: align,
-                    child: Container(
-                      width: 64,
-                      height: 2,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -544,7 +673,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
     // padEnds:false で先頭ページが上端に揃い、各ページ下に次カードがピーク
     return PageView.builder(
       scrollDirection: Axis.vertical,
-      controller: _pageController,
+      controller: _pageController!,
       pageSnapping: true,
       padEnds: false,
       itemCount: _posts!.length,
@@ -567,23 +696,6 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
             // 背景写真
             Positioned.fill(child: _buildPhotoBackground(post)),
 
-            // 下部グラデーション
-            const Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: 320,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Colors.black],
-                    stops: [0.0, 0.75],
-                  ),
-                ),
-              ),
-            ),
 
             // 下部コンテンツ（275px）
             Positioned(
@@ -600,19 +712,81 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
   }
 
   Widget _buildPhotoBackground(PostModel post) {
-    final url = (post.photoUrl != null &&
-            post.photoUrl!.isNotEmpty &&
-            post.photoUrl!.startsWith('http'))
-        ? post.photoUrl!
-        : post.track.albumImageUrl;
+    final hasPhoto = post.photoUrl != null &&
+        post.photoUrl!.isNotEmpty &&
+        post.photoUrl!.startsWith('http');
+    final url = hasPhoto ? post.photoUrl! : post.track.albumImageUrl;
 
-    if (url.isEmpty) {
-      return Container(color: Colors.grey[900]);
+    if (url.isEmpty) return Container(color: Colors.grey[900]);
+
+    // アルバムアートはレイアウト情報なし → BoxFit.cover のみ
+    if (!hasPhoto) {
+      return CachedNetworkImage(
+        imageUrl: url,
+        fit: BoxFit.cover,
+        errorWidget: (_, __, ___) => Container(color: Colors.grey[900]),
+      );
     }
-    return CachedNetworkImage(
-      imageUrl: url,
-      fit: BoxFit.cover,
-      errorWidget: (_, __, ___) => Container(color: Colors.grey[900]),
+
+    // 投稿写真: 投稿カード裏面と同じレイアウトを再現
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardW = constraints.maxWidth;
+        final cardH = constraints.maxHeight;
+        final imgScale = post.imageScale != 0 ? post.imageScale : 1.0;
+        final natW = post.imageNaturalWidth;
+        final natH = post.imageNaturalHeight;
+
+        final image = CachedNetworkImage(
+          imageUrl: url,
+          fit: BoxFit.fill,
+          errorWidget: (_, __, ___) => Container(color: Colors.grey[900]),
+        );
+
+        if (natW > 0 && natH > 0) {
+          // 新方式: 投稿カード裏面と同じ計算（363基準スケール）
+          final scaleFactor = cardW / 363.0;
+          final baseScale = cardH / natH;
+          final displayW = natW * baseScale;
+          final displayH = natH * baseScale;
+
+          return Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              Positioned(
+                left: post.imageOffsetX * scaleFactor,
+                top: post.imageOffsetY * scaleFactor,
+                child: Transform.scale(
+                  scale: imgScale,
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(
+                    width: displayW,
+                    height: displayH,
+                    child: image,
+                  ),
+                ),
+              ),
+            ],
+          );
+        } else {
+          // 旧方式: BoxFit.cover + オフセット + スケール
+          return ClipRect(
+            child: Transform.translate(
+              offset: Offset(post.imageOffsetX, post.imageOffsetY),
+              child: Transform.scale(
+                scale: imgScale,
+                child: CachedNetworkImage(
+                  imageUrl: url,
+                  fit: BoxFit.cover,
+                  width: cardW,
+                  height: cardH,
+                  errorWidget: (_, __, ___) => Container(color: Colors.grey[900]),
+                ),
+              ),
+            ),
+          );
+        }
+      },
     );
   }
 
@@ -622,10 +796,10 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        // ユーザー情報（icon left=18 top=19 size=32, name left=59 top=25）
+        // ユーザー情報（icon left=18 top=46 size=32, name left=59 top=52）
         Positioned(
           left: 18,
-          top: 19,
+          top: 46,
           width: 32,
           height: 32,
           child: ClipOval(
@@ -634,7 +808,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
         ),
         Positioned(
           left: 59,
-          top: 25,
+          top: 52,
           right: 60,
           child: Text(
             post.username,
@@ -649,10 +823,10 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
           ),
         ),
 
-        // 楽曲タイトル（left=18, top=62, fontSize=24 bold）
+        // 楽曲タイトル（left=18, top=90, fontSize=24 bold）
         Positioned(
           left: 18,
-          top: 62,
+          top: 90,
           right: 60,
           child: Text(
             post.track.trackName,
@@ -667,10 +841,10 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
           ),
         ),
 
-        // アーティスト名（left=18, top=91 = 62+29）
+        // アーティスト名（left=18, top=119）
         Positioned(
           left: 18,
-          top: 91,
+          top: 119,
           right: 60,
           child: Text(
             post.track.artistName,
@@ -942,6 +1116,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
       clipBehavior: Clip.none,
       children: [
         // ♡ いいねアイコン（left=2, top=0, size=27）
+        // Material iconの内部余白（~17%）を scale 1.2 で相殺し、見た目上27px相当にする
         Positioned(
           left: 2,
           top: 0,
@@ -950,10 +1125,13 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
           child: GestureDetector(
             onTap: () => _handleLike(post),
             behavior: HitTestBehavior.opaque,
-            child: Icon(
-              isLiked ? Icons.favorite : Icons.favorite_border,
-              color: isLiked ? Colors.red : Colors.white,
-              size: 27,
+            child: Transform.scale(
+              scale: 1.2,
+              child: Icon(
+                isLiked ? Icons.favorite : Icons.favorite_border,
+                color: isLiked ? Colors.red : Colors.white,
+                size: 27,
+              ),
             ),
           ),
         ),
@@ -995,21 +1173,17 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
           ),
         ),
 
-        // 保存ボタン（既存 save_button.png, top=135, size=30）
+        // 保存ボタン（top=135, size=30）
         Positioned(
           left: 0,
           top: 135,
           width: 30,
           height: 30,
           child: GestureDetector(
-            onTap: _navigateToVibePost,
+            onTap: () => _handleSave(post),
             behavior: HitTestBehavior.opaque,
-            child: Image.asset(
-              'assets/icons/save_button.png',
-              width: 30,
-              height: 30,
-              color: Colors.white,
-              colorBlendMode: BlendMode.srcIn,
+            child: Center(
+              child: _buildSaveIcon(post),
             ),
           ),
         ),
@@ -1036,6 +1210,50 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
         setState(() {
           _isLikedCache[postId] = wasLiked;
           _likeCountCache[postId] = count;
+        });
+      }
+    }
+  }
+
+  Widget _buildSaveIcon(PostModel post) {
+    final isSaved = _isSavedCache[post.postId] ??
+        post.savedByUserIds.contains(widget.currentUserId);
+    if (isSaved) {
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: const BoxDecoration(
+              color: Colors.lightGreen,
+              shape: BoxShape.circle,
+            ),
+          ),
+          Icon(Icons.check, size: 18, color: Colors.grey[700]),
+        ],
+      );
+    }
+    return const Icon(Icons.add_circle_outline, size: 32, color: Colors.white);
+  }
+
+  Future<void> _handleSave(PostModel post) async {
+    HapticFeedback.lightImpact();
+    final postId = post.postId;
+    final wasSaved = _isSavedCache[postId] ??
+        post.savedByUserIds.contains(widget.currentUserId);
+    setState(() {
+      _isSavedCache[postId] = !wasSaved;
+    });
+    try {
+      await _userService.toggleSavePost(
+        userId: widget.currentUserId,
+        postId: postId,
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isSavedCache[postId] = wasSaved;
         });
       }
     }
@@ -1141,50 +1359,54 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
   }
 
   // 2×2 サマリーグリッド（写真2 + ジャケット2 / タップ無効）
+  // 検索画面と同じ3カラムコラージュ
+  // 左・中央: 写真（fitHeight）/ 右: アルバムアート上下2分割（cover）
   Widget _buildSummaryGrid() {
     final urls = _summaryImages;
-    if (urls.isEmpty) {
-      return Container(color: Colors.grey[900]);
+    bool hasUrl(int i) => i < urls.length && urls[i].isNotEmpty;
+
+    Widget photoCell(int i) {
+      if (!hasUrl(i)) return Container(color: Colors.grey[850]);
+      return ClipRect(
+        child: SizedBox.expand(
+          child: CachedNetworkImage(
+            imageUrl: urls[i],
+            fit: BoxFit.fitHeight,
+            alignment: Alignment.center,
+            width: double.infinity,
+            height: double.infinity,
+            errorWidget: (_, __, ___) => Container(color: Colors.grey[850]),
+          ),
+        ),
+      );
     }
-    Widget cell(int index) {
-      if (index >= urls.length) {
-        return Container(color: Colors.grey[900]);
-      }
-      return CachedNetworkImage(
-        imageUrl: urls[index],
-        fit: BoxFit.cover,
-        errorWidget: (_, __, ___) => Container(color: Colors.grey[900]),
+
+    Widget jacketCell(int i) {
+      if (!hasUrl(i)) return Container(color: Colors.grey[850]);
+      return SizedBox.expand(
+        child: CachedNetworkImage(
+          imageUrl: urls[i],
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          errorWidget: (_, __, ___) => Container(color: Colors.grey[850]),
+        ),
       );
     }
 
     return IgnorePointer(
-      child: Column(
+      child: Row(
         children: [
+          Expanded(child: photoCell(0)),
+          const SizedBox(width: 1),
+          Expanded(child: photoCell(1)),
+          const SizedBox(width: 1),
           Expanded(
-            child: Row(
+            child: Column(
               children: [
-                Expanded(child: Padding(
-                  padding: const EdgeInsets.only(right: 1, bottom: 1),
-                  child: cell(0),
-                )),
-                Expanded(child: Padding(
-                  padding: const EdgeInsets.only(left: 1, bottom: 1),
-                  child: cell(1),
-                )),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(child: Padding(
-                  padding: const EdgeInsets.only(right: 1, top: 1),
-                  child: cell(2),
-                )),
-                Expanded(child: Padding(
-                  padding: const EdgeInsets.only(left: 1, top: 1),
-                  child: cell(3),
-                )),
+                Expanded(child: jacketCell(2)),
+                const SizedBox(height: 1),
+                Expanded(child: jacketCell(3)),
               ],
             ),
           ),
@@ -1204,47 +1426,53 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // 青枠カード（left=0, 32×40, border 2px #0C51F7 rounded=7）
-          // 内部画像は外側基準で left=2 top=1.5 w=24.75 h=33 rounded=4
+          // グラデーション枠カード（left=0, 24×40）タップで「投稿」タブへ
           Positioned(
             left: 0,
             top: 0,
-            width: 32,
+            width: 24,
             height: 40,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // 内部画像
-                Positioned(
-                  left: 2,
-                  top: 1.5,
-                  width: 24.75,
-                  height: 33,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: currentPost != null
-                        ? _buildPhotoBackground(currentPost)
-                        : Container(color: Colors.grey[900]),
+            child: GestureDetector(
+              onTap: () {
+                _tabController.animateTo(0);
+                _tabPageController.animateToPage(
+                  0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                );
+              },
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // 内部画像（全辺2.5px inset、投稿カードと同じ切り取り）
+                  Positioned(
+                    left: 2.5,
+                    top: 2.5,
+                    right: 2.5,
+                    bottom: 2.5,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: currentPost != null
+                          ? _buildPhotoBackground(currentPost)
+                          : Container(color: Colors.grey[900]),
+                    ),
                   ),
-                ),
-                // 青枠（外側に重ねる）
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                            color: const Color(0xFF0C51F7), width: 2),
-                        borderRadius: BorderRadius.circular(7),
+                  // グラデーション枠PNG（最前面）
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Image.asset(
+                        'assets/images/vibe_song_frame.png',
+                        fit: BoxFit.fill,
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-          // グラデーションボタン（left=43, 181×40, rounded=30）
+          // グラデーションボタン（left=35, 181×40, rounded=30）
           Positioned(
-            left: 43,
+            left: 35,
             top: 0,
             width: 181,
             height: 40,
@@ -1408,9 +1636,17 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
               imageUrl: item.track.albumImageUrl,
               width: 48,
               height: 48,
-              fit: BoxFit.cover,
+              imageBuilder: (context, imageProvider) => Container(
+                decoration: BoxDecoration(
+                  image: DecorationImage(
+                    image: imageProvider,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+              placeholder: (_, __) => const SizedBox.shrink(),
               errorWidget: (_, __, ___) => Container(
-                color: Colors.grey[800],
+                color: const Color(0xFF121212),
                 child: const Icon(Icons.album, color: Colors.white54, size: 24),
               ),
             ),
@@ -1473,15 +1709,49 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
           top: 14,
           width: 20,
           height: 20,
-          child: GestureDetector(
-            onTap: _navigateToVibePost,
-            behavior: HitTestBehavior.opaque,
-            child: const Icon(
-              Icons.add_circle_outline,
-              color: Colors.white,
-              size: 20,
-            ),
-          ),
+          child: Builder(builder: (_) {
+            final trackKey = item.track.trackId.isNotEmpty
+                ? item.track.trackId
+                : '${item.track.trackName}_${item.track.artistName}';
+            final matchingPost = (_posts ?? []).cast<PostModel?>().firstWhere(
+              (p) => p != null && (
+                p.track.trackId.isNotEmpty
+                  ? p.track.trackId == item.track.trackId
+                  : '${p.track.trackName}_${p.track.artistName}' == trackKey
+              ),
+              orElse: () => null,
+            );
+            final saved = matchingPost != null
+                ? (_isSavedCache[matchingPost.postId] ??
+                    matchingPost.savedByUserIds.contains(widget.currentUserId))
+                : false;
+            return GestureDetector(
+              onTap: () {
+                if (matchingPost != null) _handleSave(matchingPost);
+              },
+              behavior: HitTestBehavior.opaque,
+              child: saved
+                  ? Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: 20,
+                          height: 20,
+                          decoration: const BoxDecoration(
+                            color: Colors.lightGreen,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        Icon(Icons.check, size: 14, color: Colors.grey[700]),
+                      ],
+                    )
+                  : const Icon(
+                      Icons.add_circle_outline,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+            );
+          }),
         ),
         // 投稿ボタン（left=334, top=4, size=40）
         // 既存ナビバーと同じ post_icon.svg を使用（28×28 white）
@@ -1516,12 +1786,13 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen> {
 /// - 上部: 曲情報バー（アルバム / 曲名 / アーティスト / Vibe追加カウント / +保存）
 /// - 中段: アクションボタン2つ
 /// - 下部: その楽曲を使った投稿写真の3列グリッド（スクロール）
-class _SongActionSheet extends StatelessWidget {
+class _SongActionSheet extends StatefulWidget {
   final VibeRankingItem item;
   final List<String> photos;
   final VoidCallback onPlayFull;
   final VoidCallback onAddToVibe;
   final VoidCallback onSave;
+  final bool isSaved;
 
   const _SongActionSheet({
     required this.item,
@@ -1529,7 +1800,21 @@ class _SongActionSheet extends StatelessWidget {
     required this.onPlayFull,
     required this.onAddToVibe,
     required this.onSave,
+    this.isSaved = false,
   });
+
+  @override
+  State<_SongActionSheet> createState() => _SongActionSheetState();
+}
+
+class _SongActionSheetState extends State<_SongActionSheet> {
+  late bool _isSaved;
+
+  @override
+  void initState() {
+    super.initState();
+    _isSaved = widget.isSaved;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1569,7 +1854,7 @@ class _SongActionSheet extends StatelessWidget {
   /// 写真3列グリッド（Figma: 各セル 133×178、左から left=0,134/135,269）
   /// 画面幅 402 想定。実機ではセルを画面幅に合わせて等分し、aspect 133:178 を維持。
   Widget _buildPhotoGrid(double bottomPadding) {
-    if (photos.isEmpty) {
+    if (widget.photos.isEmpty) {
       return Padding(
         padding: EdgeInsets.only(bottom: bottomPadding),
         child: const Center(
@@ -1594,10 +1879,10 @@ class _SongActionSheet extends StatelessWidget {
         crossAxisSpacing: 1,
         childAspectRatio: 133 / 178,
       ),
-      itemCount: photos.length,
+      itemCount: widget.photos.length,
       itemBuilder: (context, index) {
         return CachedNetworkImage(
-          imageUrl: photos[index],
+          imageUrl: widget.photos[index],
           fit: BoxFit.cover,
           errorWidget: (_, __, ___) => Container(color: Colors.grey[900]),
         );
@@ -1647,7 +1932,7 @@ class _SongActionSheet extends StatelessWidget {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(7),
                         child: CachedNetworkImage(
-                          imageUrl: item.track.albumImageUrl,
+                          imageUrl: widget.item.track.albumImageUrl,
                           fit: BoxFit.cover,
                           errorWidget: (_, __, ___) => Container(
                             color: Colors.grey[800],
@@ -1662,7 +1947,7 @@ class _SongActionSheet extends StatelessWidget {
                       top: 13,
                       right: 60,
                       child: Text(
-                        item.track.trackName,
+                        widget.item.track.trackName,
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
@@ -1679,7 +1964,7 @@ class _SongActionSheet extends StatelessWidget {
                       top: 29,
                       right: 60,
                       child: Text(
-                        item.track.artistName,
+                        widget.item.track.artistName,
                         style: const TextStyle(
                           fontSize: 11,
                           color: Colors.white,
@@ -1695,7 +1980,7 @@ class _SongActionSheet extends StatelessWidget {
                       top: 46,
                       right: 60,
                       child: Text(
-                        '🔥${item.postCount}人がVibeにこの曲を追加',
+                        '🔥${widget.item.postCount}人がVibeにこの曲を追加',
                         style: const TextStyle(
                           fontSize: 11,
                           color: Color(0xFF858585),
@@ -1713,13 +1998,31 @@ class _SongActionSheet extends StatelessWidget {
                       width: 34,
                       height: 34,
                       child: GestureDetector(
-                        onTap: onSave,
+                        onTap: () {
+                          setState(() => _isSaved = !_isSaved);
+                          widget.onSave();
+                        },
                         behavior: HitTestBehavior.opaque,
-                        child: const Icon(
-                          Icons.add_circle_outline,
-                          color: Colors.white,
-                          size: 30,
-                        ),
+                        child: _isSaved
+                            ? Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Container(
+                                    width: 30,
+                                    height: 30,
+                                    decoration: const BoxDecoration(
+                                      color: Colors.lightGreen,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  Icon(Icons.check, size: 18, color: Colors.grey[700]),
+                                ],
+                              )
+                            : const Icon(
+                                Icons.add_circle_outline,
+                                color: Colors.white,
+                                size: 30,
+                              ),
                       ),
                     ),
                   ],
@@ -1733,7 +2036,7 @@ class _SongActionSheet extends StatelessWidget {
               width: 181,
               height: 40,
               child: GestureDetector(
-                onTap: onPlayFull,
+                onTap: widget.onPlayFull,
                 child: Container(
                   decoration: BoxDecoration(
                     color: const Color(0xFF454545),
@@ -1761,7 +2064,7 @@ class _SongActionSheet extends StatelessWidget {
               width: 181,
               height: 40,
               child: GestureDetector(
-                onTap: onAddToVibe,
+                onTap: widget.onAddToVibe,
                 child: Container(
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(

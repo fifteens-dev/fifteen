@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track_model.dart';
 import '../models/music_service_type.dart';
@@ -127,31 +128,47 @@ class MusicServiceManager {
 
   /// おすすめの楽曲を取得
   /// 全サービス共通で Apple Music Charts API（日本トップチャート）を使用
-  Future<List<TrackModel>> getRecommendedTracks({int limit = 50}) async {
-    final service = await getSelectedService();
-    print('🎵 MusicServiceManager.getRecommendedTracks: service=$service');
+  // おすすめ取得ソース定義
+  // genreId: 29=J-Pop, 17=サウンドトラック(アニメ楽曲に近い), 14=Pop
+  static const List<_ChartSource> _chartSources = [
+    _ChartSource.japanTop,
+    _ChartSource.trendingJapan,
+  ];
 
-    // Apple Music日本トップチャートを取得（Developer Tokenのみで動作）
-    try {
-      final charts = await _appleMusicService.getTopCharts(limit: limit);
-      if (charts.isNotEmpty) {
-        print('📊 Apple Music日本トップチャートから${charts.length}曲取得');
-        return charts;
+  Future<List<TrackModel>> getRecommendedTracks({int limit = 50}) async {
+    print('🎵 MusicServiceManager.getRecommendedTracks: ランダム選択');
+
+    // ソースをシャッフルして順番に試す
+    final sources = List<_ChartSource>.from(_chartSources)..shuffle(Random());
+
+    for (final source in sources) {
+      try {
+        final tracks = await _fetchChartSource(source, limit: limit);
+        if (tracks.isNotEmpty) {
+          print('📊 ${source.label}から${tracks.length}曲取得');
+          return tracks;
+        }
+      } catch (e) {
+        print('⚠️ ${source.label}取得失敗: $e');
       }
-    } catch (e) {
-      print('⚠️ Apple Musicトップチャート取得失敗: $e');
     }
 
-    // フォールバック: サービスに応じた検索
+    // 全ソース失敗時の最終フォールバック
     try {
-      if (service == MusicServiceType.appleMusic) {
-        final amTracks = await _appleMusicService.searchTracks('J-POP', limit: limit);
-        if (amTracks.isNotEmpty) return amTracks;
-      }
       return await _spotifyService.searchTracks('J-POP 人気', limit: limit);
     } catch (e) {
-      print('⚠️ 検索フォールバックも失敗: $e');
+      print('⚠️ 最終フォールバックも失敗: $e');
       return [];
+    }
+  }
+
+  Future<List<TrackModel>> _fetchChartSource(_ChartSource source,
+      {int limit = 50}) async {
+    switch (source) {
+      case _ChartSource.japanTop:
+        return await _appleMusicService.getTopCharts(limit: limit);
+      case _ChartSource.trendingJapan:
+        return await _appleMusicService.getHotHitsJapan(limit: limit);
     }
   }
 
@@ -261,6 +278,18 @@ class MusicServiceManager {
       case MusicServiceType.none:
         // デフォルトでApple Musicを試す
         return await _appleMusicService.getLyrics(trackId);
+    }
+  }
+}
+
+enum _ChartSource {
+  japanTop,       // 日本チャート（genre指定なし）
+  trendingJapan;  // 急上昇プレイリスト
+
+  String get label {
+    switch (this) {
+      case _ChartSource.japanTop:       return '日本チャート';
+      case _ChartSource.trendingJapan:  return '急上昇チャート';
     }
   }
 }

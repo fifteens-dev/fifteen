@@ -213,18 +213,31 @@ class PostFetchService {
   /// 特定のユーザーが保存した投稿を取得
   Future<List<PostModel>> getPostsSavedByUser(String userId, {int limit = 50}) async {
     try {
-      final snapshot = await _firestore
-          .collection(_postsCollection)
-          .where('savedByUserIds', arrayContains: userId)
-          .limit(limit)
-          .get();
+      // ユーザー文書から savedPosts リストを取得
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists) return [];
 
-      final posts = snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
+      final savedPostIds = List<String>.from(
+        (userDoc.data()?['savedPosts'] as List<dynamic>? ?? []).whereType<String>(),
+      );
+      if (savedPostIds.isEmpty) return [];
+
+      // 直近 limit 件に絞る（新しい順 = リスト末尾が新しいと仮定しリバース）
+      final ids = savedPostIds.reversed.take(limit).toList();
+
+      // 30件単位の whereIn バッチで取得
+      const chunkSize = 30;
+      final List<PostModel> posts = [];
+      for (var i = 0; i < ids.length; i += chunkSize) {
+        final chunk = ids.sublist(i, (i + chunkSize).clamp(0, ids.length));
+        final snap = await _firestore
+            .collection(_postsCollection)
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        posts.addAll(snap.docs.map((doc) => PostModel.fromFirestore(doc)));
+      }
 
       posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
       return await applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {

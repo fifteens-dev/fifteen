@@ -11,6 +11,7 @@ import '../models/post_model.dart';
 import '../models/user_model.dart';
 import '../providers/post_ui_state.dart';
 import '../models/vibe_ranking_item.dart';
+import '../models/vibe_topic_model.dart';
 import '../widgets/post_card.dart';
 import '../widgets/notification_badge.dart';
 import '../widgets/dialogs/delete_post_dialog.dart';
@@ -23,6 +24,7 @@ import '../services/notification_service.dart';
 import '../models/notification_model.dart';
 import '../services/vibe_topic_service.dart';
 import '../utils/campus_vibe_utils.dart';
+import '../widgets/campus_vibe_card.dart';
 import '../utils/current_user_helper.dart';
 import 'comment_screen.dart';
 import 'search_screen.dart';
@@ -34,8 +36,15 @@ import 'vibe_playlist_screen.dart';
 import 'card_share_screen.dart';
 import 'home/vibe_bar_section.dart';
 import 'home/home_bottom_nav.dart';
-import '../widgets/campus_vibe_card.dart';
 import '../widgets/common/app_toast.dart';
+import '../services/tutorial_controller.dart';
+import '../widgets/tutorial/tutorial_coachmark.dart';
+import '../widgets/tutorial/animated_hand_cursor.dart';
+import '../widgets/tutorial/tutorial_frame628_overlay.dart';
+import '../widgets/tutorial/tutorial_album_carousel.dart';
+import '../widgets/tutorial/tutorial_camera_overlay.dart';
+import '../models/track_model.dart';
+import 'post_photo_selection_screen.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -73,6 +82,13 @@ class _HomeScreenState extends State<HomeScreen>
 
   // 各PostCardのGlobalKey（可視性チェック・flipToFront用）
   final Map<String, GlobalKey<PostCardState>> _postCardKeys = {};
+
+  // チュートリアル誘導用のキー
+  final GlobalKey _tutorialAddButtonKey = GlobalKey();
+  final GlobalKey _tutorialVibeIconKey = GlobalKey();
+
+  // カメラオーバーレイに渡すトラック（takingPhoto ステップで使用）
+  TrackModel? _tutorialTrack;
 
 
   // 現在再生中の投稿ID
@@ -556,41 +572,86 @@ class _HomeScreenState extends State<HomeScreen>
   // ボトムナビゲーションのタップ処理
   /// VibeバーのVibeアイコン円タップでVibeプレイリスト画面へ遷移
   Future<void> _navigateToVibePost() async {
-    _homeAudioService.stop();
-
-    final data = await _vibeDataFuture;
+    // データ未ロード/失敗時は強制的に再読み込み
+    _vibeDataFuture ??= _loadVibeData();
+    final data = await _vibeDataFuture!;
     if (!mounted) return;
+    final topic = data['topic'] as VibeTopicModel?;
+    final ranking =
+        (data['ranking'] as List?)?.cast<VibeRankingItem>() ?? <VibeRankingItem>[];
 
-    final topic = data?['topic'];
-    final ranking = data?['ranking'] as List<VibeRankingItem>?;
-
+    // トピックが取れなかった場合は再読み込みしてもう一度試す
     if (topic == null) {
-      // お題がない場合は楽曲選択画面へフォールバック
-      final targetIndex = await Navigator.push<int>(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => const MusicSelectionScreen(initialCategoryType: 'vibe'),
-          transitionDuration: Duration.zero,
-          reverseTransitionDuration: Duration.zero,
-        ),
-      );
-      if (targetIndex != null && mounted) {
-        setState(() => _selectedIndex = targetIndex);
+      _vibeDataFuture = _loadVibeData();
+      final retry = await _vibeDataFuture!;
+      if (!mounted) return;
+      final retryTopic = retry['topic'] as VibeTopicModel?;
+      final retryRanking = (retry['ranking'] as List?)
+              ?.cast<VibeRankingItem>() ??
+          <VibeRankingItem>[];
+      if (retryTopic == null) {
+        _showMessage('お題が見つかりませんでした');
+        return;
       }
+      _navigateToVibePlaylistInternal(retryTopic, retryRanking);
       return;
     }
 
+    _navigateToVibePlaylistInternal(topic, ranking);
+  }
+
+  /// VibePlaylistScreen への実遷移（チュートリアル状態の前進も含む）
+  Future<void> _navigateToVibePlaylistInternal(
+    VibeTopicModel topic,
+    List<VibeRankingItem> ranking,
+  ) async {
+    _homeAudioService.stop();
+    if (TutorialController.instance.step == TutorialStep.showVibePlaylistHint) {
+      await TutorialController.instance.goTo(TutorialStep.swipeUpInPlaylist);
+    }
+    if (!mounted) return;
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => VibePlaylistScreen(
           topic: topic,
-          ranking: ranking ?? [],
+          ranking: ranking,
           currentUserId: _auth.currentUser?.uid ?? '',
           hasPostedToday: _hasPostedToday,
         ),
       ),
     );
+  }
+
+  /// 「楽曲をVibeに追加」ボタンタップで投稿フロー（楽曲選択）へ遷移
+  Future<void> _navigateToPostFlow() async {
+    _homeAudioService.stop();
+
+    // チュートリアル中は Frame 628 が前面に出ているのでこのパスは通常通らない
+    final targetIndex = await Navigator.push<int>(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const MusicSelectionScreen(initialCategoryType: 'vibe', fromVibePlaylist: true),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+    if (targetIndex != null && mounted) {
+      setState(() => _selectedIndex = targetIndex);
+    }
+  }
+
+  /// チュートリアル Frame 628 で曲を選んだときに呼ばれる
+  Future<void> _onTutorialSongConfirmed(TutorialAlbumItem item) async {
+    _homeAudioService.stop();
+    // カメラオーバーレイ用トラックを保存してから takingPhoto ステップへ
+    _tutorialTrack = TrackModel(
+      trackId: 'tutorial_${item.title.hashCode}',
+      trackName: item.title,
+      artistName: item.artist,
+      albumImageUrl: item.assetPath,
+    );
+    await TutorialController.instance.goTo(TutorialStep.takingPhoto);
   }
 
   Future<void> _onItemTapped(int index) async {
@@ -711,9 +772,12 @@ class _HomeScreenState extends State<HomeScreen>
                             vibeDataFuture: _vibeDataFuture!,
                             onRankingItemTap: _handleRankingItemTap,
                             onPostTap: _navigateToVibePost,
+                            onAddTap: _navigateToPostFlow,
+                            vibeIconKey: _tutorialVibeIconKey,
+                            addButtonKey: _tutorialAddButtonKey,
                           ),
                         ),
-                        if (CampusVibeUtils.shouldShow())
+                        if (false && CampusVibeUtils.shouldShow())
                           SliverToBoxAdapter(
                             child: Padding(
                               padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
@@ -749,6 +813,48 @@ class _HomeScreenState extends State<HomeScreen>
                   onItemTapped: _onItemTapped,
                 ),
               ),
+
+            // チュートリアル Frame 628 オーバーレイ（最前面）
+            ListenableBuilder(
+              listenable: TutorialController.instance,
+              builder: (context, _) {
+                final step = TutorialController.instance.step;
+                if (_selectedIndex != 0) return const SizedBox.shrink();
+
+                if (step == TutorialStep.showHomeHint) {
+                  // 背景のホーム画面操作を完全にブロックしつつ Frame 628 を表示
+                  return Positioned.fill(
+                    child: TutorialFrame628Overlay(
+                      onConfirm: _onTutorialSongConfirmed,
+                    ),
+                  );
+                }
+
+                if (step == TutorialStep.takingPhoto && _tutorialTrack != null) {
+                  // カメラオーバーレイ: Component 126 がホーム画面の上に乗る
+                  return Positioned.fill(
+                    child: TutorialCameraOverlay(
+                      track: _tutorialTrack!,
+                      isVibe: true,
+                      vibeTopicId: 'tutorial_topic_drive',
+                      vibeTopicTitle: 'ドライブで聴きたい曲',
+                    ),
+                  );
+                }
+
+                if (step == TutorialStep.showVibePlaylistHint) {
+                  return TutorialCoachmark(
+                    active: true,
+                    text: '他の人の投稿も見てみよう',
+                    subText: 'Vibeアイコンをタップ',
+                    handVariant: HandCursorVariant.tap,
+                    target: _tutorialVibeIconKey,
+                    placement: CoachmarkPlacement.belowTarget,
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
           ],
         ),
     );

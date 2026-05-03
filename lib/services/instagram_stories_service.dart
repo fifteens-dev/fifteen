@@ -13,23 +13,12 @@ class InstagramStoriesService {
     }
   }
 
-  static Future<bool> share(
-    Uint8List pngBytes, {
-    String? postId,
-    String? audioUrl,
-    int audioStartMs = 0,
-    int durationSec = 15,
-  }) async {
+  static Future<bool> share(Uint8List pngBytes) async {
     try {
-      // Instagramリンクスタンプ用HTTPS URL
-      // このページが fifteenapp:// を呼び出してアプリを起動する
       const contentUrl = 'https://fifteens-39cfe.web.app/';
       final args = <String, dynamic>{
         'imageData': pngBytes,
         'contentURL': contentUrl,
-        if (audioUrl != null && audioUrl.isNotEmpty) 'audioURL': audioUrl,
-        'audioStartMs': audioStartMs,
-        'durationSec': durationSec,
       };
       await _channel.invokeMethod('shareToStories', args);
       const bundleId = 'com.fifteen.app';

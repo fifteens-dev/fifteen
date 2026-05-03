@@ -29,11 +29,13 @@ import '../widgets/common/app_toast.dart';
 class MusicSelectionScreen extends StatefulWidget {
   final String? initialCategoryType; // 'vibe' or 'emotion' — 事前選択用
   final bool isPickerMode; // true = 選択後にpopで結果を返す（PostCardEditScreenから呼ばれる場合）
+  final bool fromVibePlaylist; // true = Vibe専用投稿ボタンを最終画面に表示
 
   const MusicSelectionScreen({
     super.key,
     this.initialCategoryType,
     this.isPickerMode = false,
+    this.fromVibePlaylist = false,
   });
 
   @override
@@ -73,6 +75,9 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   // 音楽サービス未連携状態
   bool _notConnected = false;
+
+  // 音楽サービス認証済み状態（未連携時はタブを非表示）
+  bool _isAuthenticated = false;
 
   // 検索フォーカス状態
   bool _isSearchFocused = false;
@@ -206,6 +211,8 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   Future<void> _initializeTabAndTracks() async {
     final isAuthenticated = await _musicServiceManager.isAuthenticated();
     if (!mounted) return;
+
+    setState(() => _isAuthenticated = isAuthenticated);
 
     if (isAuthenticated) {
       setState(() => _selectedTab = 0);
@@ -399,7 +406,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     }
   }
 
-  /// 保存済み曲を読み込み
+  /// 保存済み曲を読み込み（プロフィールの保存済みタブと同一ロジック）
   Future<void> _loadSavedTracks() async {
     setState(() { _isLoading = true; _notConnected = false; });
 
@@ -410,27 +417,11 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         return;
       }
 
-      final userData = await _userService.getUser(currentUser.uid);
-      final savedPostIds = userData?.savedPosts ?? [];
-
-      if (savedPostIds.isEmpty) {
-        if (mounted) {
-          setState(() {
-            _tracks = [];
-            _isLoading = false;
-          });
-        }
-        return;
-      }
-
-      final firestorePosts = await _postService.getPosts(limit: 50);
-      final savedPosts = firestorePosts
-          .where((post) => savedPostIds.contains(post.postId))
-          .toList();
+      final savedPosts = await _postService.getPostsSavedByUser(currentUser.uid);
 
       final Map<String, TrackModel> uniqueTracks = {};
       for (final post in savedPosts) {
-        uniqueTracks[post.track.trackId] = post.track;
+        uniqueTracks.putIfAbsent(post.track.trackId, () => post.track);
       }
 
       if (mounted) {
@@ -566,6 +557,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
             isVibe: true,
             vibeTopicId: _todaysTopic?.topicId,
             vibeTopicTitle: _todaysTopic?.title,
+            fromVibePlaylist: widget.fromVibePlaylist,
             preExtractedGradientStart: gradientStart,
             preExtractedGradientEnd: gradientEnd,
           ),
@@ -809,15 +801,19 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       padding: const EdgeInsets.only(left: 21, top: 11, bottom: 11, right: 21),
       child: Row(
         children: [
-          // 最近聞いた曲タブ
-          _buildTabButton(0, '最近聞いた曲', () => _loadRecentlyPlayedTracks()),
-          const SizedBox(width: 6),
           // おすすめタブ
           _buildTabButton(1, 'おすすめ', () => _loadInitialTracks()),
           const SizedBox(width: 6),
-          // My Playlistタブ
-          _buildTabButton(2, 'My Playlist', () => _loadMyPlaylistTracks()),
-          const SizedBox(width: 6),
+          // 最近聞いた曲タブ（連携済みのみ表示）
+          if (_isAuthenticated) ...[
+            _buildTabButton(0, '最近聞いた曲', () => _loadRecentlyPlayedTracks()),
+            const SizedBox(width: 6),
+          ],
+          // My Playlistタブ（連携済みのみ表示）
+          if (_isAuthenticated) ...[
+            _buildTabButton(2, 'My Playlist', () => _loadMyPlaylistTracks()),
+            const SizedBox(width: 6),
+          ],
           // 保存済みタブ
           _buildTabButton(3, '保存済み', () => _loadSavedTracks()),
           const Spacer(),

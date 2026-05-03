@@ -22,6 +22,7 @@ class PostPhotoSelectionScreen extends StatefulWidget {
   final bool isVibe;
   final String? vibeTopicId;
   final String? vibeTopicTitle;
+  final bool fromVibePlaylist;
 
   const PostPhotoSelectionScreen({
     super.key,
@@ -31,6 +32,7 @@ class PostPhotoSelectionScreen extends StatefulWidget {
     this.isVibe = false,
     this.vibeTopicId,
     this.vibeTopicTitle,
+    this.fromVibePlaylist = false,
   });
 
   @override
@@ -223,6 +225,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
           isVibe: widget.isVibe,
           vibeTopicId: widget.vibeTopicId,
           vibeTopicTitle: widget.vibeTopicTitle,
+          fromVibePlaylist: widget.fromVibePlaylist,
           cachedPreviewUrl: _cachedPreviewUrl,
           cachedGradientStart: _cachedGradientStart,
           cachedGradientEnd: _cachedGradientEnd,
@@ -258,6 +261,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
             isVibe: widget.isVibe,
             vibeTopicId: widget.vibeTopicId,
             vibeTopicTitle: widget.vibeTopicTitle,
+            fromVibePlaylist: widget.fromVibePlaylist,
             cachedPreviewUrl: _cachedPreviewUrl,
             cachedGradientStart: _cachedGradientStart,
             cachedGradientEnd: _cachedGradientEnd,
@@ -477,6 +481,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
                       isVibe: widget.isVibe,
                       vibeTopicId: widget.vibeTopicId,
                       vibeTopicTitle: widget.vibeTopicTitle,
+                      fromVibePlaylist: widget.fromVibePlaylist,
                       cachedPreviewUrl: _cachedPreviewUrl,
                       cachedGradientStart: _cachedGradientStart,
                       cachedGradientEnd: _cachedGradientEnd,

@@ -219,7 +219,13 @@ class _CarouselSectionState extends State<_CarouselSection> {
     super.initState();
     final list = widget.items ?? TutorialAlbumCarousel.defaultItems;
     if (list.isNotEmpty) {
-      _CarouselSection.currentSelection.value = list.first;
+      // PageController の initialPage % length が実際に最初に表示されるインデックス
+      final initialIndex = TutorialAlbumCarousel.initialPage % list.length;
+      _CarouselSection.currentSelection.value = list[initialIndex];
+      // 初期表示時も onActiveChanged を発火させて表示中アルバムを再生する
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onActiveChanged?.call(initialIndex);
+      });
     }
   }
 

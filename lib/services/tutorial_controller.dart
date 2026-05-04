@@ -69,6 +69,16 @@ class TutorialController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 新規登録フロー専用の開始（_everCompleted を無視して強制的に開始）
+  Future<void> startFresh() async {
+    _step = TutorialStep.showHomeHint;
+    _everCompleted = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_completedKey);
+    await _persistStep();
+    notifyListeners();
+  }
+
   /// 任意のステップに進める
   Future<void> goTo(TutorialStep step) async {
     _step = step;
@@ -84,6 +94,13 @@ class TutorialController extends ChangeNotifier {
     await prefs.remove(_prefKey);
     await prefs.setBool(_completedKey, true);
     notifyListeners();
+  }
+
+  /// 完了フラグのみリセット（アカウント削除時など）
+  Future<void> resetCompletedFlag() async {
+    _everCompleted = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_completedKey);
   }
 
   /// 強制リセット（デバッグ用）

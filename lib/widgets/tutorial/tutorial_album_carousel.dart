@@ -35,7 +35,7 @@ class TutorialAlbumCarousel extends StatefulWidget {
   static const List<TutorialAlbumItem> defaultItems = [
     TutorialAlbumItem(
       assetPath: 'assets/images/tutorial/album_sukisugite.png',
-      title: '好きすぎて滅！',
+      title: '好きすぎて滅!',
       artist: 'MiLK',
     ),
     TutorialAlbumItem(
@@ -50,14 +50,14 @@ class TutorialAlbumCarousel extends StatefulWidget {
     ),
   ];
 
+  /// 無限スクロール用の初期ページ番号（_CarouselSection でも参照する）
+  static const int initialPage = 10000;
+
   @override
   State<TutorialAlbumCarousel> createState() => _TutorialAlbumCarouselState();
 }
 
 class _TutorialAlbumCarouselState extends State<TutorialAlbumCarousel> {
-  // 無限スクロール用の中央ページ番号（十分大きい数字）
-  static const int _initialPage = 10000;
-
   late final PageController _pageController;
   Timer? _autoplayTimer;
   int _lastReportedActive = -1;
@@ -70,7 +70,7 @@ class _TutorialAlbumCarouselState extends State<TutorialAlbumCarousel> {
     super.initState();
     // viewportFraction = 250 / 402 で隣接カードがピーク表示
     _pageController = PageController(
-      initialPage: _initialPage,
+      initialPage: TutorialAlbumCarousel.initialPage,
       viewportFraction: 270.0 / 402.0,
     );
     _pageController.addListener(_onPageChange);
@@ -87,7 +87,7 @@ class _TutorialAlbumCarouselState extends State<TutorialAlbumCarousel> {
 
   void _onPageChange() {
     if (!_pageController.hasClients) return;
-    final raw = _pageController.page ?? _initialPage.toDouble();
+    final raw = _pageController.page ?? TutorialAlbumCarousel.initialPage.toDouble();
     final activeIndex = raw.round() % _items.length;
     if (activeIndex != _lastReportedActive) {
       _lastReportedActive = activeIndex;
@@ -133,25 +133,35 @@ class _TutorialAlbumCarouselState extends State<TutorialAlbumCarousel> {
 
   Widget _buildItem(int index) {
     final item = _items[index % _items.length];
-    return AnimatedBuilder(
-      animation: _pageController,
-      builder: (context, child) {
-        double pageOffset = 0;
-        if (_pageController.position.hasContentDimensions) {
-          pageOffset = (_pageController.page ?? _initialPage.toDouble()) - index;
-        }
-        final t = (1.0 - pageOffset.abs()).clamp(0.0, 1.0);
-        // スケール: ピーク 250/270 ≈ 0.926, 中央 1.0
-        const minScale = 250.0 / 270.0;
-        final scale = minScale + (1.0 - minScale) * t;
-        return Center(
-          child: Transform.scale(
-            scale: scale,
-            child: child,
-          ),
+    return GestureDetector(
+      // サイドカード（左右にはみ出た部分）をタップしてもそのカードへ移動
+      onTap: () {
+        _pageController.animateToPage(
+          index,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
         );
       },
-      child: _AlbumCard(item: item),
+      child: AnimatedBuilder(
+        animation: _pageController,
+        builder: (context, child) {
+          double pageOffset = 0;
+          if (_pageController.position.hasContentDimensions) {
+            pageOffset = (_pageController.page ?? TutorialAlbumCarousel.initialPage.toDouble()) - index;
+          }
+          final t = (1.0 - pageOffset.abs()).clamp(0.0, 1.0);
+          // スケール: ピーク 250/270 ≈ 0.926, 中央 1.0
+          const minScale = 250.0 / 270.0;
+          final scale = minScale + (1.0 - minScale) * t;
+          return Center(
+            child: Transform.scale(
+              scale: scale,
+              child: child,
+            ),
+          );
+        },
+        child: _AlbumCard(item: item),
+      ),
     );
   }
 }

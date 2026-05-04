@@ -38,6 +38,7 @@ import 'home/vibe_bar_section.dart';
 import 'home/home_bottom_nav.dart';
 import '../widgets/common/app_toast.dart';
 import '../services/tutorial_controller.dart';
+import '../services/tutorial_prefetch_service.dart';
 import '../widgets/tutorial/tutorial_coachmark.dart';
 import '../widgets/tutorial/animated_hand_cursor.dart';
 import '../widgets/tutorial/tutorial_frame628_overlay.dart';
@@ -90,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen>
   // カメラオーバーレイに渡すトラック（takingPhoto ステップで使用）
   TrackModel? _tutorialTrack;
 
+  int _tutorialActiveIndex = 0;
 
   // 現在再生中の投稿ID
   String? _playingPostId;
@@ -641,15 +643,48 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// チュートリアル Frame 628 で曲を選んだときに呼ばれる
+  /// チュートリアル Frame 628 でカルーセルのアクティブ曲が変わったときに呼ばれる
+  Future<void> _onTutorialAlbumChanged(int index) async {
+    _tutorialActiveIndex = index;
+    final items = TutorialAlbumCarousel.defaultItems;
+    if (index >= items.length) return;
+    final item = items[index];
+    final cacheKey = '${item.title}__${item.artist}';
+
+    // MusicConnectionScreen で既にプリフェッチ済みのはずだが、未完の場合は待機
+    await TutorialPrefetchService.instance.ensureReady(cacheKey, item);
+
+    // 非同期中にインデックスが変わっていたら再生しない
+    if (!mounted || _tutorialActiveIndex != index) return;
+
+    final previewUrl = TutorialPrefetchService.instance.previewCache[cacheKey];
+    if (previewUrl != null && previewUrl.isNotEmpty) {
+      _homeAudioService.playPreview(previewUrl);
+    }
+  }
+
+  /// チュートリアル Frame 628 で曲を確定したときに呼ばれる
   Future<void> _onTutorialSongConfirmed(TutorialAlbumItem item) async {
     _homeAudioService.stop();
-    // カメラオーバーレイ用トラックを保存してから takingPhoto ステップへ
+    final cacheKey = '${item.title}__${item.artist}';
+
+    await TutorialPrefetchService.instance.ensureReady(cacheKey, item);
+
+    if (!mounted) return;
+
+    final cache = TutorialPrefetchService.instance;
+    // Spotify のアルバムアートURL（取得失敗時はローカル assetPath をフォールバック）
+    final albumArtUrl =
+        cache.artCache[cacheKey]?.isNotEmpty == true
+            ? cache.artCache[cacheKey]!
+            : item.assetPath;
+
     _tutorialTrack = TrackModel(
       trackId: 'tutorial_${item.title.hashCode}',
       trackName: item.title,
       artistName: item.artist,
-      albumImageUrl: item.assetPath,
+      albumImageUrl: albumArtUrl,
+      previewUrl: cache.previewCache[cacheKey],
     );
     await TutorialController.instance.goTo(TutorialStep.takingPhoto);
   }
@@ -826,6 +861,7 @@ class _HomeScreenState extends State<HomeScreen>
                   return Positioned.fill(
                     child: TutorialFrame628Overlay(
                       onConfirm: _onTutorialSongConfirmed,
+                      onActiveChanged: _onTutorialAlbumChanged,
                     ),
                   );
                 }

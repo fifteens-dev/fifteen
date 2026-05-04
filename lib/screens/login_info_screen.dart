@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../widgets/dialogs/confirm_dialog.dart';
 import '../widgets/common/app_toast.dart';
+import '../services/tutorial_controller.dart';
 
 /// ログイン情報画面
 class LoginInfoScreen extends StatefulWidget {
@@ -20,8 +21,12 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
 
   bool _isDeleting = false;
 
-  String get _phoneNumber =>
-      FirebaseAuth.instance.currentUser?.phoneNumber ?? '-';
+  String get _phoneNumber {
+    final phone = FirebaseAuth.instance.currentUser?.phoneNumber;
+    // テストユーザーはメール認証のため phoneNumber が null になる
+    if (phone == null || phone.isEmpty) return '+810000000000';
+    return phone;
+  }
 
   Future<void> _handleDeleteAccount() async {
     // 1回目の確認
@@ -43,35 +48,35 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
     );
     if (!confirmed2 || !mounted) return;
 
+    // 電話番号再認証
+    if (!mounted) return;
+    final reauthOk = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ReauthDeleteSheet(phoneNumber: _phoneNumber),
+    );
+    if (reauthOk != true || !mounted) return;
+
     setState(() => _isDeleting = true);
 
     try {
-      // currentUserがnullの場合、authStateChangesで復元を一度待つ（即時emit）
       User? user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        try {
-          user = await FirebaseAuth.instance
-              .authStateChanges()
-              .first
-              .timeout(const Duration(seconds: 3));
-        } catch (_) {
-          user = null;
-        }
-      }
       final userId = user?.uid;
       if (userId == null) {
         setState(() => _isDeleting = false);
-        if (mounted) {
-          AppToast.show(context, 'ログインが必要です');
-        }
+        if (mounted) AppToast.show(context, 'ログインが必要です');
         return;
       }
 
       // Firestoreデータ削除
       await _userService.deleteUserData(userId);
 
-      // Firebase Auth アカウント削除
+      // Firebase Auth アカウント削除（再認証済みなので成功するはず）
       await _authService.deleteAccount();
+
+      // 次回登録時にチュートリアルを再表示するためフラグをリセット
+      await TutorialController.instance.resetCompletedFlag();
 
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil(
@@ -82,18 +87,7 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       setState(() => _isDeleting = false);
-
-      if (e.code == 'requires-recent-login') {
-        await ConfirmDialog.show(
-          context,
-          title: '再ログインが必要です',
-          message: 'アカウントを削除するには、一度ログアウトして再度ログインしてください。',
-          confirmText: 'OK',
-          cancelText: '',
-        );
-      } else {
-        AppToast.show(context, '削除に失敗しました: ${e.message}');
-      }
+      AppToast.show(context, '削除に失敗しました: ${e.message}');
     } catch (e) {
       if (!mounted) return;
       setState(() => _isDeleting = false);
@@ -248,14 +242,14 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
               children: [
                 Expanded(
                   child: _isDeleting
-                      ? Row(
+                      ? const Row(
                           children: [
-                            const CupertinoActivityIndicator(
+                            CupertinoActivityIndicator(
                               color: Colors.red,
                               radius: 8,
                             ),
-                            const SizedBox(width: 10),
-                            const Flexible(
+                            SizedBox(width: 10),
+                            Flexible(
                               child: Text(
                                 '削除中...',
                                 style: TextStyle(
@@ -285,3 +279,267 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
     );
   }
 }
+
+/// 電話番号再認証シート（アカウント削除前の本人確認）
+class _ReauthDeleteSheet extends StatefulWidget {
+  final String phoneNumber;
+  const _ReauthDeleteSheet({required this.phoneNumber});
+
+  @override
+  State<_ReauthDeleteSheet> createState() => _ReauthDeleteSheetState();
+}
+
+class _ReauthDeleteSheetState extends State<_ReauthDeleteSheet> {
+  final AuthService _authService = AuthService();
+  final TextEditingController _codeController = TextEditingController();
+
+  _SheetStep _step = _SheetStep.sending;
+  String? _verificationId;
+  String? _errorText;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _sendCode();
+  }
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  static const _testPhone = '+810000000000';
+
+  Future<void> _sendCode() async {
+    setState(() {
+      _isLoading = true;
+      _errorText = null;
+    });
+
+    // テストユーザーバイパス
+    if (widget.phoneNumber == _testPhone) {
+      setState(() {
+        _verificationId = '__TEST__';
+        _step = _SheetStep.entering;
+        _isLoading = false;
+      });
+      return;
+    }
+
+    await _authService.verifyPhoneNumber(
+      phoneNumber: widget.phoneNumber,
+      onCodeSent: (vid) {
+        if (mounted) {
+          setState(() {
+            _verificationId = vid;
+            _step = _SheetStep.entering;
+            _isLoading = false;
+          });
+        }
+      },
+      onError: (err) {
+        if (mounted) {
+          setState(() {
+            _errorText = err;
+            _step = _SheetStep.entering;
+            _isLoading = false;
+          });
+        }
+      },
+      onAutoVerify: (credential) async {
+        if (!mounted) return;
+        setState(() => _isLoading = true);
+        try {
+          await FirebaseAuth.instance.currentUser!
+              .reauthenticateWithCredential(credential);
+          if (mounted) Navigator.of(context).pop(true);
+        } catch (_) {
+          if (mounted) {
+            setState(() {
+              _errorText = '自動認証に失敗しました。コードを入力してください。';
+              _step = _SheetStep.entering;
+              _isLoading = false;
+            });
+          }
+        }
+      },
+    );
+  }
+
+  Future<void> _verify() async {
+    final code = _codeController.text.trim();
+    if (code.length < 6) {
+      setState(() => _errorText = '6桁のコードを入力してください');
+      return;
+    }
+    final vid = _verificationId;
+    if (vid == null) {
+      setState(() => _errorText = '先に認証コードを送信してください');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorText = null;
+    });
+
+    // テストユーザーバイパス
+    if (vid == '__TEST__') {
+      if (code != '000000') {
+        setState(() {
+          _errorText = 'テスト用コードは 000000 です';
+          _isLoading = false;
+        });
+        return;
+      }
+      if (mounted) Navigator.of(context).pop(true);
+      return;
+    }
+
+    try {
+      final credential = PhoneAuthProvider.credential(
+        verificationId: vid,
+        smsCode: code,
+      );
+      await FirebaseAuth.instance.currentUser!
+          .reauthenticateWithCredential(credential);
+      if (mounted) Navigator.of(context).pop(true);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      String msg;
+      switch (e.code) {
+        case 'invalid-verification-code':
+          msg = '認証コードが正しくありません';
+        case 'session-expired':
+          msg = '認証コードの有効期限が切れました。再送してください';
+        default:
+          msg = '認証に失敗しました';
+      }
+      setState(() {
+        _errorText = msg;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _errorText = '予期しないエラーが発生しました';
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF1C1C1E),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: EdgeInsets.fromLTRB(24, 20, 24, 24 + bottomInset),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ハンドル
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              '本人確認',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${widget.phoneNumber} に認証コードを送信しました。\nコードを入力してアカウント削除を完了してください。',
+              style: const TextStyle(
+                color: Color(0xFFAAAAAA),
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            if (_step == _SheetStep.sending && _isLoading)
+              const Center(child: CupertinoActivityIndicator(color: Colors.white))
+            else ...[
+              TextField(
+                controller: _codeController,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                style: const TextStyle(color: Colors.white, fontSize: 20, letterSpacing: 6),
+                decoration: InputDecoration(
+                  counterText: '',
+                  hintText: '------',
+                  hintStyle: const TextStyle(color: Colors.white24, letterSpacing: 6),
+                  filled: true,
+                  fillColor: const Color(0xFF2C2C2E),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  errorText: _errorText,
+                  errorStyle: const TextStyle(color: Color(0xFFFF453A)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  // 再送ボタン
+                  TextButton(
+                    onPressed: _isLoading ? null : _sendCode,
+                    child: const Text(
+                      '再送する',
+                      style: TextStyle(color: Color(0xFF636366), fontSize: 13),
+                    ),
+                  ),
+                  const Spacer(),
+                  // 確認ボタン
+                  SizedBox(
+                    width: 140,
+                    height: 44,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _verify,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.red.withValues(alpha: 0.4),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                      ),
+                      child: _isLoading
+                          ? const CupertinoActivityIndicator(color: Colors.white, radius: 9)
+                          : const Text(
+                              'アカウント削除',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _SheetStep { sending, entering }

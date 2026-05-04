@@ -10,6 +10,7 @@ import '../widgets/dialogs/bottom_sheet_dialog.dart';
 import 'home_screen.dart';
 import '../services/tutorial_controller.dart';
 import '../widgets/common/app_toast.dart';
+import '../services/tutorial_prefetch_service.dart';
 
 /// 音楽ライブラリ接続画面
 ///
@@ -26,6 +27,13 @@ class MusicConnectionScreen extends StatefulWidget {
 class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
   bool _isAppleMusicLoading = false;
   bool _isSpotifyLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // チュートリアル固定3曲をバックグラウンドで先行取得開始
+    TutorialPrefetchService.instance.prefetchAll();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -338,7 +346,8 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
   /// 以降は実際のホーム画面・投稿フロー上にコーチマークが重ねて表示される。
   Future<void> _goToTutorial() async {
     await TutorialController.instance.ensureInitialized();
-    await TutorialController.instance.start();
+    // 新規登録フローなので完了済みフラグを無視して常に開始する
+    await TutorialController.instance.startFresh();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/home');
   }

@@ -140,6 +140,10 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
     _tabPageController.dispose();
     _pageController?.dispose();
     _audioService.dispose();
+    // 画面を閉じた時点でチュートリアルが swipeUpInPlaylist のまま残っていたら完了扱いにする
+    if (TutorialController.instance.step == TutorialStep.swipeUpInPlaylist) {
+      TutorialController.instance.complete();
+    }
     super.dispose();
   }
 

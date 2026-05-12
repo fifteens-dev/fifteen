@@ -1,12 +1,13 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
+import '../providers/current_user_provider.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
-import '../utils/current_user_helper.dart';
 import 'card_share_screen.dart';
 
 /// バッチ投稿通知から遷移するスクロール可能な投稿リスト画面（先着順）
@@ -33,18 +34,19 @@ class _BatchPostsScreenState extends State<BatchPostsScreen> {
   List<PostModel> _posts = [];
   bool _isLoading = true;
   int _currentPage = 0;
-  String? _currentUserIconUrl;
 
   int? _playingPageIndex;
   final Map<int, GlobalKey<PostCardState>> _cardKeys = {};
   final Map<int, String?> _previewUrlCache = {};
   int? _requestedPageIndex;
 
+  String? get _currentUserIconUrl =>
+      context.read<CurrentUserProvider>().iconUrl;
+
   @override
   void initState() {
     super.initState();
     _loadPosts();
-    _loadCurrentUserIconUrl();
   }
 
   Future<void> _loadPosts() async {
@@ -60,13 +62,6 @@ class _BatchPostsScreenState extends State<BatchPostsScreen> {
         _playingPageIndex = 0;
         _playMusicForPage(0);
       }
-    }
-  }
-
-  Future<void> _loadCurrentUserIconUrl() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() => _currentUserIconUrl = userInfo.iconUrl);
     }
   }
 

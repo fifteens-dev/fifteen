@@ -305,6 +305,26 @@ class UserService {
     }
   }
 
+  Future<List<UserModel>> getFollowerUsers(String userId) async {
+    try {
+      final doc = await _firestore.collection(_usersCollection).doc(userId).get();
+      if (!doc.exists) return [];
+      final data = doc.data()!;
+      final followerIds = List<String>.from(data['followers'] ?? []);
+      if (followerIds.isEmpty) return [];
+      final results = await Future.wait(
+        followerIds.map((id) => _firestore.collection(_usersCollection).doc(id).get()),
+      );
+      return results
+          .where((d) => d.exists)
+          .map((d) => UserModel.fromFirestore(d))
+          .toList();
+    } catch (e) {
+      if (kDebugMode) print('getFollowerUsers error: $e');
+      return [];
+    }
+  }
+
   // ユーザーをフォローする
   Future<void> followUser({
     required String currentUserId,

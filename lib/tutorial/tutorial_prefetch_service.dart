@@ -1,6 +1,6 @@
-import '../widgets/tutorial/tutorial_album_carousel.dart';
-import 'spotify_service.dart';
-import 'itunes_search_service.dart';
+import 'tutorial_album_carousel.dart';
+import '../services/spotify_service.dart';
+import '../services/itunes_search_service.dart';
 
 /// チュートリアル固定3曲のアルバムアート・プレビューURLをアプリ起動直後に
 /// バックグラウンドで取得し、キャッシュするシングルトンサービス。

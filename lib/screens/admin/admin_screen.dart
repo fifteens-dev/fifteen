@@ -13,6 +13,7 @@ import 'invitation_stats_tab.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'reports_tab.dart';
 import 'analytics_tab.dart';
+import 'adl_tab.dart';
 import '../../widgets/common/app_toast.dart';
 
 /// 管理者画面
@@ -34,7 +35,7 @@ class _AdminScreenState extends State<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 8, vsync: this);
+    _tabController = TabController(length: 9, vsync: this);
     _checkAdminStatus();
   }
 
@@ -135,6 +136,10 @@ class _AdminScreenState extends State<AdminScreen>
               icon: Icon(Icons.verified_user),
               text: '公式アカウント',
             ),
+            Tab(
+              icon: Icon(Icons.groups),
+              text: 'ADLイベント',
+            ),
           ],
         ),
       ),
@@ -149,6 +154,7 @@ class _AdminScreenState extends State<AdminScreen>
           InvitationStatsTab(),
           ReportsTab(),
           _OfficialAccountTab(),
+          AdlTab(),
         ],
       ),
     );

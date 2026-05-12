@@ -8,9 +8,7 @@ import '../services/musickit_service.dart';
 import '../models/music_service_type.dart';
 import '../widgets/dialogs/bottom_sheet_dialog.dart';
 import 'home_screen.dart';
-import '../services/tutorial_controller.dart';
 import '../widgets/common/app_toast.dart';
-import '../services/tutorial_prefetch_service.dart';
 
 /// 音楽ライブラリ接続画面
 ///
@@ -31,8 +29,6 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
   @override
   void initState() {
     super.initState();
-    // チュートリアル固定3曲をバックグラウンドで先行取得開始
-    TutorialPrefetchService.instance.prefetchAll();
   }
 
   @override
@@ -281,7 +277,7 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
           AppToast.show(context, 'Apple Musicと連携しました');
         }
 
-        _goToTutorial();
+        _goToHome();
       } else {
         // 認証拒否またはその他のエラー: リセットして画面に留まる
         await musicServiceManager.setSelectedService(MusicServiceType.none);
@@ -317,7 +313,7 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
           spotifyConnected: true,
           appleMusicConnected: false,
         );
-        _goToTutorial();
+        _goToHome();
       } else {
         await settingsService.saveAllLinkedServicesSettings(
           spotifyConnected: false,
@@ -338,16 +334,12 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
     );
 
     if (mounted) {
-      _goToTutorial();
+      _goToHome();
     }
   }
 
-  /// チュートリアル状態を開始してホームへ。
-  /// 以降は実際のホーム画面・投稿フロー上にコーチマークが重ねて表示される。
-  Future<void> _goToTutorial() async {
-    await TutorialController.instance.ensureInitialized();
-    // 新規登録フローなので完了済みフラグを無視して常に開始する
-    await TutorialController.instance.startFresh();
+  /// 連携フロー完了後にホームへ遷移
+  Future<void> _goToHome() async {
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/home');
   }

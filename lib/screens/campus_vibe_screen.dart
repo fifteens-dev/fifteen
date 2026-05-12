@@ -2,13 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
+import '../providers/current_user_provider.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
-import '../utils/current_user_helper.dart';
 import 'card_share_screen.dart';
 import 'home/home_bottom_nav.dart';
 
@@ -38,7 +39,6 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
   List<PostModel> _posts = [];
   bool _isLoading = true;
   int _currentPage = 0;
-  String? _currentUserIconUrl;
 
   bool _hasPostedThisWeekend = false;
   bool _hasPostedThisWeekendLoaded = false;
@@ -48,11 +48,13 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
   final Map<int, String?> _previewUrlCache = {};
   int? _requestedPageIndex;
 
+  String? get _currentUserIconUrl =>
+      context.read<CurrentUserProvider>().iconUrl;
+
   @override
   void initState() {
     super.initState();
     _loadPosts();
-    _loadCurrentUserIconUrl();
     _loadHasPostedThisWeekend();
     // 過去週の Campus Vibe 投稿をバックグラウンドでアーカイブ
     _postService.archiveOldCampusVibePosts(widget.university);
@@ -81,13 +83,6 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
         _hasPostedThisWeekend = hasPosted;
         _hasPostedThisWeekendLoaded = true;
       });
-    }
-  }
-
-  Future<void> _loadCurrentUserIconUrl() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() => _currentUserIconUrl = userInfo.iconUrl);
     }
   }
 

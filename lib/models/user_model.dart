@@ -16,6 +16,9 @@ class UserModel {
   final DateTime? updatedAt;
   final bool isAdmin; // 管理者フラグ
   final String? inviteCode; // 招待コード（7文字英数字）
+  final String? adlTeamId; // ADL班ID
+  final String? adlTeamName; // ADL班名
+  final String? adlEventId; // ADLイベントID
 
   UserModel({
     required this.uid,
@@ -33,6 +36,9 @@ class UserModel {
     this.updatedAt,
     this.isAdmin = false,
     this.inviteCode,
+    this.adlTeamId,
+    this.adlTeamName,
+    this.adlEventId,
   });
 
   // Firestoreドキュメントから作成
@@ -68,6 +74,9 @@ class UserModel {
       // 非bool型が保存されていた場合 == true で安全にfalseとして扱う
       isAdmin: data['isAdmin'] == true,
       inviteCode: data['inviteCode']?.toString(),
+      adlTeamId: data['adlTeamId']?.toString(),
+      adlTeamName: data['adlTeamName']?.toString(),
+      adlEventId: data['adlEventId']?.toString(),
     );
   }
 
@@ -89,6 +98,9 @@ class UserModel {
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
       'isAdmin': isAdmin,
       'inviteCode': inviteCode,
+      'adlTeamId': adlTeamId,
+      'adlTeamName': adlTeamName,
+      'adlEventId': adlEventId,
     };
   }
 

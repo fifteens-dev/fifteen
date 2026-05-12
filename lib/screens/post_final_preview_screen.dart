@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -17,21 +18,22 @@ import '../widgets/post_card/post_card_constants.dart';
 import '../widgets/post_card_back_info.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
 import '../widgets/post_creation/post_card_back_view.dart';
-import '../widgets/dialogs/dialogs.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../services/lyrics_service.dart';
-import '../services/tutorial_controller.dart';
 import '../utils/campus_vibe_utils.dart';
 import '../utils/color_extractor.dart';
-import '../utils/current_user_helper.dart';
+import 'package:provider/provider.dart';
+import '../providers/current_user_provider.dart';
 import '../utils/photo_helper.dart';
 import '../widgets/campus_vibe_toggle_bar.dart';
 import '../services/vibe_topic_service.dart';
-import '../widgets/common/app_toast.dart';
+import '../services/adl_service.dart';
 import '../widgets/shared/user_info_badge.dart';
+import '../services/posting_state.dart';
+import '../widgets/post_creation/posting_card_overlay.dart';
 
 /// 投稿カード最終プレビュー画面
 /// PostPreviewScreenと同じカード仕様（フリップ・音楽再生）で表示する
@@ -101,7 +103,6 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   final StorageService _storageService = StorageService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   bool _isPosting = false;
-
   // 反転アニメーション用（最終プレビューは常に裏面から開始）
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
@@ -150,9 +151,14 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   Offset _photoStartFocalPoint = Offset.zero;
 
   // 現在のユーザー情報
-  String _currentUsername = '';
-  String? _currentUserIconUrl;
   String? _currentUniversity;
+
+  String get _currentUsername =>
+      (widget.initialUsername != null && widget.initialUsername!.isNotEmpty)
+          ? widget.initialUsername!
+          : context.read<CurrentUserProvider>().username;
+  String? get _currentUserIconUrl =>
+      widget.initialUserIconUrl ?? context.read<CurrentUserProvider>().iconUrl;
 
   // Campus Vibe 参加フラグ（デフォルトON）
   bool _campusVibeParticipating = true;
@@ -161,6 +167,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   late bool _isVibe;
   String? _vibeTopicId;
   String? _vibeTopicTitle;
+
+  // ADL班タグ
+  String? _adlTeamId;
 
   @override
   void initState() {
@@ -171,12 +180,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     _loadTodaysTopic();
 
     _currentUniversity = widget.initialUniversity;
-    if (widget.initialUsername != null && widget.initialUsername!.isNotEmpty) {
-      _currentUsername = widget.initialUsername!;
-      _currentUserIconUrl = widget.initialUserIconUrl;
-    } else {
-      _loadCurrentUserInfo();
-    }
+    _loadADLTeam();
 
     _imageOffset = widget.imageOffset;
     _imageScale = widget.imageScale;
@@ -260,14 +264,17 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     });
   }
 
-  Future<void> _loadCurrentUserInfo() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() {
-        _currentUsername = userInfo.username;
-        _currentUserIconUrl = userInfo.iconUrl;
-      });
-    }
+  /// ADLモードが有効な場合、ユーザーの班IDを取得
+  Future<void> _loadADLTeam() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        final membership = await AdlService().getCurrentMembership(uid);
+        if (mounted && membership != null) {
+          setState(() => _adlTeamId = membership['teamId'] as String?);
+        }
+      }
+    } catch (_) {}
   }
 
   /// 今日のVibeお題を読み込み（既にトピックが指定されている場合はスキップ）
@@ -637,31 +644,153 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   Future<void> _onPost({required bool asVibe}) async {
     if (_isPosting) return;
 
-    setState(() => _isVibe = asVibe);
-    setState(() => _isPosting = true);
+    setState(() {
+      _isVibe = asVibe;
+      _isPosting = true;
+    });
 
+    // ---- アップロードに必要な値をすべてキャプチャ ----
+    final currentUser = _auth.currentUser;
+    final userId = currentUser?.uid ?? 'test_user_temp';
+    final username = _currentUsername.isNotEmpty
+        ? _currentUsername
+        : currentUser?.displayName ?? 'ユーザー';
+    final userIconUrl = _currentUserIconUrl;
+    final previewUrlBase = _cachedPreviewUrl ?? widget.track.previewUrl;
+    final selectedImage = widget.selectedImage;
+    final imageOffset = _imageOffset;
+    final imageScale = _imageScale;
+    final imageNaturalSize = widget.imageNaturalSize;
+    final selectedLayoutIndex = _editState.selectedLayoutIndex;
+    final cardSize = PostCardBackView.cardSizeForLayout(selectedLayoutIndex);
+    final cardPos = _editState.cardPositionForSize(cardSize);
+    final cardCenter = _editState.cardCenter;
+    final cardScale = _editState.cardScale;
+    final cardRotation = _editState.cardRotation;
+    final isVibe = _isVibe;
+    final vibeTopicId = _vibeTopicId;
+    final vibeTopicTitle = _vibeTopicTitle;
+    final university = _currentUniversity;
+    final campusVibeParticipating = _campusVibeParticipating;
+    final adlTeamId = _adlTeamId;
+    final track = widget.track;
+    final lyricsData = widget.lyricsData;
+    final audioStartMs = widget.audioStartMs;
+    final audioDurationSec = widget.audioDurationSec;
+    final postService = _postService;
+    final storageService = _storageService;
+    // ------------------------------------------------
+
+    // データをセット
+    PostingState.instance.startPosting(PostingCardData(
+      track: track,
+      username: username,
+      userIconUrl: userIconUrl,
+      selectedImage: selectedImage,
+      imageOffset: imageOffset,
+      imageScale: imageScale,
+      imageNaturalSize: imageNaturalSize,
+      selectedLayoutIndex: selectedLayoutIndex,
+      cardCenter: cardCenter,
+      cardScale: cardScale,
+      cardRotation: cardRotation,
+      lyricsData: lyricsData,
+      albumArtOpacity: widget.albumArtOpacity,
+      gradientStart: _extractedGradientStart,
+      gradientEnd: _extractedGradientEnd,
+      previewUrl: previewUrlBase,
+      audioStartMs: audioStartMs,
+      audioDurationSec: audioDurationSec,
+      isVibe: isVibe,
+      vibeTopicTitle: vibeTopicTitle,
+    ));
+
+    if (mounted) {
+      // popUntil で中間スクリーンを経由する際にそれらが見えないよう、
+      // 全ルートの上（root Overlay）に PostingCardOverlay を即時挿入する
+      final overlayEntry = OverlayEntry(
+        builder: (_) => const Material(
+          type: MaterialType.transparency,
+          child: PostingCardOverlay(),
+        ),
+      );
+      Overlay.of(context).insert(overlayEntry);
+      PostingState.instance.setOverlayEntry(overlayEntry);
+
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/home',
+        (route) => false,
+      );
+    }
+
+    // バックグラウンドでアップロード実行（unawaited）
+    _runUpload(
+      userId: userId,
+      username: username,
+      userIconUrl: userIconUrl,
+      track: track,
+      previewUrlBase: previewUrlBase,
+      selectedImage: selectedImage,
+      imageOffset: imageOffset,
+      imageScale: imageScale,
+      imageNaturalSize: imageNaturalSize,
+      selectedLayoutIndex: selectedLayoutIndex,
+      cardPos: cardPos,
+      cardScale: cardScale,
+      cardRotation: cardRotation,
+      isVibe: isVibe,
+      vibeTopicId: vibeTopicId,
+      vibeTopicTitle: vibeTopicTitle,
+      lyricsData: lyricsData,
+      audioStartMs: audioStartMs,
+      audioDurationSec: audioDurationSec,
+      university: university,
+      campusVibeParticipating: campusVibeParticipating,
+      adlTeamId: adlTeamId,
+      postService: postService,
+      storageService: storageService,
+    );
+  }
+
+  /// ウィジェットのライフサイクルに依存しないアップロード処理。
+  /// 画面遷移後もバックグラウンドで実行される。
+  static Future<void> _runUpload({
+    required String userId,
+    required String username,
+    required String? userIconUrl,
+    required TrackModel track,
+    required String? previewUrlBase,
+    required XFile? selectedImage,
+    required Offset imageOffset,
+    required double imageScale,
+    required Size? imageNaturalSize,
+    required int selectedLayoutIndex,
+    required Offset cardPos,
+    required double cardScale,
+    required cardRotation,
+    required bool isVibe,
+    required String? vibeTopicId,
+    required String? vibeTopicTitle,
+    required lyricsData,
+    required int audioStartMs,
+    required int audioDurationSec,
+    required String? university,
+    required bool campusVibeParticipating,
+    required String? adlTeamId,
+    required postService,
+    required storageService,
+  }) async {
     try {
-      final currentUser = _auth.currentUser;
-      final userId = currentUser?.uid ?? 'test_user_temp';
-      final username = _currentUsername.isNotEmpty
-          ? _currentUsername
-          : currentUser?.displayName ?? 'ユーザー';
-      final userIconUrl = _currentUserIconUrl;
-
-      final String? previewUrlBase = _cachedPreviewUrl ?? widget.track.previewUrl;
-
-      // Phase 1: アップロード(URL取得前)・テーマ抽出・プレビューURL を並列実行
-      // モバイル: putDataのみ実行→Reference返却（getDownloadURLはPhase2で並列化）
-      // Web: Base64変換→immediateUrlに格納
+      // Phase 1: 写真アップロード・テーマ抽出・プレビューURL を並列実行
       final Future<({String? immediateUrl, Reference? storageRef, int croppedWidth, int croppedHeight})> photoSplitFuture =
-          widget.selectedImage != null
+          selectedImage != null
               ? PhotoHelper.processPhotoSplit(
-                  image: widget.selectedImage!,
+                  image: selectedImage,
                   userId: userId,
-                  storageService: _storageService,
-                  imageOffset: _imageOffset,
-                  imageScale: _imageScale,
-                  imageNaturalSize: widget.imageNaturalSize,
+                  storageService: storageService,
+                  imageOffset: imageOffset,
+                  imageScale: imageScale,
+                  imageNaturalSize: imageNaturalSize,
                 ).catchError((dynamic e) {
                   print('⚠️ 写真のアップロードに失敗: $e');
                   return (
@@ -679,12 +808,12 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                 ));
 
       final Future<PostTheme?> themeFuture =
-          ColorExtractor.extractThemeFromAlbumArt(widget.track.albumImageUrl)
+          ColorExtractor.extractThemeFromAlbumArt(track.albumImageUrl)
               .catchError((dynamic _) => null as PostTheme?);
 
       final Future<String?> previewFuture =
           (previewUrlBase == null || previewUrlBase.isEmpty)
-              ? _getPreviewUrlFromItunes()
+              ? _fetchPreviewFromItunes(track)
               : Future.value(previewUrlBase);
 
       final results1 = await Future.wait<dynamic>([
@@ -698,24 +827,19 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       final PostTheme? extractedTheme = results1[1] as PostTheme?;
       final String? previewUrl = results1[2] as String?;
 
-      // ローカル処理（高速）
+      // 歌詞テキスト抽出
       String? lyricsText;
-      if (widget.lyricsData != null) {
+      if (lyricsData != null) {
         final lyricsService = LyricsService();
         lyricsText = lyricsService.truncateLyrics(
-          widget.lyricsData!.plainLyrics,
+          lyricsData.plainLyrics,
           maxLines: 4,
         );
       }
 
-      final cardSize =
-          PostCardBackView.cardSizeForLayout(_editState.selectedLayoutIndex);
-      final cardPos = _editState.cardPositionForSize(cardSize);
-      final trackData = widget.track.toMap()..['previewUrl'] = previewUrl;
+      final trackData = track.toMap()..['previewUrl'] = previewUrl;
 
-      // Phase 2: getDownloadURL と createPost を並列実行
-      // モバイル: putData完了済みのRefからURLを取得しつつ、同時にFirestore書き込み
-      // Web: immediateUrl をそのまま使うので並列化は createPost のみ
+      // Phase 2: URL取得 と Firestore書き込みを並列実行
       final Future<String?> urlFuture = photoResult.storageRef != null
           ? photoResult.storageRef!
               .getDownloadURL()
@@ -723,66 +847,65 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
               .catchError((dynamic _) => null as String?)
           : Future.value(photoResult.immediateUrl);
 
-      final Future<String> postIdFuture = _postService.createPost(
+      final Future<String> postIdFuture = postService.createPost(
         userId: userId,
         username: username,
         userIconUrl: userIconUrl,
         trackData: trackData,
-        // モバイル: photoUrlは後でupdatePostPhotoUrlで反映 / Web: 即時URL
         photoUrl: photoResult.immediateUrl,
-        // クロップ済み画像をそのまま表示するため offset/scale はリセット
-        imageOffsetX: 0,
-        imageOffsetY: 0,
+        imageOffsetX: 0.0,
+        imageOffsetY: 0.0,
         imageScale: 1.0,
         imageNaturalWidth: photoResult.croppedWidth.toDouble(),
         imageNaturalHeight: photoResult.croppedHeight.toDouble(),
-        selectedLayoutIndex: _editState.selectedLayoutIndex,
+        selectedLayoutIndex: selectedLayoutIndex,
         cardPositionX: cardPos.dx,
         cardPositionY: cardPos.dy,
-        cardScale: _editState.cardScale,
-        cardRotation: _editState.cardRotation,
-        isVibe: _isVibe,
-        vibeTopicId: _isVibe ? _vibeTopicId : null,
-        vibeTopicTitle: _isVibe ? _vibeTopicTitle : null,
+        cardScale: cardScale,
+        cardRotation: cardRotation,
+        isVibe: isVibe,
+        vibeTopicId: isVibe ? vibeTopicId : null,
+        vibeTopicTitle: isVibe ? vibeTopicTitle : null,
         theme: extractedTheme,
         lyricsText: lyricsText,
-        audioStartMs: widget.audioStartMs,
-        audioDurationSec: widget.audioDurationSec,
-        university: _currentUniversity,
-        campusVibeParticipating: _campusVibeParticipating,
+        audioStartMs: audioStartMs,
+        audioDurationSec: audioDurationSec,
+        university: university,
+        campusVibeParticipating: campusVibeParticipating,
+        adlTeamId: adlTeamId,
       );
 
       final results2 = await Future.wait<dynamic>([urlFuture, postIdFuture]);
       final String? photoUrl = results2[0] as String?;
       final String postId = results2[1] as String;
 
-      // モバイルのみ: getDownloadURLで取得したURLをバックグラウンドで反映
       if (photoResult.storageRef != null && photoUrl != null) {
-        _postService
-            .updatePostPhotoUrl(postId: postId, photoUrl: photoUrl)
-            .ignore();
+        // dynamic経由では拡張メソッド .ignore() が使えないため unawaited 相当の bare call
+        // ignore: unawaited_futures
+        postService.updatePostPhotoUrl(postId: postId, photoUrl: photoUrl);
       }
 
       print('✅ 投稿を作成しました: $postId');
 
-      // チュートリアル中なら次ステップ（Vibeプレイリスト誘導）へ
-      if (TutorialController.instance.step == TutorialStep.posting) {
-        await TutorialController.instance.goTo(TutorialStep.showVibePlaylistHint);
-      }
-
-      if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/home',
-          (route) => false,
-        );
-      }
+      PostingState.instance.finishPosting();
     } catch (e) {
       print('投稿作成エラー: $e');
-      if (mounted) {
-        setState(() => _isPosting = false);
-        AppToast.show(context, '投稿の作成に失敗しました');
-      }
+      PostingState.instance.finishPosting();
     }
+  }
+
+  static Future<String?> _fetchPreviewFromItunes(TrackModel track) async {
+    try {
+      final itunesService = ITunesSearchService();
+      final tracks = await itunesService.searchTracks(
+        '${track.trackName} ${track.artistName}',
+        limit: 1,
+      );
+      if (tracks.isNotEmpty && tracks.first.previewUrl != null) {
+        return tracks.first.previewUrl;
+      }
+    } catch (_) {}
+    return null;
   }
 
   @override
@@ -1088,11 +1211,6 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
             ),
           ),
           const Spacer(),
-          if (_isPosting)
-            const CupertinoActivityIndicator(
-              color: Color(0xFF5D8FFF),
-              radius: 8,
-            ),
         ],
       ),
     );

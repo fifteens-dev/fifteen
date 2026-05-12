@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 import '../models/track_model.dart';
+import '../providers/current_user_provider.dart';
 import '../services/lyrics_service.dart';
-import '../utils/current_user_helper.dart';
 import '../widgets/shared/user_info_badge.dart';
 import 'package:image_picker/image_picker.dart';
 import 'post_final_preview_screen.dart';
@@ -48,8 +49,9 @@ class LyricsCardSelectionScreen extends StatefulWidget {
 
 class _LyricsCardSelectionScreenState
     extends State<LyricsCardSelectionScreen> {
-  String _currentUsername = '';
-  String? _currentUserIconUrl;
+  String get _currentUsername => context.read<CurrentUserProvider>().username;
+  String? get _currentUserIconUrl =>
+      context.read<CurrentUserProvider>().iconUrl;
 
   int _selectedLayoutIndex = 1; // 選択されたレイアウト (1-4、0=歌詞カードは非表示)
   Offset _cardCenter = const Offset(180, 200); // カード中央座標（固定）
@@ -66,7 +68,6 @@ class _LyricsCardSelectionScreenState
   void initState() {
     super.initState();
     _lyricsData = widget.lyricsData;
-    _loadCurrentUserInfo();
 
     // 歌詞がまだ取得されていない場合はバックグラウンドで取得
     if (_lyricsData == null) {
@@ -74,16 +75,6 @@ class _LyricsCardSelectionScreenState
       _fetchLyrics();
     } else {
       print('✅ 既に取得済みの歌詞を使用します (${_lyricsData!.source})');
-    }
-  }
-
-  Future<void> _loadCurrentUserInfo() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() {
-        _currentUsername = userInfo.username;
-        _currentUserIconUrl = userInfo.iconUrl;
-      });
     }
   }
 

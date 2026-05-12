@@ -1,20 +1,19 @@
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
 import '../models/track_model.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/lyrics_service.dart';
 import '../utils/color_extractor.dart';
-import '../widgets/dialogs/glass_popup.dart';
 import 'post_card_edit_screen.dart';
 
-/// 投稿フローの起点となる写真選択画面
-/// ・プレビューなし
-/// ・3列 × 9:16 サムネイルグリッド
-/// ・写真タップで拡大アニメーション付き PostCardEditScreen へ遷移
+/// 投稿フローの写真選択画面（通常フロー専用）
+///
+/// 上下 2 ページの垂直 PageView 構造:
+///   - Page 0: アプリ内カメラプレビュー。シャッターで即撮影→PostCardEditScreen。
+///   - Page 1: 3列写真グリッド。写真タップで拡大アニメーション→PostCardEditScreen。
 class PostPhotoSelectionScreen extends StatefulWidget {
   final TrackModel track;
   final LyricsData? lyricsData;
@@ -40,48 +39,116 @@ class PostPhotoSelectionScreen extends StatefulWidget {
       _PostPhotoSelectionScreenState();
 }
 
-class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
-  final ImagePicker _picker = ImagePicker();
+class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  // ---- カメラ ----
+  CameraController? _cameraController;
+  bool _isCameraInitialized = false;
+  bool _isTakingPhoto = false;
+  bool _isFrontCamera = false;
 
-  // photo_manager
+  // ---- PageView ----
+  final PageController _pageController = PageController();
+
+  // ---- photo_manager ----
   List<AssetEntity> _galleryAssets = [];
   bool _hasPermission = false;
-  List<AssetPathEntity> _albums = [];
-  List<AssetPathEntity> _allAlbums = [];
-  AssetPathEntity? _selectedAlbum;
-  int _currentPage = 0;
   bool _isLoadingMore = false;
   bool _hasMorePhotos = true;
+  int _currentGalleryPage = 0;
+  AssetPathEntity? _selectedAlbum;
+  final ScrollController _gridScrollController = ScrollController();
+  final Map<int, GlobalKey> _thumbKeys = {};
   static const int _initialLoad = 100;
   static const int _pageSize = 70;
-  final ScrollController _scrollController = ScrollController();
+  Uint8List? _latestThumbData;
 
-  // 各サムネイルの GlobalKey（拡大アニメーション用）
-  final Map<int, GlobalKey> _thumbKeys = {};
-
-  // ナビゲーション中フラグ（二重タップ防止）
+  // ---- ナビゲーション ----
   bool _isNavigating = false;
 
-  // アニメーション前に事前取得しておくカード情報
+  // ---- 事前キャッシュ ----
   String? _cachedPreviewUrl;
   Color? _cachedGradientStart;
   Color? _cachedGradientEnd;
 
+  // ---- フラッシュアニメーション ----
+  late final AnimationController _flashController;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     AudioPlayerService().stop();
+    _flashController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    );
+    _initCamera();
     _loadGalleryImages();
-    _scrollController.addListener(_onScroll);
+    _gridScrollController.addListener(_onGridScroll);
     _prefetchTrackData();
   }
 
-  /// アニメーション開始前にカード描画に必要なデータを裏で取得
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cameraController?.dispose();
+    _pageController.dispose();
+    _gridScrollController.dispose();
+    _flashController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_cameraController == null || !_isCameraInitialized) return;
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      _cameraController!.dispose();
+      setState(() => _isCameraInitialized = false);
+    } else if (state == AppLifecycleState.resumed) {
+      _initCamera();
+    }
+  }
+
+  // ---- カメラ初期化 ----
+
+  Future<void> _initCamera() async {
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty || !mounted) return;
+
+      final direction = _isFrontCamera
+          ? CameraLensDirection.front
+          : CameraLensDirection.back;
+      final camera = cameras.firstWhere(
+        (c) => c.lensDirection == direction,
+        orElse: () => cameras.first,
+      );
+
+      final controller = CameraController(
+        camera,
+        ResolutionPreset.high,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+
+      await controller.initialize();
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+
+      _cameraController = controller;
+      setState(() => _isCameraInitialized = true);
+    } catch (_) {}
+  }
+
+  // ---- track 事前キャッシュ ----
+
   Future<void> _prefetchTrackData() async {
     final track = widget.track;
     if (track.trackId.isEmpty) return;
-
-    // プレビューURL（トラックに既存なら即使用、なければ iTunes から取得）
     String? url = track.previewUrl;
     if (url == null || url.isEmpty) {
       url = await ITunesSearchService().getPreviewUrl(
@@ -90,11 +157,10 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       );
     }
     if (mounted) _cachedPreviewUrl = url;
-
-    // アルバムアートからグラデーション色を抽出
     if (track.albumImageUrl.isNotEmpty) {
       try {
-        final colors = await ColorExtractor.extractGradientColors(track.albumImageUrl);
+        final colors =
+            await ColorExtractor.extractGradientColors(track.albumImageUrl);
         if (mounted) {
           _cachedGradientStart = colors.$1;
           _cachedGradientEnd = colors.$2;
@@ -103,28 +169,15 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (_scrollController.position.pixels >=
-        _scrollController.position.maxScrollExtent - 1000) {
-      _loadMorePhotos();
-    }
-  }
+  // ---- ギャラリー読み込み ----
 
   Future<void> _loadGalleryImages() async {
-    if (kIsWeb) return;
-
     final permission = await PhotoManager.requestPermissionExtend();
     if (!permission.isAuth && !permission.hasAccess) {
-      setState(() => _hasPermission = false);
+      if (mounted) setState(() => _hasPermission = false);
       return;
     }
-    setState(() => _hasPermission = true);
+    if (mounted) setState(() => _hasPermission = true);
 
     final albums = await PhotoManager.getAssetPathList(
       type: RequestType.image,
@@ -132,16 +185,14 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
         imageOption: const FilterOption(
           sizeConstraint: SizeConstraint(ignoreSize: true),
         ),
-        orders: [const OrderOption(type: OrderOptionType.createDate, asc: false)],
+        orders: [
+          const OrderOption(type: OrderOptionType.createDate, asc: false),
+        ],
       ),
     );
     if (albums.isEmpty) return;
 
-    _allAlbums = albums;
-    final targetNames = {'recents', 'recent photos', 'favorites', 'videos', 'camera roll'};
-    _albums = albums.where((a) => targetNames.contains(a.name.toLowerCase())).toList();
-    if (_albums.isEmpty) _albums = [albums.first];
-    _selectedAlbum = _albums.first;
+    _selectedAlbum = albums.first;
     await _loadAlbumAssets(_selectedAlbum!);
   }
 
@@ -151,41 +202,123 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
     if (mounted) {
       setState(() {
         _galleryAssets = assets;
-        _currentPage = _initialLoad;
+        _currentGalleryPage = _initialLoad;
         _hasMorePhotos = _initialLoad < totalCount;
         _thumbKeys.clear();
       });
     }
+    if (assets.isNotEmpty) {
+      final thumb = await assets.first
+          .thumbnailDataWithSize(const ThumbnailSize(120, 120));
+      if (mounted && thumb != null) {
+        setState(() => _latestThumbData = thumb);
+      }
+    }
   }
 
-  Future<void> _switchAlbum(AssetPathEntity album) async {
-    if (album.id == _selectedAlbum?.id) return;
-    setState(() {
-      _selectedAlbum = album;
-      _galleryAssets = [];
-      _thumbKeys.clear();
-    });
-    if (_scrollController.hasClients) _scrollController.jumpTo(0);
-    await _loadAlbumAssets(album);
+  void _onGridScroll() {
+    if (_gridScrollController.position.pixels >=
+        _gridScrollController.position.maxScrollExtent - 800) {
+      _loadMorePhotos();
+    }
   }
 
   Future<void> _loadMorePhotos() async {
     if (_isLoadingMore || !_hasMorePhotos || _selectedAlbum == null) return;
     _isLoadingMore = true;
     final totalCount = await _selectedAlbum!.assetCountAsync;
-    final end = (_currentPage + _pageSize).clamp(0, totalCount);
-    final assets = await _selectedAlbum!.getAssetListRange(start: _currentPage, end: end);
+    final end = (_currentGalleryPage + _pageSize).clamp(0, totalCount);
+    final assets = await _selectedAlbum!
+        .getAssetListRange(start: _currentGalleryPage, end: end);
     if (mounted) {
       setState(() {
         _galleryAssets.addAll(assets);
-        _currentPage = end;
+        _currentGalleryPage = end;
         _hasMorePhotos = end < totalCount;
       });
     }
     _isLoadingMore = false;
   }
 
-  /// 写真グリッドのアイテムをタップ → 拡大アニメーション → PostCardEditScreen
+  // ---- ページ切り替え ----
+
+  void _scrollToGallery() {
+    _pageController.animateToPage(
+      1,
+      duration: const Duration(milliseconds: 480),
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  void _scrollToCamera() {
+    _pageController.animateToPage(
+      0,
+      duration: const Duration(milliseconds: 480),
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  // ---- カメラ反転 ----
+
+  Future<void> _flipCamera() async {
+    final oldController = _cameraController;
+    setState(() {
+      _isFrontCamera = !_isFrontCamera;
+      _isCameraInitialized = false;
+      _cameraController = null;
+    });
+    await oldController?.dispose();
+    await _initCamera();
+  }
+
+  // ---- 撮影 ----
+
+  Future<void> _onShutter() async {
+    if (_isTakingPhoto || _cameraController == null || !_isCameraInitialized) {
+      return;
+    }
+    _isTakingPhoto = true;
+
+    _flashController.reset();
+    _flashController.forward();
+
+    try {
+      final photo = await _cameraController!.takePicture();
+      if (!mounted) return;
+      _navigateToEdit(photo);
+    } catch (_) {
+      if (mounted) _isTakingPhoto = false;
+    }
+  }
+
+  void _navigateToEdit(XFile photo) {
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => PostCardEditScreen(
+          track: widget.track,
+          lyricsData: widget.lyricsData,
+          lyricsFuture: widget.lyricsFuture,
+          selectedImage: photo,
+          isVibe: widget.isVibe,
+          vibeTopicId: widget.vibeTopicId,
+          vibeTopicTitle: widget.vibeTopicTitle,
+          fromVibePlaylist: widget.fromVibePlaylist,
+          cachedPreviewUrl: _cachedPreviewUrl,
+          cachedGradientStart: _cachedGradientStart,
+          cachedGradientEnd: _cachedGradientEnd,
+        ),
+        transitionDuration: const Duration(milliseconds: 400),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  // ---- グリッド写真タップ ----
+
   Future<void> _onThumbnailTap(int assetIndex) async {
     if (_isNavigating) return;
     _isNavigating = true;
@@ -197,20 +330,25 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       return;
     }
 
-    // サムネイルの画面上 Rect を取得
     Rect? thumbRect;
     final key = _thumbKeys[assetIndex];
     final renderBox = key?.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox != null && renderBox.attached) {
       final pos = renderBox.localToGlobal(Offset.zero);
-      thumbRect = Rect.fromLTWH(pos.dx, pos.dy, renderBox.size.width, renderBox.size.height);
+      thumbRect = Rect.fromLTWH(
+          pos.dx, pos.dy, renderBox.size.width, renderBox.size.height);
     }
-
     final size = MediaQuery.of(context).size;
     final sourceRect = thumbRect ??
-        Rect.fromCenter(center: Offset(size.width / 2, size.height / 2), width: 60, height: 107);
+        Rect.fromCenter(
+            center: Offset(size.width / 2, size.height / 2),
+            width: 60,
+            height: 107);
+    final naturalSize =
+        Size(asset.width.toDouble(), asset.height.toDouble());
 
-    final naturalSize = Size(asset.width.toDouble(), asset.height.toDouble());
+    await _cameraController?.pausePreview();
+    if (!mounted) return;
 
     await Navigator.push(
       context,
@@ -233,114 +371,10 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
       ),
     );
 
-    if (mounted) _isNavigating = false;
-  }
-
-  /// カメラで写真を撮影
-  Future<void> _takePhoto() async {
-    try {
-      final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
-      if (photo == null || !mounted) return;
-
-      final size = MediaQuery.of(context).size;
-      final sourceRect = Rect.fromCenter(
-        center: Offset(size.width / 2, size.height / 2),
-        width: 60,
-        height: 107,
-      );
-
-      await Navigator.push(
-        context,
-        _PhotoExpandRoute(
-          sourceRect: sourceRect,
-          child: PostCardEditScreen(
-            track: widget.track,
-            lyricsData: widget.lyricsData,
-            lyricsFuture: widget.lyricsFuture,
-            selectedImage: photo,
-            isVibe: widget.isVibe,
-            vibeTopicId: widget.vibeTopicId,
-            vibeTopicTitle: widget.vibeTopicTitle,
-            fromVibePlaylist: widget.fromVibePlaylist,
-            cachedPreviewUrl: _cachedPreviewUrl,
-            cachedGradientStart: _cachedGradientStart,
-            cachedGradientEnd: _cachedGradientEnd,
-          ),
-        ),
-      );
-    } catch (_) {}
-  }
-
-  // ---- Album selector ----
-
-  String _albumDisplayName(String name) {
-    switch (name.toLowerCase()) {
-      case 'recents':
-      case 'recent photos':
-      case 'camera roll':
-        return '最近';
-      case 'favorites':
-        return 'お気に入り';
-      case 'videos':
-        return '動画';
-      case 'all photos':
-        return 'すべての写真';
-      default:
-        return name;
+    if (mounted) {
+      _isNavigating = false;
+      await _cameraController?.resumePreview();
     }
-  }
-
-  void _showAlbumPicker() {
-    if (_albums.isEmpty) return;
-    final renderBox = context.findRenderObject() as RenderBox;
-    final position = renderBox.localToGlobal(Offset(16, renderBox.size.height * 0.5));
-
-    final items = _albums.map((album) {
-      final isSelected = album.id == _selectedAlbum?.id;
-      return GlassPopupItem<String>(
-        value: 'album_${album.id}',
-        label: _albumDisplayName(album.name),
-        trailing: isSelected
-            ? const Icon(Icons.check, color: Colors.white, size: 20)
-            : null,
-      );
-    }).toList();
-    items.add(const GlassPopupItem<String>(
-      value: 'all_albums',
-      label: 'すべてのアルバム',
-      icon: Icons.photo_library_outlined,
-    ));
-
-    GlassPopup.show<String>(
-      context: context,
-      position: position,
-      width: renderBox.size.width - 32,
-      items: items,
-    ).then((selected) {
-      if (selected == 'all_albums') {
-        _showAllAlbumsBottomSheet();
-      } else if (selected != null) {
-        final albumId = selected.replaceFirst('album_', '');
-        final album = _albums.firstWhere((a) => a.id == albumId);
-        _switchAlbum(album);
-      }
-    });
-  }
-
-  void _showAllAlbumsBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => _AllAlbumsBottomSheet(
-        albums: _allAlbums,
-        selectedAlbumId: _selectedAlbum?.id,
-        onAlbumSelected: (album) {
-          Navigator.pop(context);
-          _switchAlbum(album);
-        },
-      ),
-    );
   }
 
   // ---- Build ----
@@ -348,87 +382,258 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(child: _buildPhotoGrid()),
-          ],
-        ),
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          PageView(
+            controller: _pageController,
+            scrollDirection: Axis.vertical,
+            children: [
+              _buildCameraPage(),
+              _buildPhotoGridPage(),
+            ],
+          ),
+          // シャッターフラッシュ
+          IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _flashController,
+              builder: (_, __) {
+                final t = _flashController.value;
+                final opacity =
+                    t < 0.4 ? (t / 0.4) : (1 - (t - 0.4) / 0.6);
+                return Opacity(
+                  opacity: opacity.clamp(0.0, 0.85),
+                  child: const ColoredBox(color: Colors.white),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  /// 固定ヘッダー（戻る / タイトル）
-  Widget _buildHeader() {
-    return Hero(
-      tag: 'post_flow_header',
-      flightShuttleBuilder: (_, __, ___, ____, _____) => _postFlowHeaderShuttle,
-      child: Material(
-        color: Colors.transparent,
-        child: SizedBox(
-          height: 50,
-          width: double.infinity,
-          child: Stack(
-            alignment: Alignment.center,
+  // ---- Page 0: カメラビュー ----
+
+  Widget _buildCameraPage() {
+    final mq = MediaQuery.of(context);
+    final topPad = mq.padding.top;
+    final bottomPad = mq.padding.bottom;
+    final screenH = mq.size.height;
+
+    return Container(
+      color: Colors.black,
+      height: screenH,
+      child: Stack(
+        children: [
+          Column(
             children: [
-              // タイトル（画面中央に絶対固定）
-              const Text(
-                '新規投稿',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
+              SizedBox(height: topPad),
+              // カメラビューファインダー（9:16）
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: AspectRatio(
+                  aspectRatio: 9 / 16,
+                  child: Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: _isCameraInitialized && _cameraController != null
+                            ? SizedBox.expand(
+                                child: FittedBox(
+                                  fit: BoxFit.cover,
+                                  child: SizedBox(
+                                    width: _cameraController!
+                                        .value.previewSize!.height,
+                                    height: _cameraController!
+                                        .value.previewSize!.width,
+                                    child: CameraPreview(_cameraController!),
+                                  ),
+                                ),
+                              )
+                            : Container(color: const Color(0xFF0A0A0A)),
+                      ),
+                      // 上部: フラッシュアイコン + Vibeハッシュタグ
+                      Positioned(
+                        top: 16,
+                        left: 0,
+                        right: 0,
+                        child: Column(
+                          children: [
+                            const Icon(Icons.flash_off,
+                                color: Colors.white, size: 24),
+                            if (widget.vibeTopicTitle != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                '#${widget.vibeTopicTitle}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      // シャッターボタン
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 28,
+                        child: Center(
+                          child: GestureDetector(
+                            onTap: _onShutter,
+                            child: const _ShutterButton(),
+                          ),
+                        ),
+                      ),
+                      // 白枠（最前面）
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border:
+                                  Border.all(color: Colors.white, width: 2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              // 戻るボタン（画面左端から19px）
-              Positioned(
-                left: 19,
-                top: 0,
-                bottom: 0,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => Navigator.pop(context),
-                  child: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 22),
+              // 下部: ギャラリーボタン（左）＋カメラ反転ボタン（右）
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: 28,
+                    right: 28,
+                    bottom: bottomPad + 16,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // ギャラリーボタン（左下）
+                      GestureDetector(
+                        onTap: _scrollToGallery,
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2B2B2B),
+                            borderRadius: BorderRadius.circular(8),
+                            border:
+                                Border.all(color: Colors.white38, width: 1.5),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(6.5),
+                            child: _latestThumbData != null
+                                ? Image.memory(
+                                    _latestThumbData!,
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    gaplessPlayback: true,
+                                  )
+                                : const Icon(
+                                    Icons.photo_library_outlined,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
+                          ),
+                        ),
+                      ),
+                      // カメラ反転ボタン（右下）
+                      GestureDetector(
+                        onTap: _flipCamera,
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF363B3F),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.cameraswitch,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
-        ),
+          // 左上: 戻るボタン
+          Positioned(
+            left: 16,
+            top: topPad + 4,
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 20),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  /// Hero遷移中に表示するシャトルウィジェット（タイトルのみ）
-  static const Widget _postFlowHeaderShuttle = Material(
-    color: Colors.transparent,
-    child: SizedBox(
-      height: 50,
-      child: Center(
-        child: Text(
-          '新規投稿',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
-          ),
-        ),
-      ),
-    ),
-  );
+  // ---- Page 1: 写真グリッド ----
 
-  /// 3列 × 9:16 写真グリッド
-  Widget _buildPhotoGrid() {
-    if (!_hasPermission || kIsWeb) {
-      return _buildFallbackGrid();
-    }
+  Widget _buildPhotoGridPage() {
+    final mq = MediaQuery.of(context);
+    final topPad = mq.padding.top;
 
     return Container(
+      color: Colors.black,
+      child: Column(
+        children: [
+          SizedBox(height: topPad),
+          const SizedBox(
+            height: 50,
+            child: Center(
+              child: Text(
+                '写真を選択',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _hasPermission ? _buildGrid() : _buildPermissionPrompt(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrid() {
+    return NotificationListener<OverscrollNotification>(
+      onNotification: (n) {
+        if (n.overscroll < 0) _scrollToCamera();
+        return false;
+      },
+      child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 1),
       child: GridView.builder(
-        controller: _scrollController,
+        controller: _gridScrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
@@ -436,81 +641,21 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
           crossAxisSpacing: 1,
           childAspectRatio: 9 / 16,
         ),
-        itemCount: 1 + _galleryAssets.length, // カメラ + 写真
+        itemCount: 1 + _galleryAssets.length,
         itemBuilder: (context, index) {
-          if (index == 0) return _buildCameraButton();
-          _thumbKeys.putIfAbsent(index - 1, () => GlobalKey());
-          return _buildPhotoGridItem(index - 1);
+          if (index == 0) return _buildCameraCell();
+          final assetIndex = index - 1;
+          _thumbKeys.putIfAbsent(assetIndex, () => GlobalKey());
+          return _buildPhotoCell(assetIndex);
         },
       ),
+    ),
     );
   }
 
-  Widget _buildFallbackGrid() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 1),
-      child: GridView.builder(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          mainAxisSpacing: 1,
-          crossAxisSpacing: 1,
-          childAspectRatio: 9 / 16,
-        ),
-        itemCount: 2,
-        itemBuilder: (context, index) {
-          if (index == 0) return _buildCameraButton();
-          return GestureDetector(
-            onTap: () async {
-              final XFile? image =
-                  await _picker.pickImage(source: ImageSource.gallery);
-              if (image != null && mounted) {
-                final size = MediaQuery.of(context).size;
-                Navigator.push(
-                  context,
-                  _PhotoExpandRoute(
-                    sourceRect: Rect.fromCenter(
-                      center: Offset(size.width / 2, size.height / 2),
-                      width: 60,
-                      height: 107,
-                    ),
-                    child: PostCardEditScreen(
-                      track: widget.track,
-                      lyricsData: widget.lyricsData,
-                      lyricsFuture: widget.lyricsFuture,
-                      selectedImage: image,
-                      isVibe: widget.isVibe,
-                      vibeTopicId: widget.vibeTopicId,
-                      vibeTopicTitle: widget.vibeTopicTitle,
-                      fromVibePlaylist: widget.fromVibePlaylist,
-                      cachedPreviewUrl: _cachedPreviewUrl,
-                      cachedGradientStart: _cachedGradientStart,
-                      cachedGradientEnd: _cachedGradientEnd,
-                    ),
-                  ),
-                );
-              }
-            },
-            child: Container(
-              color: const Color(0xFF2B2B2B),
-              child: const Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.photo_library, size: 36, color: Colors.white54),
-                  SizedBox(height: 4),
-                  Text('写真を選択',
-                      style: TextStyle(fontSize: 10, color: Colors.white54)),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildCameraButton() {
+  Widget _buildCameraCell() {
     return GestureDetector(
-      onTap: _takePhoto,
+      onTap: _scrollToCamera,
       child: Container(
         color: const Color(0xFF2B2B2B),
         child: const Icon(Icons.camera_alt, size: 40, color: Colors.white54),
@@ -518,74 +663,73 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen> {
     );
   }
 
-  Widget _buildPhotoGridItem(int assetIndex) {
-    final asset = _galleryAssets[assetIndex];
+  Widget _buildPhotoCell(int assetIndex) {
     return GestureDetector(
       onTap: () => _onThumbnailTap(assetIndex),
       child: SizedBox.expand(
         child: _ThumbnailImage(
           key: _thumbKeys[assetIndex],
-          asset: asset,
+          asset: _galleryAssets[assetIndex],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPermissionPrompt() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.photo_library_outlined,
+              color: Colors.white38, size: 56),
+          const SizedBox(height: 12),
+          const Text(
+            '写真へのアクセスを許可してください',
+            style: TextStyle(color: Colors.white54, fontSize: 14),
+          ),
+          const SizedBox(height: 20),
+          TextButton(
+            onPressed: PhotoManager.openSetting,
+            child: const Text(
+              '設定を開く',
+              style: TextStyle(color: Color(0xFF5D8FFF), fontSize: 15),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ============================================================
-//  拡大アニメーション付きカスタムルート
-// ============================================================
+// ---- シャッターボタン ----
 
-class _PhotoExpandRoute extends PageRouteBuilder {
-  final Rect sourceRect;
-
-  _PhotoExpandRoute({required this.sourceRect, required Widget child})
-      : super(
-          pageBuilder: (_, __, ___) => child,
-          transitionDuration: const Duration(milliseconds: 500),
-          reverseTransitionDuration: const Duration(milliseconds: 300),
-        );
+class _ShutterButton extends StatelessWidget {
+  const _ShutterButton();
 
   @override
-  Widget buildTransitions(
-    BuildContext context,
-    Animation<double> animation,
-    Animation<double> secondaryAnimation,
-    Widget child,
-  ) {
-    final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutQuart);
-    final size = MediaQuery.of(context).size;
-    final screenCenter = Offset(size.width / 2, size.height / 2);
-    final thumbCenter = sourceRect.center;
-
-    // サムネイルの相対スケール（短辺基準）
-    final startScale =
-        ((sourceRect.width / size.width) + (sourceRect.height / size.height)) / 2;
-
-    // サムネイル中心 → 画面中心へ移動
-    final dx = thumbCenter.dx - screenCenter.dx;
-    final dy = thumbCenter.dy - screenCenter.dy;
-
-    return FadeTransition(
-      opacity: Tween(begin: 0.4, end: 1.0).animate(curved),
-      child: Transform.translate(
-        offset: Offset(dx * (1 - curved.value), dy * (1 - curved.value)),
-        child: Transform.scale(
-          scale: startScale + (1.0 - startScale) * curved.value,
-          child: child,
+  Widget build(BuildContext context) {
+    return Container(
+      width: 76,
+      height: 76,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 4),
+      ),
+      padding: const EdgeInsets.all(6),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
         ),
       ),
     );
   }
 }
 
-// ============================================================
-//  サムネイル画像ウィジェット（非同期読み込み）
-// ============================================================
+// ---- サムネイル画像 ----
 
 class _ThumbnailImage extends StatefulWidget {
   final AssetEntity asset;
-
   const _ThumbnailImage({super.key, required this.asset});
 
   @override
@@ -594,27 +738,26 @@ class _ThumbnailImage extends StatefulWidget {
 
 class _ThumbnailImageState extends State<_ThumbnailImage> {
   Uint8List? _thumbData;
-  String? _loadedAssetId;
+  String? _loadedId;
 
   @override
   void initState() {
     super.initState();
-    _loadThumbnail();
+    _load();
   }
 
   @override
   void didUpdateWidget(_ThumbnailImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.asset.id != widget.asset.id) _loadThumbnail();
+    if (oldWidget.asset.id != widget.asset.id) _load();
   }
 
-  Future<void> _loadThumbnail() async {
-    final assetId = widget.asset.id;
-    _loadedAssetId = assetId;
-    final data = await widget.asset.thumbnailDataWithSize(
-      const ThumbnailSize(300, 533), // 9:16 相当
-    );
-    if (mounted && data != null && _loadedAssetId == assetId) {
+  Future<void> _load() async {
+    final id = widget.asset.id;
+    _loadedId = id;
+    final data = await widget.asset
+        .thumbnailDataWithSize(const ThumbnailSize(300, 533));
+    if (mounted && data != null && _loadedId == id) {
       setState(() => _thumbData = data);
     }
   }
@@ -622,217 +765,48 @@ class _ThumbnailImageState extends State<_ThumbnailImage> {
   @override
   Widget build(BuildContext context) {
     if (_thumbData != null) {
-      return Image.memory(
-        _thumbData!,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        gaplessPlayback: true,
-      );
+      return Image.memory(_thumbData!,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          gaplessPlayback: true);
     }
     return Container(color: Colors.grey[800]);
   }
 }
 
-// ============================================================
-//  すべてのアルバム ボトムシート
-// ============================================================
+// ---- 拡大アニメーション付きルート ----
 
-class _AllAlbumsBottomSheet extends StatefulWidget {
-  final List<AssetPathEntity> albums;
-  final String? selectedAlbumId;
-  final void Function(AssetPathEntity album) onAlbumSelected;
-
-  const _AllAlbumsBottomSheet({
-    required this.albums,
-    required this.selectedAlbumId,
-    required this.onAlbumSelected,
-  });
+class _PhotoExpandRoute extends PageRouteBuilder {
+  final Rect sourceRect;
+  _PhotoExpandRoute({required this.sourceRect, required Widget child})
+      : super(
+          pageBuilder: (_, __, ___) => child,
+          transitionDuration: const Duration(milliseconds: 500),
+          reverseTransitionDuration: const Duration(milliseconds: 300),
+        );
 
   @override
-  State<_AllAlbumsBottomSheet> createState() => _AllAlbumsBottomSheetState();
-}
-
-class _AllAlbumsBottomSheetState extends State<_AllAlbumsBottomSheet> {
-  final Map<String, Uint8List?> _albumThumbnails = {};
-  final Map<String, int> _albumCounts = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _loadAlbumInfo();
-  }
-
-  Future<void> _loadAlbumInfo() async {
-    for (final album in widget.albums) {
-      final count = await album.assetCountAsync;
-      if (!mounted) return;
-      Uint8List? thumb;
-      if (count > 0) {
-        final assets = await album.getAssetListRange(start: 0, end: 1);
-        if (assets.isNotEmpty) {
-          thumb = await assets.first
-              .thumbnailDataWithSize(const ThumbnailSize(200, 200));
-        }
-      }
-      if (mounted) {
-        setState(() {
-          _albumCounts[album.id] = count;
-          _albumThumbnails[album.id] = thumb;
-        });
-      }
-    }
-  }
-
-  String _albumNameJa(String name) {
-    switch (name.toLowerCase()) {
-      case 'recents':
-      case 'recent photos':
-      case 'camera roll':
-        return '最近の項目';
-      case 'favorites':
-        return 'お気に入り';
-      case 'videos':
-        return 'ビデオ';
-      case 'selfies':
-        return 'セルフィー';
-      case 'screenshots':
-        return 'スクリーンショット';
-      case 'live photos':
-        return 'Live Photos';
-      case 'panoramas':
-        return 'パノラマ';
-      case 'bursts':
-        return 'バースト';
-      case 'hidden':
-        return '非表示';
-      case 'recently deleted':
-        return '最近削除した項目';
-      case 'all photos':
-        return 'すべての写真';
-      default:
-        return name;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    return Container(
-      height: screenHeight * 0.75,
-      decoration: const BoxDecoration(
-        color: Color(0xFF1C1C1E),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            margin: const EdgeInsets.only(top: 8),
-            width: 36,
-            height: 5,
-            decoration: BoxDecoration(
-              color: Colors.grey[600],
-              borderRadius: BorderRadius.circular(3),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: const Text(
-                    'キャンセル',
-                    style: TextStyle(color: Color(0xFF5D8FFF), fontSize: 15),
-                  ),
-                ),
-                const Expanded(
-                  child: Text(
-                    'アルバムを選択',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ),
-                const SizedBox(width: 72),
-              ],
-            ),
-          ),
-          Container(height: 0.5, color: Colors.grey[800]),
-          Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 20,
-                crossAxisSpacing: 12,
-                childAspectRatio: 0.85,
-              ),
-              itemCount: widget.albums.length,
-              itemBuilder: (context, index) {
-                final album = widget.albums[index];
-                final thumb = _albumThumbnails[album.id];
-                final count = _albumCounts[album.id];
-                final isSelected = album.id == widget.selectedAlbumId;
-                return GestureDetector(
-                  onTap: () => widget.onAlbumSelected(album),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey[800],
-                            borderRadius: BorderRadius.circular(8),
-                            border: isSelected
-                                ? Border.all(
-                                    color: const Color(0xFF5D8FFF), width: 2)
-                                : null,
-                          ),
-                          child: ClipRRect(
-                            borderRadius:
-                                BorderRadius.circular(isSelected ? 6 : 8),
-                            child: thumb != null
-                                ? Image.memory(thumb,
-                                    fit: BoxFit.cover,
-                                    width: double.infinity,
-                                    height: double.infinity,
-                                    gaplessPlayback: true)
-                                : const Center(
-                                    child: Icon(
-                                      Icons.photo_library_outlined,
-                                      color: Colors.white38,
-                                      size: 40,
-                                    ),
-                                  ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _albumNameJa(album.name),
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (count != null)
-                        Text(
-                          '$count',
-                          style:
-                              TextStyle(color: Colors.grey[500], fontSize: 12),
-                        ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+  Widget buildTransitions(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation, Widget child) {
+    final curved =
+        CurvedAnimation(parent: animation, curve: Curves.easeOutQuart);
+    final size = MediaQuery.of(context).size;
+    final screenCenter = Offset(size.width / 2, size.height / 2);
+    final thumbCenter = sourceRect.center;
+    final startScale =
+        ((sourceRect.width / size.width) + (sourceRect.height / size.height)) /
+            2;
+    final dx = thumbCenter.dx - screenCenter.dx;
+    final dy = thumbCenter.dy - screenCenter.dy;
+    return FadeTransition(
+      opacity: Tween(begin: 0.4, end: 1.0).animate(curved),
+      child: Transform.translate(
+        offset: Offset(dx * (1 - curved.value), dy * (1 - curved.value)),
+        child: Transform.scale(
+          scale: startScale + (1.0 - startScale) * curved.value,
+          child: child,
+        ),
       ),
     );
   }

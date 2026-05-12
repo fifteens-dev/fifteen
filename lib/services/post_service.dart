@@ -106,6 +106,7 @@ class PostService {
     int audioDurationSec = 15,
     String? university,
     bool campusVibeParticipating = true,
+    String? adlTeamId,
   }) => _writeService.createPost(
     userId: userId,
     username: username,
@@ -132,6 +133,7 @@ class PostService {
     audioDurationSec: audioDurationSec,
     university: university,
     campusVibeParticipating: campusVibeParticipating,
+    adlTeamId: adlTeamId,
   );
 
   /// 投稿を削除

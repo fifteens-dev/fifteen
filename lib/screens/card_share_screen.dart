@@ -69,7 +69,7 @@ class _CardShareSheetState extends State<_CardShareSheet> {
         AppToast.show(context, '画像の取得に失敗しました');
         return;
       }
-      final success = await InstagramStoriesService.share(bytes);
+      final success = await InstagramStoriesService.share(bytes, postId: widget.post.postId);
       if (!mounted) return;
       if (!success) {
         AppToast.show(context, 'Instagramが見つかりません');
@@ -146,18 +146,22 @@ class _CardShareSheetState extends State<_CardShareSheet> {
           const SizedBox(height: 16),
 
           // 投稿カード（裏面から表示）
+          // FittedBox で 363×645 を維持しながら利用可能スペースに収める
           Expanded(
             child: Center(
-              child: PostCard(
-                key: _cardKey,
-                post: widget.post,
-                currentUserId: null,
-                currentUserIconUrl: widget.currentUserIconUrl,
-                audioService: _audioService,
-                isSaved: widget.isSaved,
-                hideReactionCounts: true,
-                backSideEnabled: true,
-                startFromBack: true,
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: PostCard(
+                  key: _cardKey,
+                  post: widget.post,
+                  currentUserId: null,
+                  currentUserIconUrl: widget.currentUserIconUrl,
+                  audioService: _audioService,
+                  isSaved: widget.isSaved,
+                  hideReactionCounts: true,
+                  backSideEnabled: true,
+                  startFromBack: true,
+                ),
               ),
             ),
           ),

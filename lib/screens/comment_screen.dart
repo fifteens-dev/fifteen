@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../models/comment_model.dart';
 import '../models/user_model.dart';
+import '../providers/current_user_provider.dart';
 import '../services/comment_service.dart';
 import '../services/user_service.dart';
-import '../utils/current_user_helper.dart';
 import '../utils/context_menu_builder.dart';
 import '../widgets/dialogs/dialogs.dart';
 import '../services/report_service.dart';
@@ -38,13 +39,20 @@ class CommentScreen extends StatefulWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.4,
-        maxChildSize: 0.9,
-        builder: (context, scrollController) => CommentScreen(
-          post: post,
-          onCommentCountChanged: onCommentCountChanged,
+      builder: (context) => AnimatedPadding(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) => CommentScreen(
+            post: post,
+            onCommentCountChanged: onCommentCountChanged,
+          ),
         ),
       ),
     );
@@ -61,9 +69,6 @@ class _CommentScreenState extends State<CommentScreen> {
   final ReportService _reportService = ReportService();
   final ScrollController _scrollController = ScrollController();
   bool _isPosting = false;
-  String _currentUsername = '';
-  String? _currentUserIconUrl;
-  String? _currentUserId;
 
   // @メンション サジェスト用
   List<UserModel> _mentionSuggestions = [];
@@ -72,22 +77,9 @@ class _CommentScreenState extends State<CommentScreen> {
 
   PostTheme get _theme => widget.post.theme;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadCurrentUserInfo();
-  }
-
-  Future<void> _loadCurrentUserInfo() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() {
-        _currentUsername = userInfo.username;
-        _currentUserIconUrl = userInfo.iconUrl;
-        _currentUserId = FirebaseAuth.instance.currentUser?.uid;
-      });
-    }
-  }
+  String get _currentUsername => context.read<CurrentUserProvider>().username;
+  String? get _currentUserIconUrl => context.read<CurrentUserProvider>().iconUrl;
+  String? get _currentUserId => context.read<CurrentUserProvider>().uid;
 
   /// テキスト変更時に@メンションを検出してサジェストを更新
   void _onCommentChanged(String text) {
@@ -118,16 +110,26 @@ class _CommentScreenState extends State<CommentScreen> {
     final uid = _currentUserId;
     if (uid == null) return;
     try {
-      // 候補はフォロー中ユーザーのみ（クエリで前方一致フィルタ）
-      final following = await _userService.getFollowingUsers(uid);
-      final results = following.where((u) {
+      // フォロー中・フォロワー両方を並列取得し、重複排除して候補にする
+      final results = await Future.wait([
+        _userService.getFollowingUsers(uid),
+        _userService.getFollowerUsers(uid),
+      ]);
+      final seen = <String>{};
+      final combined = [
+        ...results[0],
+        ...results[1],
+      ].where((u) => u.uid.isNotEmpty && seen.add(u.uid)).toList();
+
+      final filtered = combined.where((u) {
         final username = (u.username ?? '').toLowerCase();
         return query.isEmpty || username.startsWith(query.toLowerCase());
       }).take(6).toList();
+
       if (mounted) {
         setState(() {
-          _mentionSuggestions = results;
-          _showMentionSuggestions = results.isNotEmpty;
+          _mentionSuggestions = filtered;
+          _showMentionSuggestions = filtered.isNotEmpty;
         });
       }
     } catch (_) {}
@@ -477,7 +479,7 @@ class _CommentScreenState extends State<CommentScreen> {
             left: 19,
             right: 19,
             top: 10,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            bottom: 26,
           ),
           child: Row(
             children: [

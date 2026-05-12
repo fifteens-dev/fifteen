@@ -1,14 +1,15 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
+import '../providers/current_user_provider.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../services/user_service.dart';
-import '../utils/current_user_helper.dart';
 import 'comment_screen.dart';
 
 /// 投稿カード単体表示画面（通知タップ時など）
@@ -42,7 +43,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final PostService _postService = PostService();
   final UserService _userService = UserService();
 
-  String? _currentUserIconUrl;
   bool _isSaved = false;
   String? _previewUrl;
 
@@ -56,10 +56,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   String get _currentUserId =>
       widget.currentUserId ?? FirebaseAuth.instance.currentUser?.uid ?? '';
 
+  String? get _currentUserIconUrl =>
+      context.read<CurrentUserProvider>().iconUrl;
+
   @override
   void initState() {
     super.initState();
-    _loadCurrentUserIconUrl();
     _checkSaveState();
     _loadHasPostedToday();
     // VibeTrackPostsScreen と同様に開いた瞬間に音楽取得＆自動再生
@@ -164,15 +166,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _handleComment() async {
     // VibeTrackPostsScreen は音楽を継続したままコメント画面を表示
     await CommentScreen.show(context, post: widget.post);
-  }
-
-  Future<void> _loadCurrentUserIconUrl() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() {
-        _currentUserIconUrl = userInfo.iconUrl;
-      });
-    }
   }
 
   @override

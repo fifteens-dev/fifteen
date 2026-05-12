@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_dimensions.dart';
-import '../utils/current_user_helper.dart';
 
 /// 初回タイムライン画面
 ///
@@ -16,23 +15,6 @@ class FirstTimelineScreen extends StatefulWidget {
 }
 
 class _FirstTimelineScreenState extends State<FirstTimelineScreen> {
-  String? _currentUserIconUrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCurrentUserIconUrl();
-  }
-
-  Future<void> _loadCurrentUserIconUrl() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() {
-        _currentUserIconUrl = userInfo.iconUrl;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

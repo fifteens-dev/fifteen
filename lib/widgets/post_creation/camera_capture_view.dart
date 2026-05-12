@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 /// 投稿用のカメラ撮影 UI（ビュー本体のみ、カメラパッケージは未統合）。
 ///
 /// 将来 `package:camera` を導入したらここの [previewBuilder] にライブプレビューを差し込む。
-/// チュートリアル中はモックビューを使用する（[CameraCaptureView.demo] コンストラクタ）。
 ///
 /// レイアウト:
 ///   - 上部: ハッシュタグタイトル + フラッシュトグル

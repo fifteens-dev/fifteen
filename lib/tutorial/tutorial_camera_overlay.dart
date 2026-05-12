@@ -2,13 +2,17 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
-import '../../models/track_model.dart';
-import '../../services/tutorial_controller.dart';
-import '../../services/itunes_search_service.dart';
-import '../../utils/color_extractor.dart';
-import '../../screens/post_card_edit_screen.dart';
+import '../models/track_model.dart';
+import 'tutorial_controller.dart';
+import '../services/itunes_search_service.dart';
+import '../utils/color_extractor.dart';
+import '../screens/post_card_edit_screen.dart';
 
 /// チュートリアル用カメラオーバーレイ。
+///
+/// カメラUI（9:16ビューファインダー・白枠・フレーム内アイコン・グリッドスクロール）は
+/// PostPhotoSelectionScreen（通常フロー）と同一UIを独立して保持している。
+/// 両者は共通コードを共有せず、それぞれ独立して管理すること。
 ///
 /// レイアウト:
 ///   - 半透明黒ディム (0xAA000000) が全体に常時表示
@@ -40,6 +44,7 @@ class _TutorialCameraOverlayState extends State<TutorialCameraOverlay>
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
   bool _isTakingPhoto = false;
+  bool _isFrontCamera = false;
 
   // ---- PageView (スナップ) ----
   final PageController _pageController = PageController();
@@ -111,12 +116,15 @@ class _TutorialCameraOverlayState extends State<TutorialCameraOverlay>
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty || !mounted) return;
-      final back = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.back,
+      final direction = _isFrontCamera
+          ? CameraLensDirection.front
+          : CameraLensDirection.back;
+      final camera = cameras.firstWhere(
+        (c) => c.lensDirection == direction,
         orElse: () => cameras.first,
       );
       final controller = CameraController(
-        back,
+        camera,
         ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
@@ -242,6 +250,19 @@ class _TutorialCameraOverlayState extends State<TutorialCameraOverlay>
     );
   }
 
+  // ---- カメラ反転 ----
+
+  Future<void> _flipCamera() async {
+    final oldController = _cameraController;
+    setState(() {
+      _isFrontCamera = !_isFrontCamera;
+      _isCameraInitialized = false;
+      _cameraController = null;
+    });
+    await oldController?.dispose();
+    await _initCamera();
+  }
+
   // ---- 撮影 ----
 
   Future<void> _onShutter() async {
@@ -318,6 +339,10 @@ class _TutorialCameraOverlayState extends State<TutorialCameraOverlay>
     }
   }
 
+  // アップロード中のUI（PostingState + PostingCardOverlay）は
+  // PostFinalPreviewScreen が独立して保持している。
+  // チュートリアル再実装時は posting_state.dart / posting_card_overlay.dart を
+  // そのまま利用するか、チュートリアル専用版として複製すること。
   Future<void> _navigateToEdit(XFile photo) async {
     await TutorialController.instance.goTo(TutorialStep.posting);
     if (!mounted) return;
@@ -415,116 +440,159 @@ class _TutorialCameraOverlayState extends State<TutorialCameraOverlay>
 
   // ---- Page 0: カメラページ ----
 
+  // ---- Page 0: カメラページ（post_photo_selection_screen.dart と同一UI）----
   Widget _buildCameraPage(MediaQueryData mq) {
     final topPad = mq.padding.top;
     final bottomPad = mq.padding.bottom;
     final screenH = mq.size.height;
-    final screenW = mq.size.width;
-    final viewfinderH = (screenH - topPad - bottomPad) * 0.76;
 
     final hashtag = widget.vibeTopicTitle != null
         ? '#${widget.vibeTopicTitle}'
         : '#ドライブで聴きたい曲';
 
-    return Column(
-      children: [
-        SizedBox(height: topPad),
-        // フラッシュアイコン + ハッシュタグ
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Column(
+    return Container(
+      color: Colors.black,
+      height: screenH,
+      child: Stack(
+        children: [
+          Column(
             children: [
-              const Icon(Icons.flash_off, color: Colors.white, size: 24),
-              const SizedBox(height: 6),
-              Text(
-                hashtag,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.2,
+              SizedBox(height: topPad),
+              // カメラビューファインダー（9:16）
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: AspectRatio(
+                  aspectRatio: 9 / 16,
+                  child: Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: _isCameraInitialized && _cameraController != null
+                            ? SizedBox.expand(
+                                child: FittedBox(
+                                  fit: BoxFit.cover,
+                                  child: SizedBox(
+                                    width: _cameraController!
+                                        .value.previewSize!.height,
+                                    height: _cameraController!
+                                        .value.previewSize!.width,
+                                    child: CameraPreview(_cameraController!),
+                                  ),
+                                ),
+                              )
+                            : Container(color: const Color(0xFF0A0A0A)),
+                      ),
+                      // 上部: フラッシュアイコン + Vibeハッシュタグ（フレーム内）
+                      Positioned(
+                        top: 16,
+                        left: 0,
+                        right: 0,
+                        child: Column(
+                          children: [
+                            const Icon(Icons.flash_off,
+                                color: Colors.white, size: 24),
+                            const SizedBox(height: 6),
+                            Text(
+                              hashtag,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // シャッターボタン
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 28,
+                        child: Center(
+                          child: GestureDetector(
+                            onTap: _onShutter,
+                            child: const _ShutterButton(),
+                          ),
+                        ),
+                      ),
+                      // 白枠（最前面）
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border:
+                                  Border.all(color: Colors.white, width: 2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // 下部: ギャラリーボタン（左）＋カメラ反転ボタン（右）
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                      left: 28, right: 28, bottom: bottomPad + 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // ギャラリーボタン（左下）
+                      GestureDetector(
+                        onTap: _goToGallery,
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2B2B2B),
+                            borderRadius: BorderRadius.circular(8),
+                            border:
+                                Border.all(color: Colors.white38, width: 1.5),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(6.5),
+                            child: _latestThumbData != null
+                                ? Image.memory(
+                                    _latestThumbData!,
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    gaplessPlayback: true,
+                                  )
+                                : const Icon(Icons.photo_library_outlined,
+                                    color: Colors.white, size: 22),
+                          ),
+                        ),
+                      ),
+                      // カメラ反転ボタン（右下）
+                      GestureDetector(
+                        onTap: _flipCamera,
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF363B3F),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.cameraswitch,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-        // カメラビューファインダー
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: SizedBox(
-            width: screenW - 24,
-            height: viewfinderH,
-            child: Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: _isCameraInitialized && _cameraController != null
-                      ? SizedBox.expand(
-                          child: FittedBox(
-                            fit: BoxFit.cover,
-                            child: SizedBox(
-                              width: _cameraController!
-                                  .value.previewSize!.height,
-                              height: _cameraController!
-                                  .value.previewSize!.width,
-                              child: CameraPreview(_cameraController!),
-                            ),
-                          ),
-                        )
-                      : Container(color: const Color(0xFF0A0A0A)),
-                ),
-                // シャッターボタン
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 28,
-                  child: Center(
-                    child: GestureDetector(
-                      onTap: _onShutter,
-                      child: const _ShutterButton(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        // ギャラリーボタン (左下)
-        Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(
-                left: 28, right: 28, bottom: bottomPad + 16),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: GestureDetector(
-                onTap: _goToGallery,
-                child: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2B2B2B),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white38, width: 1.5),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(6.5),
-                    child: _latestThumbData != null
-                        ? Image.memory(
-                            _latestThumbData!,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            height: double.infinity,
-                            gaplessPlayback: true,
-                          )
-                        : const Icon(Icons.photo_library_outlined,
-                            color: Colors.white, size: 22),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

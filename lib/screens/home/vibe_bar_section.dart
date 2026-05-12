@@ -12,18 +12,12 @@ class VibeBarSection extends StatelessWidget {
   final VoidCallback? onPostTap;
   final VoidCallback? onAddTap;
 
-  /// チュートリアルから誘導したい UI 要素のキー（任意）
-  final GlobalKey? vibeIconKey;
-  final GlobalKey? addButtonKey;
-
   const VibeBarSection({
     super.key,
     required this.vibeDataFuture,
     required this.onRankingItemTap,
     this.onPostTap,
     this.onAddTap,
-    this.vibeIconKey,
-    this.addButtonKey,
   });
 
   @override
@@ -116,7 +110,6 @@ class VibeBarSection extends StatelessWidget {
     return GestureDetector(
       onTap: onPostTap,
       child: Container(
-        key: vibeIconKey,
         width: 78,
         height: 78,
         decoration: const BoxDecoration(
@@ -260,7 +253,6 @@ class VibeBarSection extends StatelessWidget {
             GestureDetector(
               onTap: onAddTap,
               child: Container(
-                key: addButtonKey,
                 width: 115,
                 height: 25,
                 decoration: BoxDecoration(

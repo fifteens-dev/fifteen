@@ -1,16 +1,18 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../models/track_model.dart';
+import '../providers/current_user_provider.dart';
 import '../widgets/post_card.dart';
 import 'package:flutter/services.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../services/user_service.dart';
-import '../utils/current_user_helper.dart';
 import 'card_share_screen.dart';
+import 'comment_screen.dart';
 import 'home/home_bottom_nav.dart';
 
 /// 特定のトラックのVibe投稿一覧を表示する画面
@@ -42,7 +44,6 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
   final UserService _userService = UserService();
   final Map<String, bool> _isSavedCache = {};
   int _currentPage = 0;
-  String? _currentUserIconUrl;
 
   // 今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
@@ -54,10 +55,12 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
   final Map<int, String?> _previewUrlCache = {};
   int? _requestedPageIndex;
 
+  String? get _currentUserIconUrl =>
+      context.read<CurrentUserProvider>().iconUrl;
+
   @override
   void initState() {
     super.initState();
-    _loadCurrentUserIconUrl();
     // 呼び出し元から渡された値があればローディングをスキップ
     if (widget.initialHasPostedToday != null) {
       _hasPostedToday = widget.initialHasPostedToday!;
@@ -78,15 +81,6 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
       setState(() {
         _hasPostedToday = hasPosted;
         _hasPostedTodayLoaded = true;
-      });
-    }
-  }
-
-  Future<void> _loadCurrentUserIconUrl() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() {
-        _currentUserIconUrl = userInfo.iconUrl;
       });
     }
   }
@@ -160,6 +154,14 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
     _playMusicForPage(index);
   }
 
+  Future<void> _handleComment(PostModel post) async {
+    await CommentScreen.show(
+      context,
+      post: post,
+      onCommentCountChanged: (_) {},
+    );
+  }
+
   Future<void> _handleSave(PostModel post) async {
     HapticFeedback.lightImpact();
     final postId = post.postId;
@@ -225,7 +227,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                               externalPreviewUrl: _previewUrlCache[index],
                               backSideEnabled: _hasPostedToday,
                               onLike: () {},
-                              onComment: () {},
+                              onComment: () => _handleComment(post),
                               isSaved: _isSavedCache[post.postId] ??
                                   post.savedByUserIds.contains(widget.currentUserId),
                               onAdd: () => _handleSave(post),

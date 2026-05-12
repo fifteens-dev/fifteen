@@ -13,6 +13,9 @@ import 'login_info_screen.dart';
 import 'invitation_screen.dart';
 import 'basic_info_screen.dart';
 import 'admin/admin_screen.dart';
+import 'adl_join_screen.dart';
+import '../services/adl_service.dart';
+import '../models/adl_event_model.dart';
 
 /// 設定画面
 class SettingsScreen extends StatefulWidget {
@@ -25,8 +28,11 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final UserService _userService = UserService();
   final AdminService _adminService = AdminService();
+  final AdlService _adlService = AdlService();
   UserModel? _userData;
   bool _isAdmin = false;
+  bool _adlActive = false;
+  AdlEventModel? _adlEvent;
 
   @override
   void initState() {
@@ -47,6 +53,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _userData = userData;
           _isAdmin = isAdmin;
+        });
+      }
+    } catch (_) {}
+
+    // ADL情報は独立してロード（失敗しても上記に影響しない）
+    try {
+      final adlActive = await _adlService.isAdlModeActive();
+      final adlEvent = adlActive ? await _adlService.getActiveEvent() : null;
+      if (mounted) {
+        setState(() {
+          _adlActive = adlActive;
+          _adlEvent = adlEvent;
         });
       }
     } catch (_) {}
@@ -174,6 +192,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           showDivider: true,
                         ),
                       ]),
+
+                      // ADLイベント（開催中のみ表示）
+                      if (_adlActive && _adlEvent != null) ...[
+                        const SizedBox(height: 24),
+                        _buildSectionLabel('ADLイベント'),
+                        const SizedBox(height: 8),
+                        _buildSettingsCard([
+                          _SettingsItem(
+                            icon: Icons.groups,
+                            title: _userData?.adlTeamName != null
+                                ? '${_userData!.adlTeamName}（参加中）'
+                                : 'チームに参加する',
+                            onTap: () async {
+                              final joined = await Navigator.push<bool>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => AdlJoinScreen(
+                                    event: _adlEvent!,
+                                    currentTeamName: _userData?.adlTeamName,
+                                  ),
+                                ),
+                              );
+                              if (joined == true) _loadUserData();
+                            },
+                          ),
+                        ]),
+                      ],
 
                       // 管理者向け（管理者のみ表示）
                       if (_isAdmin) ...[

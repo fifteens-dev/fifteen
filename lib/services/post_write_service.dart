@@ -39,6 +39,7 @@ class PostWriteService {
     int audioDurationSec = 15,
     String? university,
     bool campusVibeParticipating = true,
+    String? adlTeamId,
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
@@ -85,6 +86,7 @@ class PostWriteService {
         'campusVibeParticipating': campusVibeParticipating,
         // 作成時の参加状態を永続保持（archiveで上書きされない）
         'campusVibePost': campusVibeParticipating == true && university != null,
+        'adlTeamId': adlTeamId,
       };
 
       await postRef.set(postData);

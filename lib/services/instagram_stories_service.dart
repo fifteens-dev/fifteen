@@ -13,9 +13,11 @@ class InstagramStoriesService {
     }
   }
 
-  static Future<bool> share(Uint8List pngBytes) async {
+  static Future<bool> share(Uint8List pngBytes, {String? postId}) async {
     try {
-      const contentUrl = 'https://fifteens-39cfe.web.app/';
+      final contentUrl = postId != null && postId.isNotEmpty
+          ? 'https://fifteens-39cfe.web.app/post/$postId'
+          : 'https://fifteens-39cfe.web.app/';
       final args = <String, dynamic>{
         'imageData': pngBytes,
         'contentURL': contentUrl,

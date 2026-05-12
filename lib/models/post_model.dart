@@ -40,6 +40,7 @@ class PostModel {
   final String? university; // 投稿者の大学名（Campus Vibe用）
   final bool campusVibeParticipating; // Campus Vibe参加フラグ（デフォルトtrue）
   final bool campusVibePost; // Campus Vibe参加投稿フラグ（作成時確定・変更不可）
+  final String? adlTeamId; // ADL班タグ
 
   PostModel({
     required this.postId,
@@ -78,6 +79,7 @@ class PostModel {
     this.university,
     this.campusVibeParticipating = true,
     this.campusVibePost = false,
+    this.adlTeamId,
   });
 
   // Firestoreドキュメントから作成
@@ -143,6 +145,7 @@ class PostModel {
       // null の場合デフォルト true、false が明示されている場合のみ false
       campusVibeParticipating: data['campusVibeParticipating'] != false,
       campusVibePost: data['campusVibePost'] == true,
+      adlTeamId: data['adlTeamId']?.toString(),
     );
   }
 
@@ -183,6 +186,7 @@ class PostModel {
       'audioDurationSec': audioDurationSec,
       'university': university,
       'campusVibeParticipating': campusVibeParticipating,
+      'adlTeamId': adlTeamId,
     };
   }
 

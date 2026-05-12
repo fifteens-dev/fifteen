@@ -25,26 +25,19 @@ import '../models/notification_model.dart';
 import '../services/vibe_topic_service.dart';
 import '../utils/campus_vibe_utils.dart';
 import '../widgets/campus_vibe_card.dart';
-import '../utils/current_user_helper.dart';
+import '../providers/current_user_provider.dart';
 import 'comment_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'music_selection_screen.dart';
 import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
-import 'vibe_playlist_screen.dart';
+import 'vibe_playlist/vibe_playlist_screen.dart';
 import 'card_share_screen.dart';
 import 'home/vibe_bar_section.dart';
 import 'home/home_bottom_nav.dart';
 import '../widgets/common/app_toast.dart';
-import '../services/tutorial_controller.dart';
-import '../services/tutorial_prefetch_service.dart';
-import '../widgets/tutorial/tutorial_coachmark.dart';
-import '../widgets/tutorial/animated_hand_cursor.dart';
-import '../widgets/tutorial/tutorial_frame628_overlay.dart';
-import '../widgets/tutorial/tutorial_album_carousel.dart';
-import '../widgets/tutorial/tutorial_camera_overlay.dart';
-import '../models/track_model.dart';
+import '../services/posting_state.dart';
 import 'post_photo_selection_screen.dart';
 
 /// ホーム画面（タイムライン）
@@ -84,15 +77,6 @@ class _HomeScreenState extends State<HomeScreen>
   // 各PostCardのGlobalKey（可視性チェック・flipToFront用）
   final Map<String, GlobalKey<PostCardState>> _postCardKeys = {};
 
-  // チュートリアル誘導用のキー
-  final GlobalKey _tutorialAddButtonKey = GlobalKey();
-  final GlobalKey _tutorialVibeIconKey = GlobalKey();
-
-  // カメラオーバーレイに渡すトラック（takingPhoto ステップで使用）
-  TrackModel? _tutorialTrack;
-
-  int _tutorialActiveIndex = 0;
-
   // 現在再生中の投稿ID
   String? _playingPostId;
 
@@ -112,9 +96,6 @@ class _HomeScreenState extends State<HomeScreen>
   // 投稿ごとの音楽プレビューURL（postId → URL）
   final Map<String, String?> _previewUrlCache = {};
 
-  // 現在のユーザーのアイコンURL（楽観的UI用）
-  String? _currentUserIconUrl;
-
   // 現在のユーザーが今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
 
@@ -129,14 +110,17 @@ class _HomeScreenState extends State<HomeScreen>
         ? Future.value(widget.initialVibeData)
         : _loadVibeData();
     _loadRevealedPostIds();
-    // initialUserModel があればFirestoreアクセス不要
+    // CurrentUserProvider に initialUserModel を流し込んでおく（Firestore 再フェッチ不要）
     if (widget.initialUserModel != null) {
-      _currentUserIconUrl = widget.initialUserModel!.profileImageUrl;
-    } else {
-      _loadCurrentUserIconUrl();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          context.read<CurrentUserProvider>().initFromModel(widget.initialUserModel!);
+        }
+      });
     }
     _updateLastActive();
     _processPendingFollowNotification();
+    PostingState.instance.addListener(_onPostingStateChanged);
     if (widget.initialPosts != null) {
       // バックグラウンドで事前取得済みのデータをそのまま表示（追加フェッチ不要）
       _cachedPosts = widget.initialPosts;
@@ -220,16 +204,6 @@ class _HomeScreenState extends State<HomeScreen>
     await prefs.setStringList(key, _revealedPostIds.toList());
   }
 
-  /// 現在のユーザーのアイコンURLを取得
-  Future<void> _loadCurrentUserIconUrl() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() {
-        _currentUserIconUrl = userInfo.iconUrl;
-      });
-    }
-  }
-
   /// 招待コードによる自動フォローの通知を遅延送信（認証フロー完了後）
   Future<void> _processPendingFollowNotification() async {
     try {
@@ -276,13 +250,10 @@ class _HomeScreenState extends State<HomeScreen>
     _vibeDataFuture = _loadVibeData();
 
     // 投稿データとユーザー情報を並列取得
-    final results = await Future.wait([
-      _fetchPostsData(),
-      CurrentUserHelper.load(),
-    ]);
-
-    final postsResult = results[0] as ({List<PostModel> posts, bool hasPostedToday, List<String> savedPostIds});
-    final userInfo = results[1] as ({String username, String? iconUrl, String? university});
+    final postsFuture = _fetchPostsData();
+    final userRefreshFuture = context.read<CurrentUserProvider>().refresh();
+    final postsResult = await postsFuture;
+    await userRefreshFuture;
 
     // 最低1秒間はリフレッシュインジケーターを表示
     final elapsed = DateTime.now().difference(refreshStart);
@@ -294,7 +265,6 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _cachedPosts = postsResult.posts;
         _hasPostedToday = postsResult.hasPostedToday;
-        _currentUserIconUrl = userInfo.iconUrl;
         _previewUrlCache.clear(); // リフレッシュ時はキャッシュをリセット
       });
       context.read<PostUIState>().resetAndInitialize(
@@ -508,10 +478,19 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    PostingState.instance.removeListener(_onPostingStateChanged);
     routeObserver.unsubscribe(this);
     _scrollController.dispose();
     _bellOpacity.dispose();
     super.dispose();
+  }
+
+  /// 投稿アップロード完了時にタイムライン＋Vibeを自動リロード
+  void _onPostingStateChanged() {
+    if (!PostingState.instance.isPosting) {
+      _vibeDataFuture = _loadVibeData();
+      _loadPosts();
+    }
   }
 
   /// スクロール時に各カードの可視性を確認し、
@@ -602,15 +581,12 @@ class _HomeScreenState extends State<HomeScreen>
     _navigateToVibePlaylistInternal(topic, ranking);
   }
 
-  /// VibePlaylistScreen への実遷移（チュートリアル状態の前進も含む）
+  /// VibePlaylistScreen への実遷移
   Future<void> _navigateToVibePlaylistInternal(
     VibeTopicModel topic,
     List<VibeRankingItem> ranking,
   ) async {
     _homeAudioService.stop();
-    if (TutorialController.instance.step == TutorialStep.showVibePlaylistHint) {
-      await TutorialController.instance.goTo(TutorialStep.swipeUpInPlaylist);
-    }
     if (!mounted) return;
     await Navigator.push(
       context,
@@ -629,7 +605,6 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _navigateToPostFlow() async {
     _homeAudioService.stop();
 
-    // チュートリアル中は Frame 628 が前面に出ているのでこのパスは通常通らない
     final targetIndex = await Navigator.push<int>(
       context,
       PageRouteBuilder(
@@ -641,52 +616,6 @@ class _HomeScreenState extends State<HomeScreen>
     if (targetIndex != null && mounted) {
       setState(() => _selectedIndex = targetIndex);
     }
-  }
-
-  /// チュートリアル Frame 628 でカルーセルのアクティブ曲が変わったときに呼ばれる
-  Future<void> _onTutorialAlbumChanged(int index) async {
-    _tutorialActiveIndex = index;
-    final items = TutorialAlbumCarousel.defaultItems;
-    if (index >= items.length) return;
-    final item = items[index];
-    final cacheKey = '${item.title}__${item.artist}';
-
-    // MusicConnectionScreen で既にプリフェッチ済みのはずだが、未完の場合は待機
-    await TutorialPrefetchService.instance.ensureReady(cacheKey, item);
-
-    // 非同期中にインデックスが変わっていたら再生しない
-    if (!mounted || _tutorialActiveIndex != index) return;
-
-    final previewUrl = TutorialPrefetchService.instance.previewCache[cacheKey];
-    if (previewUrl != null && previewUrl.isNotEmpty) {
-      _homeAudioService.playPreview(previewUrl);
-    }
-  }
-
-  /// チュートリアル Frame 628 で曲を確定したときに呼ばれる
-  Future<void> _onTutorialSongConfirmed(TutorialAlbumItem item) async {
-    _homeAudioService.stop();
-    final cacheKey = '${item.title}__${item.artist}';
-
-    await TutorialPrefetchService.instance.ensureReady(cacheKey, item);
-
-    if (!mounted) return;
-
-    final cache = TutorialPrefetchService.instance;
-    // Spotify のアルバムアートURL（取得失敗時はローカル assetPath をフォールバック）
-    final albumArtUrl =
-        cache.artCache[cacheKey]?.isNotEmpty == true
-            ? cache.artCache[cacheKey]!
-            : item.assetPath;
-
-    _tutorialTrack = TrackModel(
-      trackId: 'tutorial_${item.title.hashCode}',
-      trackName: item.title,
-      artistName: item.artist,
-      albumImageUrl: albumArtUrl,
-      previewUrl: cache.previewCache[cacheKey],
-    );
-    await TutorialController.instance.goTo(TutorialStep.takingPhoto);
   }
 
   Future<void> _onItemTapped(int index) async {
@@ -735,6 +664,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixinのために必要
     final postUIState = context.watch<PostUIState>();
+    final currentUserIconUrl = context.watch<CurrentUserProvider>().iconUrl;
     final topPadding = MediaQuery.of(context).padding.top;
     final headerHeight = 48.0 + topPadding;
 
@@ -808,8 +738,6 @@ class _HomeScreenState extends State<HomeScreen>
                             onRankingItemTap: _handleRankingItemTap,
                             onPostTap: _navigateToVibePost,
                             onAddTap: _navigateToPostFlow,
-                            vibeIconKey: _tutorialVibeIconKey,
-                            addButtonKey: _tutorialAddButtonKey,
                           ),
                         ),
                         if (false && CampusVibeUtils.shouldShow())
@@ -823,7 +751,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ),
                         const SliverToBoxAdapter(child: SizedBox(height: 9)),
-                        _buildTimelineSliver(postUIState),
+                        _buildTimelineSliver(postUIState, currentUserIconUrl),
                         const SliverToBoxAdapter(child: SizedBox(height: 80)),
                       ],
                     ],
@@ -848,49 +776,6 @@ class _HomeScreenState extends State<HomeScreen>
                   onItemTapped: _onItemTapped,
                 ),
               ),
-
-            // チュートリアル Frame 628 オーバーレイ（最前面）
-            ListenableBuilder(
-              listenable: TutorialController.instance,
-              builder: (context, _) {
-                final step = TutorialController.instance.step;
-                if (_selectedIndex != 0) return const SizedBox.shrink();
-
-                if (step == TutorialStep.showHomeHint) {
-                  // 背景のホーム画面操作を完全にブロックしつつ Frame 628 を表示
-                  return Positioned.fill(
-                    child: TutorialFrame628Overlay(
-                      onConfirm: _onTutorialSongConfirmed,
-                      onActiveChanged: _onTutorialAlbumChanged,
-                    ),
-                  );
-                }
-
-                if (step == TutorialStep.takingPhoto && _tutorialTrack != null) {
-                  // カメラオーバーレイ: Component 126 がホーム画面の上に乗る
-                  return Positioned.fill(
-                    child: TutorialCameraOverlay(
-                      track: _tutorialTrack!,
-                      isVibe: true,
-                      vibeTopicId: 'tutorial_topic_drive',
-                      vibeTopicTitle: 'ドライブで聴きたい曲',
-                    ),
-                  );
-                }
-
-                if (step == TutorialStep.showVibePlaylistHint) {
-                  return TutorialCoachmark(
-                    active: true,
-                    text: '他の人の投稿も見てみよう',
-                    subText: 'Vibeアイコンをタップ',
-                    handVariant: HandCursorVariant.tap,
-                    target: _tutorialVibeIconKey,
-                    placement: CoachmarkPlacement.belowTarget,
-                  );
-                }
-                return const SizedBox.shrink();
-              },
-            ),
           ],
         ),
     );
@@ -975,7 +860,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// タイムライン（投稿カードリスト）- Sliver版
-  Widget _buildTimelineSliver(PostUIState postUIState) {
+  Widget _buildTimelineSliver(PostUIState postUIState, String? currentUserIconUrl) {
     final posts = _cachedPosts!;
     final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
 
@@ -988,7 +873,7 @@ class _HomeScreenState extends State<HomeScreen>
             final displayPost = postUIState.getDisplayPost(
               post,
               currentUserId: currentUserId,
-              currentUserIconUrl: _currentUserIconUrl,
+              currentUserIconUrl: currentUserIconUrl,
             );
 
             _postCardKeys.putIfAbsent(post.postId, () => GlobalKey<PostCardState>());
@@ -1001,7 +886,7 @@ class _HomeScreenState extends State<HomeScreen>
                   key: cardKey,
                   post: displayPost,
                   currentUserId: currentUserId,
-                  currentUserIconUrl: _currentUserIconUrl,
+                  currentUserIconUrl: currentUserIconUrl,
                   audioService: _homeAudioService,
                   externalPreviewUrl: _previewUrlCache[post.postId],
                   onLike: () => _handleLike(post),
@@ -1019,7 +904,7 @@ class _HomeScreenState extends State<HomeScreen>
                     context,
                     post: post,
                     currentUserId: currentUserId,
-                    currentUserIconUrl: _currentUserIconUrl,
+                    currentUserIconUrl: currentUserIconUrl,
                     isSaved: postUIState.isSaved(post.postId),
                   ),
                 ),

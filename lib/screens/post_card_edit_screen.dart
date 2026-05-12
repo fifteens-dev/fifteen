@@ -9,8 +9,9 @@ import '../models/post_edit_state.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/lyrics_service.dart';
+import 'package:provider/provider.dart';
 import '../utils/color_extractor.dart';
-import '../utils/current_user_helper.dart';
+import '../providers/current_user_provider.dart';
 import '../widgets/post_creation/post_card_back_view.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
 import 'post_final_preview_screen.dart';
@@ -94,9 +95,11 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
 
   // ---- Lyrics / user info ----
   LyricsData? _lyricsData;
-  String _currentUsername = '';
-  String? _currentUserIconUrl;
   String? _currentUniversity;
+
+  String get _currentUsername => context.read<CurrentUserProvider>().username;
+  String? get _currentUserIconUrl =>
+      context.read<CurrentUserProvider>().iconUrl;
 
   // ---- アルバムアート透明度 ----
   double _albumArtOpacity = 1.0;
@@ -131,7 +134,7 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
       // → アニメーション中の setState を避けてカクつきを防止
     }
 
-    _loadCurrentUserInfo();
+    _loadUniversity();
 
     // 波形データ生成
     final random = Random(_currentTrack.trackName.hashCode);
@@ -235,13 +238,15 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
     }
   }
 
-  Future<void> _loadCurrentUserInfo() async {
-    final userInfo = await CurrentUserHelper.load();
+  Future<void> _loadUniversity() async {
+    // CurrentUserProvider が未ロードの場合はロード完了を待つ
+    final provider = context.read<CurrentUserProvider>();
+    if (!provider.isLoaded) {
+      await provider.ensureLoaded();
+    }
     if (mounted) {
       setState(() {
-        _currentUsername = userInfo.username;
-        _currentUserIconUrl = userInfo.iconUrl;
-        _currentUniversity = userInfo.university;
+        _currentUniversity = provider.university;
       });
     }
   }

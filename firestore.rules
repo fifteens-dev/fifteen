@@ -191,6 +191,40 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ── adl_config コレクション ──────────────────────────────
+    // ADLモードのON/OFF設定。読み取りは全ログインユーザー、書き込みは管理者のみ
+    match /adl_config/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ── adl_events コレクション ──────────────────────────────
+    // ADLイベント情報。読み取りは全ログインユーザー、書き込みは管理者のみ
+    match /adl_events/{eventId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ── adl_teams コレクション ───────────────────────────────
+    // 班情報・招待コード。読み取りは全ログインユーザー（コード検証に必要）
+    // 管理者は全操作可。一般ユーザーは memberCount のみ更新可（参加時）
+    match /adl_teams/{teamId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (isAuthenticated() &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['memberCount']));
+    }
+
+    // ── adl_memberships コレクション ─────────────────────────
+    // ユーザーの班所属情報。本人のみ作成・読み取り可、管理者は全操作可
+    match /adl_memberships/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update, delete: if isAdmin();
+    }
+
     // ── app_open_events コレクション ──────────────────────────
     // DAU/MAU 計測用。1ユーザー1日1件（docId: {uid}_{date}）
     // 作成・更新：本人のみ（set はべき等）

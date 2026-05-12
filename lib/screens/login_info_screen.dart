@@ -5,7 +5,6 @@ import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../widgets/dialogs/confirm_dialog.dart';
 import '../widgets/common/app_toast.dart';
-import '../services/tutorial_controller.dart';
 
 /// ログイン情報画面
 class LoginInfoScreen extends StatefulWidget {
@@ -74,9 +73,6 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
 
       // Firebase Auth アカウント削除（再認証済みなので成功するはず）
       await _authService.deleteAccount();
-
-      // 次回登録時にチュートリアルを再表示するためフラグをリセット
-      await TutorialController.instance.resetCompletedFlag();
 
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil(

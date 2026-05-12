@@ -15,8 +15,9 @@ import '../widgets/post_creation/lyrics_card_layouts.dart';
 import '../services/audio_player_service.dart';
 import '../services/lyrics_service.dart';
 import '../services/itunes_search_service.dart';
+import 'package:provider/provider.dart';
 import '../utils/color_extractor.dart';
-import '../utils/current_user_helper.dart';
+import '../providers/current_user_provider.dart';
 import '../widgets/shared/user_info_badge.dart';
 import 'post_photo_selection_screen.dart';
 
@@ -84,18 +85,16 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
   Color? _extractedGradientEnd;
   bool _isColorExtracting = false;
 
-  // 現在のユーザー情報
-  String _currentUsername = '';
-  String? _currentUserIconUrl;
+  // 現在のユーザー情報（Provider 経由）
+  String get _currentUsername => context.read<CurrentUserProvider>().username;
+  String? get _currentUserIconUrl =>
+      context.read<CurrentUserProvider>().iconUrl;
 
   @override
   void initState() {
     super.initState();
     print('🎬 PostPreviewScreen initState()');
     print('  - track: ${widget.track.trackName} by ${widget.track.artistName}');
-
-    // 現在のユーザー情報を取得
-    _loadCurrentUserInfo();
 
     // 歌詞データの初期化
     _lyricsData = widget.lyricsData;
@@ -171,17 +170,6 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
         _flipCard();
       }
     });
-  }
-
-  /// 現在のユーザー情報を取得
-  Future<void> _loadCurrentUserInfo() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() {
-        _currentUsername = userInfo.username;
-        _currentUserIconUrl = userInfo.iconUrl;
-      });
-    }
   }
 
   /// BPMを非同期で取得

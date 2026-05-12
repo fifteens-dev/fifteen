@@ -1,4 +1,4 @@
-const { onDocumentCreated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentDeleted, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
@@ -57,12 +57,14 @@ exports.sendPushNotification = onDocumentCreated(
 
       const senderId = request.senderId || '';
 
-      // 通知タイプ別タイトル
+      // 通知タイプ別タイトル・本文
       let notifTitle;
+      let notifBody = message;
       if (notificationType === 'post') {
         notifTitle = randomPostTitle();
       } else if (notificationType === 'follow') {
         notifTitle = 'フォロー通知';
+        notifBody = `${senderUsername}があなたをフォローしました`;
       } else {
         notifTitle = senderUsername;
       }
@@ -71,7 +73,7 @@ exports.sendPushNotification = onDocumentCreated(
       const payload = {
         notification: {
           title: notifTitle,
-          body: message,
+          body: notifBody,
         },
         data: {
           notificationType: notificationType,
@@ -1152,6 +1154,41 @@ async function _sendVibeNotificationToUsers(db, topicDoc, skipPostedCheck, targe
  *
  * deleteUserData() の補完として、サーバー側でも補助データを削除する。
  */
+/**
+ * ADL いいね集計
+ *
+ * 投稿の likeCount が変化したとき、投稿者の ADL 班に反映する。
+ * adl_memberships/{userId} が存在する場合のみ adl_teams/{teamId}.likeCount を ±delta する。
+ */
+exports.adlLikeAggregation = onDocumentWritten(
+  'posts/{postId}',
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    const after  = event.data.after.exists  ? event.data.after.data()  : null;
+
+    const beforeCount = before?.likeCount ?? 0;
+    const afterCount  = after?.likeCount  ?? 0;
+    const delta = afterCount - beforeCount;
+    if (delta === 0) return;
+
+    const userId = (after ?? before)?.userId;
+    if (!userId) return;
+
+    const db = admin.firestore();
+    const memberSnap = await db.doc(`adl_memberships/${userId}`).get();
+    if (!memberSnap.exists) return;
+
+    const { teamId } = memberSnap.data();
+    if (!teamId) return;
+
+    await db.doc(`adl_teams/${teamId}`).update({
+      likeCount: admin.firestore.FieldValue.increment(delta),
+    });
+
+    console.log(`adlLikeAggregation: team=${teamId} delta=${delta}`);
+  }
+);
+
 exports.onUserDocDeleted = onDocumentDeleted(
   'users/{userId}',
   async (event) => {

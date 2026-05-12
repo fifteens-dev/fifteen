@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 /// 「Vibeに楽曲を追加しています...」のような投稿プログレス文をヘッダー領域に
 /// フェードイン/アウトで表示するオーバーレイ。
 ///
-/// 用途:
-/// - チュートリアル中（楽曲追加アニメーション）
-/// - 実際の投稿処理中（ホーム画面のヘッダー位置に重ねて表示）
+/// 用途: 投稿処理中（ホーム画面のヘッダー位置に重ねて表示）
 ///
 /// アクティブ判定は [active] で行い、状態遷移時に opacity がアニメーション。
 class PostingProgressOverlay extends StatelessWidget {

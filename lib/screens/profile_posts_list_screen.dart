@@ -1,13 +1,14 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../models/post_model.dart';
+import '../providers/current_user_provider.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../services/user_service.dart';
-import '../utils/current_user_helper.dart';
 import 'card_share_screen.dart';
 import '../widgets/common/app_toast.dart';
 import '../widgets/dialogs/delete_post_dialog.dart';
@@ -38,9 +39,11 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
   final UserService _userService = UserService();
   final PostService _postService = PostService();
   final ScrollController _scrollController = ScrollController();
-  String? _currentUserIconUrl;
   String? _currentUserId;
   int? _playingIndex;
+
+  String? get _currentUserIconUrl =>
+      context.read<CurrentUserProvider>().iconUrl;
 
   // 各PostCardのGlobalKey（flipToBack呼び出し用）
   final Map<int, GlobalKey<PostCardState>> _cardKeys = {};
@@ -62,7 +65,6 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
     super.initState();
     _posts = List.from(widget.posts);
     _currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    _loadCurrentUserIconUrl();
     _loadSaveStates();
 
     _scrollController.addListener(_checkCardVisibility);
@@ -208,14 +210,6 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
     }
   }
 
-  Future<void> _loadCurrentUserIconUrl() async {
-    final userInfo = await CurrentUserHelper.load();
-    if (mounted) {
-      setState(() {
-        _currentUserIconUrl = userInfo.iconUrl;
-      });
-    }
-  }
 
   Future<void> _handleDelete(PostModel post) async {
     final confirmed = await showDeletePostConfirmDialog(context);

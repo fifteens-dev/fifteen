@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'providers/post_ui_state.dart';
+import 'providers/current_user_provider.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/verification_code_screen.dart';
 import 'screens/invite_code_screen.dart';
@@ -30,7 +31,6 @@ import 'services/auth_service.dart';
 import 'services/settings_service.dart';
 import 'services/post_service.dart';
 import 'services/font_service.dart';
-import 'services/tutorial_controller.dart';
 import 'services/user_service.dart';
 import 'services/vibe_topic_service.dart';
 import 'models/post_model.dart';
@@ -87,9 +87,6 @@ void main() async {
 
   // SF Pro フォントをロード（iOS のみ・失敗時はフォールバック）
   await FontService.loadSFPro();
-
-  // チュートリアル状態をロード（永続化されたステップを復元）
-  await TutorialController.instance.ensureInitialized();
 
   // runApp を先に呼んで「15s」をすぐ表示し、FCM初期化はバックグラウンドで実行
   runApp(const FifteenApp());
@@ -148,8 +145,11 @@ class FifteenApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => PostUIState(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => PostUIState()),
+        ChangeNotifierProvider(create: (_) => CurrentUserProvider()..ensureLoaded()),
+      ],
       child: MaterialApp(
       navigatorKey: navigatorKey,
       navigatorObservers: [routeObserver],

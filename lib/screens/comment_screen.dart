@@ -39,20 +39,13 @@ class CommentScreen extends StatefulWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => AnimatedPadding(
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOut,
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          minChildSize: 0.4,
-          maxChildSize: 0.9,
-          builder: (context, scrollController) => CommentScreen(
-            post: post,
-            onCommentCountChanged: onCommentCountChanged,
-          ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        builder: (context, scrollController) => CommentScreen(
+          post: post,
+          onCommentCountChanged: onCommentCountChanged,
         ),
       ),
     );
@@ -473,13 +466,13 @@ class _CommentScreenState extends State<CommentScreen> {
             ),
           ),
 
-        // 入力エリア
+        // 入力エリア（キーボード分だけ押し上げ、シート本体は動かない）
         Container(
           padding: EdgeInsets.only(
             left: 19,
             right: 19,
             top: 10,
-            bottom: 26,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 26,
           ),
           child: Row(
             children: [

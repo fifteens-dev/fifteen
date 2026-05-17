@@ -761,6 +761,26 @@ exports.dailyVibeNotification = onSchedule(
       const now = new Date();
       const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
       const todayStart = new Date(jst.getFullYear(), jst.getMonth(), jst.getDate());
+
+      // ── 冪等チェック ────────────────────────────────────────────────
+      // Cloud Scheduler は at-least-once 保証のため同じジョブが2回起動される場合がある。
+      // Firestore の createIfNotExists (create) をアトミックに行い、
+      // すでに当日実行済みなら即リターン。
+      const dateKey = `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2,'0')}-${String(jst.getUTCDate()).padStart(2,'0')}`;
+      const jobRef = db.doc(`daily_job_locks/vibeNotification_${dateKey}`);
+      try {
+        await jobRef.create({
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        // create() が成功 = 初回実行 → 処理を続行
+      } catch (err) {
+        if (err.code === 6 /* ALREADY_EXISTS */) {
+          console.log(`dailyVibeNotification: already ran for ${dateKey}, skipping duplicate`);
+          return;
+        }
+        throw err; // 予期しないエラーは再スロー
+      }
+      // ── 冪等チェックここまで ─────────────────────────────────────
       const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
       // statusのみでクエリし、コード側で日付フィルタ（複合インデックス不要）

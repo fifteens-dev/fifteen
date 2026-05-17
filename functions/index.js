@@ -522,38 +522,62 @@ exports.checkPostNotificationTimers = onSchedule(
       console.log(`checkPostNotificationTimers: ${expiredDocs.length} expired timers`);
 
       for (const doc of expiredDocs) {
-        const state = doc.data();
         const recipientId = doc.id;
-        const batchedSenderIds = state.batchedSenderIds || [];
-        const batchedSenderUsernames = state.batchedSenderUsernames || [];
-        const batchedPostIds = state.batchedPostIds || [];
 
-        // バッチに投稿がない場合はスキップ
+        // ── アトミックにタイマーをクレーム ──────────────────────────
+        // 2インスタンスが同時に同じ TIMER_ACTIVE ドキュメントを処理しないよう
+        // トランザクションで phase を DONE に更新し、データを取り出す。
+        // 他のインスタンスが先に DONE にしていたら claimed === null でスキップ。
+        let claimedData = null;
+        try {
+          claimedData = await db.runTransaction(async (tx) => {
+            const fresh = await tx.get(doc.ref);
+            if (!fresh.exists || fresh.data().phase !== 'TIMER_ACTIVE') {
+              return null; // 既に別インスタンスが処理済み
+            }
+            const freshTs = fresh.data().timerStartedAt?.toDate();
+            if (!freshTs || freshTs > threeHoursAgo) {
+              return null; // リセットされた or まだ期限前
+            }
+            const data = fresh.data();
+            tx.update(doc.ref, {
+              phase: 'DONE',
+              batchedSenderIds: [],
+              batchedSenderUsernames: [],
+              batchedPostIds: [],
+            });
+            return data; // クレーム成功: 元データを返す
+          });
+        } catch (txErr) {
+          console.error(`checkPostNotificationTimers: transaction error for ${recipientId}:`, txErr);
+          continue;
+        }
+
+        if (!claimedData) {
+          console.log(`checkPostNotificationTimers: ${recipientId} already claimed, skipping`);
+          continue;
+        }
+
+        const batchedSenderIds      = claimedData.batchedSenderIds || [];
+        const batchedSenderUsernames = claimedData.batchedSenderUsernames || [];
+        const batchedPostIds        = claimedData.batchedPostIds || [];
+
         if (batchedSenderIds.length === 0) {
-          await doc.ref.update({ phase: 'DONE' });
           console.log(`checkPostNotificationTimers: ${recipientId} -> DONE (empty batch)`);
           continue;
         }
 
-        // ユニークな送信者数でメッセージを作成（同一ユーザーの複数投稿は1人とカウント）
         const uniqueSenderIds = [...new Set(batchedSenderIds)];
         const count = uniqueSenderIds.length;
         const firstUsername = batchedSenderUsernames[0] || 'Unknown';
-        // 最初に投稿したもの（先着順）のIDを表示・ナビゲートに使用
         const firstPostId = batchedPostIds[0] || null;
         const message = count === 1
           ? `${firstUsername}が投稿しました。`
           : `${firstUsername}など${count}人が投稿しました。`;
 
-        await doc.ref.update({
-          phase: 'DONE',
-          batchedSenderIds: [],
-          batchedSenderUsernames: [],
-          batchedPostIds: [],
-        });
-
-        // タイムスタンプで一意なIDを生成（同日複数バッチでの重複を防ぐ）
-        const notifDocId = `batch_${recipientId}_${Date.now()}`;
+        // timerStartedAt ベースの決定的 ID（Date.now() を使うと2インスタンスで別IDになる）
+        const timerMs = claimedData.timerStartedAt?.toDate().getTime() || Date.now();
+        const notifDocId = `batch_${recipientId}_${timerMs}`;
         await sendPostNotificationDoc(
           db, recipientId,
           batchedSenderIds[0], firstUsername, null,
@@ -653,6 +677,20 @@ exports.dailyVibeTopicRotation = onSchedule(
       const todayStart = new Date(jst.getFullYear(), jst.getMonth(), jst.getDate());
       const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
       const todayTimestamp = admin.firestore.Timestamp.fromDate(todayStart);
+
+      // ── 冪等チェック ────────────────────────────────────────────────
+      const dateKey = `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2,'0')}-${String(jst.getUTCDate()).padStart(2,'0')}`;
+      const jobRef = db.doc(`daily_job_locks/vibeTopicRotation_${dateKey}`);
+      try {
+        await jobRef.create({ createdAt: admin.firestore.FieldValue.serverTimestamp() });
+      } catch (err) {
+        if (err.code === 6) {
+          console.log(`dailyVibeTopicRotation: already ran for ${dateKey}, skipping duplicate`);
+          return;
+        }
+        throw err;
+      }
+      // ── 冪等チェックここまで ─────────────────────────────────────
       const todayEndTimestamp = admin.firestore.Timestamp.fromDate(todayEnd);
 
       // 1. 昨日までのactiveなお題をarchivedに

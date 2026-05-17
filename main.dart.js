@@ -88147,7 +88147,7 @@ m=new A.au(Date.now(),0,!1).fU(-5184e9)
 b5=n.d
 b6=m
 s=7
-return A.c(b5.aT("posts").fC(0,"isVibe",!0).Uk(0,"vibeDate",A.ef(1000*b6.a+b6.b)).ky("vibeDate",!0).jj(500).cs(0),$async$DH)
+return A.c(b5.aT("posts").fC(0,"isVibe",!0).Uk(0,"vibeDate",A.ef(1000*b6.a+b6.b)).ky("vibeDate",!0).jj(60).cs(0),$async$DH)
 case 7:l=d9
 b6=t.N
 k=A.y(b6,t.Gm)

@@ -42,6 +42,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   bool _hasMarkedAsRead = false;
   // 3秒後に視覚的に既読化するためのローカルフラグ
   bool _visuallyRead = false;
+  // タップして開いた通知IDのローカル既読セット（Firestoreストリーム更新前に視覚反映）
+  final Set<String> _openedNotificationIds = {};
   // StreamBuilderが再サブスクライブしないようにキャッシュ
   Stream<List<NotificationModel>>? _notificationsStream;
 
@@ -287,7 +289,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   }
 
   Widget _buildNotificationCell(NotificationModel notification) {
-    final isRead = notification.isRead || _visuallyRead;
+    final isRead = notification.isRead || _visuallyRead ||
+        _openedNotificationIds.contains(notification.notificationId);
     return GestureDetector(
       onTap: () => _handleNotificationTap(notification),
       child: Container(
@@ -952,6 +955,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       if (!notification.isRead) {
         _notificationService.markAsRead(notification.notificationId).catchError((_) {});
       }
+      // ローカル開封済みとして記録（戻った時に即座に視覚反映）
+      _openedNotificationIds.add(notification.notificationId);
 
       if (!mounted) return;
 
@@ -1030,7 +1035,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       }
     } finally {
       if (mounted) {
-        _isNavigating = false;
+        setState(() { _isNavigating = false; });
       }
     }
   }

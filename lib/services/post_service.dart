@@ -492,14 +492,15 @@ class PostService {
     List<String> thumbnails,
   })>> getVibeTopicsWithThumbnails({int limit = 20, int minCount = 1, bool randomize = false}) async {
     try {
-      // 直近60日 / 最大500件に制限（14日では題目数が不足するため延長）
+      // 直近60日 / 最大60件に制限（6題×サムネ4枚=24件が最小要件、余裕を持たせて60件）
+      // 不足分は vibe_topics コレクションで補完するためこれ以上は不要
       final cutoff = DateTime.now().subtract(const Duration(days: 60));
       final snapshot = await _firestore
           .collection(_postsCollection)
           .where('isVibe', isEqualTo: true)
           .where('vibeDate', isGreaterThan: Timestamp.fromDate(cutoff))
           .orderBy('vibeDate', descending: true)
-          .limit(500)
+          .limit(60)
           .get();
 
       final groups = <String, ({

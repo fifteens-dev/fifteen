@@ -60,13 +60,11 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       const Duration(minutes: 5),
       (_) => _refreshIcons(),
     );
-    // 3秒後に既読化（視覚的にもグレー化）
+    // 3秒後に視覚的に既読化（グレー化）
+    // Firestore への書き込みは dispose() で保証するため、ここは UI 更新のみ
     _markAsReadTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted) return;
       setState(() { _visuallyRead = true; });
-      if (_currentUserId.isNotEmpty) {
-        _notificationService.markAllAsRead(_currentUserId).catchError((_) {});
-      }
     });
   }
 
@@ -82,6 +80,11 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   void dispose() {
     _iconRefreshTimer?.cancel();
     _markAsReadTimer?.cancel();
+    // 画面を離れるタイミング（戻るボタン含む）で必ず既読化
+    // タイマーが3秒未満でキャンセルされた場合でも Firestore に書き込む
+    if (_currentUserId.isNotEmpty) {
+      _notificationService.markAllAsRead(_currentUserId).catchError((_) {});
+    }
     super.dispose();
   }
 

@@ -492,8 +492,8 @@ class PostService {
     List<String> thumbnails,
   })>> getVibeTopicsWithThumbnails({int limit = 20, int minCount = 1, bool randomize = false}) async {
     try {
-      // スケーラビリティ対策: 直近14日 / 最大500件に制限
-      final cutoff = DateTime.now().subtract(const Duration(days: 14));
+      // 直近60日 / 最大500件に制限（14日では題目数が不足するため延長）
+      final cutoff = DateTime.now().subtract(const Duration(days: 60));
       final snapshot = await _firestore
           .collection(_postsCollection)
           .where('isVibe', isEqualTo: true)
@@ -596,10 +596,46 @@ class PostService {
         result.sort((a, b) => b.count.compareTo(a.count));
       }
 
-      if (result.length > limit) {
-        return result.sublist(0, limit);
+      final trimmed = result.length > limit ? result.sublist(0, limit) : result;
+
+      // 件数が limit に満たない場合、vibe_topics コレクションから補完
+      if (trimmed.length < limit) {
+        final existingTopicIds = trimmed.map((r) => r.topicId).toSet();
+        try {
+          final topicsSnap = await _firestore
+              .collection('vibe_topics')
+              .orderBy('date', descending: true)
+              .limit(limit * 3) // 候補を多めに取って重複除去
+              .get();
+
+          final extras = <({
+            String topicTitle,
+            String topicId,
+            DateTime date,
+            int count,
+            List<String> thumbnails,
+          })>[];
+
+          for (final doc in topicsSnap.docs) {
+            if (trimmed.length + extras.length >= limit) break;
+            final data = doc.data();
+            final title = (data['title'] as String?) ?? '';
+            if (title.isEmpty) continue;
+            if (existingTopicIds.contains(doc.id)) continue;
+            extras.add((
+              topicTitle: title,
+              topicId: doc.id,
+              date: (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
+              count: 0,
+              thumbnails: ['', '', '', ''],
+            ));
+            existingTopicIds.add(doc.id);
+          }
+          return [...trimmed, ...extras];
+        } catch (_) {}
       }
-      return result;
+
+      return trimmed;
     } catch (e) {
       if (kDebugMode) print('getVibeTopicsWithThumbnails error: $e');
       return [];

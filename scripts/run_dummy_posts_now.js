@@ -129,73 +129,33 @@ function getPostHour(index) {
 }
 
 // Spotify の認証情報を ../.env から読み込む
-function loadSpotifyCredentials() {
-  const fs = require('fs');
-  const path = require('path');
+// Apple Music 日本 TOP チャートを iTunes RSS + Lookup API で取得
+async function fetchAppleMusicJapanTop50(fallback) {
   try {
-    const content = fs.readFileSync(path.join(__dirname, '../.env'), 'utf8');
-    const env = {};
-    content.split('\n').forEach(line => {
-      const m = line.match(/^([^#=]+)=(.*)$/);
-      if (m) env[m[1].trim()] = m[2].trim();
-    });
-    return { clientId: env.SPOTIFY_CLIENT_ID, clientSecret: env.SPOTIFY_CLIENT_SECRET };
-  } catch {
-    return {};
-  }
-}
+    const rssRes = await fetch('https://itunes.apple.com/jp/rss/topsongs/limit=50/json');
+    if (!rssRes.ok) throw new Error(`RSS HTTP ${rssRes.status}`);
+    const rssData = await rssRes.json();
+    const entries = rssData.feed?.entry || [];
+    const trackIds = entries.map(e => e.id?.attributes?.['im:id']).filter(Boolean).join(',');
+    if (!trackIds) throw new Error('トラックID取得失敗');
 
-async function fetchSpotifyToken(clientId, clientSecret) {
-  const res = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      'Authorization': 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64'),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: 'grant_type=client_credentials',
-  });
-  const data = await res.json();
-  if (!data.access_token) throw new Error('Spotify token取得失敗: ' + JSON.stringify(data));
-  return data.access_token;
-}
-
-// Spotify Japan TOP50 プレイリストからトラックを取得
-// 公式チャートプレイリスト (37i9dQZE系) はClient Credentialsで非公開のため、
-// 現チャートを反映しているコミュニティプレイリストを使用
-const SPOTIFY_JAPAN_TOP50_PLAYLIST = '2s46ODpS4wZTb3OW7xnrLK'; // トップ50 日本
-
-async function fetchSpotifyJapanTop50(fallback) {
-  try {
-    const { clientId, clientSecret } = loadSpotifyCredentials();
-    if (!clientId || !clientSecret) throw new Error('Spotify credentials未設定');
-
-    const token = await fetchSpotifyToken(clientId, clientSecret);
-
-    const res = await fetch(
-      `https://api.spotify.com/v1/playlists/${SPOTIFY_JAPAN_TOP50_PLAYLIST}/tracks` +
-      `?limit=50&market=JP&fields=items(track(id,name,artists(name),album(images),preview_url))`,
-      { headers: { 'Authorization': `Bearer ${token}` } }
-    );
-    const data = await res.json();
-
-    const tracks = (data.items || [])
-      .filter(item => item?.track?.id)
-      .map(item => {
-        const t = item.track;
-        return {
-          trackId:       t.id,
-          trackName:     t.name,
-          artistName:    t.artists?.[0]?.name || '',
-          albumImageUrl: t.album?.images?.[0]?.url || '',
-          previewUrl:    t.preview_url || null,
-        };
-      });
+    const lookupRes = await fetch(`https://itunes.apple.com/lookup?id=${trackIds}&country=jp`);
+    const lookupData = await lookupRes.json();
+    const tracks = (lookupData.results || [])
+      .filter(r => r.wrapperType === 'track')
+      .map(r => ({
+        trackId:       String(r.trackId),
+        trackName:     r.trackName,
+        artistName:    r.artistName,
+        albumImageUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
+        previewUrl:    r.previewUrl || null,
+      }));
 
     if (tracks.length === 0) throw new Error('トラック0件');
-    console.log(`Spotify Japan TOP50取得成功 (${tracks.length}件)`);
+    console.log(`Apple Music Japan TOP50取得成功 (${tracks.length}件)`);
     return tracks;
   } catch (e) {
-    console.log(`Spotify TOP50取得失敗: ${e.message}`);
+    console.log(`Apple Music TOP50取得失敗: ${e.message}`);
     return fallback;
   }
 }
@@ -232,7 +192,7 @@ async function main() {
   console.log(`ユーザー: ${userIds.length}人 / 写真: ${postPhotoUrls.length}枚`);
 
   // Spotify Japan TOP50 取得（失敗時はFirestoreのフォールバックを使用）
-  const tracks = await fetchSpotifyJapanTop50(fallbackTracks);
+  const tracks = await fetchAppleMusicJapanTop50(fallbackTracks);
 
   // アクティブなVibe topic を取得
   let activeTopic = null;

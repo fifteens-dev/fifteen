@@ -1431,31 +1431,49 @@ exports.dailyDummyUserPosts = onSchedule(
         return;
       }
 
-      // ── iTunes Japan TOP50 を取得 ─────────────────────────────────
-      let top50Tracks = [];
+      // ── Spotify Japan TOP50 を取得 ────────────────────────────────
+      const SPOTIFY_JAPAN_TOP50_PLAYLIST = '2s46ODpS4wZTb3OW7xnrLK';
+      let tracks = fallbackTracks;
       try {
-        const rssRes = await fetch('https://itunes.apple.com/jp/rss/topsongs/limit=50/json');
-        const rssData = await rssRes.json();
-        const entries = rssData.feed?.entry || [];
-        const trackIds = entries.map(e => e.id?.attributes?.['im:id']).filter(Boolean).join(',');
-        if (trackIds) {
-          const lookupRes = await fetch(`https://itunes.apple.com/lookup?id=${trackIds}&country=jp`);
-          const lookupData = await lookupRes.json();
-          top50Tracks = (lookupData.results || [])
-            .filter(r => r.wrapperType === 'track')
-            .map(r => ({
-              trackId:      String(r.trackId),
-              trackName:    r.trackName,
-              artistName:   r.artistName,
-              albumImageUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
-              previewUrl:   r.previewUrl || null,
-            }));
-          console.log(`dailyDummyUserPosts: iTunes TOP50取得成功 (${top50Tracks.length}件)`);
-        }
+        const spotifyClientId     = process.env.SPOTIFY_CLIENT_ID;
+        const spotifyClientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+        if (!spotifyClientId || !spotifyClientSecret) throw new Error('Spotify credentials未設定');
+
+        const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Basic ' + Buffer.from(`${spotifyClientId}:${spotifyClientSecret}`).toString('base64'),
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'grant_type=client_credentials',
+        });
+        const tokenData = await tokenRes.json();
+        if (!tokenData.access_token) throw new Error('Spotifyトークン取得失敗: ' + JSON.stringify(tokenData));
+
+        const playlistRes = await fetch(
+          `https://api.spotify.com/v1/playlists/${SPOTIFY_JAPAN_TOP50_PLAYLIST}/tracks` +
+          `?limit=50&market=JP&fields=items(track(id,name,artists(name),album(images),preview_url))`,
+          { headers: { 'Authorization': `Bearer ${tokenData.access_token}` } }
+        );
+        const playlistData = await playlistRes.json();
+        const spotifyTracks = (playlistData.items || [])
+          .filter(item => item?.track?.id)
+          .map(item => {
+            const t = item.track;
+            return {
+              trackId:       t.id,
+              trackName:     t.name,
+              artistName:    t.artists?.[0]?.name || '',
+              albumImageUrl: t.album?.images?.[0]?.url || '',
+              previewUrl:    t.preview_url || null,
+            };
+          });
+        if (spotifyTracks.length === 0) throw new Error('トラック0件');
+        tracks = spotifyTracks;
+        console.log(`dailyDummyUserPosts: Spotify Japan TOP50取得成功 (${tracks.length}件)`);
       } catch (e) {
-        console.error('dailyDummyUserPosts: iTunes TOP50取得失敗、フォールバックを使用:', e.message);
+        console.error('dailyDummyUserPosts: Spotify TOP50取得失敗、フォールバックを使用:', e.message);
       }
-      const tracks = top50Tracks.length > 0 ? top50Tracks : fallbackTracks;
 
       // ── 今日のアクティブなVibe topicを取得 ──────────────────────
       let activeTopic = null;

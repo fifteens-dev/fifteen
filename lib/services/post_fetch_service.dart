@@ -118,12 +118,14 @@ class PostFetchService {
   }
 
   /// フォロー中のユーザーの投稿を取得（Firestore whereIn のバッチ処理）
+  /// ダミーユーザーの投稿も常に混入してフィードを賑やかにする
   Future<List<PostModel>> getPostsForFollowing(List<String> userIds, {int limit = 50}) async {
     if (userIds.isEmpty) return [];
 
     try {
       final cutoff = DateTime.now().subtract(const Duration(hours: 24));
       final allPosts = <PostModel>[];
+      final seenIds = <String>{};
 
       // Firestore whereIn は最大30件制限のためバッチ処理
       for (int i = 0; i < userIds.length; i += 30) {
@@ -136,10 +138,28 @@ class PostFetchService {
             .limit(limit)
             .get();
 
-        allPosts.addAll(
-          snapshot.docs.map((doc) => PostModel.fromFirestore(doc)),
-        );
+        for (final doc in snapshot.docs) {
+          if (seenIds.add(doc.id)) {
+            allPosts.add(PostModel.fromFirestore(doc));
+          }
+        }
       }
+
+      // ダミーユーザー投稿を常に混入（過去24時間分、最大30件）
+      try {
+        final dummySnapshot = await _firestore
+            .collection(_postsCollection)
+            .where('isDummyPost', isEqualTo: true)
+            .where('createdAt', isGreaterThan: Timestamp.fromDate(cutoff))
+            .orderBy('createdAt', descending: true)
+            .limit(30)
+            .get();
+        for (final doc in dummySnapshot.docs) {
+          if (seenIds.add(doc.id)) {
+            allPosts.add(PostModel.fromFirestore(doc));
+          }
+        }
+      } catch (_) {}
 
       allPosts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       final limited = allPosts.take(limit).toList();

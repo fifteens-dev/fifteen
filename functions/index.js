@@ -1318,16 +1318,42 @@ const _DUMMY_DEFAULT_THEME = {
 
 async function _extractThemeFromAlbumArt(albumArtUrl) {
   try {
-    // eslint-disable-next-line
-    const Vibrant = require('node-vibrant');
     const res = await fetch(albumArtUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
-    const palette = await Vibrant.from(buf).getPalette();
-    const swatches = Object.values(palette).filter(Boolean);
+
+    // Flutter の PaletteGenerator.fromImageProvider と同じパイプライン:
+    //   1. 200×200 にリサイズ (Flutter: size: Size(200, 200))
+    //   2. デフォルトフィルタ適用（透明・白に近いピクセルを除外）
+    //   3. MMCQ で colorCount=20 に量子化 (Flutter: maximumColorCount: 20)
+    //   4. population 最大のスウォッチ = dominantColor
+    // eslint-disable-next-line
+    const NodeImage = require('node-vibrant/lib/image/node').default;
+    // eslint-disable-next-line
+    const { MMCQ } = require('node-vibrant/lib/quantizer');
+    // eslint-disable-next-line
+    const defaultFilter = require('node-vibrant/lib/filter/default').default;
+
+    const img = new NodeImage();
+    await img.load(buf);
+    img.resize(200, 200, 1);
+
+    const imageData = img.getImageData();
+    const pixels = imageData.data;
+    for (let i = 0; i < pixels.length / 4; i++) {
+      const off = i * 4;
+      if (!defaultFilter(pixels[off], pixels[off+1], pixels[off+2], pixels[off+3])) {
+        pixels[off+3] = 0;
+      }
+    }
+
+    const swatches = MMCQ(imageData.data, { colorCount: 20 });
+    img.remove();
     if (!swatches.length) return _DUMMY_DEFAULT_THEME;
+
     swatches.sort((a, b) => b.population - a.population);
-    const [r, g, b] = swatches[0].getRgb().map(Math.round);
+    const [r, g, b] = swatches[0].getRgb();
+
     const [h, s, l] = _rgbToHsl(r, g, b);
     const isDark = l < 0.5;
     const [cr, cg, cb] = _hslToRgb(h, s, Math.min(l * 1.1, 1.0));

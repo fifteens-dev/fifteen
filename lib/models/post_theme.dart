@@ -35,13 +35,18 @@ class PostTheme {
 
   /// Firestoreから読み込むためのファクトリーメソッド
   factory PostTheme.fromMap(Map<String, dynamic> map) {
+    int safeColor(String key, int fallback) {
+      final v = map[key];
+      return v is int ? v : fallback;
+    }
+
     return PostTheme(
-      gradientStart: Color(map['gradientStart'] ?? 0x00C9DD77),
-      gradientEnd: Color(map['gradientEnd'] ?? 0xFFC9DD77),
-      commentButtonColor: Color(map['commentButtonColor'] ?? 0xFFB0C266),
-      textColor: Color(map['textColor'] ?? 0xFFFFFFFF),
-      iconColor: Color(map['iconColor'] ?? 0xFF000000),
-      secondaryTextColor: Color(map['secondaryTextColor'] ?? 0xFFB0B0B0),
+      gradientStart: Color(safeColor('gradientStart', 0x00C9DD77)),
+      gradientEnd: Color(safeColor('gradientEnd', 0xFFC9DD77)),
+      commentButtonColor: Color(safeColor('commentButtonColor', 0xFFB0C266)),
+      textColor: Color(safeColor('textColor', 0xFFFFFFFF)),
+      iconColor: Color(safeColor('iconColor', 0xFF000000)),
+      secondaryTextColor: Color(safeColor('secondaryTextColor', 0xFFB0B0B0)),
     );
   }
 

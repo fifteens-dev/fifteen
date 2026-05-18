@@ -10,13 +10,14 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
+// Flutter PostTheme format: gradientStart/End/commentButtonColor/textColor/iconColor as ARGB int
 const THEMES = [
-  { backgroundColor: '#0A0A0A', textColor: '#FFFFFF', accentColor: '#1DB954' },
-  { backgroundColor: '#1A1A2E', textColor: '#E0E0E0', accentColor: '#0F3460' },
-  { backgroundColor: '#16213E', textColor: '#FFFFFF', accentColor: '#0F3460' },
-  { backgroundColor: '#0F0F0F', textColor: '#FFFFFF', accentColor: '#FF6B6B' },
-  { backgroundColor: '#1C1C1E', textColor: '#FFFFFF', accentColor: '#5856D6' },
-  { backgroundColor: '#000000', textColor: '#FFFFFF', accentColor: '#FF375F' },
+  { gradientStart: 0x000A0A0A, gradientEnd: 0xFF0A0A0A, commentButtonColor: 0xFF1DB954, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
+  { gradientStart: 0x001A1A2E, gradientEnd: 0xFF1A1A2E, commentButtonColor: 0xFF0F3460, textColor: 0xFFE0E0E0, iconColor: 0xFFFFFFFF },
+  { gradientStart: 0x0016213E, gradientEnd: 0xFF16213E, commentButtonColor: 0xFF0F3460, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
+  { gradientStart: 0x000F0F0F, gradientEnd: 0xFF0F0F0F, commentButtonColor: 0xFFFF6B6B, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
+  { gradientStart: 0x001C1C1E, gradientEnd: 0xFF1C1C1E, commentButtonColor: 0xFF5856D6, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
+  { gradientStart: 0x00000000, gradientEnd: 0xFF000000, commentButtonColor: 0xFFFF375F, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
 ];
 
 function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -152,7 +153,7 @@ async function main() {
       imageNaturalWidth: 0.0, imageNaturalHeight: 0.0,
       selectedLayoutIndex: layoutIndex,
       cardPositionX: 0.0, cardPositionY: 0.0, cardScale: 1.0, cardRotation: 0.0,
-      theme: { backgroundColor: theme.backgroundColor, textColor: theme.textColor, accentColor: theme.accentColor },
+      theme: { gradientStart: theme.gradientStart, gradientEnd: theme.gradientEnd, commentButtonColor: theme.commentButtonColor, textColor: theme.textColor, iconColor: theme.iconColor },
       likeCount: 0, commentCount: 0,
       likedUserIds: [], likedByUserIconUrls: [],
       savedByUserIds: [], savedByUserIconUrls: [],

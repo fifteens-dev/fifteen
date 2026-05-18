@@ -1311,11 +1311,50 @@ exports.dailyDummyUserPosts = onSchedule(
 
       const userIds       = usersSnap.data().userIds || [];
       const postPhotoUrls = photosSnap.data().postPhotoUrls || [];
-      const tracks        = tracksSnap.data().list || [];
+      const fallbackTracks = tracksSnap.data().list || [];
 
-      if (userIds.length === 0 || postPhotoUrls.length === 0 || tracks.length === 0) {
+      if (userIds.length === 0 || postPhotoUrls.length === 0) {
         console.error('dailyDummyUserPosts: 設定データが不足しています。');
         return;
+      }
+
+      // ── iTunes Japan TOP50 を取得 ─────────────────────────────────
+      let top50Tracks = [];
+      try {
+        const rssRes = await fetch('https://itunes.apple.com/jp/rss/topsongs/limit=50/json');
+        const rssData = await rssRes.json();
+        const entries = rssData.feed?.entry || [];
+        const trackIds = entries.map(e => e.id?.attributes?.['im:id']).filter(Boolean).join(',');
+        if (trackIds) {
+          const lookupRes = await fetch(`https://itunes.apple.com/lookup?id=${trackIds}&country=jp`);
+          const lookupData = await lookupRes.json();
+          top50Tracks = (lookupData.results || [])
+            .filter(r => r.wrapperType === 'track')
+            .map(r => ({
+              trackId:      String(r.trackId),
+              trackName:    r.trackName,
+              artistName:   r.artistName,
+              albumImageUrl: r.artworkUrl100 || '',
+              previewUrl:   r.previewUrl || null,
+            }));
+          console.log(`dailyDummyUserPosts: iTunes TOP50取得成功 (${top50Tracks.length}件)`);
+        }
+      } catch (e) {
+        console.error('dailyDummyUserPosts: iTunes TOP50取得失敗、フォールバックを使用:', e.message);
+      }
+      const tracks = top50Tracks.length > 0 ? top50Tracks : fallbackTracks;
+
+      // ── 今日のアクティブなVibe topicを取得 ──────────────────────
+      let activeTopic = null;
+      try {
+        const topicSnap = await db.collection('vibe_topics').where('status', '==', 'active').limit(1).get();
+        if (!topicSnap.empty) {
+          const doc = topicSnap.docs[0];
+          activeTopic = { id: doc.id, ...doc.data() };
+          console.log(`dailyDummyUserPosts: Vibe topic="${activeTopic.title}"`);
+        }
+      } catch (e) {
+        console.error('dailyDummyUserPosts: Vibeトピック取得エラー:', e.message);
       }
 
       // ── 投稿用テーマカラー定義 ────────────────────────────────────
@@ -1335,103 +1374,107 @@ exports.dailyDummyUserPosts = onSchedule(
         return arr[Math.floor(Math.random() * arr.length)];
       }
 
+      // ── ユーザーをシャッフルして投稿時刻を割り当て ──────────────
+      // 0:xx JST: 7人、1:xx JST: 1人、2:xx JST: 1人、3:xx JST: 1人
+      const shuffledIds = [...userIds].sort(() => Math.random() - 0.5);
+      function getPostHour(index) {
+        return index < 7 ? 0 : index - 6; // 0..6→0h, 7→1h, 8→2h, 9→3h
+      }
+
       // ── ユーザー情報を一括取得 ──────────────────────────────────
       const userDocs = await Promise.all(
-        userIds.map(uid => db.collection('users').doc(uid).get())
+        shuffledIds.map(uid => db.collection('users').doc(uid).get())
       );
 
       // ── 各ユーザーの投稿を作成 ──────────────────────────────────
       const batch = db.batch();
       let createdCount = 0;
 
-      for (let i = 0; i < userIds.length; i++) {
-        const userId = userIds[i];
+      for (let i = 0; i < shuffledIds.length; i++) {
+        const userId  = shuffledIds[i];
         const userDoc = userDocs[i];
-      if (!userDoc.exists) {
-        console.log(`  Skip ${userId}: ユーザードキュメントなし`);
-        continue;
+        if (!userDoc.exists) {
+          console.log(`  Skip ${userId}: ユーザードキュメントなし`);
+          continue;
+        }
+
+        const userData = userDoc.data();
+
+        // 投稿時刻: getPostHour(i) 時 JST、分秒はランダム
+        const postHour   = getPostHour(i);
+        const postMinute = randomInt(0, 59);
+        const postSecond = randomInt(0, 59);
+        const postTimeJst = new Date(Date.UTC(jstYear, jstMonth, jstDate, postHour, postMinute, postSecond));
+        const postTimeUtc = new Date(postTimeJst.getTime() - 9 * 60 * 60 * 1000);
+        const postTimestamp = admin.firestore.Timestamp.fromDate(postTimeUtc);
+
+        const photoUrl    = pickRandom(postPhotoUrls);
+        const track       = pickRandom(tracks);
+        const theme       = pickRandom(THEMES);
+        const layoutIndex = randomInt(0, 3);
+
+        const postRef = db.collection('posts').doc();
+        batch.set(postRef, {
+          userId,
+          username:    userData.username || '',
+          userIconUrl: userData.profileImageUrl || null,
+          track: {
+            trackId:       track.trackId,
+            trackName:     track.trackName,
+            artistName:    track.artistName,
+            albumImageUrl: track.albumImageUrl,
+            previewUrl:    track.previewUrl || null,
+            trackUrl:      null,
+            lyrics:        null,
+            tempo:         null,
+          },
+          photoUrl,
+          imageOffsetX: 0.0,
+          imageOffsetY: 0.0,
+          imageScale:   1.0,
+          imageNaturalWidth:  0.0,
+          imageNaturalHeight: 0.0,
+          selectedLayoutIndex: layoutIndex,
+          cardPositionX: 0.0,
+          cardPositionY: 0.0,
+          cardScale:     1.0,
+          cardRotation:  0.0,
+          theme: {
+            backgroundColor: theme.backgroundColor,
+            textColor:       theme.textColor,
+            accentColor:     theme.accentColor,
+          },
+          likeCount:           0,
+          commentCount:        0,
+          likedUserIds:        [],
+          likedByUserIconUrls: [],
+          savedByUserIds:      [],
+          savedByUserIconUrls: [],
+          isVibe:           activeTopic !== null,
+          vibeTopicId:      activeTopic?.id   || null,
+          vibeTopicTitle:   activeTopic?.title || null,
+          vibeDate:         activeTopic?.date  || null,
+          emotionTag:       null,
+          lyricsText:       null,
+          audioStartMs:     0,
+          audioDurationSec: 15,
+          university:       userData.university || null,
+          campusVibeParticipating: false,
+          campusVibePost:   false,
+          adlTeamId:        null,
+          isDummyPost:      true,
+          createdAt:        postTimestamp,
+          updatedAt:        postTimestamp,
+        });
+
+        batch.update(db.collection('users').doc(userId), {
+          postsCount: admin.firestore.FieldValue.increment(1),
+          updatedAt:  admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        createdCount++;
+        console.log(`  ✓ ${userData.username}: ${track.trackName} - ${track.artistName} (${postHour}:${String(postMinute).padStart(2,'0')} JST)`);
       }
-
-      const userData = userDoc.data();
-
-      // ランダムな投稿時刻 (8:00 〜 22:59 JST) を UTC に変換
-      const randomHour   = randomInt(8, 22);
-      const randomMinute = randomInt(0, 59);
-      const randomSecond = randomInt(0, 59);
-      const postTimeJst = new Date(Date.UTC(jstYear, jstMonth, jstDate, randomHour, randomMinute, randomSecond));
-      const postTimeUtc = new Date(postTimeJst.getTime() - 9 * 60 * 60 * 1000);
-      const postTimestamp = admin.firestore.Timestamp.fromDate(postTimeUtc);
-
-      // ランダムな写真・トラック・テーマ
-      const photoUrl = pickRandom(postPhotoUrls);
-      const track    = pickRandom(tracks);
-      const theme    = pickRandom(THEMES);
-      const layoutIndex = randomInt(0, 3);
-
-      const postRef = db.collection('posts').doc();
-      batch.set(postRef, {
-        userId,
-        username:    userData.username || '',
-        userIconUrl: userData.profileImageUrl || null,
-        track: {
-          trackId:      track.trackId,
-          trackName:    track.trackName,
-          artistName:   track.artistName,
-          albumImageUrl: track.albumImageUrl,
-          previewUrl:   track.previewUrl || null,
-          trackUrl:     null,
-          lyrics:       null,
-          tempo:        null,
-        },
-        photoUrl,
-        imageOffsetX: 0.0,
-        imageOffsetY: 0.0,
-        imageScale:   1.0,
-        imageNaturalWidth:  0.0,
-        imageNaturalHeight: 0.0,
-        selectedLayoutIndex: layoutIndex,
-        cardPositionX: 0.0,
-        cardPositionY: 0.0,
-        cardScale:     1.0,
-        cardRotation:  0.0,
-        theme: {
-          backgroundColor: theme.backgroundColor,
-          textColor:       theme.textColor,
-          accentColor:     theme.accentColor,
-        },
-        likeCount:          0,
-        commentCount:       0,
-        likedUserIds:       [],
-        likedByUserIconUrls: [],
-        savedByUserIds:     [],
-        savedByUserIconUrls: [],
-        isVibe:           false,
-        vibeTopicId:      null,
-        vibeTopicTitle:   null,
-        vibeDate:         null,
-        emotionTag:       null,
-        lyricsText:       null,
-        audioStartMs:     0,
-        audioDurationSec: 15,
-        university:       userData.university || null,
-        campusVibeParticipating: false,
-        campusVibePost:   false,
-        adlTeamId:        null,
-        isDummyPost:      true,
-        createdAt:        postTimestamp,
-        updatedAt:        postTimestamp,
-      });
-
-      // postsCount をインクリメント
-      const userRef = db.collection('users').doc(userId);
-      batch.update(userRef, {
-        postsCount: admin.firestore.FieldValue.increment(1),
-        updatedAt:  admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      createdCount++;
-      console.log(`  ✓ ${userData.username}: ${track.trackName} - ${track.artistName} (${randomHour}:${String(randomMinute).padStart(2,'0')})`);
-    }
 
       await batch.commit();
       console.log(`dailyDummyUserPosts: ${createdCount}件の投稿を作成しました`);

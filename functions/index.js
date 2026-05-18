@@ -1276,82 +1276,77 @@ exports.dailyDummyUserPosts = onSchedule(
   async () => {
     const db = admin.firestore();
 
-    // ── 設定読み込み ────────────────────────────────────────────────
-    const [usersSnap, photosSnap, tracksSnap] = await Promise.all([
-      db.doc('dummy_config/users').get(),
-      db.doc('dummy_config/photos').get(),
-      db.doc('dummy_config/tracks').get(),
-    ]);
+    try {
+      // ── 今日の JST 日付を計算 ─────────────────────────────────────
+      const now = new Date();
+      const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+      const jstYear  = jstNow.getUTCFullYear();
+      const jstMonth = jstNow.getUTCMonth();
+      const jstDate  = jstNow.getUTCDate();
+      const dateKey  = `${jstYear}-${String(jstMonth + 1).padStart(2,'0')}-${String(jstDate).padStart(2,'0')}`;
 
-    if (!usersSnap.exists || !photosSnap.exists || !tracksSnap.exists) {
-      console.error('dailyDummyUserPosts: dummy_config が未作成です。setup_dummy_users.js を実行してください。');
-      return;
-    }
-
-    const userIds      = usersSnap.data().userIds || [];
-    const postPhotoUrls = photosSnap.data().postPhotoUrls || [];
-    const tracks       = tracksSnap.data().list || [];
-
-    if (userIds.length === 0 || postPhotoUrls.length === 0 || tracks.length === 0) {
-      console.error('dailyDummyUserPosts: 設定データが不足しています。');
-      return;
-    }
-
-    // ── 今日の JST 日付を計算 ─────────────────────────────────────
-    const now = new Date();
-    const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    const jstYear  = jstNow.getUTCFullYear();
-    const jstMonth = jstNow.getUTCMonth();
-    const jstDate  = jstNow.getUTCDate();
-
-    // ── 投稿用テーマカラー定義 ────────────────────────────────────
-    const THEMES = [
-      { backgroundColor: '#0A0A0A', textColor: '#FFFFFF', accentColor: '#1DB954' },
-      { backgroundColor: '#1A1A2E', textColor: '#E0E0E0', accentColor: '#0F3460' },
-      { backgroundColor: '#16213E', textColor: '#FFFFFF', accentColor: '#0F3460' },
-      { backgroundColor: '#0F0F0F', textColor: '#FFFFFF', accentColor: '#FF6B6B' },
-      { backgroundColor: '#1C1C1E', textColor: '#FFFFFF', accentColor: '#5856D6' },
-      { backgroundColor: '#000000', textColor: '#FFFFFF', accentColor: '#FF375F' },
-    ];
-
-    // ── 乱数ヘルパー ──────────────────────────────────────────────
-    function randomInt(min, max) {
-      return Math.floor(Math.random() * (max - min + 1)) + min;
-    }
-    function pickRandom(arr) {
-      return arr[Math.floor(Math.random() * arr.length)];
-    }
-
-    // 既に今日投稿済みの user を確認（重複防止）
-    const todayStart = new Date(Date.UTC(jstYear, jstMonth, jstDate) - 9 * 60 * 60 * 1000);
-    const todayEnd   = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
-
-    const existingSnap = await db.collection('posts')
-      .where('userId', 'in', userIds.slice(0, 10)) // Firestore in 制約: max 10
-      .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(todayStart))
-      .where('createdAt', '<',  admin.firestore.Timestamp.fromDate(todayEnd))
-      .get();
-
-    const alreadyPostedUserIds = new Set(existingSnap.docs.map(d => d.data().userId));
-    console.log(`dailyDummyUserPosts: 本日投稿済み ${alreadyPostedUserIds.size}人`);
-
-    // ── ユーザー情報を一括取得 ────────────────────────────────────
-    const userDocs = await Promise.all(
-      userIds.map(uid => db.collection('users').doc(uid).get())
-    );
-
-    // ── 各ユーザーの投稿を作成 ────────────────────────────────────
-    const batch = db.batch();
-    let createdCount = 0;
-
-    for (let i = 0; i < userIds.length; i++) {
-      const userId = userIds[i];
-      if (alreadyPostedUserIds.has(userId)) {
-        console.log(`  Skip ${userId}: 本日投稿済み`);
-        continue;
+      // ── 冪等チェック（日付単位で1回だけ実行）─────────────────────
+      const jobRef = db.doc(`daily_job_locks/dummyPosts_${dateKey}`);
+      try {
+        await jobRef.create({ createdAt: admin.firestore.FieldValue.serverTimestamp() });
+      } catch (err) {
+        if (err.code === 6) {
+          console.log(`dailyDummyUserPosts: already ran for ${dateKey}, skipping`);
+          return;
+        }
+        throw err;
       }
 
-      const userDoc = userDocs[i];
+      // ── 設定読み込み ────────────────────────────────────────────────
+      const [usersSnap, photosSnap, tracksSnap] = await Promise.all([
+        db.doc('dummy_config/users').get(),
+        db.doc('dummy_config/photos').get(),
+        db.doc('dummy_config/tracks').get(),
+      ]);
+
+      if (!usersSnap.exists || !photosSnap.exists || !tracksSnap.exists) {
+        console.error('dailyDummyUserPosts: dummy_config が未作成です。');
+        return;
+      }
+
+      const userIds       = usersSnap.data().userIds || [];
+      const postPhotoUrls = photosSnap.data().postPhotoUrls || [];
+      const tracks        = tracksSnap.data().list || [];
+
+      if (userIds.length === 0 || postPhotoUrls.length === 0 || tracks.length === 0) {
+        console.error('dailyDummyUserPosts: 設定データが不足しています。');
+        return;
+      }
+
+      // ── 投稿用テーマカラー定義 ────────────────────────────────────
+      const THEMES = [
+        { backgroundColor: '#0A0A0A', textColor: '#FFFFFF', accentColor: '#1DB954' },
+        { backgroundColor: '#1A1A2E', textColor: '#E0E0E0', accentColor: '#0F3460' },
+        { backgroundColor: '#16213E', textColor: '#FFFFFF', accentColor: '#0F3460' },
+        { backgroundColor: '#0F0F0F', textColor: '#FFFFFF', accentColor: '#FF6B6B' },
+        { backgroundColor: '#1C1C1E', textColor: '#FFFFFF', accentColor: '#5856D6' },
+        { backgroundColor: '#000000', textColor: '#FFFFFF', accentColor: '#FF375F' },
+      ];
+
+      function randomInt(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+      }
+      function pickRandom(arr) {
+        return arr[Math.floor(Math.random() * arr.length)];
+      }
+
+      // ── ユーザー情報を一括取得 ──────────────────────────────────
+      const userDocs = await Promise.all(
+        userIds.map(uid => db.collection('users').doc(uid).get())
+      );
+
+      // ── 各ユーザーの投稿を作成 ──────────────────────────────────
+      const batch = db.batch();
+      let createdCount = 0;
+
+      for (let i = 0; i < userIds.length; i++) {
+        const userId = userIds[i];
+        const userDoc = userDocs[i];
       if (!userDoc.exists) {
         console.log(`  Skip ${userId}: ユーザードキュメントなし`);
         continue;
@@ -1438,7 +1433,10 @@ exports.dailyDummyUserPosts = onSchedule(
       console.log(`  ✓ ${userData.username}: ${track.trackName} - ${track.artistName} (${randomHour}:${String(randomMinute).padStart(2,'0')})`);
     }
 
-    await batch.commit();
-    console.log(`dailyDummyUserPosts: ${createdCount}件の投稿を作成しました`);
+      await batch.commit();
+      console.log(`dailyDummyUserPosts: ${createdCount}件の投稿を作成しました`);
+    } catch (err) {
+      console.error('dailyDummyUserPosts error:', err);
+    }
   }
 );

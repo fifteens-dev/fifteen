@@ -43,7 +43,7 @@ async function fetchTop50Tracks(fallback) {
         trackId:       String(r.trackId),
         trackName:     r.trackName,
         artistName:    r.artistName,
-        albumImageUrl: r.artworkUrl100 || '',
+        albumImageUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
         previewUrl:    r.previewUrl || null,
       }));
     console.log(`iTunes TOP50取得成功 (${tracks.length}件)`);

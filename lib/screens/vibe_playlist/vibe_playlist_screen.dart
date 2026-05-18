@@ -16,6 +16,7 @@ import '../../services/itunes_search_service.dart';
 import '../../services/music_service_manager.dart';
 import '../../services/post_service.dart';
 import '../../services/user_service.dart';
+import '../../services/posting_state.dart';
 import '../comment_screen.dart';
 import '../music_selection_screen.dart';
 import '../post_preview_screen.dart';
@@ -84,6 +85,13 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
     _tabController.addListener(_onTabControllerChanged);
     _sortedRanking = _sortRanking(widget.ranking);
     _loadPosts();
+    PostingState.instance.addListener(_onPostingStateChanged);
+  }
+
+  void _onPostingStateChanged() {
+    if (!PostingState.instance.isPosting) {
+      _loadPosts();
+    }
   }
 
   void _onTabControllerChanged() {
@@ -133,6 +141,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
   @override
   void dispose() {
+    PostingState.instance.removeListener(_onPostingStateChanged);
     _tabController.removeListener(_onTabControllerChanged);
     _tabController.dispose();
     _tabPageController.dispose();

@@ -146,6 +146,9 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didPopNext() {
     _loadPosts();
+    setState(() {
+      _vibeDataFuture = _loadVibeData();
+    });
   }
 
   @override
@@ -488,7 +491,9 @@ class _HomeScreenState extends State<HomeScreen>
   /// 投稿アップロード完了時にタイムライン＋Vibeを自動リロード
   void _onPostingStateChanged() {
     if (!PostingState.instance.isPosting) {
-      _vibeDataFuture = _loadVibeData();
+      setState(() {
+        _vibeDataFuture = _loadVibeData();
+      });
       _loadPosts();
     }
   }

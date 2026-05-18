@@ -1431,27 +1431,31 @@ exports.dailyDummyUserPosts = onSchedule(
         return;
       }
 
-      // ── Apple Music 日本 TOP チャートを取得 ──────────────────────
+      // ── Apple Music API で日本 TOP チャートを取得 ────────────────
       let tracks = fallbackTracks;
       try {
-        const rssRes = await fetch('https://itunes.apple.com/jp/rss/topsongs/limit=50/json');
-        if (!rssRes.ok) throw new Error(`RSS HTTP ${rssRes.status}`);
-        const rssData = await rssRes.json();
-        const entries = rssData.feed?.entry || [];
-        const trackIds = entries.map(e => e.id?.attributes?.['im:id']).filter(Boolean).join(',');
-        if (!trackIds) throw new Error('トラックID取得失敗');
+        const appleMusicToken = process.env.APPLE_MUSIC_DEVELOPER_TOKEN;
+        if (!appleMusicToken) throw new Error('APPLE_MUSIC_DEVELOPER_TOKEN未設定');
 
-        const lookupRes = await fetch(`https://itunes.apple.com/lookup?id=${trackIds}&country=jp`);
-        const lookupData = await lookupRes.json();
-        const appleTracks = (lookupData.results || [])
-          .filter(r => r.wrapperType === 'track')
-          .map(r => ({
-            trackId:       String(r.trackId),
-            trackName:     r.trackName,
-            artistName:    r.artistName,
-            albumImageUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
-            previewUrl:    r.previewUrl || null,
-          }));
+        const chartRes = await fetch(
+          'https://api.music.apple.com/v1/catalog/jp/charts?types=songs&limit=50&l=ja-JP',
+          { headers: { 'Authorization': `Bearer ${appleMusicToken}` } }
+        );
+        if (!chartRes.ok) throw new Error(`HTTP ${chartRes.status}`);
+        const chartData = await chartRes.json();
+
+        const songs = chartData.results?.songs?.[0]?.data || [];
+        const appleTracks = songs.map(d => {
+          const attr = d.attributes;
+          const artworkUrl = (attr.artwork?.url || '').replace('{w}', '640').replace('{h}', '640');
+          return {
+            trackId:       d.id,
+            trackName:     attr.name,
+            artistName:    attr.artistName,
+            albumImageUrl: artworkUrl,
+            previewUrl:    attr.previews?.[0]?.url || null,
+          };
+        });
         if (appleTracks.length === 0) throw new Error('トラック0件');
         tracks = appleTracks;
         console.log(`dailyDummyUserPosts: Apple Music Japan TOP50取得成功 (${tracks.length}件)`);

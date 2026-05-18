@@ -7,6 +7,7 @@
     "send-notification": "node send_official_notification.js"
   },
   "dependencies": {
-    "firebase-admin": "^12.0.0"
+    "firebase-admin": "^12.0.0",
+    "node-vibrant": "^3.0.0"
   }
 }

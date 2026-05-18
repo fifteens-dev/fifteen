@@ -1271,6 +1271,93 @@ exports.onUserDocDeleted = onDocumentDeleted(
 //
 // セットアップスクリプト (scripts/setup_dummy_users.js) を先に実行して
 // dummy_config を作成しておく必要がある。
+
+// ── ダミー投稿用: アルバムアートからPostThemeを抽出するヘルパー ──
+function _rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  return [h, s, l];
+}
+
+function _hslToRgb(h, s, l) {
+  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2rgb = (t) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  return [Math.round(hue2rgb(h + 1/3) * 255), Math.round(hue2rgb(h) * 255), Math.round(hue2rgb(h - 1/3) * 255)];
+}
+
+function _toArgbInt(alpha, r, g, b) {
+  return (alpha & 0xFF) * 16777216 + (r & 0xFF) * 65536 + (g & 0xFF) * 256 + (b & 0xFF);
+}
+
+const _DUMMY_DEFAULT_THEME = {
+  gradientStart:      0x001A1A2E,
+  gradientEnd:        0xFF1A1A2E,
+  commentButtonColor: 0xFF253A5E,
+  textColor:          0xFFFFFFFF,
+  iconColor:          0xFFFFFFFF,
+};
+
+async function _extractThemeFromAlbumArt(albumArtUrl) {
+  try {
+    // eslint-disable-next-line
+    const Vibrant = require('node-vibrant');
+    const res = await fetch(albumArtUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const palette = await Vibrant.from(buf).getPalette();
+    const swatches = Object.values(palette).filter(Boolean);
+    if (!swatches.length) return _DUMMY_DEFAULT_THEME;
+    swatches.sort((a, b) => b.population - a.population);
+    const [r, g, b] = swatches[0].getRgb().map(Math.round);
+    const [h, s, l] = _rgbToHsl(r, g, b);
+    const isDark = l < 0.5;
+    const [cr, cg, cb] = _hslToRgb(h, s, Math.min(l * 1.1, 1.0));
+    return {
+      gradientStart:      _toArgbInt(0,   r,  g,  b),
+      gradientEnd:        _toArgbInt(255, r,  g,  b),
+      commentButtonColor: _toArgbInt(255, cr, cg, cb),
+      textColor:  isDark ? 0xFFFFFFFF : 0xFF000000,
+      iconColor:  isDark ? 0xFFFFFFFF : 0xFF000000,
+    };
+  } catch (e) {
+    console.error('Theme extraction error:', e.message);
+    return _DUMMY_DEFAULT_THEME;
+  }
+}
+
+// レイアウト別サイズ (363×645 px カード基準) — index 0 は使用しない
+const _LAYOUT_CARD_SIZES = [
+  { w: 196, h: 150 }, // 0: standard (歌詞テキスト・使用しない)
+  { w: 105, h: 147 }, // 1: largeAlbumArt
+  { w: 172, h:  42 }, // 2: horizontalBar
+  { w: 140, h: 152 }, // 3: albumArtOnly
+  { w: 130, h:  61 }, // 4: musicPlayer
+];
+
+function _getCenteredCardPos(layoutIndex) {
+  const size = _LAYOUT_CARD_SIZES[layoutIndex] || _LAYOUT_CARD_SIZES[1];
+  return { x: (363 - size.w) / 2, y: (645 - size.h) / 2 };
+}
+
 exports.dailyDummyUserPosts = onSchedule(
   { schedule: '55 23 * * *', timeZone: 'Asia/Tokyo' },
   async () => {
@@ -1357,17 +1444,6 @@ exports.dailyDummyUserPosts = onSchedule(
         console.error('dailyDummyUserPosts: Vibeトピック取得エラー:', e.message);
       }
 
-      // ── 投稿用テーマカラー定義 ────────────────────────────────────
-      // Flutter PostTheme format: ARGB int values matching PostTheme.toMap() field names
-      const THEMES = [
-        { gradientStart: 0x000A0A0A, gradientEnd: 0xFF0A0A0A, commentButtonColor: 0xFF1DB954, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
-        { gradientStart: 0x001A1A2E, gradientEnd: 0xFF1A1A2E, commentButtonColor: 0xFF0F3460, textColor: 0xFFE0E0E0, iconColor: 0xFFFFFFFF },
-        { gradientStart: 0x0016213E, gradientEnd: 0xFF16213E, commentButtonColor: 0xFF0F3460, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
-        { gradientStart: 0x000F0F0F, gradientEnd: 0xFF0F0F0F, commentButtonColor: 0xFFFF6B6B, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
-        { gradientStart: 0x001C1C1E, gradientEnd: 0xFF1C1C1E, commentButtonColor: 0xFF5856D6, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
-        { gradientStart: 0x00000000, gradientEnd: 0xFF000000, commentButtonColor: 0xFFFF375F, textColor: 0xFFFFFFFF, iconColor: 0xFFFFFFFF },
-      ];
-
       function randomInt(min, max) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
       }
@@ -1387,6 +1463,18 @@ exports.dailyDummyUserPosts = onSchedule(
         shuffledIds.map(uid => db.collection('users').doc(uid).get())
       );
 
+      // ── ランダムデータを事前に計算 ──────────────────────────────────
+      const selections = shuffledIds.map(() => ({
+        photoUrl:    pickRandom(postPhotoUrls),
+        track:       pickRandom(tracks),
+        layoutIndex: pickRandom([1, 2, 3]), // 0(歌詞テキスト)は使用しない
+      }));
+
+      // ── アルバムアートから色を並列抽出 ─────────────────────────────
+      const themes = await Promise.all(
+        selections.map(sel => _extractThemeFromAlbumArt(sel.track.albumImageUrl))
+      );
+
       // ── 各ユーザーの投稿を作成 ──────────────────────────────────
       const batch = db.batch();
       let createdCount = 0;
@@ -1400,6 +1488,9 @@ exports.dailyDummyUserPosts = onSchedule(
         }
 
         const userData = userDoc.data();
+        const { photoUrl, track, layoutIndex } = selections[i];
+        const theme   = themes[i];
+        const cardPos = _getCenteredCardPos(layoutIndex);
 
         // 投稿時刻: getPostHour(i) 時 JST、分秒はランダム
         const postHour   = getPostHour(i);
@@ -1408,11 +1499,6 @@ exports.dailyDummyUserPosts = onSchedule(
         const postTimeJst = new Date(Date.UTC(jstYear, jstMonth, jstDate, postHour, postMinute, postSecond));
         const postTimeUtc = new Date(postTimeJst.getTime() - 9 * 60 * 60 * 1000);
         const postTimestamp = admin.firestore.Timestamp.fromDate(postTimeUtc);
-
-        const photoUrl    = pickRandom(postPhotoUrls);
-        const track       = pickRandom(tracks);
-        const theme       = pickRandom(THEMES);
-        const layoutIndex = randomInt(0, 3);
 
         const postRef = db.collection('posts').doc();
         batch.set(postRef, {
@@ -1436,8 +1522,8 @@ exports.dailyDummyUserPosts = onSchedule(
           imageNaturalWidth:  0.0,
           imageNaturalHeight: 0.0,
           selectedLayoutIndex: layoutIndex,
-          cardPositionX: 0.0,
-          cardPositionY: 0.0,
+          cardPositionX: cardPos.x,
+          cardPositionY: cardPos.y,
           cardScale:     1.0,
           cardRotation:  0.0,
           theme: {

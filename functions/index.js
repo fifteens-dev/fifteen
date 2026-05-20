@@ -1385,7 +1385,7 @@ function _getCenteredCardPos(layoutIndex) {
 }
 
 exports.dailyDummyUserPosts = onSchedule(
-  { schedule: '55 23 * * *', timeZone: 'Asia/Tokyo' },
+  { schedule: '5 0 * * *', timeZone: 'Asia/Tokyo' },
   async () => {
     const db = admin.firestore();
 

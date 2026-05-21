@@ -38,6 +38,8 @@ import 'home/vibe_bar_section.dart';
 import 'home/home_bottom_nav.dart';
 import '../widgets/common/app_toast.dart';
 import '../services/posting_state.dart';
+import '../models/track_model.dart';
+import '../tutorial/tutorial.dart';
 import 'post_photo_selection_screen.dart';
 
 /// ホーム画面（タイムライン）
@@ -73,6 +75,12 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ホーム画面専用の音楽再生サービス（全てのPostCardで共有）
   final AudioPlayerService _homeAudioService = AudioPlayerService();
+
+  // チュートリアル用
+  final GlobalKey _tutorialVibeIconKey = GlobalKey();
+  final GlobalKey _tutorialAddButtonKey = GlobalKey();
+  TrackModel? _tutorialTrack;
+  int _tutorialActiveIndex = 0;
 
   // 各PostCardのGlobalKey（可視性チェック・flipToFront用）
   final Map<String, GlobalKey<PostCardState>> _postCardKeys = {};
@@ -592,6 +600,9 @@ class _HomeScreenState extends State<HomeScreen>
     List<VibeRankingItem> ranking,
   ) async {
     _homeAudioService.stop();
+    if (TutorialController.instance.step == TutorialStep.showVibePlaylistHint) {
+      await TutorialController.instance.goTo(TutorialStep.swipeUpInPlaylist);
+    }
     if (!mounted) return;
     await Navigator.push(
       context,
@@ -604,6 +615,37 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+  }
+
+  /// チュートリアル Frame628 でアクティブカードが変わったときに呼ばれる
+  Future<void> _onTutorialAlbumChanged(int index) async {
+    _tutorialActiveIndex = index;
+    final items = TutorialAlbumCarousel.defaultItems;
+    if (index >= items.length) return;
+    final item = items[index];
+    final cacheKey = '${item.title}__${item.artist}';
+    await TutorialPrefetchService.instance.ensureReady(cacheKey, item);
+    if (!mounted || _tutorialActiveIndex != index) return;
+  }
+
+  /// チュートリアル Frame628 で曲が確定されたときに呼ばれる
+  Future<void> _onTutorialSongConfirmed(TutorialAlbumItem item) async {
+    _homeAudioService.stop();
+    final cacheKey = '${item.title}__${item.artist}';
+    await TutorialPrefetchService.instance.ensureReady(cacheKey, item);
+    if (!mounted) return;
+    final cache = TutorialPrefetchService.instance;
+    final albumArtUrl = cache.artCache[cacheKey]?.isNotEmpty == true
+        ? cache.artCache[cacheKey]!
+        : item.assetPath;
+    _tutorialTrack = TrackModel(
+      trackId: 'tutorial_${item.title.hashCode}',
+      trackName: item.title,
+      artistName: item.artist,
+      albumImageUrl: albumArtUrl,
+      previewUrl: cache.previewCache[cacheKey],
+    );
+    await TutorialController.instance.goTo(TutorialStep.takingPhoto);
   }
 
   /// 「楽曲をVibeに追加」ボタンタップで投稿フロー（楽曲選択）へ遷移
@@ -743,6 +785,8 @@ class _HomeScreenState extends State<HomeScreen>
                             onRankingItemTap: _handleRankingItemTap,
                             onPostTap: _navigateToVibePost,
                             onAddTap: _navigateToPostFlow,
+                            vibeIconKey: _tutorialVibeIconKey,
+                            addButtonKey: _tutorialAddButtonKey,
                           ),
                         ),
                         if (false && CampusVibeUtils.shouldShow())
@@ -781,6 +825,48 @@ class _HomeScreenState extends State<HomeScreen>
                   onItemTapped: _onItemTapped,
                 ),
               ),
+
+            // チュートリアルオーバーレイ（最前面）
+            ListenableBuilder(
+              listenable: TutorialController.instance,
+              builder: (context, _) {
+                final step = TutorialController.instance.step;
+                if (_selectedIndex != 0) return const SizedBox.shrink();
+
+                if (step == TutorialStep.showHomeHint) {
+                  return Positioned.fill(
+                    child: TutorialFrame628Overlay(
+                      onConfirm: _onTutorialSongConfirmed,
+                      onActiveChanged: _onTutorialAlbumChanged,
+                    ),
+                  );
+                }
+
+                if (step == TutorialStep.takingPhoto && _tutorialTrack != null) {
+                  return Positioned.fill(
+                    child: TutorialCameraOverlay(
+                      track: _tutorialTrack!,
+                      isVibe: true,
+                      vibeTopicId: 'tutorial_topic_drive',
+                      vibeTopicTitle: 'ドライブで聴きたい曲',
+                    ),
+                  );
+                }
+
+                if (step == TutorialStep.showVibePlaylistHint) {
+                  return TutorialCoachmark(
+                    active: true,
+                    text: '他の人の投稿も見てみよう',
+                    subText: 'Vibeアイコンをタップ',
+                    handVariant: HandCursorVariant.tap,
+                    target: _tutorialVibeIconKey,
+                    placement: CoachmarkPlacement.belowTarget,
+                  );
+                }
+
+                return const SizedBox.shrink();
+              },
+            ),
           ],
         ),
     );

@@ -11,6 +11,8 @@ class VibeBarSection extends StatelessWidget {
   final void Function(VibeRankingItem item) onRankingItemTap;
   final VoidCallback? onPostTap;
   final VoidCallback? onAddTap;
+  final GlobalKey? vibeIconKey;
+  final GlobalKey? addButtonKey;
 
   const VibeBarSection({
     super.key,
@@ -18,6 +20,8 @@ class VibeBarSection extends StatelessWidget {
     required this.onRankingItemTap,
     this.onPostTap,
     this.onAddTap,
+    this.vibeIconKey,
+    this.addButtonKey,
   });
 
   @override
@@ -108,6 +112,7 @@ class VibeBarSection extends StatelessWidget {
   /// Vibeアイコンバブル（78×78の円形、ラベルなし）
   Widget _buildVibeBubble() {
     return GestureDetector(
+      key: vibeIconKey,
       onTap: onPostTap,
       child: Container(
         width: 78,
@@ -251,6 +256,7 @@ class VibeBarSection extends StatelessWidget {
               const Spacer(),
             const SizedBox(width: 8),
             GestureDetector(
+              key: addButtonKey,
               onTap: onAddTap,
               child: Container(
                 width: 115,

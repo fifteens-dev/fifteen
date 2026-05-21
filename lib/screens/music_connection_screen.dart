@@ -9,6 +9,7 @@ import '../models/music_service_type.dart';
 import '../widgets/dialogs/bottom_sheet_dialog.dart';
 import 'home_screen.dart';
 import '../widgets/common/app_toast.dart';
+import '../tutorial/tutorial.dart';
 
 /// 音楽ライブラリ接続画面
 ///
@@ -29,6 +30,7 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
   @override
   void initState() {
     super.initState();
+    TutorialPrefetchService.instance.prefetchAll();
   }
 
   @override
@@ -338,8 +340,9 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
     }
   }
 
-  /// 連携フロー完了後にホームへ遷移
+  /// チュートリアルを開始してホームへ遷移
   Future<void> _goToHome() async {
+    await TutorialController.instance.startFresh();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/home');
   }

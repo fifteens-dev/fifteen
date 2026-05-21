@@ -151,16 +151,19 @@ class _CardShareSheetState extends State<_CardShareSheet> {
             child: Center(
               child: FittedBox(
                 fit: BoxFit.contain,
-                child: PostCard(
-                  key: _cardKey,
-                  post: widget.post,
-                  currentUserId: null,
-                  currentUserIconUrl: widget.currentUserIconUrl,
-                  audioService: _audioService,
-                  isSaved: widget.isSaved,
-                  hideReactionCounts: true,
-                  backSideEnabled: true,
-                  startFromBack: true,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: PostCard(
+                    key: _cardKey,
+                    post: widget.post,
+                    currentUserId: null,
+                    currentUserIconUrl: widget.currentUserIconUrl,
+                    audioService: _audioService,
+                    isSaved: widget.isSaved,
+                    hideReactionCounts: true,
+                    backSideEnabled: true,
+                    startFromBack: true,
+                  ),
                 ),
               ),
             ),

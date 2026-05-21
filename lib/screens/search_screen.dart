@@ -14,7 +14,6 @@ import '../widgets/common/common.dart';
 import 'other_user_profile_screen.dart';
 import '../widgets/common/app_toast.dart';
 import 'campus_vibe_history_screen.dart';
-import 'vibe_history_screen.dart';
 import 'vibe_posts_list_screen.dart';
 
 /// 検索画面
@@ -287,7 +286,6 @@ class _SearchScreenState extends State<SearchScreen> {
                         SliverToBoxAdapter(child: _buildInviteCodeCard()),
                         if (_vibeTopics.isNotEmpty)
                           SliverToBoxAdapter(child: _buildVibeSection()),
-                        SliverToBoxAdapter(child: _buildVibeHistoryCard()),
                         const SliverFillRemaining(
                           hasScrollBody: false,
                           child: SizedBox.shrink(),
@@ -618,66 +616,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /// 過去のVibeを見るカード
-  Widget _buildVibeHistoryCard() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF282828),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const VibeHistoryScreen()),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF3A3A3A),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.history, color: Colors.white70, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '過去のVibeを見る',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          '過去のお題と投稿を振り返る',
-                          style: TextStyle(color: Color(0xFF9F9F9F), fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right, color: Colors.white38, size: 20),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
   /// 過去のCampusVibeを見るカード
   Widget _buildCampusVibeHistoryCard() {
     return Padding(

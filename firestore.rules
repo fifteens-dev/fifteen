@@ -218,11 +218,10 @@ service cloud.firestore {
     }
 
     // ── adl_memberships コレクション ─────────────────────────
-    // ユーザーの班所属情報。本人のみ作成・読み取り可、管理者は全操作可
+    // ユーザーの班所属情報。本人は作成/更新（班切替）/削除（離脱）可、管理者は全操作可
     match /adl_memberships/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId);
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if isOwner(userId) || isAdmin();
     }
 
     // ── app_open_events コレクション ──────────────────────────

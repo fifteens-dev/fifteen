@@ -205,18 +205,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: Icons.groups,
                             title: _userData?.adlTeamName != null
                                 ? '${_userData!.adlTeamName}（参加中）'
-                                : 'チームに参加する',
+                                : '班に参加する',
                             onTap: () async {
-                              final joined = await Navigator.push<bool>(
+                              await Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => AdlJoinScreen(
                                     event: _adlEvent!,
                                     currentTeamName: _userData?.adlTeamName,
+                                    currentTeamId: _userData?.adlTeamId,
                                   ),
                                 ),
                               );
-                              if (joined == true) _loadUserData();
+                              // 参加・切替・離脱いずれの結果でも最新状態を反映
+                              _loadUserData();
                             },
                           ),
                         ]),

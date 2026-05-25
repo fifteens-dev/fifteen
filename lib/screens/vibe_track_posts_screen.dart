@@ -5,12 +5,12 @@ import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../models/track_model.dart';
 import '../providers/current_user_provider.dart';
+import '../providers/saved_items_provider.dart';
 import '../widgets/post_card.dart';
 import 'package:flutter/services.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
-import '../services/user_service.dart';
 import 'card_share_screen.dart';
 import 'comment_screen.dart';
 import 'home/home_bottom_nav.dart';
@@ -41,8 +41,6 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
   final PostService _postService = PostService();
-  final UserService _userService = UserService();
-  final Map<String, bool> _isSavedCache = {};
   int _currentPage = 0;
 
   // 今日投稿済みかどうか（裏面表示制御用）
@@ -164,18 +162,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
 
   Future<void> _handleSave(PostModel post) async {
     HapticFeedback.lightImpact();
-    final postId = post.postId;
-    final wasSaved = _isSavedCache[postId] ??
-        post.savedByUserIds.contains(widget.currentUserId);
-    setState(() => _isSavedCache[postId] = !wasSaved);
-    try {
-      await _userService.toggleSavePost(
-        userId: widget.currentUserId,
-        postId: postId,
-      );
-    } catch (_) {
-      if (mounted) setState(() => _isSavedCache[postId] = wasSaved);
-    }
+    await SavedItemsProvider.togglePostWithToast(context, post);
   }
 
   @override
@@ -228,8 +215,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                               backSideEnabled: _hasPostedToday,
                               onLike: () {},
                               onComment: () => _handleComment(post),
-                              isSaved: _isSavedCache[post.postId] ??
-                                  post.savedByUserIds.contains(widget.currentUserId),
+                              isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
                               onAdd: () => _handleSave(post),
                               onShare: () => showCardShareSheet(
                                 context,

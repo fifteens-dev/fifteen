@@ -404,14 +404,14 @@ class _SongList extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: 374,
-      height: items.length * 64 - 16,
+      height: items.length * 64.0,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           for (int i = 0; i < items.length; i++)
             Positioned(
               left: 0,
-              top: (i * 64).toDouble(),
+              top: i * 64.0,
               width: 374,
               height: 48,
               child: VibeSongListItem(

@@ -54,6 +54,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
   int get _followersCount =>
       _followerCountOverride ?? _userData?.followersCount ?? 0;
   int get _followingCount => _userData?.followingCount ?? 0;
+
   int get _tracksCount => _otherPosts.length;
 
   @override

@@ -8,6 +8,7 @@ class TrackModel {
   final String? previewUrl; // プレビューURL（将来的に実装）
   final String? lyrics; // 歌詞
   final double? tempo; // テンポ（BPM）
+  final String? spotifyArtistId; // SpotifyアーティストID（アイコン・フォロワー数の正確な取得用）
 
   TrackModel({
     required this.trackId,
@@ -18,6 +19,7 @@ class TrackModel {
     this.previewUrl,
     this.lyrics,
     this.tempo,
+    this.spotifyArtistId,
   });
 
   // Mapから作成
@@ -31,6 +33,7 @@ class TrackModel {
       previewUrl: map['previewUrl'],
       lyrics: map['lyrics'],
       tempo: (map['tempo'] as num?)?.toDouble(),
+      spotifyArtistId: map['spotifyArtistId']?.toString(),
     );
   }
 
@@ -45,6 +48,7 @@ class TrackModel {
       'previewUrl': previewUrl,
       'lyrics': lyrics,
       'tempo': tempo,
+      'spotifyArtistId': spotifyArtistId,
     };
   }
 
@@ -58,6 +62,7 @@ class TrackModel {
     String? previewUrl,
     String? lyrics,
     double? tempo,
+    String? spotifyArtistId,
   }) {
     return TrackModel(
       trackId: trackId ?? this.trackId,
@@ -68,6 +73,7 @@ class TrackModel {
       previewUrl: previewUrl ?? this.previewUrl,
       lyrics: lyrics ?? this.lyrics,
       tempo: tempo ?? this.tempo,
+      spotifyArtistId: spotifyArtistId ?? this.spotifyArtistId,
     );
   }
 }

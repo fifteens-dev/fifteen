@@ -1,27 +1,32 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../../models/post_model.dart';
 import '../../../models/vibe_ranking_item.dart';
+import '../../../providers/saved_items_provider.dart';
+import '../../../services/post_service.dart';
+import '../../artist_profile_screen.dart';
+import '../../post_detail_screen.dart';
 
 /// 曲行タップで表示されるアクションシート（Figma 3870:6805）
 /// - 上部: 曲情報バー（アルバム / 曲名 / アーティスト / Vibe追加カウント / +保存）
 /// - 中段: アクションボタン2つ
-/// - 下部: その楽曲を使った投稿写真の3列グリッド（スクロール）
+/// - 下部: その楽曲を使った投稿写真の3列グリッド（スクロール・ページネーション）
 class SongActionSheet extends StatefulWidget {
   final VibeRankingItem item;
-  final List<String> photos;
   final VoidCallback onPlayFull;
   final VoidCallback onAddToVibe;
   final VoidCallback onSave;
-  final bool isSaved;
 
   const SongActionSheet({
     super.key,
     required this.item,
-    required this.photos,
     required this.onPlayFull,
     required this.onAddToVibe,
     required this.onSave,
-    this.isSaved = false,
   });
 
   @override
@@ -29,19 +34,88 @@ class SongActionSheet extends StatefulWidget {
 }
 
 class _SongActionSheetState extends State<SongActionSheet> {
-  late bool _isSaved;
+  final PostService _postService = PostService();
+  final ScrollController _scrollController = ScrollController();
+
+  List<PostModel> _posts = [];
+  DocumentSnapshot? _lastDoc;
+  bool _hasMore = true;
+  bool _isLoading = true;
+  bool _isLoadingMore = false;
+
+  static const int _initialLimit = 12;
+  static const int _moreLimit = 12;
+  static const double _scrollThreshold = 300;
 
   @override
   void initState() {
     super.initState();
-    _isSaved = widget.isSaved;
+    _scrollController.addListener(_onScroll);
+    _loadInitial();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - _scrollThreshold) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadInitial() async {
+    final trackId = widget.item.track.trackId;
+    if (trackId.isEmpty) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+    final result = await _postService.getPostsByTrackIdPaged(
+      trackId,
+      limit: _initialLimit,
+    );
+    if (!mounted) return;
+    setState(() {
+      _posts = result.posts
+          .where((p) => (p.photoUrl ?? '').startsWith('http'))
+          .toList();
+      _lastDoc = result.lastDoc;
+      _hasMore = result.hasMore;
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore || _lastDoc == null) return;
+    final trackId = widget.item.track.trackId;
+    if (trackId.isEmpty) return;
+
+    setState(() => _isLoadingMore = true);
+    final result = await _postService.getPostsByTrackIdPaged(
+      trackId,
+      limit: _moreLimit,
+      startAfter: _lastDoc,
+    );
+    if (!mounted) return;
+    setState(() {
+      _posts.addAll(
+        result.posts.where((p) => (p.photoUrl ?? '').startsWith('http')),
+      );
+      _lastDoc = result.lastDoc;
+      _hasMore = result.hasMore;
+      _isLoadingMore = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
     final screenH = MediaQuery.of(context).size.height;
-    // モーダル全体の高さ = 画面の85%（残り15%は背景の曲リストが見える余白）
     final modalHeight = screenH * 0.85;
 
     return Container(
@@ -56,13 +130,10 @@ class _SongActionSheetState extends State<SongActionSheet> {
         height: modalHeight,
         child: Column(
           children: [
-            // 固定ヘッダー（ハンドル + 曲情報バー + アクションボタン）
-            // = top=9(handle) + 20+72(barまで) + 残り余白で 152 高さ
             SizedBox(
               height: 153,
               child: _buildHeader(),
             ),
-            // 写真グリッド（3列、スクロール）
             Expanded(
               child: _buildPhotoGrid(bottomPadding),
             ),
@@ -72,10 +143,24 @@ class _SongActionSheetState extends State<SongActionSheet> {
     );
   }
 
-  /// 写真3列グリッド（Figma: 各セル 133×178、左から left=0,134/135,269）
-  /// 画面幅 402 想定。実機ではセルを画面幅に合わせて等分し、aspect 133:178 を維持。
+  void _openPost(PostModel post) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PostDetailScreen(
+        post: post,
+        currentUserId: uid,
+        alwaysShowBack: true,
+      ),
+    ));
+  }
+
   Widget _buildPhotoGrid(double bottomPadding) {
-    if (widget.photos.isEmpty) {
+    if (_isLoading) {
+      return const Center(
+        child: CupertinoActivityIndicator(color: Colors.white, radius: 12),
+      );
+    }
+    if (_posts.isEmpty) {
       return Padding(
         padding: EdgeInsets.only(bottom: bottomPadding),
         child: const Center(
@@ -87,12 +172,8 @@ class _SongActionSheetState extends State<SongActionSheet> {
       );
     }
     return GridView.builder(
-      padding: EdgeInsets.only(
-        left: 0,
-        right: 0,
-        top: 0,
-        bottom: bottomPadding,
-      ),
+      controller: _scrollController,
+      padding: EdgeInsets.only(bottom: bottomPadding + (_isLoadingMore ? 40 : 0)),
       physics: const ClampingScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
@@ -100,12 +181,19 @@ class _SongActionSheetState extends State<SongActionSheet> {
         crossAxisSpacing: 1,
         childAspectRatio: 133 / 178,
       ),
-      itemCount: widget.photos.length,
+      itemCount: _posts.length + (_isLoadingMore ? 3 : 0),
       itemBuilder: (context, index) {
-        return CachedNetworkImage(
-          imageUrl: widget.photos[index],
-          fit: BoxFit.cover,
-          errorWidget: (_, __, ___) => Container(color: Colors.grey[900]),
+        if (index >= _posts.length) {
+          return Container(color: const Color(0xFF1F1F1F));
+        }
+        final post = _posts[index];
+        return GestureDetector(
+          onTap: () => _openPost(post),
+          child: CachedNetworkImage(
+            imageUrl: post.photoUrl!,
+            fit: BoxFit.cover,
+            errorWidget: (_, __, ___) => Container(color: Colors.grey[900]),
+          ),
         );
       },
     );
@@ -115,7 +203,7 @@ class _SongActionSheetState extends State<SongActionSheet> {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        // ドラッグハンドル（line133: 中央, 幅44, top=9 / 高さ4）
+        // ドラッグハンドル
         Positioned(
           top: 9,
           left: 0,
@@ -131,7 +219,7 @@ class _SongActionSheetState extends State<SongActionSheet> {
             ),
           ),
         ),
-        // 曲情報バー（left=14, top=20, w=374, h=72, rounded=16）
+        // 曲情報バー
         Positioned(
           left: 14,
           top: 20,
@@ -144,7 +232,6 @@ class _SongActionSheetState extends State<SongActionSheet> {
             ),
             child: Stack(
               children: [
-                // アルバム（left=8 top=8 size=56 rounded=7）
                 Positioned(
                   left: 8,
                   top: 8,
@@ -157,13 +244,11 @@ class _SongActionSheetState extends State<SongActionSheet> {
                       fit: BoxFit.cover,
                       errorWidget: (_, __, ___) => Container(
                         color: Colors.grey[800],
-                        child:
-                            const Icon(Icons.album, color: Colors.white54),
+                        child: const Icon(Icons.album, color: Colors.white54),
                       ),
                     ),
                   ),
                 ),
-                // 曲名（left=72 top=13 fontSize=13 bold）
                 Positioned(
                   left: 72,
                   top: 13,
@@ -180,23 +265,32 @@ class _SongActionSheetState extends State<SongActionSheet> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                // アーティスト（left=72 top=29 fontSize=11）
                 Positioned(
                   left: 72,
                   top: 29,
                   right: 60,
-                  child: Text(
-                    widget.item.track.artistName,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Colors.white,
-                      height: 1.0,
+                  child: GestureDetector(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ArtistProfileScreen(
+                          artistName: widget.item.track.artistName,
+                          spotifyArtistId: widget.item.track.spotifyArtistId,
+                        ),
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    child: Text(
+                      widget.item.track.artistName,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white,
+                        height: 1.0,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
-                // Vibe追加カウント（left=72 top=46 fontSize=11 #858585）
                 Positioned(
                   left: 72,
                   top: 46,
@@ -213,19 +307,15 @@ class _SongActionSheetState extends State<SongActionSheet> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                // +保存（left=327 top=19 size=34）
                 Positioned(
                   right: 13,
                   top: 19,
                   width: 34,
                   height: 34,
                   child: GestureDetector(
-                    onTap: () {
-                      setState(() => _isSaved = !_isSaved);
-                      widget.onSave();
-                    },
+                    onTap: widget.onSave,
                     behavior: HitTestBehavior.opaque,
-                    child: _isSaved
+                    child: context.watch<SavedItemsProvider>().isTrackSaved(widget.item.track.trackId)
                         ? Stack(
                             alignment: Alignment.center,
                             children: [
@@ -252,7 +342,7 @@ class _SongActionSheetState extends State<SongActionSheet> {
             ),
           ),
         ),
-        // 「楽曲をフルで聴く」（left=14 top=102 w=181 h=40 rounded=30 bg=#454545）
+        // 「楽曲をフルで聴く」
         Positioned(
           left: 14,
           top: 102,
@@ -278,9 +368,7 @@ class _SongActionSheetState extends State<SongActionSheet> {
             ),
           ),
         ),
-        // 「楽曲をVibeに追加」（left=207 top=103 w=181 h=40 rounded=30 グラデ）
-        //   Vibeアイコン枠 left=23 top=8 size=24（内部19×19）
-        //   テキスト left=54 top=12 fontSize=13
+        // 「楽曲をVibeに追加」
         Positioned(
           left: 207,
           top: 103,

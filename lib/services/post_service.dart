@@ -42,6 +42,14 @@ class PostService {
     DocumentSnapshot? startAfter,
   }) => _fetchService.getPostsWithPagination(userId, limit: limit, startAfter: startAfter);
 
+  /// 指定 trackId の投稿をカーソルページネーション付きで取得
+  Future<({List<PostModel> posts, DocumentSnapshot? lastDoc, bool hasMore})>
+      getPostsByTrackIdPaged(
+    String trackId, {
+    int limit = 12,
+    DocumentSnapshot? startAfter,
+  }) => _fetchService.getPostsByTrackIdPaged(trackId, limit: limit, startAfter: startAfter);
+
   /// 特定のユーザーが保存した投稿を取得
   Future<List<PostModel>> getPostsSavedByUser(String userId, {int limit = 50}) =>
       _fetchService.getPostsSavedByUser(userId, limit: limit);

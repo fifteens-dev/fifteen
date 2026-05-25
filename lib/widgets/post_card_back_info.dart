@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../models/post_theme.dart';
 import '../models/track_model.dart';
+import '../screens/artist_profile_screen.dart';
 import 'post_card/marquee_text.dart';
 
 /// 投稿カード裏面の情報セクション（写真フルブリード上のオーバーレイ）
@@ -76,14 +77,25 @@ class PostCardBackInfo extends StatelessWidget {
                   width: cardWidth * (285 / 363),
                 ),
                 const SizedBox(height: 1.198),
-                Text(
-                  track.artistName,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.white.withValues(alpha: 0.8),
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ArtistProfileScreen(
+                        artistName: track.artistName,
+                        spotifyArtistId: track.spotifyArtistId,
+                      ),
+                    ),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  child: Text(
+                    track.artistName,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.white.withValues(alpha: 0.8),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),

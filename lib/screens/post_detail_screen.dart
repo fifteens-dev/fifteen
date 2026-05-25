@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../providers/current_user_provider.dart';
+import '../providers/saved_items_provider.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
@@ -43,7 +44,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final PostService _postService = PostService();
   final UserService _userService = UserService();
 
-  bool _isSaved = false;
   String? _previewUrl;
 
   // 今日投稿済みかどうか（裏面表示制御用）
@@ -62,7 +62,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _checkSaveState();
     _loadHasPostedToday();
     // VibeTrackPostsScreen と同様に開いた瞬間に音楽取得＆自動再生
     _fetchAndPlayMusic();
@@ -107,14 +106,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
-  Future<void> _checkSaveState() async {
-    final userId = _currentUserId;
-    if (userId.isNotEmpty) {
-      setState(() {
-        _isSaved = widget.post.savedByUserIds.contains(userId);
-      });
-    }
-  }
 
   /// VibeTrackPostsScreen._playMusicForPage と同パターンで音楽を取得＆自動再生
   Future<void> _fetchAndPlayMusic() async {
@@ -150,17 +141,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   Future<void> _handleSave() async {
-    final userId = _currentUserId;
-    if (userId.isEmpty) return;
-
-    setState(() => _isSaved = !_isSaved);
-
-    try {
-      await _userService.toggleSavePost(
-          userId: userId, postId: widget.post.postId);
-    } catch (e) {
-      if (mounted) setState(() => _isSaved = !_isSaved);
-    }
+    await SavedItemsProvider.togglePostWithToast(context, widget.post);
   }
 
   Future<void> _handleComment() async {
@@ -238,7 +219,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     externalPreviewUrl: _previewUrl,
                     startFromBack: _hasPostedToday,
                     backSideEnabled: _hasPostedToday,
-                    isSaved: _isSaved,
+                    isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(widget.post),
                     disableInteractions: widget.disableInteractions,
                     onLike: () {},
                     onComment: _handleComment,

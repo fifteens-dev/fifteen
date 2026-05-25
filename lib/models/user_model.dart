@@ -11,6 +11,8 @@ class UserModel {
   final List<String> followers; // フォロワーのuidリスト
   final List<String> following; // フォロー中のuidリスト
   final List<String> savedPosts; // 保存した投稿のIDリスト
+  final Map<String, dynamic> savedPostsAt; // 投稿保存時刻 {postId: Timestamp}
+  final Map<String, dynamic> savedTracksData; // 保存した楽曲 {trackId: {trackName, artistName, albumImageUrl, previewUrl}}
   final int postsCount;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -31,6 +33,8 @@ class UserModel {
     this.followers = const [],
     this.following = const [],
     this.savedPosts = const [],
+    this.savedPostsAt = const {},
+    this.savedTracksData = const {},
     this.postsCount = 0,
     this.createdAt,
     this.updatedAt,
@@ -67,6 +71,8 @@ class UserModel {
       followers: safeStringList('followers'),
       following: safeStringList('following'),
       savedPosts: safeStringList('savedPosts'),
+      savedPostsAt: (data['savedPostsAt'] as Map<String, dynamic>?) ?? {},
+      savedTracksData: (data['savedTracksData'] as Map<String, dynamic>?) ?? {},
       // Firestore が int/double どちらで返しても int に統一
       postsCount: (data['postsCount'] as num?)?.toInt() ?? 0,
       createdAt: safeTimestamp('createdAt'),
@@ -93,6 +99,8 @@ class UserModel {
       'followers': followers,
       'following': following,
       'savedPosts': savedPosts,
+      'savedPostsAt': savedPostsAt,
+      'savedTracksData': savedTracksData,
       'postsCount': postsCount,
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : null,
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
@@ -114,6 +122,7 @@ class UserModel {
     List<String>? followers,
     List<String>? following,
     List<String>? savedPosts,
+    Map<String, dynamic>? savedTracksData,
     int? postsCount,
     bool? isAdmin,
   }) {
@@ -128,6 +137,7 @@ class UserModel {
       followers: followers ?? this.followers,
       following: following ?? this.following,
       savedPosts: savedPosts ?? this.savedPosts,
+      savedTracksData: savedTracksData ?? this.savedTracksData,
       postsCount: postsCount ?? this.postsCount,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
@@ -153,4 +163,14 @@ class UserModel {
   bool hasSavedPost(String postId) {
     return savedPosts.contains(postId);
   }
+
+  // 指定された楽曲を保存しているかチェック
+  bool hasSavedTrack(String trackId) {
+    return savedTracksData.containsKey(trackId);
+  }
+
+  // 保存済みトラックIDセット
+  Set<String> get savedTrackIds => savedTracksData.keys.toSet();
+
+
 }

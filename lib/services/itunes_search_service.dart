@@ -145,6 +145,102 @@ class ITunesSearchService {
     return result?['previewUrl'];
   }
 
+  /// アーティスト名でiTunes artistIdを検索
+  Future<({int artistId, String artistName})?> searchArtistInfo(
+      String artistName) async {
+    try {
+      final encoded = Uri.encodeComponent(artistName);
+      final url = Uri.parse(
+        'https://itunes.apple.com/search?term=$encoded&country=JP&media=music&entity=musicArtist&limit=5',
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return null;
+      final results =
+          (json.decode(response.body)['results'] as List?) ?? [];
+      for (final r in results) {
+        if (r['wrapperType'] == 'artist') {
+          final id = r['artistId'] as int?;
+          final name = r['artistName'] as String?;
+          if (id != null && name != null) {
+            return (artistId: id, artistName: name);
+          }
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// iTunes の artworkUrl を 600×600 高解像度 URL に変換
+  static String _toHiResArtwork(String url) {
+    if (url.isEmpty) return url;
+    // 末尾の "{n}x{n}bb" パターンを 600x600bb に置換
+    return url.replaceFirstMapped(
+      RegExp(r'\d+x\d+bb(\.(jpg|png))$'),
+      (m) => '600x600bb${m[1] ?? '.jpg'}',
+    );
+  }
+
+  /// iTunes artistId からアーティストの楽曲一覧を取得（最新リリース順）
+  Future<List<TrackModel>> getArtistTracks(int itunesArtistId,
+      {int limit = 100}) async {
+    try {
+      final url = Uri.parse(
+        'https://itunes.apple.com/lookup?id=$itunesArtistId&entity=song&limit=$limit&country=JP&lang=ja_JP',
+      );
+      final response =
+          await http.get(url).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) return [];
+      final results =
+          (json.decode(response.body)['results'] as List?) ?? [];
+
+      // track のみ抽出して releaseDate 降順にソート
+      final songResults = results
+          .whereType<Map<String, dynamic>>()
+          .where((r) => r['wrapperType'] == 'track')
+          .toList()
+        ..sort((a, b) {
+          final da = DateTime.tryParse(
+                  (a['releaseDate'] as String?) ?? '') ??
+              DateTime(0);
+          final db = DateTime.tryParse(
+                  (b['releaseDate'] as String?) ?? '') ??
+              DateTime(0);
+          return db.compareTo(da); // 降順
+        });
+
+      final tracks = <TrackModel>[];
+      final seen = <String>{};
+      for (final r in songResults) {
+        final id = r['trackId']?.toString() ?? '';
+        final name = (r['trackName'] as String?) ?? '';
+        final artist = (r['artistName'] as String?) ?? '';
+        var art = (r['artworkUrl100'] as String?) ?? '';
+        if (art.startsWith('http://')) art = 'https://${art.substring(7)}';
+        art = _toHiResArtwork(art);
+        var preview = (r['previewUrl'] as String?) ?? '';
+        if (preview.startsWith('http://')) {
+          preview = 'https://${preview.substring(7)}';
+        }
+        if (name.isEmpty) continue;
+        final key = '${name.toLowerCase()}_${artist.toLowerCase()}';
+        if (seen.contains(key)) continue;
+        seen.add(key);
+        tracks.add(TrackModel(
+          trackId: id,
+          trackName: name,
+          artistName: artist,
+          albumImageUrl: art,
+          previewUrl: preview.isEmpty ? null : preview,
+        ));
+      }
+      return tracks;
+    } catch (_) {
+      return [];
+    }
+  }
+
   /// 楽曲を検索
   ///
   /// [query] 検索クエリ

@@ -15,6 +15,8 @@ import 'other_user_profile_screen.dart';
 import '../widgets/common/app_toast.dart';
 import 'campus_vibe_history_screen.dart';
 import 'vibe_posts_list_screen.dart';
+import 'vibe_playlist/vibe_playlist_screen.dart';
+import '../models/vibe_topic_model.dart';
 
 /// 検索画面
 class SearchScreen extends StatefulWidget {
@@ -69,6 +71,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   bool _vibeTopicsLoading = false;
+  String? _loadingVibeTopicId;
 
   Future<void> _loadVibeTopics({bool randomize = false}) async {
     if (_vibeTopicsLoading) return;
@@ -85,6 +88,40 @@ class _SearchScreenState extends State<SearchScreen> {
     } catch (_) {
     } finally {
       if (mounted) setState(() => _vibeTopicsLoading = false);
+    }
+  }
+
+  Future<void> _navigateToVibePlaylist({
+    required String topicId,
+    required String topicTitle,
+    required DateTime date,
+  }) async {
+    if (_loadingVibeTopicId != null) return;
+    setState(() => _loadingVibeTopicId = topicId);
+    try {
+      final now = DateTime.now();
+      final topic = VibeTopicModel(
+        topicId: topicId,
+        title: topicTitle,
+        date: date,
+        createdAt: now,
+        updatedAt: now,
+      );
+      final ranking = await _postService.calculateVibeRanking(topicId, date);
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VibePlaylistScreen(
+            topic: topic,
+            ranking: ranking,
+            currentUserId: _auth.currentUser?.uid ?? '',
+            hasPostedToday: false,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingVibeTopicId = null);
     }
   }
 
@@ -506,15 +543,37 @@ class _SearchScreenState extends State<SearchScreen> {
         height: 172,
         child: Stack(
           children: [
-            // 写真コラージュ（211×140 rounded=15）
+            // 写真コラージュ（211×140 rounded=15）→ タップでVibeプレイリストへ
             Positioned(
               left: 0,
               top: 0,
               width: 211,
               height: 140,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(15),
-                child: _buildVibeCollage(topic.thumbnails),
+              child: GestureDetector(
+                onTap: () => _navigateToVibePlaylist(
+                  topicId: topic.topicId,
+                  topicTitle: topic.topicTitle,
+                  date: topic.date,
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(15),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _buildVibeCollage(topic.thumbnails),
+                      if (_loadingVibeTopicId == topic.topicId)
+                        Container(
+                          color: Colors.black45,
+                          child: const Center(
+                            child: CupertinoActivityIndicator(
+                              color: Colors.white,
+                              radius: 10,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
             // ユーザーエリア（top=142, h=24, left=3, w=171）

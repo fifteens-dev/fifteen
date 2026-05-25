@@ -244,5 +244,16 @@ service cloud.firestore {
         request.resource.data.userId == request.auth.uid;
       allow read: if isAdmin();
     }
+
+    // ── artists コレクション ──────────────────────────────────
+    // アーティストフォロー管理。読み取りはログイン済み全員可。
+    // 作成・更新：ログイン済みユーザー（フォロー/アンフォロー時に followerIds を変更）
+    match /artists/{artistId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['followerIds']);
+    }
   }
 }

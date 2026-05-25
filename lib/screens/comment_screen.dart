@@ -74,6 +74,16 @@ class _CommentScreenState extends State<CommentScreen> {
   String? get _currentUserIconUrl => context.read<CurrentUserProvider>().iconUrl;
   String? get _currentUserId => context.read<CurrentUserProvider>().uid;
 
+  // onChanged 内での同期 setState は iOS の IME 変換を壊すため、
+  // フレーム後に setState をスケジュールするヘルパーを使う
+  void _scheduledHideSuggestions() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _showMentionSuggestions) {
+        setState(() => _showMentionSuggestions = false);
+      }
+    });
+  }
+
   /// テキスト変更時に@メンションを検出してサジェストを更新
   void _onCommentChanged(String text) {
     final cursorPos = _commentController.selection.baseOffset;
@@ -81,18 +91,18 @@ class _CommentScreenState extends State<CommentScreen> {
     final beforeCursor = text.substring(0, cursorPos.clamp(0, text.length));
     final atIndex = beforeCursor.lastIndexOf('@');
     if (atIndex == -1) {
-      if (_showMentionSuggestions) setState(() => _showMentionSuggestions = false);
+      _scheduledHideSuggestions();
       return;
     }
     // @ の直前がスペースまたは行頭か確認
     if (atIndex > 0 && beforeCursor[atIndex - 1] != ' ') {
-      if (_showMentionSuggestions) setState(() => _showMentionSuggestions = false);
+      _scheduledHideSuggestions();
       return;
     }
     final query = beforeCursor.substring(atIndex + 1);
     // スペースが入ったらメンション終了
     if (query.contains(' ')) {
-      if (_showMentionSuggestions) setState(() => _showMentionSuggestions = false);
+      _scheduledHideSuggestions();
       return;
     }
     _mentionQuery = query;
@@ -213,6 +223,10 @@ class _CommentScreenState extends State<CommentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 入力エリアの高さ: topPad(10) + Row(40) + bottomPad(viewInsets.bottom + 26)
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+    final inputAreaHeight = 76.0 + keyboardHeight;
+
     return Container(
       decoration: BoxDecoration(
         color: _theme.gradientEnd,
@@ -221,48 +235,116 @@ class _CommentScreenState extends State<CommentScreen> {
           topRight: Radius.circular(20),
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Stack(
         children: [
-          // ドラッグハンドル
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Container(
-              width: 50,
-              height: 3,
-              decoration: BoxDecoration(
-                color: const Color(0xFF404040),
-                borderRadius: BorderRadius.circular(2),
+          // メインレイアウト（サジェストによるレイアウト変化なし）
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ドラッグハンドル
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Container(
+                  width: 50,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF404040),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+
+              // タイトル「コメント」
+              Padding(
+                padding: const EdgeInsets.only(top: 14, bottom: 16),
+                child: Text(
+                  'コメント',
+                  style: TextStyle(
+                    color: _theme.textColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+
+              // 区切り線
+              Divider(
+                color: _theme.textColor.withOpacity(0.15),
+                height: 1,
+              ),
+
+              // コメント一覧
+              Expanded(
+                child: _buildCommentList(),
+              ),
+
+              // コメント入力欄（サジェストなし）
+              _buildCommentInput(),
+            ],
+          ),
+
+          // @メンションサジェスト（オーバーレイ、レイアウト非影響）
+          if (_showMentionSuggestions && _mentionSuggestions.isNotEmpty)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: inputAreaHeight,
+              child: Container(
+                constraints: const BoxConstraints(maxHeight: 200),
+                decoration: BoxDecoration(
+                  color: _theme.commentButtonColor,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                ),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemCount: _mentionSuggestions.length,
+                  itemBuilder: (context, index) {
+                    final user = _mentionSuggestions[index];
+                    return InkWell(
+                      onTap: () => _selectMentionUser(user),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.grey),
+                              child: user.profileImageUrl != null && user.profileImageUrl!.isNotEmpty
+                                  ? ClipOval(child: _buildUserIcon(user.profileImageUrl!, 32))
+                                  : Icon(Icons.person, size: 18, color: _theme.textColor),
+                            ),
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '@${user.username ?? ''}',
+                                  style: TextStyle(
+                                    color: _theme.textColor,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                if (user.name != null && user.name!.isNotEmpty)
+                                  Text(
+                                    user.name!,
+                                    style: TextStyle(
+                                      color: _theme.textColor.withOpacity(0.6),
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
-          ),
-
-          // タイトル「コメント」
-          Padding(
-            padding: const EdgeInsets.only(top: 14, bottom: 16),
-            child: Text(
-              'コメント',
-              style: TextStyle(
-                color: _theme.textColor,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          // 区切り線
-          Divider(
-            color: _theme.textColor.withOpacity(0.15),
-            height: 1,
-          ),
-
-          // コメント一覧
-          Expanded(
-            child: _buildCommentList(),
-          ),
-
-          // コメント入力欄
-          _buildCommentInput(),
         ],
       ),
     );
@@ -403,78 +485,17 @@ class _CommentScreenState extends State<CommentScreen> {
     );
   }
 
-  /// コメント入力欄（@メンションサジェスト付き）
+  /// コメント入力欄
   Widget _buildCommentInput() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // @メンションサジェスト
-        if (_showMentionSuggestions && _mentionSuggestions.isNotEmpty)
-          Container(
-            constraints: const BoxConstraints(maxHeight: 200),
-            decoration: BoxDecoration(
-              color: _theme.commentButtonColor,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-            ),
-            child: ListView.builder(
-              shrinkWrap: true,
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              itemCount: _mentionSuggestions.length,
-              itemBuilder: (context, index) {
-                final user = _mentionSuggestions[index];
-                return InkWell(
-                  onTap: () => _selectMentionUser(user),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.grey),
-                          child: user.profileImageUrl != null && user.profileImageUrl!.isNotEmpty
-                              ? ClipOval(child: _buildUserIcon(user.profileImageUrl!, 32))
-                              : Icon(Icons.person, size: 18, color: _theme.textColor),
-                        ),
-                        const SizedBox(width: 10),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '@${user.username ?? ''}',
-                              style: TextStyle(
-                                color: _theme.textColor,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (user.name != null && user.name!.isNotEmpty)
-                              Text(
-                                user.name!,
-                                style: TextStyle(
-                                  color: _theme.textColor.withOpacity(0.6),
-                                  fontSize: 11,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-
-        // 入力エリア（キーボード分だけ押し上げ、シート本体は動かない）
-        Container(
-          padding: EdgeInsets.only(
-            left: 19,
-            right: 19,
-            top: 10,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 26,
-          ),
-          child: Row(
+    // 入力エリア（キーボード分だけ押し上げ、シート本体は動かない）
+    return Container(
+      padding: EdgeInsets.only(
+        left: 19,
+        right: 19,
+        top: 10,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 26,
+      ),
+      child: Row(
             children: [
               // 現在のユーザーアイコン
               Container(
@@ -539,8 +560,6 @@ class _CommentScreenState extends State<CommentScreen> {
               ),
             ],
           ),
-        ),
-      ],
     );
   }
 

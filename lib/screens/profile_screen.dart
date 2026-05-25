@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
+import '../providers/saved_items_provider.dart';
 import '../services/user_service.dart';
 import '../services/post_service.dart';
 import '../services/audio_player_service.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
+import '../models/track_model.dart';
 import '../widgets/profile_widgets.dart';
 import 'settings_screen.dart';
 import 'follow_list_screen.dart';
@@ -38,6 +41,7 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
   List<PostModel> _savedPosts = [];
   String? _playingTrackId;
 
+
   // 投稿（ページネーション）
   List<PostModel> _otherPosts = [];
   DocumentSnapshot? _lastPostDoc;
@@ -48,6 +52,7 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
   int get _tracksCount => _totalPostCount;
   int get _followersCount => _userData?.followersCount ?? 0;
   int get _followingCount => _userData?.followingCount ?? 0;
+
 
   @override
   void initState() {
@@ -64,8 +69,8 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
           curve: Curves.easeInOut,
         );
       }
-      if (_tabController.index == 1 && _savedPosts.isEmpty) {
-        _loadSavedPosts();
+      if (_tabController.index == 1) {
+        _loadSavedTabData();
       }
     });
     _gridScrollController.addListener(_onScroll);
@@ -229,6 +234,23 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
     }
   }
 
+  /// 保存タブに遷移したときに呼ぶ。投稿・ユーザー情報を再読み込みし、
+  /// SavedItemsProvider も最新化する。
+  Future<void> _loadSavedTabData() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+    await Future.wait([
+      _loadSavedPosts(),
+      _loadUserData(),
+    ]);
+    if (mounted && _userData != null) {
+      context.read<SavedItemsProvider>().initialize(
+        userId: currentUser.uid,
+        user: _userData!,
+      );
+    }
+  }
+
 
   /// プロフィール画像を拡大表示
   void _showProfileImageDialog(String imageUrl) {
@@ -260,11 +282,20 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
   /// データを全て再読み込み
   Future<void> _refresh() async {
     final refreshStart = DateTime.now();
+    final currentUser = FirebaseAuth.instance.currentUser;
     await Future.wait([
       _loadUserData(),
       _loadUserPosts(limit: 20),
       _loadPostCount(),
+      _loadSavedPosts(),
     ]);
+    // SavedItemsProvider も最新化（保存タブ・他画面の保存状態に反映）
+    if (mounted && _userData != null && currentUser != null) {
+      context.read<SavedItemsProvider>().initialize(
+        userId: currentUser.uid,
+        user: _userData!,
+      );
+    }
     // 最低1秒はリフレッシュインジケーターを表示
     final elapsed = DateTime.now().difference(refreshStart);
     if (elapsed < const Duration(seconds: 1)) {
@@ -591,8 +622,8 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
           controller: _pageController,
           onPageChanged: (index) {
             _tabController.animateTo(index);
-            if (index == 1 && _savedPosts.isEmpty) {
-              _loadSavedPosts();
+            if (index == 1) {
+              _loadSavedTabData();
             }
           },
           children: [
@@ -650,7 +681,49 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
 
   /// 保存済み楽曲リスト（Figma 566:8620準拠）
   Widget _buildSavedPostsGrid() {
-    if (_savedPosts.isEmpty) {
+    // 楽曲（savedTracksData）と投稿（savedPosts）を保存時刻で統合してソート
+    final savedTracksData = _userData?.savedTracksData ?? {};
+    final savedPostsAt = _userData?.savedPostsAt ?? {};
+
+    // 一意な行のリスト（trackId 重複は trackベースを優先）
+    final entries = <_SavedEntry>[];
+    final seenTrackIds = <String>{};
+
+    // 楽曲（trackベース）
+    for (final v in savedTracksData.values) {
+      if (v is! Map) continue;
+      final m = Map<String, dynamic>.from(v);
+      final trackId = m['trackId']?.toString() ?? '';
+      if (trackId.isEmpty || seenTrackIds.contains(trackId)) continue;
+      seenTrackIds.add(trackId);
+      final ts = m['savedAt'];
+      entries.add(_SavedEntry(
+        savedAt: ts is Timestamp ? ts.toDate() : DateTime(0),
+        track: TrackModel(
+          trackId: trackId,
+          trackName: m['trackName']?.toString() ?? '',
+          artistName: m['artistName']?.toString() ?? '',
+          albumImageUrl: m['albumImageUrl']?.toString() ?? '',
+          previewUrl: m['previewUrl']?.toString(),
+        ),
+      ));
+    }
+
+    // 投稿（postベース）
+    for (final post in _savedPosts) {
+      if (seenTrackIds.contains(post.track.trackId)) continue;
+      seenTrackIds.add(post.track.trackId);
+      final ts = savedPostsAt[post.postId];
+      entries.add(_SavedEntry(
+        savedAt: ts is Timestamp ? ts.toDate() : DateTime(0),
+        post: post,
+      ));
+    }
+
+    // 保存時刻 降順（最新が先頭）
+    entries.sort((a, b) => b.savedAt.compareTo(a.savedAt));
+
+    if (entries.isEmpty) {
       return const Center(
         child: Text(
           '保存済みの楽曲がありません',
@@ -659,114 +732,50 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
       );
     }
 
-    // 同一トラックの重複を除去
-    final seen = <String>{};
-    final uniquePosts = _savedPosts.where((p) {
-      if (seen.contains(p.track.trackId)) return false;
-      seen.add(p.track.trackId);
-      return true;
-    }).toList();
-
     return ListView.builder(
       padding: EdgeInsets.zero,
-      itemCount: uniquePosts.length,
-      itemBuilder: (context, index) => _buildSavedTrackItem(uniquePosts[index]),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final e = entries[index];
+        if (e.post != null) return _buildSavedTrackItem(e.post!);
+        return _buildSavedTrackModelItem(e.track!);
+      },
     );
   }
 
-  /// 保存済み楽曲行（Figma準拠）
+  Future<void> _handlePlay(TrackModel track) async {
+    final isPlaying = _playingTrackId == track.trackId;
+    if (isPlaying) {
+      _audioService.stop();
+      setState(() => _playingTrackId = null);
+      return;
+    }
+    setState(() => _playingTrackId = track.trackId);
+    final url = track.previewUrl;
+    if (url != null && url.isNotEmpty) {
+      await _audioService.playPreview(url);
+    }
+  }
+
+  /// アーティストプロフィールから保存した楽曲の行（trackId ベース）
+  Widget _buildSavedTrackModelItem(TrackModel track) {
+    return _SavedTrackItem(
+      track: track,
+      isPlaying: _playingTrackId == track.trackId,
+      onPlayTap: () => _handlePlay(track),
+      onSaveTap: () => SavedItemsProvider.toggleTrackWithToast(context, track),
+    );
+  }
+
+  /// 投稿保存から追加された楽曲の行（postId ベース）
   Widget _buildSavedTrackItem(PostModel post) {
     final track = post.track;
-    final isPlaying = _playingTrackId == track.trackId;
-    return GestureDetector(
-      onTap: () async {
-        if (isPlaying) {
-          _audioService.stop();
-          setState(() => _playingTrackId = null);
-          return;
-        }
-        setState(() => _playingTrackId = track.trackId);
-        final url = track.previewUrl;
-        if (url != null && url.isNotEmpty) {
-          await _audioService.playPreview(url);
-        }
-      },
-      child: Container(
-        height: 59,
-        color: isPlaying ? const Color(0xFF2A2A2A) : const Color(0xFF121212),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            // アルバムアート 47×47
-            ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: SizedBox(
-                width: 47,
-                height: 47,
-                child: track.albumImageUrl.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: track.albumImageUrl,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Container(
-                          color: Colors.grey[800],
-                          child: const Icon(Icons.album, size: 24, color: Colors.white38),
-                        ),
-                      )
-                    : Container(
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.album, size: 24, color: Colors.white38),
-                      ),
-              ),
-            ),
-            const SizedBox(width: 11),
-            // 曲名・アーティスト
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    track.trackName,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    track.artistName,
-                    style: const TextStyle(
-                      color: Color(0xFF9F9F9F),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w400,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            // 保存済みチェックアイコン
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 19,
-                  height: 19,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF1DB954),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const Icon(Icons.check, color: Colors.white, size: 12),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return _SavedTrackItem(
+      track: track,
+      postId: post.postId,
+      isPlaying: _playingTrackId == track.trackId,
+      onPlayTap: () => _handlePlay(track),
+      onSaveTap: () => SavedItemsProvider.togglePostWithToast(context, post),
     );
   }
 }
@@ -793,4 +802,125 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   bool shouldRebuild(covariant _TabBarDelegate oldDelegate) => true;
+}
+
+/// 保存済み楽曲の行 Widget。
+/// 保存状態は SavedItemsProvider から直接読み取り、タップで toggle を呼ぶ。
+class _SavedTrackItem extends StatelessWidget {
+  final TrackModel track;
+  final String? postId; // 投稿として保存されている場合
+  final bool isPlaying;
+  final Future<void> Function() onPlayTap;
+  final Future<void> Function() onSaveTap;
+
+  const _SavedTrackItem({
+    required this.track,
+    this.postId,
+    required this.isPlaying,
+    required this.onPlayTap,
+    required this.onSaveTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final savedItems = context.watch<SavedItemsProvider>();
+    final isSaved = savedItems.isTrackSaved(track.trackId) ||
+        (postId != null && savedItems.isPostSaved(postId!));
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onPlayTap,
+      child: Container(
+        height: 59,
+        color: isPlaying ? const Color(0xFF2A2A2A) : const Color(0xFF121212),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: SizedBox(
+                width: 47,
+                height: 47,
+                child: track.albumImageUrl.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: track.albumImageUrl,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, __, ___) => Container(
+                          color: Colors.grey[800],
+                          child: const Icon(Icons.album, size: 24, color: Colors.white38),
+                        ),
+                      )
+                    : Container(
+                        color: Colors.grey[800],
+                        child: const Icon(Icons.album, size: 24, color: Colors.white38),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    track.trackName,
+                    style: TextStyle(
+                      color: isPlaying ? const Color(0xFF1DB954) : Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    track.artistName,
+                    style: const TextStyle(
+                      color: Color(0xFF9F9F9F),
+                      fontSize: 10,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (isPlaying)
+              const Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: Icon(Icons.volume_up, color: Color(0xFF1DB954), size: 18),
+              ),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onSaveTap(),
+              child: isSaved
+                  ? Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: 24,
+                          height: 24,
+                          decoration: const BoxDecoration(
+                            color: Colors.lightGreen,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        Icon(Icons.check, size: 18, color: Colors.grey[700]),
+                      ],
+                    )
+                  : const Icon(Icons.add_circle_outline, color: Colors.white54, size: 24),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 保存タブの行データ。投稿ベース or 楽曲ベースのどちらか一方が入る。
+class _SavedEntry {
+  final DateTime savedAt;
+  final PostModel? post;
+  final TrackModel? track;
+  _SavedEntry({required this.savedAt, this.post, this.track});
 }

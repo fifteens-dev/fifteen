@@ -283,4 +283,34 @@ class PostFetchService {
       return null;
     }
   }
+
+  /// 指定 trackId の投稿をカーソルページネーション付きで取得
+  Future<({List<PostModel> posts, DocumentSnapshot? lastDoc, bool hasMore})>
+      getPostsByTrackIdPaged(
+    String trackId, {
+    int limit = 12,
+    DocumentSnapshot? startAfter,
+  }) async {
+    try {
+      var query = _firestore
+          .collection(_postsCollection)
+          .where('track.trackId', isEqualTo: trackId)
+          .orderBy('createdAt', descending: true)
+          .limit(limit);
+      if (startAfter != null) {
+        query = query.startAfterDocument(startAfter);
+      }
+      final snapshot = await query.get();
+      final posts =
+          snapshot.docs.map((doc) => PostModel.fromFirestore(doc)).toList();
+      return (
+        posts: await applyLatestUserInfo(posts),
+        lastDoc: snapshot.docs.isNotEmpty ? snapshot.docs.last : null,
+        hasMore: snapshot.docs.length == limit,
+      );
+    } catch (e) {
+      if (kDebugMode) print('getPostsByTrackIdPaged error: $e');
+      return (posts: <PostModel>[], lastDoc: null, hasMore: false);
+    }
+  }
 }

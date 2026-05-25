@@ -10,6 +10,7 @@ import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../models/user_model.dart';
 import '../providers/post_ui_state.dart';
+import '../providers/saved_items_provider.dart';
 import '../models/vibe_ranking_item.dart';
 import '../models/vibe_topic_model.dart';
 import '../widgets/post_card.dart';
@@ -168,23 +169,27 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didPop() {}
 
-  /// PostUIState を投稿リストから初期化する（initialPosts 使用時に呼ぶ）
+  /// PostUIState / SavedItemsProvider を投稿リストから初期化する
   Future<void> _initializePostUIState(List<PostModel> posts, {UserModel? userModel}) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return;
-    List<String> savedPostIds = userModel?.savedPosts ?? [];
-    if (userModel == null) {
+    UserModel? user = userModel;
+    if (user == null) {
       try {
-        final fetched = await _userService.getUser(currentUser.uid);
-        savedPostIds = fetched?.savedPosts ?? [];
+        user = await _userService.getUser(currentUser.uid);
       } catch (_) {}
     }
     if (mounted) {
       context.read<PostUIState>().resetAndInitialize(
         posts: posts,
         currentUserId: currentUser.uid,
-        savedPostIds: savedPostIds.toSet(),
       );
+      if (user != null) {
+        context.read<SavedItemsProvider>().initialize(
+          userId: currentUser.uid,
+          user: user,
+        );
+      }
     }
   }
 
@@ -278,18 +283,24 @@ class _HomeScreenState extends State<HomeScreen>
         _hasPostedToday = postsResult.hasPostedToday;
         _previewUrlCache.clear(); // リフレッシュ時はキャッシュをリセット
       });
+      final uid = _auth.currentUser?.uid ?? '';
       context.read<PostUIState>().resetAndInitialize(
         posts: postsResult.posts,
-        currentUserId: _auth.currentUser?.uid ?? '',
-        savedPostIds: postsResult.savedPostIds.toSet(),
+        currentUserId: uid,
       );
+      if (postsResult.user != null && uid.isNotEmpty) {
+        context.read<SavedItemsProvider>().initialize(
+          userId: uid,
+          user: postsResult.user!,
+        );
+      }
       _prefetchBacksideImages(postsResult.posts);
       _prefetchPreviewUrls(postsResult.posts);
     }
   }
 
 /// 投稿データをFirestoreから取得して返す（setState なし・_loadPosts/_onRefresh 共用）
-  Future<({List<PostModel> posts, bool hasPostedToday, List<String> savedPostIds})> _fetchPostsData() async {
+  Future<({List<PostModel> posts, bool hasPostedToday, UserModel? user})> _fetchPostsData() async {
     try {
       final currentUser = _auth.currentUser;
 
@@ -299,14 +310,13 @@ class _HomeScreenState extends State<HomeScreen>
         hasPostedToday = await _postService.hasUserPostedToday(currentUser.uid);
       }
 
-      // フォロー中のユーザーIDと保存済み投稿IDを取得
+      // フォロー中のユーザーIDと保存済み情報を取得
       List<String> followingIds = [];
-      List<String> savedPostIds = [];
+      UserModel? userModel;
       if (currentUser != null) {
         try {
-          final userModel = await _userService.getUser(currentUser.uid);
+          userModel = await _userService.getUser(currentUser.uid);
           followingIds = userModel?.following ?? [];
-          savedPostIds = userModel?.savedPosts ?? [];
         } catch (e) {
           print('⚠️ フォロー一覧取得エラー: $e');
         }
@@ -361,10 +371,10 @@ class _HomeScreenState extends State<HomeScreen>
         }
       }
 
-      return (posts: updatedPosts, hasPostedToday: hasPostedToday, savedPostIds: savedPostIds);
+      return (posts: updatedPosts, hasPostedToday: hasPostedToday, user: userModel);
     } catch (e) {
       print('❌ 投稿読み込みエラー: $e');
-      return (posts: <PostModel>[], hasPostedToday: false, savedPostIds: <String>[]);
+      return (posts: <PostModel>[], hasPostedToday: false, user: null);
     }
   }
 
@@ -379,11 +389,17 @@ class _HomeScreenState extends State<HomeScreen>
         _hasPostedToday = result.hasPostedToday;
       });
       print('🔄 setState()完了');
+      final uid = _auth.currentUser?.uid ?? '';
       context.read<PostUIState>().resetAndInitialize(
         posts: result.posts,
-        currentUserId: _auth.currentUser?.uid ?? '',
-        savedPostIds: result.savedPostIds.toSet(),
+        currentUserId: uid,
       );
+      if (result.user != null && uid.isNotEmpty) {
+        context.read<SavedItemsProvider>().initialize(
+          userId: uid,
+          user: result.user!,
+        );
+      }
       _prefetchBacksideImages(result.posts);
       _prefetchPreviewUrls(result.posts);
     } else {
@@ -711,6 +727,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixinのために必要
     final postUIState = context.watch<PostUIState>();
+    final savedItems = context.watch<SavedItemsProvider>();
     final currentUserIconUrl = context.watch<CurrentUserProvider>().iconUrl;
     final topPadding = MediaQuery.of(context).padding.top;
     final headerHeight = 48.0 + topPadding;
@@ -800,7 +817,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ),
                         const SliverToBoxAdapter(child: SizedBox(height: 9)),
-                        _buildTimelineSliver(postUIState, currentUserIconUrl),
+                        _buildTimelineSliver(postUIState, savedItems, currentUserIconUrl),
                         const SliverToBoxAdapter(child: SizedBox(height: 80)),
                       ],
                     ],
@@ -951,7 +968,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// タイムライン（投稿カードリスト）- Sliver版
-  Widget _buildTimelineSliver(PostUIState postUIState, String? currentUserIconUrl) {
+  Widget _buildTimelineSliver(PostUIState postUIState, SavedItemsProvider savedItems, String? currentUserIconUrl) {
     final posts = _cachedPosts!;
     final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
 
@@ -984,7 +1001,7 @@ class _HomeScreenState extends State<HomeScreen>
                   onComment: () => _handleComment(post),
                   onAdd: () => _handleAdd(post),
                   onDelete: post.userId == currentUserId ? () => _handleDelete(post) : null,
-                  isSaved: postUIState.isSaved(post.postId),
+                  isSaved: savedItems.isPostOrTrackSaved(post),
                   backSideEnabled: _hasPostedToday || _revealedPostIds.contains(post.postId),
                   onFlipToBack: () => _markPostRevealed(post.postId),
                   onPlayStarted: () {
@@ -996,7 +1013,7 @@ class _HomeScreenState extends State<HomeScreen>
                     post: post,
                     currentUserId: currentUserId,
                     currentUserIconUrl: currentUserIconUrl,
-                    isSaved: postUIState.isSaved(post.postId),
+                    isSaved: savedItems.isPostOrTrackSaved(post),
                   ),
                 ),
               ),
@@ -1071,26 +1088,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// 追加ボタンが押されたときの処理（投稿を保存）
   Future<void> _handleAdd(PostModel post) async {
-    final currentUser = _auth.currentUser;
-    if (currentUser == null) return;
-
-    final postUIState = context.read<PostUIState>();
-    final wasSaved = postUIState.isSaved(post.postId);
-
-    // 楽観的UI更新（notifyListeners → build再実行）
-    postUIState.toggleSave(post.postId);
-
-    try {
-      await _userService.toggleSavePost(
-        userId: currentUser.uid,
-        postId: post.postId,
-      );
-      _showMessage(wasSaved ? '投稿の保存を解除しました' : '投稿を保存しました');
-    } catch (e) {
-      print('投稿の保存に失敗: $e');
-      if (mounted) postUIState.revertSaveToggle(post.postId);
-      _showMessage('投稿の保存に失敗しました');
-    }
+    await SavedItemsProvider.togglePostWithToast(context, post);
   }
 
   /// 削除ボタンが押されたときの処理

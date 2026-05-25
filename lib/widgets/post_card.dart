@@ -14,6 +14,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
+import '../screens/artist_profile_screen.dart';
 import '../screens/other_user_profile_screen.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
@@ -633,13 +634,24 @@ class PostCardState extends State<PostCard>
                         : cardWidth * (340 / 363),
                   ),
                   const SizedBox(height: 1.198),
-                  Opacity(
-                    opacity: 0.8,
-                    child: _buildWeightAdjustedText(
-                      widget.post.track.artistName,
-                      fontSize: 11,
-                      baseWeight: FontWeight.w400,
-                      color: Colors.white,
+                  GestureDetector(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ArtistProfileScreen(
+                          artistName: widget.post.track.artistName,
+                          spotifyArtistId: widget.post.track.spotifyArtistId,
+                        ),
+                      ),
+                    ),
+                    child: Opacity(
+                      opacity: 0.8,
+                      child: _buildWeightAdjustedText(
+                        widget.post.track.artistName,
+                        fontSize: 11,
+                        baseWeight: FontWeight.w400,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ],
@@ -1305,13 +1317,24 @@ class PostCardState extends State<PostCard>
           width: availableWidth,
         ),
         const SizedBox(height: 4),
-        Opacity(
-          opacity: 0.8,
-          child: _buildWeightAdjustedText(
-            widget.post.track.artistName,
-            fontSize: 11,
-            baseWeight: FontWeight.w400,
-            color: theme.textColor,
+        GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ArtistProfileScreen(
+                artistName: widget.post.track.artistName,
+                spotifyArtistId: widget.post.track.spotifyArtistId,
+              ),
+            ),
+          ),
+          child: Opacity(
+            opacity: 0.8,
+            child: _buildWeightAdjustedText(
+              widget.post.track.artistName,
+              fontSize: 11,
+              baseWeight: FontWeight.w400,
+              color: theme.textColor,
+            ),
           ),
         ),
       ],

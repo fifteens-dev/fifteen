@@ -39,15 +39,6 @@ class VibeSongListItem extends StatelessWidget {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        // 行全体タップ領域（モーダル起動）— 後続の Positioned 子（アイコン等）が前面に来るので
-        // それらのタップは行モーダルより優先される
-        Positioned.fill(
-          child: GestureDetector(
-            onTap: onTap,
-            behavior: HitTestBehavior.opaque,
-            child: const SizedBox.expand(),
-          ),
-        ),
         // アルバムアート（48×48, rounded=3）
         Positioned(
           left: 0,
@@ -127,7 +118,20 @@ class VibeSongListItem extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
         ),
-        // add_circle（left=307, top=14, size=20）
+        // タップ領域（保存ボタン直前まで）
+        // アルバムアート・テキストより前面（z-order 上）に配置し、
+        // RenderParagraph / Container の hit 吸収を回避する
+        Positioned(
+          left: 0,
+          top: 0,
+          width: 307,
+          height: 48,
+          child: GestureDetector(
+            onTap: onTap,
+            behavior: HitTestBehavior.opaque,
+          ),
+        ),
+        // 保存ボタン（left=307, top=14, size=20）
         Positioned(
           left: 307,
           top: 14,
@@ -159,8 +163,6 @@ class VibeSongListItem extends StatelessWidget {
           ),
         ),
         // 投稿ボタン（left=334, top=4, size=40）
-        // 既存ナビバーと同じ post_icon.svg を使用（28×28 white）
-        // 仕様: その楽曲で投稿フロー（カード反転起点）を開始
         Positioned(
           left: 334,
           top: 4,

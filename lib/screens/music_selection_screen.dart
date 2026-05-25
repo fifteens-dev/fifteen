@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -417,16 +418,58 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         return;
       }
 
-      final savedPosts = await _postService.getPostsSavedByUser(currentUser.uid);
+      final results = await Future.wait([
+        _postService.getPostsSavedByUser(currentUser.uid),
+        _userService.getUser(currentUser.uid),
+      ]);
 
-      final Map<String, TrackModel> uniqueTracks = {};
-      for (final post in savedPosts) {
-        uniqueTracks.putIfAbsent(post.track.trackId, () => post.track);
+      final savedPosts = results[0] as List;
+      final me = results[1] as dynamic;
+
+      // 保存時刻で統合ソートするため、(savedAt, TrackModel) のペアで管理
+      final List<({DateTime savedAt, TrackModel track})> entries = [];
+      final seen = <String>{};
+
+      // アーティストプロフィールから保存したトラック
+      final savedTracksData =
+          (me?.savedTracksData as Map<String, dynamic>?) ?? {};
+      for (final entry in savedTracksData.entries) {
+        final m = entry.value as Map<String, dynamic>;
+        final trackId = m['trackId']?.toString() ?? '';
+        if (trackId.isEmpty || seen.contains(trackId)) continue;
+        seen.add(trackId);
+        final ts = m['savedAt'];
+        entries.add((
+          savedAt: ts is Timestamp ? ts.toDate() : DateTime(0),
+          track: TrackModel(
+            trackId: trackId,
+            trackName: m['trackName']?.toString() ?? '',
+            artistName: m['artistName']?.toString() ?? '',
+            albumImageUrl: m['albumImageUrl']?.toString() ?? '',
+            previewUrl: m['previewUrl']?.toString(),
+          ),
+        ));
       }
+
+      // 投稿から保存したトラック（重複はスキップ）
+      final savedPostsAt =
+          (me?.savedPostsAt as Map<String, dynamic>?) ?? {};
+      for (final post in savedPosts) {
+        if (seen.contains(post.track.trackId)) continue;
+        seen.add(post.track.trackId);
+        final ts = savedPostsAt[post.postId];
+        entries.add((
+          savedAt: ts is Timestamp ? ts.toDate() : DateTime(0),
+          track: post.track,
+        ));
+      }
+
+      // 保存時刻 降順
+      entries.sort((a, b) => b.savedAt.compareTo(a.savedAt));
 
       if (mounted) {
         setState(() {
-          _tracks = uniqueTracks.values.toList();
+          _tracks = entries.map((e) => e.track).toList();
           _isLoading = false;
         });
       }

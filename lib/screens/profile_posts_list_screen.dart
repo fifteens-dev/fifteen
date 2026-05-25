@@ -4,11 +4,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../models/post_model.dart';
 import '../providers/current_user_provider.dart';
+import '../providers/saved_items_provider.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
-import '../services/user_service.dart';
 import 'card_share_screen.dart';
 import '../widgets/common/app_toast.dart';
 import '../widgets/dialogs/delete_post_dialog.dart';
@@ -36,7 +36,6 @@ class ProfilePostsListScreen extends StatefulWidget {
 class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
-  final UserService _userService = UserService();
   final PostService _postService = PostService();
   final ScrollController _scrollController = ScrollController();
   String? _currentUserId;
@@ -48,8 +47,6 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
   // 各PostCardのGlobalKey（flipToBack呼び出し用）
   final Map<int, GlobalKey<PostCardState>> _cardKeys = {};
 
-  // 保存状態
-  final Set<String> _savedPostIds = {};
 
   // 投稿リスト（削除対応）
   late List<PostModel> _posts;
@@ -65,7 +62,6 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
     super.initState();
     _posts = List.from(widget.posts);
     _currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    _loadSaveStates();
 
     _scrollController.addListener(_checkCardVisibility);
 
@@ -172,42 +168,8 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
     }
   }
 
-  Future<void> _loadSaveStates() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) return;
-    for (final post in _posts) {
-      if (post.savedByUserIds.contains(userId)) {
-        _savedPostIds.add(post.postId);
-      }
-    }
-    if (mounted) setState(() {});
-  }
-
   Future<void> _handleSave(PostModel post) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) return;
-
-    setState(() {
-      if (_savedPostIds.contains(post.postId)) {
-        _savedPostIds.remove(post.postId);
-      } else {
-        _savedPostIds.add(post.postId);
-      }
-    });
-
-    try {
-      await _userService.toggleSavePost(userId: userId, postId: post.postId);
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          if (_savedPostIds.contains(post.postId)) {
-            _savedPostIds.remove(post.postId);
-          } else {
-            _savedPostIds.add(post.postId);
-          }
-        });
-      }
-    }
+    await SavedItemsProvider.togglePostWithToast(context, post);
   }
 
 
@@ -277,7 +239,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                       externalPreviewUrl: _previewUrlCache[index],
                       disableInteractions: widget.disableInteractions,
                       onPlayStarted: () => setState(() { _playingIndex = index; }),
-                      isSaved: _savedPostIds.contains(post.postId),
+                      isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
                       onAdd: () => _handleSave(post),
                       onDelete: (_currentUserId != null && post.userId == _currentUserId)
                           ? () => _handleDelete(post)
@@ -287,7 +249,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                         post: post,
                         currentUserId: _currentUserId,
                         currentUserIconUrl: _currentUserIconUrl,
-                        isSaved: _savedPostIds.contains(post.postId),
+                        isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
                       ),
                     ),
                   ),

@@ -10,6 +10,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'providers/post_ui_state.dart';
 import 'providers/current_user_provider.dart';
+import 'providers/saved_items_provider.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/verification_code_screen.dart';
 import 'screens/invite_code_screen.dart';
@@ -153,6 +154,7 @@ class FifteenApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => PostUIState()),
         ChangeNotifierProvider(create: (_) => CurrentUserProvider()..ensureLoaded()),
+        ChangeNotifierProvider(create: (_) => SavedItemsProvider()),
       ],
       child: MaterialApp(
       navigatorKey: navigatorKey,

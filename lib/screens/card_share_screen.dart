@@ -221,21 +221,15 @@ class _CardShareSheetState extends State<_CardShareSheet> {
                               width: 55,
                               height: 55,
                               decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  begin: Alignment.topRight,
-                                  end: Alignment.bottomLeft,
-                                  colors: [
-                                    Color(0xFF833AB4),
-                                    Color(0xFFFD1D1D),
-                                    Color(0xFFF77737),
-                                  ],
-                                ),
+                                color: const Color(0xFF212327),
                                 borderRadius: BorderRadius.circular(14),
                               ),
-                              child: const Icon(
-                                Icons.camera_alt_rounded,
-                                color: Colors.white,
-                                size: 26,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: Image.asset(
+                                  'assets/icons/Instagram_Glyph_Gradient.png',
+                                  fit: BoxFit.contain,
+                                ),
                               ),
                             ),
                       const SizedBox(height: 4),

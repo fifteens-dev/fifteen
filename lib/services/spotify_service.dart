@@ -12,6 +12,9 @@ class SpotifyService {
 
   String? _clientCredentialsToken;
   DateTime? _tokenExpiry;
+  final Map<String, String?> _artistImageCache = {};
+  // artistId → (imageUrl, followerCount) のキャッシュ
+  final Map<String, ({String? imageUrl, int followerCount})> _artistByIdCache = {};
 
   // OAuth認証サービス
   final SpotifyAuthService _authService = SpotifyAuthService();
@@ -119,8 +122,10 @@ class SpotifyService {
 
       final artists = trackData['artists'] as List;
       String artistName = '';
+      String? spotifyArtistId;
       if (artists.isNotEmpty) {
         artistName = artists.map((a) => a['name']).join(', ');
+        spotifyArtistId = artists[0]['id']?.toString();
       }
 
       final previewUrl = trackData['preview_url'] as String? ?? '';
@@ -131,6 +136,7 @@ class SpotifyService {
         artistName: artistName,
         albumImageUrl: albumImageUrl,
         previewUrl: previewUrl,
+        spotifyArtistId: spotifyArtistId,
       );
     }).toList();
 
@@ -340,6 +346,99 @@ class SpotifyService {
     return bestVersions.where((item) => (item['score'] as int) > 0).toList();
   }
 
+  /// アーティスト名からSpotifyのアーティスト画像URLを取得（結果はキャッシュ）
+  Future<String?> getArtistImageUrl(String artistName) async {
+    if (_artistImageCache.containsKey(artistName)) {
+      return _artistImageCache[artistName];
+    }
+
+    final token = await _getAccessToken();
+    if (token == null) return null;
+
+    try {
+      final encoded = Uri.encodeComponent(artistName);
+      final response = await http.get(
+        Uri.parse(
+            'https://api.spotify.com/v1/search?q=$encoded&type=artist&limit=1&market=JP'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode != 200) {
+        _artistImageCache[artistName] = null;
+        return null;
+      }
+
+      final data = json.decode(response.body);
+      final items = data['artists']?['items'] as List?;
+      if (items == null || items.isEmpty) {
+        _artistImageCache[artistName] = null;
+        return null;
+      }
+
+      final images = items[0]['images'] as List?;
+      if (images == null || images.isEmpty) {
+        _artistImageCache[artistName] = null;
+        return null;
+      }
+
+      // imagesは大きい順に並んでいるので先頭が最高解像度
+      final url = images[0]['url'] as String?;
+      _artistImageCache[artistName] = url;
+      return url;
+    } catch (e) {
+      print('❌ Spotify getArtistImageUrl error: $e');
+      _artistImageCache[artistName] = null;
+      return null;
+    }
+  }
+
+  /// Spotify アーティストIDからアーティスト情報（画像URL + フォロワー数）を取得する。
+  /// 名前検索より正確（同名アーティストや表記揺れの問題が無い）。
+  Future<({String? imageUrl, int followerCount})> getArtistById(String artistId) async {
+    if (artistId.isEmpty) return (imageUrl: null, followerCount: 0);
+    final cached = _artistByIdCache[artistId];
+    if (cached != null) return cached;
+
+    final token = await _getAccessToken();
+    if (token == null) return (imageUrl: null, followerCount: 0);
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/artists/$artistId'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode != 200) {
+        final result = (imageUrl: null, followerCount: 0);
+        _artistByIdCache[artistId] = result;
+        return result;
+      }
+
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final images = data['images'] as List?;
+      final imageUrl = (images != null && images.isNotEmpty)
+          ? images[0]['url'] as String?
+          : null;
+      final followerCount =
+          ((data['followers'] as Map?)?['total'] as num?)?.toInt() ?? 0;
+
+      final result = (imageUrl: imageUrl, followerCount: followerCount);
+      _artistByIdCache[artistId] = result;
+      return result;
+    } catch (e) {
+      print('❌ Spotify getArtistById error: $e');
+      final result = (imageUrl: null, followerCount: 0);
+      _artistByIdCache[artistId] = result;
+      return result;
+    }
+  }
+
+  /// 画像URLのみ欲しい時のショートカット
+  Future<String?> getArtistImageUrlById(String artistId) async {
+    final info = await getArtistById(artistId);
+    return info.imageUrl;
+  }
+
   /// トラックIDから楽曲情報を取得
   Future<TrackModel?> getTrack(String trackId) async {
     final token = await _getAccessToken();
@@ -376,8 +475,10 @@ class SpotifyService {
 
     final artists = trackData['artists'] as List? ?? [];
     String artistName = '';
+    String? spotifyArtistId;
     if (artists.isNotEmpty) {
       artistName = artists.map((a) => a['name']).join(', ');
+      spotifyArtistId = artists[0]['id']?.toString();
     }
 
     final previewUrl = trackData['preview_url'] as String? ?? '';
@@ -388,6 +489,7 @@ class SpotifyService {
       artistName: artistName,
       albumImageUrl: albumImageUrl,
       previewUrl: previewUrl,
+      spotifyArtistId: spotifyArtistId,
     );
   }
 

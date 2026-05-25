@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
 import '../../models/music_service_type.dart';
@@ -14,8 +15,8 @@ import '../../models/vibe_topic_model.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/itunes_search_service.dart';
 import '../../services/music_service_manager.dart';
+import '../../providers/saved_items_provider.dart';
 import '../../services/post_service.dart';
-import '../../services/user_service.dart';
 import '../../services/posting_state.dart';
 import '../comment_screen.dart';
 import '../music_selection_screen.dart';
@@ -60,13 +61,11 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
   final PostService _postService = PostService();
-  final UserService _userService = UserService();
 
   int _currentPage = 0;
   final Map<int, String?> _previewUrlCache = {};
   final Map<String, int> _likeCountCache = {};
   final Map<String, bool> _isLikedCache = {};
-  final Map<String, bool> _isSavedCache = {};
 
   // 各投稿のランキングアイテムをキャッシュ
   final Map<String, VibeRankingItem?> _rankingItemCache = {};
@@ -96,6 +95,11 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
   void _onTabControllerChanged() {
     if (_tabController.indexIsChanging) return;
+    if (_tabController.index == 1) {
+      _audioService.stop();
+    } else if (_tabController.index == 0) {
+      _playMusicForPage(_currentPage);
+    }
     if (_tabPageController.hasClients) {
       _tabPageController.animateToPage(
         _tabController.index,
@@ -154,7 +158,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
     try {
       final posts = await _postService.getVibePostsByTopic(
         widget.topic.topicId,
-        DateTime.now(),
+        widget.topic.date,
       );
       if (!mounted) return;
       setState(() {
@@ -286,20 +290,9 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
   /// 曲行タップで開くモーダル（Figma 3870:6805 仕様）
   Future<void> _showSongModal(VibeRankingItem item) async {
-    // この楽曲を使った投稿の写真を抽出（trackId or trackName+artistNameでマッチ）
     final trackKey = item.track.trackId.isNotEmpty
         ? item.track.trackId
         : '${item.track.trackName}_${item.track.artistName}';
-    final photos = <String>[
-      for (final p in (_posts ?? const <PostModel>[]))
-        if ((p.photoUrl ?? '').startsWith('http') &&
-            (p.track.trackId.isNotEmpty
-                    ? p.track.trackId
-                    : '${p.track.trackName}_${p.track.artistName}') ==
-                trackKey)
-          p.photoUrl!,
-    ];
-
     final matchingPost = (_posts ?? []).cast<PostModel?>().firstWhere(
       (p) => p != null && (
         p.track.trackId.isNotEmpty
@@ -308,19 +301,12 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
       ),
       orElse: () => null,
     );
-    final isSaved = matchingPost != null
-        ? (_isSavedCache[matchingPost.postId] ??
-            matchingPost.savedByUserIds.contains(widget.currentUserId))
-        : false;
-
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
-      isScrollControlled: true, // 背の高いモーダル + 内部スクロール
+      isScrollControlled: true,
       builder: (ctx) => SongActionSheet(
         item: item,
-        photos: photos,
-        isSaved: isSaved,
         onPlayFull: () {
           Navigator.of(ctx).pop();
           _openExternalMusicService(item.track);
@@ -329,8 +315,13 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
           Navigator.of(ctx).pop();
           _navigateToPostPreviewWithTrack(item.track);
         },
-        onSave: () {
-          if (matchingPost != null) _handleSave(matchingPost);
+        onSave: () async {
+          HapticFeedback.lightImpact();
+          if (matchingPost != null) {
+            await SavedItemsProvider.togglePostWithToast(context, matchingPost);
+          } else {
+            await SavedItemsProvider.toggleTrackWithToast(context, item.track);
+          }
         },
       ),
     );
@@ -393,11 +384,16 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
               child: PageView(
                 controller: _tabPageController,
                 onPageChanged: (index) {
+                  if (index == 1) {
+                    _audioService.stop();
+                  } else if (index == 0) {
+                    _playMusicForPage(_currentPage);
+                  }
                   _tabController.animateTo(index);
                   setState(() => _selectedTab = index);
                 },
                 children: [
-                  _buildPostsTab(),
+                  _KeepAlive(child: _buildPostsTab()),
                   Padding(
                     padding: EdgeInsets.only(top: topPadding + 35 + 32),
                     child: _buildTracksTab(),
@@ -519,8 +515,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
     final isLiked =
         _isLikedCache[post.postId] ?? post.isLikedBy(widget.currentUserId);
     final likeCount = _likeCountCache[post.postId] ?? post.likeCount;
-    final isSaved = _isSavedCache[post.postId] ??
-        post.savedByUserIds.contains(widget.currentUserId);
+    final isSaved = context.watch<SavedItemsProvider>().isPostOrTrackSaved(post);
     return VibePostCard(
       post: post,
       rankingItem: rankingItem,
@@ -562,24 +557,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
   Future<void> _handleSave(PostModel post) async {
     HapticFeedback.lightImpact();
-    final postId = post.postId;
-    final wasSaved = _isSavedCache[postId] ??
-        post.savedByUserIds.contains(widget.currentUserId);
-    setState(() {
-      _isSavedCache[postId] = !wasSaved;
-    });
-    try {
-      await _userService.toggleSavePost(
-        userId: widget.currentUserId,
-        postId: postId,
-      );
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _isSavedCache[postId] = wasSaved;
-        });
-      }
-    }
+    await SavedItemsProvider.togglePostWithToast(context, post);
   }
 
   Future<void> _handleComment(PostModel post) async {
@@ -615,13 +593,18 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
       onSongPostTap: (item) => _navigateToPostPreviewWithTrack(item.track),
       onSongSaveTap: (item) {
         final matching = _matchingPostFor(item);
-        return matching != null ? () => _handleSave(matching) : null;
+        if (matching != null) return () => _handleSave(matching);
+        // 投稿が無い楽曲は trackId ベースで保存
+        return () async {
+          HapticFeedback.lightImpact();
+          await SavedItemsProvider.toggleTrackWithToast(context, item.track);
+        };
       },
       isSongSaved: (item) {
+        final savedItems = context.watch<SavedItemsProvider>();
         final matching = _matchingPostFor(item);
-        if (matching == null) return false;
-        return _isSavedCache[matching.postId] ??
-            matching.savedByUserIds.contains(widget.currentUserId);
+        if (matching != null) return savedItems.isPostOrTrackSaved(matching);
+        return savedItems.isTrackSaved(item.track.trackId);
       },
     );
   }
@@ -639,5 +622,26 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
               : '${p.track.trackName}_${p.track.artistName}' == trackKey),
       orElse: () => null,
     );
+  }
+}
+
+// PageView のページ切り替えで子ウィジェットが破棄されないよう保持するラッパー
+class _KeepAlive extends StatefulWidget {
+  final Widget child;
+  const _KeepAlive({required this.child});
+
+  @override
+  State<_KeepAlive> createState() => _KeepAliveState();
+}
+
+class _KeepAliveState extends State<_KeepAlive>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

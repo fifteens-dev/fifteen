@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../../models/post_model.dart';
 import '../../../models/vibe_ranking_item.dart';
+import '../../../models/track_model.dart';
+import '../../../services/artist_service.dart';
+import '../../../services/spotify_service.dart';
 import '../../../widgets/profile_widgets.dart';
+import '../../artist_profile_screen.dart';
 
 /// Vibeプレイリスト投稿タブの全画面PageView用カード。
 ///
@@ -44,6 +48,23 @@ class VibePostCard extends StatelessWidget {
     return n.toString();
   }
 
+  /// アーティスト画像URLを取得する。spotifyArtistId があれば by-ID（正確）で、
+  /// なければ名前ベースのSpotify検索にフォールバック。
+  Future<String?> _fetchArtistImageUrl(TrackModel track) async {
+    final id = track.spotifyArtistId;
+    if (id != null && id.isNotEmpty) {
+      return SpotifyService().getArtistImageUrlById(id);
+    }
+    return SpotifyService().getArtistImageUrl(track.artistName);
+  }
+
+  /// アーティストのフォロワー数を取得する。
+  /// このアプリ内（Firestore artists.followerIds）の値を返す
+  /// — ArtistProfileScreen に表示される数と一致させる。
+  Future<int> _fetchFollowerCount(TrackModel track) async {
+    return ArtistService().getFollowerCountByName(track.artistName);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Figma の各「ページ」は 822px (card 814 + gap 8)。下部 8px は次カードへの余白。
@@ -59,7 +80,7 @@ class VibePostCard extends StatelessWidget {
               left: 0,
               right: 0,
               height: 275,
-              child: _buildCardBottom(post),
+              child: _buildCardBottom(context, post),
             ),
           ],
         ),
@@ -151,7 +172,7 @@ class VibePostCard extends StatelessWidget {
   static Widget photoBackgroundOf(PostModel post) => _buildPhotoBackground(post);
 
   /// ── カード下部（275px Stack, Figma: top=539 height=275, w=402） ──
-  Widget _buildCardBottom(PostModel post) {
+  Widget _buildCardBottom(BuildContext context, PostModel post) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -203,16 +224,28 @@ class VibePostCard extends StatelessWidget {
           left: 18,
           top: 119,
           right: 60,
-          child: Text(
-            post.track.artistName,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFFA7ACB1),
-              letterSpacing: 0.36,
-              height: 1.0,
+          child: GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    ArtistProfileScreen(
+                      artistName: post.track.artistName,
+                      spotifyArtistId: post.track.spotifyArtistId,
+                    ),
+              ),
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            child: Text(
+              post.track.artistName,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFFA7ACB1),
+                letterSpacing: 0.36,
+                height: 1.0,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ),
         // アーティスト行（left=0, top=147, w=402, h=32）
@@ -221,7 +254,7 @@ class VibePostCard extends StatelessWidget {
           right: 0,
           top: 147,
           height: 32,
-          child: _buildArtistRow(post),
+          child: _buildArtistRow(context, post),
         ),
         // 曲リストバー（left=14, top=191, w=374, h=72）
         Positioned(
@@ -244,8 +277,7 @@ class VibePostCard extends StatelessWidget {
   }
 
   /// アーティスト行 (Figma: container left=0 top=147 w=402 h=32)
-  Widget _buildArtistRow(PostModel post) {
-    final followerCount = rankingItem?.userIds.length ?? 0;
+  Widget _buildArtistRow(BuildContext context, PostModel post) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -255,19 +287,41 @@ class VibePostCard extends StatelessWidget {
           top: 0,
           width: 32,
           height: 32,
-          child: Container(
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white,
+          child: GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    ArtistProfileScreen(
+                      artistName: post.track.artistName,
+                      spotifyArtistId: post.track.spotifyArtistId,
+                    ),
+              ),
             ),
-            child: ClipOval(
-              child: CachedNetworkImage(
-                imageUrl: post.track.albumImageUrl,
-                width: 32,
-                height: 32,
-                fit: BoxFit.cover,
-                errorWidget: (_, __, ___) =>
-                    const Icon(Icons.music_note, color: Colors.grey, size: 18),
+            child: Container(
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+              ),
+              child: ClipOval(
+                child: FutureBuilder<String?>(
+                  future: _fetchArtistImageUrl(post.track),
+                  builder: (context, snapshot) {
+                    final url = snapshot.data?.isNotEmpty == true
+                        ? snapshot.data!
+                        : post.track.albumImageUrl;
+                    return CachedNetworkImage(
+                      imageUrl: url,
+                      width: 32,
+                      height: 32,
+                      fit: BoxFit.cover,
+                      errorWidget: (_, __, ___) => const Icon(
+                          Icons.music_note,
+                          color: Colors.grey,
+                          size: 18),
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -277,33 +331,51 @@ class VibePostCard extends StatelessWidget {
           left: 56,
           top: 1,
           right: 252,
-          child: Text(
-            post.track.artistName,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-              letterSpacing: -0.78,
-              height: 1.0,
+          child: GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    ArtistProfileScreen(
+                      artistName: post.track.artistName,
+                      spotifyArtistId: post.track.spotifyArtistId,
+                    ),
+              ),
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            child: Text(
+              post.track.artistName,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                letterSpacing: -0.78,
+                height: 1.0,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ),
-        // フォロワー数
+        // フォロワー数（アーティストの実フォロワー）
         Positioned(
           left: 56,
           top: 17,
           right: 252,
-          child: Text(
-            '${_fmt(followerCount)}人のフォロワー',
-            style: const TextStyle(
-              fontSize: 10,
-              color: Colors.white,
-              height: 1.0,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          child: FutureBuilder<int>(
+            future: _fetchFollowerCount(post.track),
+            builder: (context, snapshot) {
+              final count = snapshot.data ?? 0;
+              return Text(
+                '${_fmt(count)}人のフォロワー',
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Colors.white,
+                  height: 1.0,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              );
+            },
           ),
         ),
         // フォローするボタン
@@ -312,19 +384,31 @@ class VibePostCard extends StatelessWidget {
           top: 7,
           width: 83,
           height: 19,
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white, width: 1),
-              borderRadius: BorderRadius.circular(25),
+          child: GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    ArtistProfileScreen(
+                      artistName: post.track.artistName,
+                      spotifyArtistId: post.track.spotifyArtistId,
+                    ),
+              ),
             ),
-            alignment: Alignment.center,
-            child: const Text(
-              'フォローする',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-                height: 1.0,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 1),
+                borderRadius: BorderRadius.circular(25),
+              ),
+              alignment: Alignment.center,
+              child: const Text(
+                'フォローする',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  height: 1.0,
+                ),
               ),
             ),
           ),

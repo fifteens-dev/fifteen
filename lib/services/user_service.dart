@@ -483,66 +483,6 @@ class UserService {
     }
   }
 
-  // 投稿を保存する
-  Future<void> savePost({
-    required String userId,
-    required String postId,
-  }) async {
-    try {
-      await _firestore.collection(_usersCollection).doc(userId).update({
-        'savedPosts': FieldValue.arrayUnion([postId]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error saving post: $e');
-      }
-      rethrow;
-    }
-  }
-
-  // 投稿の保存を解除する
-  Future<void> unsavePost({
-    required String userId,
-    required String postId,
-  }) async {
-    try {
-      await _firestore.collection(_usersCollection).doc(userId).update({
-        'savedPosts': FieldValue.arrayRemove([postId]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error unsaving post: $e');
-      }
-      rethrow;
-    }
-  }
-
-  // 投稿を保存/保存解除する（トグル）
-  Future<void> toggleSavePost({
-    required String userId,
-    required String postId,
-  }) async {
-    try {
-      final user = await getUser(userId);
-      if (user == null) {
-        throw Exception('User not found');
-      }
-
-      if (user.hasSavedPost(postId)) {
-        await unsavePost(userId: userId, postId: postId);
-      } else {
-        await savePost(userId: userId, postId: postId);
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error toggling save post: $e');
-      }
-      rethrow;
-    }
-  }
-
   /// アカウント削除: Firestoreのユーザーデータを削除
   Future<void> deleteUserData(String userId) async {
     try {

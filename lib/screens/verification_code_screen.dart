@@ -99,24 +99,13 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen> {
           });
 
           if (userDoc.exists) {
-            // 既存ユーザー - 登録進捗に応じてナビゲート
+            // 登録完了済みならホーム、未完了なら招待コード画面から再開
             final data = userDoc.data() ?? {};
             final username = data['username'] as String?;
-            final name = data['name'] as String?;
-
             if (username != null && username.isNotEmpty) {
-              // 登録完了 → ホーム
               Navigator.pushReplacementNamed(context, '/home');
-            } else if (name != null && name.isNotEmpty) {
-              // 名前まで完了 → ユーザーネーム入力へ
-              Navigator.pushReplacementNamed(
-                context,
-                '/username-creation',
-                arguments: {'name': name},
-              );
             } else {
-              // 名前未設定 → 名前入力へ
-              Navigator.pushReplacementNamed(context, '/name-input');
+              Navigator.pushReplacementNamed(context, '/invite-code');
             }
           } else {
             // 新規ユーザー - 基本情報をFirestoreに作成
@@ -182,14 +171,10 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen> {
       if (userDoc.exists) {
         final data = userDoc.data() ?? {};
         final username = data['username'] as String?;
-        final name = data['name'] as String?;
         if (username != null && username.isNotEmpty) {
           Navigator.pushReplacementNamed(context, '/home');
-        } else if (name != null && name.isNotEmpty) {
-          Navigator.pushReplacementNamed(context, '/username-creation',
-              arguments: {'name': name});
         } else {
-          Navigator.pushReplacementNamed(context, '/name-input');
+          Navigator.pushReplacementNamed(context, '/invite-code');
         }
       } else {
         await _userService.createUser(uid: user.uid, phoneNumber: testPhone);

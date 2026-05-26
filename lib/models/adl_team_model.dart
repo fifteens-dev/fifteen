@@ -9,6 +9,7 @@ class AdlTeamModel {
   final DateTime inviteCodeExpiresAt;
   final int likeCount; // いいね集計（Cloud Functionが更新）
   final int memberCount;
+  final int postCount; // 投稿数集計（Cloud Functionが更新）
   final DateTime createdAt;
 
   AdlTeamModel({
@@ -19,6 +20,7 @@ class AdlTeamModel {
     required this.inviteCodeExpiresAt,
     this.likeCount = 0,
     this.memberCount = 0,
+    this.postCount = 0,
     required this.createdAt,
   });
 
@@ -34,6 +36,7 @@ class AdlTeamModel {
               DateTime.now(),
       likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
       memberCount: (data['memberCount'] as num?)?.toInt() ?? 0,
+      postCount: (data['postCount'] as num?)?.toInt() ?? 0,
       createdAt:
           (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -46,6 +49,7 @@ class AdlTeamModel {
         'inviteCodeExpiresAt': Timestamp.fromDate(inviteCodeExpiresAt),
         'likeCount': likeCount,
         'memberCount': memberCount,
+        'postCount': postCount,
         'createdAt': Timestamp.fromDate(createdAt),
       };
 

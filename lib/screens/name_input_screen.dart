@@ -29,7 +29,7 @@ class _NameInputScreenState extends State<NameInputScreen> {
     _checkAndSkipIfAlreadySet();
   }
 
-  /// 既にデータが設定されている場合はスキップ
+  /// 登録完了済みなら直接ホームへ。未完了なら本画面を表示する。
   Future<void> _checkAndSkipIfAlreadySet() async {
     final currentUser = _authService.currentUser;
     if (currentUser == null) {
@@ -40,17 +40,8 @@ class _NameInputScreenState extends State<NameInputScreen> {
       final user = await _userService.getUser(currentUser.uid);
       if (!mounted) return;
       if (user?.username != null && user!.username!.isNotEmpty) {
-        // username まで設定済み → ホームへ
+        // 登録完了済み → ホームへ
         Navigator.pushReplacementNamed(context, '/home');
-        return;
-      }
-      if (user?.name != null && user!.name!.isNotEmpty) {
-        // 名前は設定済みだが username 未設定 → username 入力へ
-        Navigator.pushReplacementNamed(
-          context,
-          '/username-creation',
-          arguments: {'name': user.name},
-        );
         return;
       }
     } catch (_) {}

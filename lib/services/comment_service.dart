@@ -168,16 +168,22 @@ class CommentService {
   }
 
   /// 特定の投稿のコメント一覧を取得（リアルタイム）
+  ///
+  /// Firestore コスト最適化のため最新の最大200件に限定。
+  /// それ以上は将来ページング対応にする。
   Stream<List<CommentModel>> getCommentsStream(String postId) {
     return _firestore
         .collection('comments')
         .where('postId', isEqualTo: postId)
-        .orderBy('createdAt', descending: false)
+        .orderBy('createdAt', descending: true)
+        .limit(200)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
+      final items = snapshot.docs
           .map((doc) => CommentModel.fromFirestore(doc))
           .toList();
+      // 表示順は古い順なので最後に反転
+      return items.reversed.toList();
     });
   }
 

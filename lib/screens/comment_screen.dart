@@ -66,7 +66,11 @@ class _CommentScreenState extends State<CommentScreen> {
   // @メンション サジェスト用
   List<UserModel> _mentionSuggestions = [];
   bool _showMentionSuggestions = false;
-  String _mentionQuery = '';
+
+  // メンション候補プール（セッション中キャッシュ）。
+  // 初回の @ 入力時に1回だけフォロー/フォロワーを取得して保持する。
+  List<UserModel>? _mentionCandidatePool;
+  bool _isLoadingMentionPool = false;
 
   PostTheme get _theme => widget.post.theme;
 
@@ -105,15 +109,24 @@ class _CommentScreenState extends State<CommentScreen> {
       _scheduledHideSuggestions();
       return;
     }
-    _mentionQuery = query;
     _fetchMentionSuggestions(query);
   }
 
-  Future<void> _fetchMentionSuggestions(String query) async {
+  /// メンション候補プールを初回のみ取得してキャッシュする。
+  /// セッション中の @ 入力ごとに Firestore を再読しない。
+  Future<List<UserModel>> _ensureMentionPool() async {
+    if (_mentionCandidatePool != null) return _mentionCandidatePool!;
+    if (_isLoadingMentionPool) {
+      // ロード中なら完了を待ってから再評価
+      while (_isLoadingMentionPool) {
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+      return _mentionCandidatePool ?? <UserModel>[];
+    }
     final uid = _currentUserId;
-    if (uid == null) return;
+    if (uid == null) return <UserModel>[];
+    _isLoadingMentionPool = true;
     try {
-      // フォロー中・フォロワー両方を並列取得し、重複排除して候補にする
       final results = await Future.wait([
         _userService.getFollowingUsers(uid),
         _userService.getFollowerUsers(uid),
@@ -123,19 +136,30 @@ class _CommentScreenState extends State<CommentScreen> {
         ...results[0],
         ...results[1],
       ].where((u) => u.uid.isNotEmpty && seen.add(u.uid)).toList();
+      _mentionCandidatePool = combined;
+      return combined;
+    } catch (_) {
+      return _mentionCandidatePool ?? <UserModel>[];
+    } finally {
+      _isLoadingMentionPool = false;
+    }
+  }
 
-      final filtered = combined.where((u) {
-        final username = (u.username ?? '').toLowerCase();
-        return query.isEmpty || username.startsWith(query.toLowerCase());
-      }).take(6).toList();
+  Future<void> _fetchMentionSuggestions(String query) async {
+    final uid = _currentUserId;
+    if (uid == null) return;
+    final pool = await _ensureMentionPool();
+    if (!mounted) return;
 
-      if (mounted) {
-        setState(() {
-          _mentionSuggestions = filtered;
-          _showMentionSuggestions = filtered.isNotEmpty;
-        });
-      }
-    } catch (_) {}
+    final filtered = pool.where((u) {
+      final username = (u.username ?? '').toLowerCase();
+      return query.isEmpty || username.startsWith(query.toLowerCase());
+    }).take(6).toList();
+
+    setState(() {
+      _mentionSuggestions = filtered;
+      _showMentionSuggestions = filtered.isNotEmpty;
+    });
   }
 
   /// サジェストからユーザーを選択して挿入

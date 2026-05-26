@@ -17,7 +17,6 @@ import 'basic_info_screen.dart';
 import 'admin/admin_screen.dart';
 import 'adl_join_screen.dart';
 import '../services/adl_service.dart';
-import '../models/adl_event_model.dart';
 
 /// 設定画面
 class SettingsScreen extends StatefulWidget {
@@ -34,7 +33,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   UserModel? _userData;
   bool _isAdmin = false;
   bool _adlActive = false;
-  AdlEventModel? _adlEvent;
 
   @override
   void initState() {
@@ -62,11 +60,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // ADL情報は独立してロード（失敗しても上記に影響しない）
     try {
       final adlActive = await _adlService.isAdlModeActive();
-      final adlEvent = adlActive ? await _adlService.getActiveEvent() : null;
       if (mounted) {
         setState(() {
           _adlActive = adlActive;
-          _adlEvent = adlEvent;
         });
       }
     } catch (_) {}
@@ -196,7 +192,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ]),
 
                       // ADLイベント（開催中のみ表示）
-                      if (_adlActive && _adlEvent != null) ...[
+                      if (_adlActive) ...[
                         const SizedBox(height: 24),
                         _buildSectionLabel('ADLイベント'),
                         const SizedBox(height: 8),
@@ -211,7 +207,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => AdlJoinScreen(
-                                    event: _adlEvent!,
                                     currentTeamName: _userData?.adlTeamName,
                                     currentTeamId: _userData?.adlTeamId,
                                   ),

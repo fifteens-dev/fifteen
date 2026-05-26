@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../constants/adl_teams.dart';
 import '../constants/app_colors.dart';
-import '../models/adl_event_model.dart';
 import '../services/adl_service.dart';
 import '../widgets/common/app_toast.dart';
 import 'adl_ranking_screen.dart';
@@ -13,13 +12,11 @@ import 'adl_ranking_screen.dart';
 /// その班に参加する。既に別の班に参加している場合は自動で切り替わる。
 /// 画面下部に「班から離脱する」ボタンも表示する（参加中のみ）。
 class AdlJoinScreen extends StatefulWidget {
-  final AdlEventModel event;
   final String? currentTeamName; // 既に参加済みの場合の表示用
   final String? currentTeamId; // 切替判定用
 
   const AdlJoinScreen({
     super.key,
-    required this.event,
     this.currentTeamName,
     this.currentTeamId,
   });
@@ -84,6 +81,8 @@ class _AdlJoinScreenState extends State<AdlJoinScreen> {
         AppToast.show(context, '招待コードが正しくありません');
       case AdlJoinResult.notSeeded:
         AppToast.show(context, '班データが未準備です（管理者にお問い合わせください）');
+      case AdlJoinResult.disabled:
+        AppToast.show(context, 'ADLイベントは現在開催されていません');
       case AdlJoinResult.error:
         AppToast.show(context, 'エラーが発生しました');
     }
@@ -150,16 +149,14 @@ class _AdlJoinScreenState extends State<AdlJoinScreen> {
         appBar: AppBar(
           backgroundColor: AppColors.background,
           foregroundColor: Colors.white,
-          title: Text(widget.event.name,
-              style:
-                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          title: const Text('ADLイベント',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           elevation: 0,
           actions: [
             TextButton.icon(
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (_) => AdlRankingScreen(event: widget.event)),
+                MaterialPageRoute(builder: (_) => const AdlRankingScreen()),
               ),
               icon: const Icon(Icons.emoji_events,
                   color: Color(0xFFFFD700), size: 18),

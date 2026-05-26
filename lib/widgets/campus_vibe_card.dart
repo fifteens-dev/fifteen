@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../constants/campus_vibe_constants.dart';
@@ -24,12 +25,18 @@ class CampusVibeCard extends StatefulWidget {
 
 class _CampusVibeCardState extends State<CampusVibeCard> {
   String? _imageUrl;
-  late Stream<int> _countStream;
+  int _postCount = 0;
+  Timer? _refreshTimer;
+
+  // count() aggregation を 60秒ごとにポーリングする方式に変更
+  // （旧: snapshots() でリアルタイム購読していたが、コスト最適化のため）
+  static const _refreshInterval = Duration(seconds: 60);
 
   @override
   void initState() {
     super.initState();
-    _countStream = PostService().streamCampusVibePostCount(widget.university);
+    _refresh();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) => _refresh());
     _fetchImage();
   }
 
@@ -37,9 +44,21 @@ class _CampusVibeCardState extends State<CampusVibeCard> {
   void didUpdateWidget(CampusVibeCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.university != widget.university) {
-      _countStream = PostService().streamCampusVibePostCount(widget.university);
+      _refresh();
       _fetchImage();
     }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final count =
+        await PostService().getCampusVibePostCount(widget.university);
+    if (mounted) setState(() => _postCount = count);
   }
 
   Future<void> _fetchImage() async {
@@ -68,18 +87,11 @@ class _CampusVibeCardState extends State<CampusVibeCard> {
       height: CampusVibeConstants.cardHeight,
       child: GestureDetector(
         onTap: () => _navigateToCampusVibe(context),
-        child: StreamBuilder<int>(
-          stream: _countStream,
-          initialData: 0,
-          builder: (context, snapshot) {
-            final postCount = snapshot.data ?? 0;
-            return _CardLayout(
-              university: widget.university,
-              gradientColors: gradientColors,
-              imageUrl: _imageUrl,
-              postCount: postCount,
-            );
-          },
+        child: _CardLayout(
+          university: widget.university,
+          gradientColors: gradientColors,
+          imageUrl: _imageUrl,
+          postCount: _postCount,
         ),
       ),
     );

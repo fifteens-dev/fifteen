@@ -26,6 +26,12 @@ class AdlTeamDefinitions {
     return _idSet.contains(_normalize(code));
   }
 
+  /// users/{uid} の uid が 9班アカウントのいずれかに一致するか。
+  /// users コレクションでの id 完全一致のため正規化はしない。
+  static bool isTeamAccountUid(String uid) {
+    return _idSet.contains(uid);
+  }
+
   /// 入力コードを正規化（小文字化・トリム）。一致しない場合は null。
   static String? normalizeCode(String code) {
     final n = _normalize(code);

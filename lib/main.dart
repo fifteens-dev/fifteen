@@ -271,9 +271,8 @@ class _AuthGateState extends State<AuthGate> {
 
         if (!mounted) return;
         if (userModel != null) {
-          // 登録進捗に応じてナビゲート
+          // 登録完了済みならホーム、未完了なら認証フロー先頭から再開
           final username = userModel.username;
-          final name = userModel.name;
 
           if (username != null && username.isNotEmpty) {
             // ホーム画面に移動する前に投稿データを事前取得
@@ -313,23 +312,17 @@ class _AuthGateState extends State<AuthGate> {
                 reverseTransitionDuration: Duration.zero,
               ),
             );
-          } else if (name != null && name.isNotEmpty) {
-            await _waitForMinSplash();
-            if (!mounted) return;
-            Navigator.pushReplacementNamed(
-              context,
-              '/username-creation',
-              arguments: {'name': name},
-            );
           } else {
+            // 登録未完了 → 認証フロー先頭（電話番号入力）から開始
             await _waitForMinSplash();
             if (!mounted) return;
-            Navigator.pushReplacementNamed(context, '/name-input');
+            Navigator.pushReplacementNamed(context, '/phone-auth');
           }
         } else {
+          // userDocなし（Firebase Auth セッションのみ） → 認証フロー先頭から
           await _waitForMinSplash();
           if (!mounted) return;
-          Navigator.pushReplacementNamed(context, '/invite-code');
+          Navigator.pushReplacementNamed(context, '/phone-auth');
         }
       } catch (e) {
         await _waitForMinSplash();

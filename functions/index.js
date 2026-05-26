@@ -457,14 +457,18 @@ exports.onPostCreated = onDocumentCreated(
 
       // notifPostEnabled チェック（未設定はデフォルトで通知あり）
       // 大量フォロワー対策: 最大1000人まで処理
+      // ラウンドトリップ削減のため whereIn (最大30件/クエリ) で一括取得
       const followersToProcess = followers.length > 1000 ? followers.slice(0, 1000) : followers;
-      const chunkSize = 20;
+      const whereInLimit = 30;
       const enabledFollowers = [];
-      for (let i = 0; i < followersToProcess.length; i += chunkSize) {
-        const chunk = followersToProcess.slice(i, i + chunkSize);
-        const docs = await Promise.all(chunk.map(id => db.collection('users').doc(id).get()));
-        for (const doc of docs) {
-          if (doc.exists && doc.data().notifPostEnabled !== false) {
+      for (let i = 0; i < followersToProcess.length; i += whereInLimit) {
+        const chunk = followersToProcess.slice(i, i + whereInLimit);
+        const snap = await db
+          .collection('users')
+          .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+          .get();
+        for (const doc of snap.docs) {
+          if (doc.data().notifPostEnabled !== false) {
             enabledFollowers.push(doc.id);
           }
         }
@@ -1213,10 +1217,15 @@ async function _sendVibeNotificationToUsers(db, topicDoc, skipPostedCheck, targe
  * deleteUserData() の補完として、サーバー側でも補助データを削除する。
  */
 /**
- * ADL いいね集計
+ * ADL いいね・投稿数集計
  *
- * 投稿の likeCount が変化したとき、投稿者の ADL 班に反映する。
- * adl_memberships/{userId} が存在する場合のみ adl_teams/{teamId}.likeCount を ±delta する。
+ * posts コレクションの書き込みを監視し、post.adlTeamId に紐づく
+ * adl_teams/{teamId} の likeCount / postCount を増減する。
+ *
+ * 投稿の adlTeamId が書き換わった場合は旧班から減算し新班に加算する（班変更対応）。
+ * 投稿削除時は対応する班から likeCount と postCount を減算する。
+ * post.adlTeamId フィールドを使用するため、投稿時点の所属班に固定される
+ * （投稿者が後で別班に移っても、過去投稿のいいねは元の班に帰属し続ける）。
  */
 exports.adlLikeAggregation = onDocumentWritten(
   'posts/{postId}',
@@ -1224,28 +1233,111 @@ exports.adlLikeAggregation = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : null;
     const after  = event.data.after.exists  ? event.data.after.data()  : null;
 
-    const beforeCount = before?.likeCount ?? 0;
-    const afterCount  = after?.likeCount  ?? 0;
-    const delta = afterCount - beforeCount;
-    if (delta === 0) return;
+    const beforeCount  = before?.likeCount ?? 0;
+    const afterCount   = after?.likeCount  ?? 0;
+    const beforeTeamId = before?.adlTeamId ?? null;
+    const afterTeamId  = after?.adlTeamId  ?? null;
 
-    const userId = (after ?? before)?.userId;
-    if (!userId) return;
+    const isCreated = !before && !!after;
+    const isDeleted = !!before && !after;
+
+    // teamId → { likeDelta, postDelta } を集約
+    const updates = new Map();
+    const addUpdate = (teamId, likeDelta, postDelta) => {
+      if (!teamId) return;
+      const cur = updates.get(teamId) || { likeDelta: 0, postDelta: 0 };
+      cur.likeDelta += likeDelta;
+      cur.postDelta += postDelta;
+      updates.set(teamId, cur);
+    };
+
+    if (isCreated) {
+      addUpdate(afterTeamId, afterCount, 1);
+    } else if (isDeleted) {
+      addUpdate(beforeTeamId, -beforeCount, -1);
+    } else {
+      // 更新
+      if (beforeTeamId === afterTeamId) {
+        const delta = afterCount - beforeCount;
+        if (delta !== 0) addUpdate(afterTeamId, delta, 0);
+      } else {
+        // 班タグ変更: 旧班から全減算、新班に全加算
+        addUpdate(beforeTeamId, -beforeCount, -1);
+        addUpdate(afterTeamId, afterCount, 1);
+      }
+    }
+
+    if (updates.size === 0) return;
 
     const db = admin.firestore();
-    const memberSnap = await db.doc(`adl_memberships/${userId}`).get();
-    if (!memberSnap.exists) return;
+    const batch = db.batch();
+    const FieldValue = admin.firestore.FieldValue;
+    for (const [teamId, { likeDelta, postDelta }] of updates) {
+      const update = {};
+      if (likeDelta !== 0) update.likeCount = FieldValue.increment(likeDelta);
+      if (postDelta !== 0) update.postCount = FieldValue.increment(postDelta);
+      if (Object.keys(update).length > 0) {
+        batch.update(db.doc(`adl_teams/${teamId}`), update);
+      }
+    }
+    await batch.commit();
 
-    const { teamId } = memberSnap.data();
-    if (!teamId) return;
-
-    await db.doc(`adl_teams/${teamId}`).update({
-      likeCount: admin.firestore.FieldValue.increment(delta),
-    });
-
-    console.log(`adlLikeAggregation: team=${teamId} delta=${delta}`);
+    console.log(`adlLikeAggregation: ${JSON.stringify(Array.from(updates))}`);
   }
 );
+
+/**
+ * ADL 班集計の再計算（管理者限定 callable）
+ *
+ * posts コレクションを全走査し、adlTeamId ごとに likeCount/postCount を再集計して
+ * adl_teams/{teamId} に書き戻す。ドリフト修正用。
+ *
+ * 9固定班すべてに対して書き込む（対象投稿がない班は 0 にリセット）。
+ */
+exports.adlRecomputeLikeCounts = onCall(async (request) => {
+  // 認証 + 管理者チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です');
+  }
+  const uid = request.auth.uid;
+  const userSnap = await admin.firestore().doc(`users/${uid}`).get();
+  if (!userSnap.exists || userSnap.data()?.isAdmin !== true) {
+    throw new HttpsError('permission-denied', '管理者権限がありません');
+  }
+
+  const FIXED_TEAM_IDS = [
+    'adl_house', 'adl_break', 'adl_girls', 'adl_hiphop', 'adl_new',
+    'adl_free', 'adl_lock', 'adl_waack', 'adl_jazz',
+  ];
+
+  const db = admin.firestore();
+
+  // 全 posts を読み（adlTeamId を持つもののみ集計）
+  const postsSnap = await db.collection('posts').get();
+  const totals = {};
+  for (const id of FIXED_TEAM_IDS) {
+    totals[id] = { likeCount: 0, postCount: 0 };
+  }
+  for (const doc of postsSnap.docs) {
+    const data = doc.data();
+    const teamId = data.adlTeamId;
+    if (!teamId || !totals[teamId]) continue;
+    totals[teamId].likeCount += data.likeCount ?? 0;
+    totals[teamId].postCount += 1;
+  }
+
+  const batch = db.batch();
+  for (const teamId of FIXED_TEAM_IDS) {
+    batch.update(db.doc(`adl_teams/${teamId}`), {
+      likeCount: totals[teamId].likeCount,
+      postCount: totals[teamId].postCount,
+    });
+  }
+  await batch.commit();
+
+  console.log(`adlRecomputeLikeCounts by ${uid}: ${JSON.stringify(totals)}`);
+  return { success: true, totals };
+});
 
 exports.onUserDocDeleted = onDocumentDeleted(
   'users/{userId}',

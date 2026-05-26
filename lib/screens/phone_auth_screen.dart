@@ -105,8 +105,13 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
               });
 
               if (existingUser != null) {
-                // 既存ユーザー - ホーム画面へ直接遷移
-                Navigator.pushReplacementNamed(context, '/home');
+                // 登録完了済みならホーム、未完了なら招待コード画面から再開
+                final username = existingUser.username;
+                if (username != null && username.isNotEmpty) {
+                  Navigator.pushReplacementNamed(context, '/home');
+                } else {
+                  Navigator.pushReplacementNamed(context, '/invite-code');
+                }
               } else {
                 // 新規ユーザー - ユーザー情報を作成して招待コード画面へ
                 await _userService.createUser(

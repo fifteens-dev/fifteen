@@ -1,14 +1,16 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../constants/app_colors.dart';
-import '../../models/adl_event_model.dart';
 import '../../models/adl_team_model.dart';
 import '../../services/adl_service.dart';
 import '../../widgets/common/app_toast.dart';
+import '../adl_team_playlist_screen.dart';
 
 /// 管理パネル ADLイベントタブ
+///
+/// ADLイベントは1回限りの運用のため、ON/OFFトグルのみのシンプル構成にしてある。
+/// 9つの固定班（adl_house ほか）は seed_adl_teams.js で事前作成済み。
 class AdlTab extends StatefulWidget {
   const AdlTab({super.key});
 
@@ -20,9 +22,9 @@ class _AdlTabState extends State<AdlTab> {
   final _adl = AdlService();
 
   bool _adlActive = false;
-  AdlEventModel? _activeEvent;
-  List<AdlEventModel> _events = [];
   bool _loading = true;
+  bool _toggleBusy = false;
+  bool _recomputing = false;
 
   @override
   void initState() {
@@ -32,164 +34,66 @@ class _AdlTabState extends State<AdlTab> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final [active, events] = await Future.wait([
-      _adl.isAdlModeActive(),
-      _adl.getEvents(),
-    ]);
-    final activeEvent = await _adl.getActiveEvent();
+    final active = await _adl.isAdlModeActive();
     if (mounted) {
       setState(() {
-        _adlActive = active as bool;
-        _events = events as List<AdlEventModel>;
-        _activeEvent = activeEvent;
+        _adlActive = active;
         _loading = false;
       });
     }
   }
 
-  // ---- ADLモード切替 ----
-
   Future<void> _toggleAdlMode(bool value) async {
-    if (value) {
-      // アクティブにするにはイベントが必要
-      if (_activeEvent == null) {
-        AppToast.show(context, 'まずイベントを作成・選択してください');
-        return;
-      }
-      await _adl.activateEvent(_activeEvent!.eventId);
-    } else {
-      await _adl.deactivateAdlMode();
-    }
-    await _load();
-    if (mounted) {
-      AppToast.show(context, value ? 'ADLモードをONにしました' : 'ADLモードをOFFにしました');
-    }
+    setState(() => _toggleBusy = true);
+    await _adl.setAdlMode(value);
+    if (!mounted) return;
+    setState(() {
+      _adlActive = value;
+      _toggleBusy = false;
+    });
+    AppToast.show(context, value ? 'ADLモードをONにしました' : 'ADLモードをOFFにしました');
   }
 
-  // ---- イベント作成 ----
-
-  Future<void> _showCreateEventDialog() async {
-    final nameCtrl = TextEditingController();
-    int durationHours = 4;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: AppColors.surfaceLight,
-          title: const Text('新しいADLイベントを作成',
-              style: TextStyle(color: Colors.white, fontSize: 16)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: 'イベント名',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.grey)),
-                  focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white)),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  const Text('招待コード有効時間: ',
-                      style: TextStyle(color: Colors.grey, fontSize: 13)),
-                  DropdownButton<int>(
-                    value: durationHours,
-                    dropdownColor: AppColors.surfaceLight,
-                    style: const TextStyle(color: Colors.white),
-                    items: [1, 2, 3, 4]
-                        .map((h) => DropdownMenuItem(
-                            value: h, child: Text('$h時間')))
-                        .toList(),
-                    onChanged: (v) =>
-                        setDialogState(() => durationHours = v ?? 4),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('キャンセル',
-                    style: TextStyle(color: Colors.grey))),
-            TextButton(
-              onPressed: () async {
-                if (nameCtrl.text.trim().isEmpty) return;
-                Navigator.pop(ctx);
-                final now = DateTime.now();
-                final event = await _adl.createEvent(
-                  name: nameCtrl.text.trim(),
-                  startTime: now,
-                  inviteCodeDuration: Duration(hours: durationHours),
-                );
-                await _load();
-                if (mounted) {
-                  AppToast.show(context,
-                      'イベント「${event.name}」を作成しました');
-                }
-              },
-              child: const Text('作成',
-                  style: TextStyle(color: AppColors.accentBlue)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---- チーム作成 ----
-
-  Future<void> _showCreateTeamDialog(AdlEventModel event) async {
-    final nameCtrl = TextEditingController();
-
-    await showDialog(
+  Future<void> _recompute() async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surfaceLight,
-        title: const Text('班を追加',
+        title: const Text('集計を再計算しますか？',
             style: TextStyle(color: Colors.white, fontSize: 16)),
-        content: TextField(
-          controller: nameCtrl,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            labelText: '班名（例: A班）',
-            labelStyle: TextStyle(color: Colors.grey),
-            enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.grey)),
-            focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white)),
-          ),
+        content: const Text(
+          '全投稿を走査して各班の likeCount / postCount を再計算します。\n'
+          'ドリフトしている場合の修正用です。',
+          style: TextStyle(color: Colors.grey, fontSize: 13),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('キャンセル',
-                  style: TextStyle(color: Colors.grey))),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル',
+                style: TextStyle(color: Colors.grey)),
+          ),
           TextButton(
-            onPressed: () async {
-              if (nameCtrl.text.trim().isEmpty) return;
-              Navigator.pop(ctx);
-              await _adl.createTeam(
-                eventId: event.eventId,
-                name: nameCtrl.text.trim(),
-                inviteCodeExpiresAt: event.inviteCodeExpiresAt,
-              );
-              setState(() {}); // watchTeams が更新
-              if (mounted) AppToast.show(context, '班を作成しました');
-            },
-            child: const Text('作成',
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('実行',
                 style: TextStyle(color: AppColors.accentBlue)),
           ),
         ],
       ),
     );
+    if (confirmed != true) return;
+
+    setState(() => _recomputing = true);
+    try {
+      final totals = await _adl.recomputeLikeCounts();
+      if (!mounted) return;
+      final teamCount = totals.length;
+      AppToast.show(context, '$teamCount班の集計を再計算しました');
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.show(context, '再集計に失敗しました: $e');
+    } finally {
+      if (mounted) setState(() => _recomputing = false);
+    }
   }
 
   @override
@@ -202,7 +106,7 @@ class _AdlTabState extends State<AdlTab> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // ---- ADLモードスイッチ ----
+        // ── ADLモードトグル ──
         _Section(
           title: 'ADLモード',
           child: Row(
@@ -214,105 +118,99 @@ class _AdlTabState extends State<AdlTab> {
                   Text(
                     _adlActive ? 'ON（開催中）' : 'OFF',
                     style: TextStyle(
-                      color: _adlActive
-                          ? AppColors.success
-                          : Colors.grey,
+                      color: _adlActive ? AppColors.success : Colors.grey,
                       fontWeight: FontWeight.w600,
                       fontSize: 15,
                     ),
                   ),
-                  if (_activeEvent != null)
-                    Text(
-                      _activeEvent!.name,
-                      style: const TextStyle(
-                          color: Colors.grey, fontSize: 12),
-                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _adlActive
+                        ? '参加者が設定画面から班に参加できます'
+                        : 'ONにすると参加者が班コードで参加可能になります',
+                    style: const TextStyle(color: Colors.grey, fontSize: 11),
+                  ),
                 ],
               ),
-              CupertinoSwitch(
-                value: _adlActive,
-                activeTrackColor: AppColors.success,
-                onChanged: _toggleAdlMode,
-              ),
+              _toggleBusy
+                  ? const SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CupertinoActivityIndicator(color: Colors.white),
+                    )
+                  : CupertinoSwitch(
+                      value: _adlActive,
+                      activeTrackColor: AppColors.success,
+                      onChanged: _toggleAdlMode,
+                    ),
             ],
           ),
         ),
 
         const SizedBox(height: 16),
 
-        // ---- イベント一覧 ----
-        _Section(
-          title: 'イベント',
-          trailing: IconButton(
-            icon: const Icon(Icons.add, color: AppColors.accentBlue),
-            onPressed: _showCreateEventDialog,
-          ),
-          child: _events.isEmpty
-              ? const Text('イベントがありません',
-                  style: TextStyle(color: Colors.grey, fontSize: 13))
-              : Column(
-                  children: _events.map((e) => _EventTile(
-                    event: e,
-                    isSelected: _activeEvent?.eventId == e.eventId,
-                    onSelect: () {
-                      setState(() => _activeEvent = e);
-                      AppToast.show(context, '「${e.name}」を選択しました');
-                    },
-                    onAddTeam: () => _showCreateTeamDialog(e),
-                  )).toList(),
+        // ── 9班ストリーム（サマリと班一覧を共有） ──
+        StreamBuilder<List<AdlTeamModel>>(
+          stream: _adl.watchFixedTeams(),
+          builder: (ctx, snap) {
+            if (!snap.hasData) {
+              return const _Section(
+                title: '集計',
+                child: Center(
+                  child: CupertinoActivityIndicator(color: Colors.white),
                 ),
+              );
+            }
+            final teams = snap.data!;
+            if (teams.isEmpty) {
+              return const _Section(
+                title: '集計',
+                child: Text(
+                  '班データがありません。scripts/seed_adl_teams.js を実行してください',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+              );
+            }
+            return Column(
+              children: [
+                _SummaryCard(teams: teams),
+                const SizedBox(height: 16),
+                _Section(
+                  title: '班一覧 / ランキング',
+                  trailing: _recomputing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CupertinoActivityIndicator(
+                              color: Colors.white),
+                        )
+                      : TextButton.icon(
+                          onPressed: _recompute,
+                          icon: const Icon(Icons.refresh,
+                              size: 16, color: AppColors.accentBlue),
+                          label: const Text('再集計',
+                              style: TextStyle(
+                                  color: AppColors.accentBlue,
+                                  fontSize: 12)),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            minimumSize: const Size(0, 28),
+                          ),
+                        ),
+                  child: Column(
+                    children: teams.asMap().entries.map((entry) {
+                      return _TeamTile(
+                        rank: entry.key + 1,
+                        team: entry.value,
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
-
-        const SizedBox(height: 16),
-
-        // ---- 選択中イベントのチーム・ランキング ----
-        if (_activeEvent != null) ...[
-          _Section(
-            title: '${_activeEvent!.name} — 班一覧 / ランキング',
-            trailing: IconButton(
-              icon: const Icon(Icons.group_add, color: AppColors.accentBlue),
-              onPressed: () => _showCreateTeamDialog(_activeEvent!),
-            ),
-            child: StreamBuilder<List<AdlTeamModel>>(
-              stream: _adl.watchTeams(_activeEvent!.eventId),
-              builder: (ctx, snap) {
-                if (!snap.hasData) {
-                  return const Center(
-                    child: CupertinoActivityIndicator(color: Colors.white),
-                  );
-                }
-                final teams = snap.data!;
-                if (teams.isEmpty) {
-                  return const Text('班がありません',
-                      style: TextStyle(color: Colors.grey, fontSize: 13));
-                }
-                return Column(
-                  children: teams.asMap().entries.map((entry) {
-                    return _TeamTile(
-                      rank: entry.key + 1,
-                      team: entry.value,
-                      onRegenCode: () async {
-                        await _adl.regenerateInviteCode(
-                          entry.value.teamId,
-                          _activeEvent!.inviteCodeExpiresAt,
-                        );
-                        if (mounted) {
-                          AppToast.show(context, '招待コードを再発行しました');
-                        }
-                      },
-                      onDelete: () async {
-                        await _adl.deleteTeam(entry.value.teamId);
-                        if (mounted) {
-                          AppToast.show(context, '班を削除しました');
-                        }
-                      },
-                    );
-                  }).toList(),
-                );
-              },
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -325,8 +223,7 @@ class _Section extends StatelessWidget {
   final Widget child;
   final Widget? trailing;
 
-  const _Section(
-      {required this.title, required this.child, this.trailing});
+  const _Section({required this.title, required this.child, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -358,82 +255,81 @@ class _Section extends StatelessWidget {
   }
 }
 
-class _EventTile extends StatelessWidget {
-  final AdlEventModel event;
-  final bool isSelected;
-  final VoidCallback onSelect;
-  final VoidCallback onAddTeam;
+class _SummaryCard extends StatelessWidget {
+  final List<AdlTeamModel> teams;
 
-  const _EventTile({
-    required this.event,
-    required this.isSelected,
-    required this.onSelect,
-    required this.onAddTeam,
-  });
+  const _SummaryCard({required this.teams});
 
   @override
   Widget build(BuildContext context) {
-    final expiry = event.inviteCodeExpiresAt;
-    final valid = event.isInviteCodeValid;
+    int totalMembers = 0;
+    int totalPosts = 0;
+    int totalLikes = 0;
+    for (final t in teams) {
+      totalMembers += t.memberCount;
+      totalPosts += t.postCount;
+      totalLikes += t.likeCount;
+    }
 
-    return GestureDetector(
-      onTap: onSelect,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? AppColors.accentBlue.withValues(alpha: 0.15)
-              : AppColors.surfaceLighter,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? AppColors.accentBlue : Colors.transparent,
-            width: 1.5,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1937EF), Color(0xFFFE1F56)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '全体サマリ',
+            style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 14),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _SummaryStat(label: '投稿', value: totalPosts),
+              _SummaryStat(label: 'メンバー', value: totalMembers),
+              _SummaryStat(label: 'いいね', value: totalLikes),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryStat extends StatelessWidget {
+  final String label;
+  final int value;
+
+  const _SummaryStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          '$value',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
           ),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Text(event.name,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600)),
-                    if (event.isActive) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppColors.success,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text('開催中',
-                            style: TextStyle(
-                                color: Colors.white, fontSize: 10)),
-                      ),
-                    ],
-                  ]),
-                  const SizedBox(height: 4),
-                  Text(
-                    '招待コード: ${valid ? "有効" : "期限切れ"} '
-                    '(${expiry.month}/${expiry.day} ${expiry.hour}:${expiry.minute.toString().padLeft(2, "0")}まで)',
-                    style: TextStyle(
-                        color: valid ? Colors.grey : AppColors.error,
-                        fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-            if (isSelected)
-              const Icon(Icons.check_circle,
-                  color: AppColors.accentBlue, size: 18),
-          ],
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 11),
         ),
-      ),
+      ],
     );
   }
 }
@@ -441,15 +337,8 @@ class _EventTile extends StatelessWidget {
 class _TeamTile extends StatelessWidget {
   final int rank;
   final AdlTeamModel team;
-  final VoidCallback onRegenCode;
-  final VoidCallback onDelete;
 
-  const _TeamTile({
-    required this.rank,
-    required this.team,
-    required this.onRegenCode,
-    required this.onDelete,
-  });
+  const _TeamTile({required this.rank, required this.team});
 
   @override
   Widget build(BuildContext context) {
@@ -460,110 +349,118 @@ class _TeamTile extends StatelessWidget {
     ];
     final rankColor = rank <= 3 ? rankColors[rank - 1] : Colors.grey;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceLighter,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          // 順位
-          SizedBox(
-            width: 28,
-            child: Text(
-              '$rank',
-              style: TextStyle(
-                  color: rankColor,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16),
-            ),
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AdlTeamPlaylistScreen(teamId: team.teamId),
           ),
-          // 班名 + コード
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(team.name,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14)),
-                Row(
-                  children: [
-                    Text(
-                      '招待コード: ${team.inviteCode}',
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceLighter,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            // 順位
+            SizedBox(
+              width: 28,
+              child: Text(
+                '$rank',
+                style: TextStyle(
+                    color: rankColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16),
+              ),
+            ),
+            // 班名 + コード + 投稿数
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(team.name,
                       style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 12,
-                          fontFamily: 'monospace'),
-                    ),
-                    const SizedBox(width: 4),
-                    GestureDetector(
-                      onTap: () {
-                        Clipboard.setData(
-                            ClipboardData(text: team.inviteCode));
-                        AppToast.show(context, 'コードをコピーしました');
-                      },
-                      child: const Icon(Icons.copy,
-                          color: Colors.grey, size: 14),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      team.isInviteCodeValid ? '✓有効' : '×期限切',
-                      style: TextStyle(
-                          color: team.isInviteCodeValid
-                              ? AppColors.success
-                              : AppColors.error,
-                          fontSize: 11),
-                    ),
-                  ],
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14)),
+                  Row(
+                    children: [
+                      Text(
+                        'コード: ${team.inviteCode}',
+                        style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                            fontFamily: 'monospace'),
+                      ),
+                      const SizedBox(width: 4),
+                      GestureDetector(
+                        onTap: () {
+                          Clipboard.setData(
+                              ClipboardData(text: team.inviteCode));
+                          AppToast.show(context, 'コードをコピーしました');
+                        },
+                        child: const Icon(Icons.copy,
+                            color: Colors.grey, size: 14),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      _MetaChip(
+                          icon: Icons.people,
+                          label: '${team.memberCount}人'),
+                      const SizedBox(width: 8),
+                      _MetaChip(
+                          icon: Icons.photo_library_outlined,
+                          label: '${team.postCount}件'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // いいね数
+            Column(
+              children: [
+                Text(
+                  '${team.likeCount}',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18),
                 ),
-                Text('${team.memberCount}人',
-                    style: const TextStyle(
-                        color: Colors.grey, fontSize: 11)),
+                const Text('いいね',
+                    style: TextStyle(color: Colors.grey, fontSize: 10)),
               ],
             ),
-          ),
-          // いいね数
-          Column(
-            children: [
-              Text(
-                '${team.likeCount}',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18),
-              ),
-              const Text('いいね',
-                  style: TextStyle(color: Colors.grey, fontSize: 10)),
-            ],
-          ),
-          const SizedBox(width: 8),
-          // アクション
-          PopupMenuButton<String>(
-            color: AppColors.surfaceLight,
-            icon: const Icon(Icons.more_vert, color: Colors.grey, size: 18),
-            onSelected: (v) {
-              if (v == 'regen') onRegenCode();
-              if (v == 'delete') onDelete();
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(
-                value: 'regen',
-                child: Text('コード再発行',
-                    style: TextStyle(color: Colors.white, fontSize: 13)),
-              ),
-              const PopupMenuItem(
-                value: 'delete',
-                child: Text('班を削除',
-                    style: TextStyle(color: Colors.red, fontSize: 13)),
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _MetaChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: Colors.grey, size: 11),
+        const SizedBox(width: 3),
+        Text(label,
+            style: const TextStyle(color: Colors.grey, fontSize: 11)),
+      ],
     );
   }
 }

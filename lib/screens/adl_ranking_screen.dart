@@ -1,20 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/app_colors.dart';
-import '../models/adl_event_model.dart';
 import '../models/adl_team_model.dart';
 import '../services/adl_service.dart';
 import 'adl_team_playlist_screen.dart';
 
 /// ADLチームランキング画面（ユーザー向け）
 class AdlRankingScreen extends StatelessWidget {
-  final AdlEventModel event;
-  const AdlRankingScreen({super.key, required this.event});
+  const AdlRankingScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final adl = AdlService();
-    final top = MediaQuery.of(context).padding.top;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -31,10 +27,10 @@ class AdlRankingScreen extends StatelessWidget {
                     child: const Icon(Icons.close, color: Colors.white),
                   ),
                   const SizedBox(width: 16),
-                  Expanded(
+                  const Expanded(
                     child: Text(
-                      event.name,
-                      style: const TextStyle(
+                      'ランキング',
+                      style: TextStyle(
                         color: Colors.white,
                         fontSize: 17,
                         fontWeight: FontWeight.w700,
@@ -51,7 +47,7 @@ class AdlRankingScreen extends StatelessWidget {
             // ランキングリスト
             Expanded(
               child: StreamBuilder<List<AdlTeamModel>>(
-                stream: adl.watchRanking(event.eventId),
+                stream: adl.watchFixedTeams(),
                 builder: (ctx, snap) {
                   if (!snap.hasData) {
                     return const Center(
@@ -74,15 +70,11 @@ class AdlRankingScreen extends StatelessWidget {
                         rank: i + 1,
                         team: teams[i],
                         onTap: () {
-                          final uid = FirebaseAuth
-                                  .instance.currentUser?.uid ??
-                              '';
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (_) => AdlTeamPlaylistScreen(
-                                team: teams[i],
-                                currentUserId: uid,
+                                teamId: teams[i].teamId,
                               ),
                             ),
                           );

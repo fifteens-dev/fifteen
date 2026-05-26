@@ -3,11 +3,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../constants/adl_teams.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
+import '../services/adl_service.dart';
 import '../services/invite_code_service.dart';
 import '../services/user_service.dart';
 import '../widgets/common/app_toast.dart';
@@ -24,6 +26,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
   final TextEditingController _inviteCodeController = TextEditingController();
   final InviteCodeService _inviteCodeService = InviteCodeService();
   final UserService _userService = UserService();
+  final AdlService _adlService = AdlService();
   bool _isLoading = true;
 
   @override
@@ -32,7 +35,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
     _checkAndSkipIfAlreadySet();
   }
 
-  /// 登録が既に完了している場合はスキップ
+  /// 登録完了済みなら直接ホームへ。未完了なら本画面を表示する。
   Future<void> _checkAndSkipIfAlreadySet() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
@@ -43,17 +46,8 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       final user = await _userService.getUser(uid);
       if (!mounted) return;
       if (user?.username != null && user!.username!.isNotEmpty) {
-        // username まで設定済み → ホームへ
+        // 登録完了済み → ホームへ
         Navigator.pushReplacementNamed(context, '/home');
-        return;
-      }
-      if (user?.name != null && user!.name!.isNotEmpty) {
-        // 名前は設定済みだが username 未設定 → username 入力へ
-        Navigator.pushReplacementNamed(
-          context,
-          '/username-creation',
-          arguments: {'name': user.name},
-        );
         return;
       }
     } catch (_) {}
@@ -67,27 +61,84 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
   }
 
   Future<void> _handleNext() async {
-    final inviteCode = _inviteCodeController.text.trim().toUpperCase();
-    if (inviteCode.isEmpty) {
+    final rawInput = _inviteCodeController.text.trim();
+    if (rawInput.isEmpty) {
       if (mounted) {
         AppToast.show(context, '招待コードを入力してください');
       }
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    // ── ADL班コード判定 ──
+    // 9つの固定コード（adl_house など）のいずれかなら、班加入フローへ
+    if (AdlTeamDefinitions.isValidCode(rawInput)) {
+      await _handleAdlTeamCode(rawInput);
+      return;
+    }
+
+    // ── 通常の招待コード処理 ──
+    await _handleNormalInviteCode(rawInput.toUpperCase());
+  }
+
+  /// ADL班コードによる加入処理。
+  ///
+  /// AdlService.joinTeamWithCode 内のトランザクションで以下を atomic に行う:
+  /// - users/{uid}.adlTeamId / adlTeamName / adlEventId を更新
+  /// - users/{uid}.followers / following に班アカウントUIDを追加（相互フォロー）
+  /// - adl_memberships/{uid} を作成
+  /// - adl_teams/{teamId}.memberCount を +1
+  /// - users/{teamId}.followers / following に自分のUIDを追加
+  Future<void> _handleAdlTeamCode(String code) async {
+    setState(() => _isLoading = true);
+
+    try {
+      final result = await _adlService.joinTeamWithCode(code);
+      if (!mounted) return;
+
+      switch (result) {
+        case AdlJoinResult.success:
+        case AdlJoinResult.switched:
+          AppToast.show(context, 'ADL班に参加しました');
+          setState(() => _isLoading = false);
+          Navigator.pushNamed(context, '/name-input');
+        case AdlJoinResult.alreadyJoined:
+          // 既に同じ班に所属 → そのまま前進
+          setState(() => _isLoading = false);
+          Navigator.pushNamed(context, '/name-input');
+        case AdlJoinResult.notSeeded:
+          setState(() => _isLoading = false);
+          AppToast.show(context, '班データが準備中です。管理者にお問い合わせください');
+        case AdlJoinResult.disabled:
+          setState(() => _isLoading = false);
+          AppToast.show(context, 'ADLイベントは現在開催されていません');
+        case AdlJoinResult.invalidCode:
+          // isValidCode を通過しているので通常は到達しないが念のため
+          setState(() => _isLoading = false);
+          AppToast.show(context, '班コードが正しくありません');
+        case AdlJoinResult.error:
+          setState(() => _isLoading = false);
+          AppToast.show(context, '班への参加に失敗しました。もう一度お試しください');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      AppToast.show(context, 'エラーが発生しました');
+    }
+  }
+
+  /// 通常の招待コード（7文字英数字）の検証 + 使用済みマーク + コードオーナーフォロー
+  Future<void> _handleNormalInviteCode(String inviteCode) async {
+    setState(() => _isLoading = true);
 
     try {
       // 招待コードを検証（詳細な結果を取得）
-      final validationResult = await _inviteCodeService.validateInviteCodeDetailed(inviteCode);
+      final validationResult =
+          await _inviteCodeService.validateInviteCodeDetailed(inviteCode);
 
       // 検証結果に応じたエラーメッセージを表示
       String? errorMessage;
       switch (validationResult) {
         case InviteCodeValidationResult.valid:
-          // 有効な場合は次のステップへ
           break;
         case InviteCodeValidationResult.notFound:
           errorMessage = '無効な招待コードです';
@@ -105,9 +156,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
 
       if (errorMessage != null) {
         if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
+          setState(() => _isLoading = false);
           AppToast.show(context, errorMessage);
         }
         return;
@@ -117,7 +166,6 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
         await _inviteCodeService.markInviteCodeAsUsed(inviteCode, uid);
-        // 招待コードのownerUidを取得してフォロー
         try {
           final codeDoc = await FirebaseFirestore.instance
               .collection('invite_codes')
@@ -131,7 +179,6 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
               targetUserId: ownerUid,
               skipNotification: true,
             ).catchError((_) {});
-            // フォロー通知を後で送るためにownerUidを保存
             SharedPreferences.getInstance().then((prefs) {
               prefs.setString('pending_follow_owner_uid', ownerUid);
             });
@@ -139,19 +186,15 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
         } catch (_) {}
       }
 
-      // 招待コードが有効な場合、名前入力画面へ遷移
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
         Navigator.pushNamed(context, '/name-input');
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        AppToast.show(context, 'エラーが発生しました: ${e.toString().replaceFirst('Exception: ', '')}');
+        setState(() => _isLoading = false);
+        AppToast.show(context,
+            'エラーが発生しました: ${e.toString().replaceFirst('Exception: ', '')}');
       }
     }
   }

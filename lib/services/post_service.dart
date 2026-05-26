@@ -742,22 +742,26 @@ class PostService {
     return all.where((t) => t.topicTitle.toLowerCase().contains(lower)).toList();
   }
 
-  /// Campus Vibe投稿件数をリアルタイムで流すStream
-  Stream<int> streamCampusVibePostCount(String university) {
+  /// Campus Vibe投稿件数を取得（集計クエリ）
+  ///
+  /// Firestore コスト最適化のため、count() aggregation を使用。
+  /// 全件スナップショットを流す代わりに、サーバー側で集計した値だけを取得する。
+  /// 課金は最大でも結果件数1000あたり1read。
+  Future<int> getCampusVibePostCount(String university) async {
     final range = CampusVibeUtils.weekendRange();
-    return _firestore
-        .collection(_postsCollection)
-        .where('university', isEqualTo: university)
-        .snapshots()
-        .map((snap) => snap.docs.where((doc) {
-              final data = doc.data();
-              if ((data['campusVibeParticipating'] as bool?) == false) {
-                return false;
-              }
-              final ts = data['createdAt'];
-              if (ts is! Timestamp) return false;
-              final date = ts.toDate();
-              return !date.isBefore(range.start) && !date.isAfter(range.end);
-            }).length);
+    try {
+      final snap = await _firestore
+          .collection(_postsCollection)
+          .where('university', isEqualTo: university)
+          .where('createdAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(range.start))
+          .where('createdAt',
+              isLessThanOrEqualTo: Timestamp.fromDate(range.end))
+          .count()
+          .get();
+      return snap.count ?? 0;
+    } catch (_) {
+      return 0;
+    }
   }
 }

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/adl_teams.dart';
 import '../models/adl_event_model.dart';
@@ -11,6 +12,7 @@ enum AdlJoinResult {
   alreadyJoined,
   invalidCode,
   notSeeded,
+  disabled,
   error,
 }
 
@@ -30,10 +32,30 @@ class AdlService {
     });
   }
 
-  Future<bool> isAdlModeActive() async {
+  // ADLモード値の短期キャッシュ（複数画面からの重複読み取りを抑止）。
+  // TTL は短めにして管理者の切替が反映されないリスクを抑える。
+  static bool? _cachedAdlActive;
+  static DateTime? _cachedAdlActiveAt;
+  static const _adlModeCacheTtl = Duration(seconds: 30);
+
+  Future<bool> isAdlModeActive({bool useCache = true}) async {
+    if (useCache &&
+        _cachedAdlActive != null &&
+        _cachedAdlActiveAt != null &&
+        DateTime.now().difference(_cachedAdlActiveAt!) < _adlModeCacheTtl) {
+      return _cachedAdlActive!;
+    }
     final snap = await _db.doc(_configDoc).get();
-    if (!snap.exists) return false;
-    return (snap.data() as Map<String, dynamic>?)?['isActive'] == true;
+    final active = snap.exists && snap.data()?['isActive'] == true;
+    _cachedAdlActive = active;
+    _cachedAdlActiveAt = DateTime.now();
+    return active;
+  }
+
+  /// ADLモードのキャッシュを破棄（管理者切替時など）
+  static void invalidateAdlModeCache() {
+    _cachedAdlActive = null;
+    _cachedAdlActiveAt = null;
   }
 
   Future<String?> getActiveEventId() async {
@@ -104,6 +126,17 @@ class AdlService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
     await batch.commit();
+  }
+
+  /// ADLモードのON/OFFを直接切り替える（イベント不要）。
+  /// 固定9班での運用に使う。
+  Future<void> setAdlMode(bool isActive) async {
+    await _db.doc(_configDoc).set({
+      'isActive': isActive,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    // 切替が即座に反映されるようキャッシュを破棄
+    invalidateAdlModeCache();
   }
 
   Future<List<AdlEventModel>> getEvents() async {
@@ -195,6 +228,10 @@ class AdlService {
 
     final teamId = AdlTeamDefinitions.normalizeCode(code);
     if (teamId == null) return AdlJoinResult.invalidCode;
+
+    // 管理者パネルでADLモードがONになっていない間は参加不可
+    final modeActive = await isAdlModeActive();
+    if (!modeActive) return AdlJoinResult.disabled;
 
     final newTeamRef = _db.collection('adl_teams').doc(teamId);
     final newTeamAccountRef = _db.collection('users').doc(teamId);
@@ -393,6 +430,26 @@ class AdlService {
   // ---- ランキング ----
 
   Stream<List<AdlTeamModel>> watchRanking(String eventId) => watchTeams(eventId);
+
+  // ---- 再集計（管理者用） ----
+
+  /// adlRecomputeLikeCounts Cloud Function を呼び出し、
+  /// posts コレクション全走査で各班の likeCount/postCount を再計算する。
+  /// 戻り値: {teamId: {likeCount, postCount}}
+  Future<Map<String, Map<String, int>>> recomputeLikeCounts() async {
+    final result = await FirebaseFunctions.instance
+        .httpsCallable('adlRecomputeLikeCounts')
+        .call();
+    final data = result.data as Map<dynamic, dynamic>;
+    final totals = (data['totals'] as Map<dynamic, dynamic>?) ?? const {};
+    return totals.map((teamId, value) {
+      final m = value as Map<dynamic, dynamic>;
+      return MapEntry(teamId.toString(), {
+        'likeCount': (m['likeCount'] as num?)?.toInt() ?? 0,
+        'postCount': (m['postCount'] as num?)?.toInt() ?? 0,
+      });
+    });
+  }
 
   // ---- ユーティリティ ----
 

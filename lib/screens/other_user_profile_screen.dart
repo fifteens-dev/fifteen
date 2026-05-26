@@ -4,12 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../constants/adl_teams.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
 import '../services/user_service.dart';
 import '../services/post_service.dart';
 import '../services/audio_player_service.dart';
 import '../widgets/profile_widgets.dart';
+import 'adl_team_playlist_screen.dart';
 import 'follow_list_screen.dart';
 import '../widgets/common/app_toast.dart';
 
@@ -69,6 +71,21 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
         _loadSavedPosts();
       }
     });
+
+    // 班アカウント (users/{teamId}) の場合は専用プロフィール画面に置換遷移
+    if (AdlTeamDefinitions.isTeamAccountUid(widget.userId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AdlTeamPlaylistScreen(teamId: widget.userId),
+          ),
+        );
+      });
+      return;
+    }
+
     _loadData();
   }
 

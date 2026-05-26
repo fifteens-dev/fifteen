@@ -188,7 +188,15 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
     final url = _previewUrlCache[index];
     if (url != null && mounted) {
-      await _audioService.playPreview(url);
+      // ページ切り替えの度に必ず一度再生を止めて、
+      // その投稿が持つ再生開始位置(audioStartMs)から再生し直す。
+      // 同URL+同startFromでも強制的にリスタートさせるため stop を挟む。
+      await _audioService.stop();
+      if (!mounted) return;
+      await _audioService.playPreview(
+        url,
+        startFrom: Duration(milliseconds: post.audioStartMs),
+      );
     }
     // 隣接（次ページ）の音声をプリロードしておく
     _preloadNeighborAudio(index);
@@ -500,6 +508,8 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
       controller: _pageController!,
       pageSnapping: true,
       padEnds: false,
+      // 指を離した後のページスナップ動作だけ速くする（スワイプ感度・閾値は標準）
+      physics: const _FastSnapPageScrollPhysics(),
       itemCount: _posts!.length,
       onPageChanged: _onPageChanged,
       itemBuilder: (context, index) {
@@ -644,4 +654,23 @@ class _KeepAliveState extends State<_KeepAlive>
     super.build(context);
     return widget.child;
   }
+}
+
+/// 標準 PageScrollPhysics のスワイプ感度・スナップ閾値はそのままに、
+/// スナップ動作（スプリング）だけを速くするカスタム physics。
+/// 既定: mass=0.5, stiffness=100, ratio=1.1 → stiffness=400 に引き上げ。
+class _FastSnapPageScrollPhysics extends PageScrollPhysics {
+  const _FastSnapPageScrollPhysics({super.parent});
+
+  @override
+  _FastSnapPageScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _FastSnapPageScrollPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  SpringDescription get spring => SpringDescription.withDampingRatio(
+        mass: 0.5,
+        stiffness: 400,
+        ratio: 1.1,
+      );
 }

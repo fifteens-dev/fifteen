@@ -367,7 +367,9 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
                   final byHeight = constraints.maxHeight / aspectRatio;
                   final cardW = byWidth < byHeight ? byWidth : byHeight;
                   final cardH = cardW * aspectRatio;
-                  return Center(
+                  // カードを画面上寄りに配置（高さは維持）
+                  return Align(
+                    alignment: const Alignment(0, -0.6),
                     child: SizedBox(
                       width: cardW,
                       height: cardH,
@@ -653,7 +655,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
     return Container(
       color: const Color(0xFF121212),
       child: Align(
-        alignment: const Alignment(0.0, 0.35),
+        alignment: Alignment.center,
         child: GestureDetector(
           onTap: _pickImage,
           child: Container(

@@ -220,16 +220,17 @@ class _CardShareSheetState extends State<_CardShareSheet> {
                           : Container(
                               width: 55,
                               height: 55,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF212327),
-                                borderRadius: BorderRadius.circular(14),
+                              decoration: const BoxDecoration(
+                                // 保存ボタンと同じグレー
+                                color: Color(0xFF2C2C2D),
+                                shape: BoxShape.circle,
                               ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(14),
-                                child: Image.asset(
-                                  'assets/icons/Instagram_Glyph_Gradient.png',
-                                  fit: BoxFit.contain,
-                                ),
+                              alignment: Alignment.center,
+                              child: Image.asset(
+                                'assets/icons/Instagram_Glyph_Gradient.png',
+                                width: 30,
+                                height: 30,
+                                fit: BoxFit.contain,
                               ),
                             ),
                       const SizedBox(height: 4),

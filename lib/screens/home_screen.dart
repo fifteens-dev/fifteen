@@ -262,14 +262,16 @@ class _HomeScreenState extends State<HomeScreen>
   /// setState を1回にまとめてカクつきを防止
   Future<void> _onRefresh() async {
     final refreshStart = DateTime.now();
-    // Vibe Future をセットするだけ（setState なし）
-    _vibeDataFuture = _loadVibeData();
-
-    // 投稿データとユーザー情報を並列取得
+    // Vibe / 投稿 / ユーザーを並列取得。
+    // 旧データを表示し続けたいので _vibeDataFuture は即時には差し替えず、
+    // 完了済みデータと差し替える。
+    final vibeDataFuture = _loadVibeData();
     final postsFuture = _fetchPostsData();
     final userRefreshFuture = context.read<CurrentUserProvider>().refresh();
+
     final postsResult = await postsFuture;
     await userRefreshFuture;
+    final vibeData = await vibeDataFuture;
 
     // 最低1秒間はリフレッシュインジケーターを表示
     final elapsed = DateTime.now().difference(refreshStart);
@@ -282,6 +284,8 @@ class _HomeScreenState extends State<HomeScreen>
         _cachedPosts = postsResult.posts;
         _hasPostedToday = postsResult.hasPostedToday;
         _previewUrlCache.clear(); // リフレッシュ時はキャッシュをリセット
+        // 完了済みFutureに差し替えればFutureBuilderはwaitingにならず暗転しない
+        _vibeDataFuture = Future.value(vibeData);
       });
       final uid = _auth.currentUser?.uid ?? '';
       context.read<PostUIState>().resetAndInitialize(

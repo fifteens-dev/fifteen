@@ -118,7 +118,7 @@ class PostFetchService {
   }
 
   /// フォロー中のユーザーの投稿を取得（Firestore whereIn のバッチ処理）
-  /// ダミーユーザーの投稿も常に混入してフィードを賑やかにする
+  /// ダミーユーザー投稿はタイムラインには出さない（Vibeのみで表示）
   Future<List<PostModel>> getPostsForFollowing(List<String> userIds, {int limit = 50}) async {
     if (userIds.isEmpty) return [];
 
@@ -140,26 +140,13 @@ class PostFetchService {
 
         for (final doc in snapshot.docs) {
           if (seenIds.add(doc.id)) {
+            // ダミー投稿はタイムラインに出さない（Vibeでは表示）
+            final data = doc.data();
+            if (data['isDummyPost'] == true) continue;
             allPosts.add(PostModel.fromFirestore(doc));
           }
         }
       }
-
-      // ダミーユーザー投稿を常に混入（過去24時間分、最大30件）
-      try {
-        final dummySnapshot = await _firestore
-            .collection(_postsCollection)
-            .where('isDummyPost', isEqualTo: true)
-            .where('createdAt', isGreaterThan: Timestamp.fromDate(cutoff))
-            .orderBy('createdAt', descending: true)
-            .limit(30)
-            .get();
-        for (final doc in dummySnapshot.docs) {
-          if (seenIds.add(doc.id)) {
-            allPosts.add(PostModel.fromFirestore(doc));
-          }
-        }
-      } catch (_) {}
 
       allPosts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       final limited = allPosts.take(limit).toList();

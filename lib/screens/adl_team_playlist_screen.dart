@@ -84,10 +84,7 @@ class _AdlTeamPlaylistScreenState extends State<AdlTeamPlaylistScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() {
-      _isLoadingTeam = true;
-      _isLoadingPosts = true;
-    });
+    // 既存コンテンツを保持したまま再取得する（リフレッシュ中の暗転を防ぐ）
     await _loadAll();
   }
 

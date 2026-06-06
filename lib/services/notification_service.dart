@@ -124,19 +124,46 @@ class NotificationService {
     }
   }
 
-  /// ユーザーの通知一覧を取得（Stream）
-  Stream<List<NotificationModel>> getNotificationsStream(String userId) {
+  /// ユーザーの通知一覧を取得（Stream・先頭ページのリアルタイム監視用）
+  Stream<List<NotificationModel>> getNotificationsStream(String userId, {int limit = 20}) {
     return _firestore
         .collection(_notificationsCollection)
         .where('recipientId', isEqualTo: userId)
         .orderBy('createdAt', descending: true)
-        .limit(100)
+        .limit(limit)
         .snapshots()
         .map((snapshot) {
       return snapshot.docs
           .map((doc) => NotificationModel.fromFirestore(doc))
           .toList();
     });
+  }
+
+  /// 通知をカーソルページネーションで取得（追加読み込み用）
+  Future<({List<NotificationModel> notifications, DocumentSnapshot? lastDoc, bool hasMore})>
+      getNotificationsPaged(
+    String userId, {
+    int limit = 20,
+    DocumentSnapshot? startAfter,
+  }) async {
+    var query = _firestore
+        .collection(_notificationsCollection)
+        .where('recipientId', isEqualTo: userId)
+        .orderBy('createdAt', descending: true)
+        .limit(limit);
+
+    if (startAfter != null) {
+      query = query.startAfterDocument(startAfter);
+    }
+
+    final snapshot = await query.get();
+    return (
+      notifications: snapshot.docs
+          .map((doc) => NotificationModel.fromFirestore(doc))
+          .toList(),
+      lastDoc: snapshot.docs.isNotEmpty ? snapshot.docs.last : null,
+      hasMore: snapshot.docs.length == limit,
+    );
   }
 
   /// 未読通知数を取得（Stream）

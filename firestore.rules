@@ -29,6 +29,7 @@ service cloud.firestore {
 
       // 更新：管理者は全フィールド変更可
       // 本人はisAdmin以外変更可、他ユーザーはfollowers/following/updatedAtのみ変更可
+      // 班員（自分のadlTeamId == userId）は班アカウントのprofileImageUrl/bio/updatedAtのみ更新可
       allow update: if isAdmin() || (
         isAuthenticated() && (
           (isOwner(userId) &&
@@ -36,6 +37,10 @@ service cloud.firestore {
           ||
           request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['followers', 'following', 'updatedAt'])
+          ||
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.adlTeamId == userId &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['profileImageUrl', 'bio', 'updatedAt']))
         )
       );
 
@@ -191,6 +196,17 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ── invite_usages コレクション ────────────────────────────
+    // 個人賞（招待人数）ランキング集計用に、各招待コード使用を1ドキュメントずつ記録。
+    // 作成は招待された本人（usedBy == 自分）のみ。改ざん防止のため更新は不可。
+    match /invite_usages/{usageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.usedBy == request.auth.uid;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
     // ── adl_config コレクション ──────────────────────────────
     // ADLモードのON/OFF設定。読み取りは全ログインユーザー、書き込みは管理者のみ
     match /adl_config/{docId} {
@@ -207,14 +223,20 @@ service cloud.firestore {
 
     // ── adl_teams コレクション ───────────────────────────────
     // 班情報・招待コード。読み取りは全ログインユーザー（コード検証に必要）
-    // 管理者は全操作可。一般ユーザーは memberCount のみ更新可（参加時）
+    // 管理者は全操作可。一般ユーザーは memberCount のみ更新可（参加時）。
+    // 班員（自分の adlTeamId が teamId と一致するユーザー）は
+    // profileImageUrl と description のみ更新可（班プロフィール編集）。
     match /adl_teams/{teamId} {
       allow read: if isAuthenticated();
       allow create, delete: if isAdmin();
       allow update: if isAdmin() ||
         (isAuthenticated() &&
           request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['memberCount']));
+            .hasOnly(['memberCount'])) ||
+        (isAuthenticated() &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.adlTeamId == teamId &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['profileImageUrl', 'description']));
     }
 
     // ── adl_memberships コレクション ─────────────────────────

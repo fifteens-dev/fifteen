@@ -35,6 +35,7 @@ import 'services/font_service.dart';
 import 'tutorial/tutorial.dart';
 import 'services/user_service.dart';
 import 'services/vibe_topic_service.dart';
+import 'services/adl_service.dart';
 import 'models/post_model.dart';
 
 /// バックグラウンドFCMハンドラー（top-level 必須・runApp前に登録する）
@@ -54,6 +55,10 @@ final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<v
 void main() async {
   // Flutter バインディングの初期化
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 画像メモリキャッシュ上限を設定（デフォルト: 1000枚・100MB → 古い端末でOOMを防ぐ）
+  PaintingBinding.instance.imageCache.maximumSize = 100;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 80 * 1024 * 1024; // 80MB
 
   // .envファイルの読み込み
   await dotenv.load(fileName: ".env");
@@ -215,12 +220,13 @@ class FifteenApp extends StatelessWidget {
 Future<Map<String, dynamic>> _fetchVibeData(
     VibeTopicService vibeTopicService, PostService postService) async {
   try {
-    final topic = await vibeTopicService.getTodaysTopic();
+    final forAdl = await AdlService().isCurrentUserAdlParticipant();
+    final topic = await vibeTopicService.getTodaysTopic(forAdl: forAdl);
     if (topic == null) return {'topic': null, 'ranking': []};
     final ranking = await postService.calculateVibeRanking(
       topic.topicId,
       DateTime.now(),
-      limit: 10,
+      limit: 1000,
     );
     return {'topic': topic, 'ranking': ranking};
   } catch (_) {

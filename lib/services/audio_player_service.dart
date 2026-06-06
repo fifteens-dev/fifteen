@@ -35,6 +35,10 @@ class AudioPlayerService {
   Duration _startFrom = Duration.zero;
   int _durationSeconds = 15;
 
+  // 再生オーナー。playPreview(owner: this) を呼んだ画面/オブジェクトが所有者となる。
+  // 他画面の dispose() で誤って stopIfOwner(this) されても再生は止めない。
+  Object? _currentOwner;
+
   // 次カード用プリローダー (setUrl 済みで待機)
   AudioPlayer? _preloader;
   String? _preloadedUrl;
@@ -80,10 +84,14 @@ class AudioPlayerService {
   }
 
   /// プレビューURLから音楽を再生（指定区間ループ）
+  ///
+  /// [owner] を渡すと再生の所有者が記録され、他画面の dispose() による
+  /// stopIfOwner() で巻き添えに止められなくなる（チュートリアル等で利用）。
   Future<void> playPreview(
     String url, {
     Duration startFrom = Duration.zero,
     int durationSeconds = 15,
+    Object? owner,
   }) async {
     try {
       if (kDebugMode) print('🎵 Attempting to play: $url');
@@ -94,11 +102,19 @@ class AudioPlayerService {
         return;
       }
 
-      // 既に同じURLが再生中の場合は何もしない
-      if (_currentUrl == url && _player.playing &&
+      // 所有者を更新（null の場合は所有者なし＝従来挙動）
+      _currentOwner = owner;
+
+      // 既に同じURLが再生中 or ロード中の場合は何もしない
+      if (_currentUrl == url &&
           _startFrom == startFrom && _durationSeconds == durationSeconds) {
-        if (kDebugMode) print('⏭️ Already playing this URL');
-        return;
+        final ps = _player.processingState;
+        if (_player.playing ||
+            ps == ProcessingState.loading ||
+            ps == ProcessingState.buffering) {
+          if (kDebugMode) print('⏭️ Already playing/loading this URL');
+          return;
+        }
       }
 
       // プリローダーが該当URLを既にsetUrl済みなら、スワップして即再生（最速パス）
@@ -280,7 +296,12 @@ class AudioPlayerService {
     }
   }
 
-  /// 再生を停止
+  /// 再生を停止（無条件）。
+  ///
+  /// 注意: 本サービスはシングルトンのため、画面の `dispose()` から無条件に呼ぶと
+  /// 他画面が再生中の音声まで巻き添えで止まる。`dispose()` からは
+  /// [stopIfOwner] を使い、ボタンタップなど明示的な停止意図がある場合のみ
+  /// この `stop()` を直接呼ぶこと。
   Future<void> stop() async {
     try {
       _positionSubscription?.cancel();
@@ -288,6 +309,7 @@ class AudioPlayerService {
       _stateSubscription?.cancel();
       _stateSubscription = null;
       _currentUrl = null; // 先にnullにしてループ再開を防ぐ
+      _currentOwner = null;
       _startFrom = Duration.zero;
       _durationSeconds = 15;
       await _player.stop();
@@ -295,6 +317,23 @@ class AudioPlayerService {
     } catch (e) {
       if (kDebugMode) print('Error stopping playback: $e');
     }
+  }
+
+  /// 所有権付き stop。dispose() から呼び出すことで、他画面が所有する再生を
+  /// 巻き添えに止めるバグを防ぐ。
+  ///
+  /// 動作:
+  /// - `_currentOwner` が null（未所有）→ そのまま stop（従来挙動）
+  /// - `_currentOwner` が owner と同一 → stop
+  /// - 別オーナーの再生中 → 何もしない
+  Future<void> stopIfOwner(Object owner) async {
+    if (_currentOwner != null && !identical(_currentOwner, owner)) {
+      if (kDebugMode) {
+        print('⏭️ stopIfOwner skipped: not the owner');
+      }
+      return;
+    }
+    await stop();
   }
 
   /// 現在再生中かどうか
@@ -348,6 +387,7 @@ class AudioPlayerService {
     await _audioPlayer?.dispose();
     _audioPlayer = null;
     _currentUrl = null;
+    _currentOwner = null;
     final pre = _preloader;
     _preloader = null;
     _preloadedUrl = null;

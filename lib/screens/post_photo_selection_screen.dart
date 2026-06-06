@@ -600,24 +600,45 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
 
     return Container(
       color: Colors.black,
-      child: Column(
+      child: Stack(
         children: [
-          SizedBox(height: topPad),
-          const SizedBox(
-            height: 50,
-            child: Center(
-              child: Text(
-                '写真を選択',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
+          Column(
+            children: [
+              SizedBox(height: topPad),
+              const SizedBox(
+                height: 50,
+                child: Center(
+                  child: Text(
+                    '写真を選択',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
-            ),
+              Expanded(
+                child: _hasPermission ? _buildGrid() : _buildPermissionPrompt(),
+              ),
+            ],
           ),
-          Expanded(
-            child: _hasPermission ? _buildGrid() : _buildPermissionPrompt(),
+          // 左上: 閉じるボタン
+          Positioned(
+            left: 16,
+            top: topPad + 4,
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF363B3F),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 20),
+              ),
+            ),
           ),
         ],
       ),

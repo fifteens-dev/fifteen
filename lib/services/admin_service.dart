@@ -172,6 +172,7 @@ class AdminService {
   Future<String> createVibeTopic({
     required String title,
     required DateTime date,
+    bool isAdlOnly = false,
   }) async {
     try {
       // 管理者チェック
@@ -188,6 +189,7 @@ class AdminService {
         title: title,
         date: date,
         status: VibeTopicStatus.active,
+        isAdlOnly: isAdlOnly,
         createdAt: now,
         updatedAt: now,
       );
@@ -213,6 +215,7 @@ class AdminService {
     String? title,
     DateTime? date,
     VibeTopicStatus? status,
+    bool? isAdlOnly,
   }) async {
     try {
       // 管理者チェック
@@ -228,6 +231,7 @@ class AdminService {
       if (title != null) updateData['title'] = title;
       if (date != null) updateData['date'] = Timestamp.fromDate(date);
       if (status != null) updateData['status'] = status.name;
+      if (isAdlOnly != null) updateData['isAdlOnly'] = isAdlOnly;
 
       await _firestore.collection('vibe_topics').doc(topicId).update(updateData);
 

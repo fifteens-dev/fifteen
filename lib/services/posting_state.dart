@@ -27,6 +27,7 @@ class PostingCardData {
   final int audioDurationSec;
   final bool isVibe;
   final String? vibeTopicTitle;
+  final String? adlTeamId;
 
   const PostingCardData({
     required this.track,
@@ -49,6 +50,7 @@ class PostingCardData {
     this.audioDurationSec = 15,
     this.isVibe = false,
     this.vibeTopicTitle,
+    this.adlTeamId,
   });
 }
 

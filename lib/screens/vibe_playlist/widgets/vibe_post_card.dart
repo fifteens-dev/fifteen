@@ -8,6 +8,7 @@ import '../../../services/artist_service.dart';
 import '../../../services/spotify_service.dart';
 import '../../../widgets/profile_widgets.dart';
 import '../../artist_profile_screen.dart';
+import '../../other_user_profile_screen.dart';
 
 /// Vibeプレイリスト投稿タブの全画面PageView用カード。
 ///
@@ -46,6 +47,17 @@ class VibePostCard extends StatelessWidget {
       return '${(n / 1000).toStringAsFixed(n % 1000 != 0 ? 1 : 0)}K';
     }
     return n.toString();
+  }
+
+  /// 投稿者のプロフィール画面へ遷移
+  void _openUserProfile(BuildContext context, String userId) {
+    if (userId.isEmpty) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OtherUserProfileScreen(userId: userId),
+      ),
+    );
   }
 
   /// アーティスト画像URLを取得する。spotifyArtistId があれば by-ID（正確）で、
@@ -177,29 +189,42 @@ class VibePostCard extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         // ユーザー情報（icon left=18 top=46 size=32, name left=59 top=52）
+        // タップで投稿者のプロフィールへ遷移
         Positioned(
           left: 18,
           top: 46,
           width: 32,
           height: 32,
-          child: ClipOval(
-            child: ProfileImage(imageUrl: post.userIconUrl, size: 32),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openUserProfile(context, post.userId),
+            child: ClipOval(
+              child: ProfileImage(imageUrl: post.userIconUrl, size: 32),
+            ),
           ),
         ),
         Positioned(
           left: 59,
-          top: 52,
+          top: 46,
           right: 60,
-          child: Text(
-            post.username,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-              letterSpacing: -0.12,
+          height: 32,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openUserProfile(context, post.userId),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                post.username,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  letterSpacing: -0.12,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ),
         // 楽曲タイトル（left=18, top=90, fontSize=24 bold）

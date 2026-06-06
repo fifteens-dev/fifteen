@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../models/vibe_topic_model.dart';
 import '../../services/admin_service.dart';
+import '../../services/adl_service.dart';
 import '../../widgets/common/app_toast.dart';
 
 /// Vibeお題管理タブ
@@ -14,6 +15,8 @@ class VibeTopicManagementTab extends StatefulWidget {
 
 class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
   final AdminService _adminService = AdminService();
+  final AdlService _adlService = AdlService();
+  bool _isRecomputingPostCounts = false;
   final TextEditingController _titleController = TextEditingController();
 
   /// 日付をフォーマット
@@ -23,6 +26,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
 
   DateTime _selectedDate = DateTime.now().add(const Duration(days: 1));
   bool _isCreating = false;
+  bool _newTopicIsAdlOnly = false;
   List<VibeTopicModel> _topics = [];
   bool _isLoadingTopics = true;
 
@@ -79,6 +83,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
       await _adminService.createVibeTopic(
         title: _titleController.text,
         date: _selectedDate,
+        isAdlOnly: _newTopicIsAdlOnly,
       );
 
       if (mounted) {
@@ -88,6 +93,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
         _titleController.clear();
         setState(() {
           _selectedDate = DateTime.now().add(const Duration(days: 1));
+          _newTopicIsAdlOnly = false;
         });
 
         // 一覧を更新
@@ -169,6 +175,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
   Future<void> _editTopic(VibeTopicModel topic) async {
     final titleController = TextEditingController(text: topic.title);
     DateTime selectedDate = topic.date;
+    bool isAdlOnly = topic.isAdlOnly;
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -232,6 +239,22 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
                     }
                   },
                 ),
+                const SizedBox(height: 4),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  activeColor: const Color(0xFF5D8FFF),
+                  title: const Text(
+                    'ADL専用お題',
+                    style: TextStyle(color: Colors.white, fontSize: 14),
+                  ),
+                  subtitle: const Text(
+                    'ONにするとADL参加者にのみ表示されます',
+                    style: TextStyle(color: Colors.grey, fontSize: 11),
+                  ),
+                  value: isAdlOnly,
+                  onChanged: (v) => setDialogState(() => isAdlOnly = v),
+                ),
               ],
             ),
           ),
@@ -244,6 +267,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
               onPressed: () => Navigator.pop(context, {
                 'title': titleController.text,
                 'date': selectedDate,
+                'isAdlOnly': isAdlOnly,
               }),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF5D8FFF),
@@ -262,6 +286,7 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
         topicId: topic.topicId,
         title: result['title'],
         date: result['date'],
+        isAdlOnly: result['isAdlOnly'],
       );
 
       if (mounted) {
@@ -281,6 +306,48 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
     super.dispose();
   }
 
+  Future<void> _recomputeVibePostCounts() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1C),
+        title: const Text('Vibe投稿数を再集計しますか？',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: const Text(
+          'posts を全走査して vibe_topics.postCount を実態に書き直します。\n'
+          '検索画面で「0件」と表示されてしまうドリフトの修正用。',
+          style: TextStyle(color: Colors.grey, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル',
+                style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('実行',
+                style: TextStyle(color: Color(0xFF5D8FFF))),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _isRecomputingPostCounts = true);
+    try {
+      final result = await _adlService.recomputeVibeTopicPostCounts();
+      if (!mounted) return;
+      AppToast.show(context,
+          '再集計: ${result['topicCount']}題 / 投稿あり${result['nonZeroCount']}題');
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.show(context, '再集計に失敗しました: $e');
+    } finally {
+      if (mounted) setState(() => _isRecomputingPostCounts = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -298,6 +365,11 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
           ),
           const SizedBox(height: 12),
           _buildDatePicker(),
+          const SizedBox(height: 12),
+          _buildAdlOnlySwitch(
+            value: _newTopicIsAdlOnly,
+            onChanged: (v) => setState(() => _newTopicIsAdlOnly = v),
+          ),
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
@@ -328,7 +400,25 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
           const SizedBox(height: 32),
 
           // お題一覧
-          _buildSectionTitle('Vibeお題一覧'),
+          Row(
+            children: [
+              Expanded(child: _buildSectionTitle('Vibeお題一覧')),
+              _isRecomputingPostCounts
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CupertinoActivityIndicator(color: Colors.white),
+                    )
+                  : TextButton.icon(
+                      onPressed: _recomputeVibePostCounts,
+                      icon: const Icon(Icons.refresh,
+                          size: 16, color: Color(0xFF5D8FFF)),
+                      label: const Text('投稿数再集計',
+                          style:
+                              TextStyle(color: Color(0xFF5D8FFF), fontSize: 12)),
+                    ),
+            ],
+          ),
           const SizedBox(height: 16),
           _buildTopicList(),
         ],
@@ -384,6 +474,38 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildAdlOnlySwitch({
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        activeColor: const Color(0xFF8A2BE2),
+        title: const Text(
+          'ADL専用お題',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: const Text(
+          'ONにするとADL班に参加しているユーザーにのみ表示されます',
+          style: TextStyle(color: Colors.grey, fontSize: 11),
+        ),
+        value: value,
+        onChanged: onChanged,
+      ),
     );
   }
 
@@ -492,6 +614,28 @@ class _VibeTopicManagementTabState extends State<VibeTopicManagementTab> {
                     ),
                   ),
                 ),
+                if (topic.isAdlOnly) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8A2BE2),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'ADL',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
                 if (isToday)
                   Container(
                     padding: const EdgeInsets.symmetric(

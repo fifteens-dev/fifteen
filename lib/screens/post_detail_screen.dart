@@ -152,7 +152,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   void dispose() {
     _playRequested = false;
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     super.dispose();
   }
 

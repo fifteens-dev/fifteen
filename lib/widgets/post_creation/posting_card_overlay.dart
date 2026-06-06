@@ -86,7 +86,7 @@ class _PostingCardOverlayState extends State<PostingCardOverlay>
   void dispose() {
     _flipTimer?.cancel();
     _flipController.dispose();
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     super.dispose();
   }
 
@@ -171,6 +171,7 @@ class _PostingCardOverlayState extends State<PostingCardOverlay>
       commentCount: 3,
       createdAt: now,
       updatedAt: now,
+      adlTeamId: data.adlTeamId,
     );
     return PostCard(
       post: post,
@@ -221,6 +222,7 @@ class _PostingCardOverlayState extends State<PostingCardOverlay>
                       ? '#${data.vibeTopicTitle}'
                       : null,
                   showBackground: false,
+                  teamId: data.adlTeamId,
                 ),
               ),
             ],

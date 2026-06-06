@@ -6,11 +6,11 @@ import '../services/adl_service.dart';
 import '../widgets/common/app_toast.dart';
 import 'adl_ranking_screen.dart';
 
-/// ADLイベント参加画面（招待コード入力 / 離脱）
+/// ADLイベント参加画面（招待コード入力）
 ///
 /// 9つの固定コード（adl_house, adl_break, ...）のいずれかを入力すると
 /// その班に参加する。既に別の班に参加している場合は自動で切り替わる。
-/// 画面下部に「班から離脱する」ボタンも表示する（参加中のみ）。
+/// 離脱は班プロフィール → 設定画面側に集約しているため、ここには出さない。
 class AdlJoinScreen extends StatefulWidget {
   final String? currentTeamName; // 既に参加済みの場合の表示用
   final String? currentTeamId; // 切替判定用
@@ -29,9 +29,8 @@ class _AdlJoinScreenState extends State<AdlJoinScreen> {
   final _codeCtrl = TextEditingController();
   final _adl = AdlService();
   bool _isLoading = false;
-  bool _isLeaving = false;
 
-  // ローカル状態（参加 → 離脱や切替を画面遷移なしに反映するため）
+  // ローカル状態（参加・切替を画面遷移なしに反映するため）
   String? _currentTeamName;
   String? _currentTeamId;
 
@@ -84,56 +83,6 @@ class _AdlJoinScreenState extends State<AdlJoinScreen> {
       case AdlJoinResult.disabled:
         AppToast.show(context, 'ADLイベントは現在開催されていません');
       case AdlJoinResult.error:
-        AppToast.show(context, 'エラーが発生しました');
-    }
-  }
-
-  Future<void> _leave() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceLight,
-        title: const Text('班から離脱しますか？',
-            style: TextStyle(color: Colors.white, fontSize: 16)),
-        content: Text(
-          '${_currentTeamName ?? "現在の班"} から離脱します。\n班アカウントとのフォロー関係も自動的に解除されます。',
-          style: const TextStyle(color: Colors.grey, fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('キャンセル',
-                style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('離脱する',
-                style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    setState(() => _isLeaving = true);
-    final result = await _adl.leaveTeam();
-    if (!mounted) return;
-    setState(() => _isLeaving = false);
-
-    switch (result) {
-      case AdlLeaveResult.success:
-        AppToast.show(context, '班から離脱しました');
-        setState(() {
-          _currentTeamId = null;
-          _currentTeamName = null;
-        });
-      case AdlLeaveResult.notJoined:
-        AppToast.show(context, '参加している班がありません');
-        setState(() {
-          _currentTeamId = null;
-          _currentTeamName = null;
-        });
-      case AdlLeaveResult.error:
         AppToast.show(context, 'エラーが発生しました');
     }
   }
@@ -239,34 +188,6 @@ class _AdlJoinScreenState extends State<AdlJoinScreen> {
                 ),
               ),
 
-              // ── 離脱ボタン（参加中のみ） ──
-              if (isJoined) ...[
-                const SizedBox(height: 24),
-                Center(
-                  child: TextButton(
-                    onPressed: _isLeaving ? null : _leave,
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.error,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
-                    ),
-                    child: _isLeaving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: AppColors.error),
-                          )
-                        : const Text(
-                            '班から離脱する',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                decoration: TextDecoration.underline),
-                          ),
-                  ),
-                ),
-              ],
             ],
           ),
         ),

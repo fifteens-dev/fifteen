@@ -24,6 +24,7 @@ import '../services/user_service.dart';
 import '../services/notification_service.dart';
 import '../models/notification_model.dart';
 import '../services/vibe_topic_service.dart';
+import '../services/adl_service.dart';
 import '../utils/campus_vibe_utils.dart';
 import '../widgets/campus_vibe_card.dart';
 import '../providers/current_user_provider.dart';
@@ -388,6 +389,10 @@ class _HomeScreenState extends State<HomeScreen>
     final result = await _fetchPostsData();
     if (mounted) {
       print('✅ 投稿読み込み完了: ${result.posts.length}件の投稿をセット');
+      // 新しい投稿リストに存在しないキー・キャッシュを削除してメモリ節約
+      final newPostIds = result.posts.map((p) => p.postId).toSet();
+      _postCardKeys.removeWhere((id, _) => !newPostIds.contains(id));
+      _previewUrlCache.removeWhere((id, _) => !newPostIds.contains(id));
       setState(() {
         _cachedPosts = result.posts;
         _hasPostedToday = result.hasPostedToday;
@@ -513,6 +518,8 @@ class _HomeScreenState extends State<HomeScreen>
     routeObserver.unsubscribe(this);
     _scrollController.dispose();
     _bellOpacity.dispose();
+    _postCardKeys.clear();
+    _previewUrlCache.clear();
     super.dispose();
   }
 
@@ -646,6 +653,24 @@ class _HomeScreenState extends State<HomeScreen>
     final cacheKey = '${item.title}__${item.artist}';
     await TutorialPrefetchService.instance.ensureReady(cacheKey, item);
     if (!mounted || _tutorialActiveIndex != index) return;
+    final previewUrl = TutorialPrefetchService.instance.previewCache[cacheKey];
+    if (previewUrl != null && previewUrl.isNotEmpty) {
+      // owner: this を渡すことで、他画面の dispose() が呼ぶ
+      // stopIfOwner() に巻き添えで止められないようにする
+      _homeAudioService
+          .playPreview(previewUrl, owner: this)
+          .catchError((_) {});
+    }
+    // 次のカードを2秒遅延で preload する。
+    // 即座に preload するとメインプレイヤーの再生が iOS 側で中断される現象が発生したため、
+    // 現在再生中の音声が安定してから preload を開始する。
+    final nextIndex = (index + 1) % items.length;
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted || _tutorialActiveIndex != index) return;
+      TutorialPrefetchService.instance
+          .preloadAudio(items[nextIndex])
+          .catchError((_) {});
+    });
   }
 
   /// チュートリアル Frame628 で曲が確定されたときに呼ばれる
@@ -896,7 +921,8 @@ class _HomeScreenState extends State<HomeScreen>
   /// Vibeデータを読み込み（今日のお題とランキング）
   Future<Map<String, dynamic>> _loadVibeData() async {
     try {
-      final topic = await _vibeTopicService.getTodaysTopic();
+      final forAdl = await AdlService().isCurrentUserAdlParticipant();
+      final topic = await _vibeTopicService.getTodaysTopic(forAdl: forAdl);
       if (topic == null) {
         return {'topic': null, 'ranking': []};
       }
@@ -904,7 +930,7 @@ class _HomeScreenState extends State<HomeScreen>
       final ranking = await _postService.calculateVibeRanking(
         topic.topicId,
         DateTime.now(),
-        limit: 10,
+        limit: 1000,
       );
 
       return {'topic': topic, 'ranking': ranking};
@@ -918,7 +944,8 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _handleRankingItemTap(VibeRankingItem item) async {
     try {
       // 今日のお題を取得
-      final topic = await _vibeTopicService.getTodaysTopic();
+      final forAdl = await AdlService().isCurrentUserAdlParticipant();
+      final topic = await _vibeTopicService.getTodaysTopic(forAdl: forAdl);
       if (topic == null) {
         _showMessage('お題が見つかりませんでした');
         return;

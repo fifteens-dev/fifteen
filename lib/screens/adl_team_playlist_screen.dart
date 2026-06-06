@@ -2,10 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../constants/adl_teams.dart';
 import '../constants/app_colors.dart';
 import '../models/adl_team_model.dart';
 import '../models/post_model.dart';
+import 'adl_team_members_screen.dart';
+import 'adl_team_settings_screen.dart';
 import 'post_detail_screen.dart';
 
 /// ADL班アカウントのプロフィール画面（班員投稿のグリッド表示）。
@@ -37,11 +40,27 @@ class _AdlTeamPlaylistScreenState extends State<AdlTeamPlaylistScreen> {
   List<PostModel>? _posts;
   bool _isLoadingTeam = true;
   bool _isLoadingPosts = true;
+  bool _isTeamMember = false;
 
   @override
   void initState() {
     super.initState();
     _loadAll();
+    _loadMembership();
+  }
+
+  /// 現在のユーザーがこの班に所属しているか判定。
+  /// 所属している場合のみ歯車（設定）アイコンを表示する。
+  Future<void> _loadMembership() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      final snap = await _db.collection('users').doc(uid).get();
+      final myTeamId = snap.data()?['adlTeamId'] as String?;
+      if (mounted) {
+        setState(() => _isTeamMember = myTeamId == widget.teamId);
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadAll() async {
@@ -106,6 +125,26 @@ class _AdlTeamPlaylistScreenState extends State<AdlTeamPlaylistScreen> {
             fontWeight: FontWeight.w500,
           ),
         ),
+        actions: [
+          if (_isTeamMember && _team != null)
+            IconButton(
+              icon: const Icon(Icons.settings_outlined, color: Colors.white),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AdlTeamSettingsScreen(
+                      team: _team!,
+                      displayName: displayName,
+                      onChanged: _loadTeam,
+                    ),
+                  ),
+                );
+                // 設定画面から戻ったら最新化
+                _loadTeam();
+              },
+            ),
+        ],
       ),
       body: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(
@@ -120,6 +159,19 @@ class _AdlTeamPlaylistScreenState extends State<AdlTeamPlaylistScreen> {
               likeCount: _team?.likeCount ?? 0,
               postCount: _posts?.length ?? 0,
               isLoading: _isLoadingTeam,
+              profileImageUrl: _team?.profileImageUrl,
+              description: _team?.description,
+              onTapMembers: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AdlTeamMembersScreen(
+                      teamId: widget.teamId,
+                      teamDisplayName: displayName,
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           _buildGrid(),
@@ -190,6 +242,9 @@ class _Header extends StatelessWidget {
   final int likeCount;
   final int postCount;
   final bool isLoading;
+  final VoidCallback onTapMembers;
+  final String? profileImageUrl;
+  final String? description;
 
   const _Header({
     required this.displayName,
@@ -197,6 +252,9 @@ class _Header extends StatelessWidget {
     required this.likeCount,
     required this.postCount,
     required this.isLoading,
+    required this.onTapMembers,
+    this.profileImageUrl,
+    this.description,
   });
 
   @override
@@ -208,28 +266,21 @@ class _Header extends StatelessWidget {
         children: [
           Row(
             children: [
-              // 班イニシャル
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1937EF), Color(0xFFFE1F56)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(36),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  displayName.isNotEmpty
-                      ? displayName.substring(0, 1).toUpperCase()
-                      : '?',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w800,
-                  ),
+              // 班アイコン（画像 or イニシャル）
+              ClipRRect(
+                borderRadius: BorderRadius.circular(36),
+                child: SizedBox(
+                  width: 72,
+                  height: 72,
+                  child: (profileImageUrl != null && profileImageUrl!.isNotEmpty)
+                      ? CachedNetworkImage(
+                          imageUrl: profileImageUrl!,
+                          width: 72,
+                          height: 72,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => _initialAvatar(),
+                        )
+                      : _initialAvatar(),
                 ),
               ),
               const SizedBox(width: 20),
@@ -238,7 +289,11 @@ class _Header extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _Stat(label: '投稿', value: postCount),
-                    _Stat(label: 'メンバー', value: memberCount),
+                    _Stat(
+                      label: 'メンバー',
+                      value: memberCount,
+                      onTap: onTapMembers,
+                    ),
                     _Stat(label: 'いいね', value: likeCount),
                   ],
                 ),
@@ -255,11 +310,36 @@ class _Header extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 2),
-          const Text(
-            'ADL イベント公式アカウント',
-            style: TextStyle(color: Colors.grey, fontSize: 12),
+          Text(
+            (description != null && description!.isNotEmpty)
+                ? description!
+                : 'ADL イベント公式アカウント',
+            style: const TextStyle(color: Colors.grey, fontSize: 12),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _initialAvatar() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF1937EF), Color(0xFFFE1F56)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        displayName.isNotEmpty
+            ? displayName.substring(0, 1).toUpperCase()
+            : '?',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 30,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -268,12 +348,13 @@ class _Header extends StatelessWidget {
 class _Stat extends StatelessWidget {
   final String label;
   final int value;
+  final VoidCallback? onTap;
 
-  const _Stat({required this.label, required this.value});
+  const _Stat({required this.label, required this.value, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final column = Column(
       children: [
         Text(
           '$value',
@@ -289,6 +370,12 @@ class _Stat extends StatelessWidget {
           style: const TextStyle(color: Colors.grey, fontSize: 11),
         ),
       ],
+    );
+    if (onTap == null) return column;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: column,
     );
   }
 }

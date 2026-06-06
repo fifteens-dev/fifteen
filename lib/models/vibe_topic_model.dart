@@ -14,6 +14,8 @@ class VibeTopicModel {
   final DateTime date; // このお題がアクティブな日付
   final VibeTopicStatus status;
   final int voteCount;
+  final int postCount; // 投稿数（Cloud Functionが集計）
+  final bool isAdlOnly; // ADL参加者のみに表示するお題
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -24,6 +26,8 @@ class VibeTopicModel {
     required this.date,
     this.status = VibeTopicStatus.active,
     this.voteCount = 0,
+    this.postCount = 0,
+    this.isAdlOnly = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -39,6 +43,8 @@ class VibeTopicModel {
       date: (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
       status: _statusFromString(data['status'] ?? 'active'),
       voteCount: (data['voteCount'] as int?) ?? 0,
+      postCount: (data['postCount'] as num?)?.toInt() ?? 0,
+      isAdlOnly: data['isAdlOnly'] == true,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -52,6 +58,8 @@ class VibeTopicModel {
       'date': Timestamp.fromDate(date),
       'status': status.name,
       'voteCount': voteCount,
+      'postCount': postCount,
+      'isAdlOnly': isAdlOnly,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -65,6 +73,8 @@ class VibeTopicModel {
     DateTime? date,
     VibeTopicStatus? status,
     int? voteCount,
+    int? postCount,
+    bool? isAdlOnly,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -75,6 +85,8 @@ class VibeTopicModel {
       date: date ?? this.date,
       status: status ?? this.status,
       voteCount: voteCount ?? this.voteCount,
+      postCount: postCount ?? this.postCount,
+      isAdlOnly: isAdlOnly ?? this.isAdlOnly,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

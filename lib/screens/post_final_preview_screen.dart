@@ -281,7 +281,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   Future<void> _loadTodaysTopic() async {
     if (widget.vibeTopicId != null) return;
     try {
-      final topic = await VibeTopicService().getTodaysTopic();
+      final forAdl = await AdlService().isCurrentUserAdlParticipant();
+      final topic = await VibeTopicService().getTodaysTopic(forAdl: forAdl);
       if (mounted) {
         setState(() {
           if (topic != null) {
@@ -323,7 +324,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     _flipController.dispose();
     _bgFadeController.dispose();
     _playButtonAnimController.dispose();
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     _editState.dispose();
     super.dispose();
   }
@@ -410,6 +411,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       createdAt: now,
       updatedAt: now,
       theme: PostTheme.defaultTheme,
+      adlTeamId: _adlTeamId,
     );
   }
 
@@ -703,6 +705,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       audioDurationSec: audioDurationSec,
       isVibe: isVibe,
       vibeTopicTitle: vibeTopicTitle,
+      adlTeamId: _adlTeamId,
     ));
 
     if (mounted) {
@@ -1272,6 +1275,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                         ? '#${widget.vibeTopicTitle}'
                         : null,
                     showBackground: false,
+                    teamId: _adlTeamId,
                   ),
                 ),
               ],

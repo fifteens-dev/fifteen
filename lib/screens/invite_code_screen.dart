@@ -1,15 +1,12 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../constants/adl_teams.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_dimensions.dart';
 import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
-import '../services/adl_service.dart';
 import '../services/invite_code_service.dart';
 import '../services/user_service.dart';
 import '../widgets/common/app_toast.dart';
@@ -26,7 +23,6 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
   final TextEditingController _inviteCodeController = TextEditingController();
   final InviteCodeService _inviteCodeService = InviteCodeService();
   final UserService _userService = UserService();
-  final AdlService _adlService = AdlService();
   bool _isLoading = true;
 
   @override
@@ -69,61 +65,9 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       return;
     }
 
-    // ── ADL班コード判定 ──
-    // 9つの固定コード（adl_house など）のいずれかなら、班加入フローへ
-    if (AdlTeamDefinitions.isValidCode(rawInput)) {
-      await _handleAdlTeamCode(rawInput);
-      return;
-    }
-
-    // ── 通常の招待コード処理 ──
+    // 認証フローでは班の振り分けは行わない。班コードが入力されても通常コードとして処理する
+    // （班への加入は認証完了後に専用画面 adl_join_screen.dart から行う想定）。
     await _handleNormalInviteCode(rawInput.toUpperCase());
-  }
-
-  /// ADL班コードによる加入処理。
-  ///
-  /// AdlService.joinTeamWithCode 内のトランザクションで以下を atomic に行う:
-  /// - users/{uid}.adlTeamId / adlTeamName / adlEventId を更新
-  /// - users/{uid}.followers / following に班アカウントUIDを追加（相互フォロー）
-  /// - adl_memberships/{uid} を作成
-  /// - adl_teams/{teamId}.memberCount を +1
-  /// - users/{teamId}.followers / following に自分のUIDを追加
-  Future<void> _handleAdlTeamCode(String code) async {
-    setState(() => _isLoading = true);
-
-    try {
-      final result = await _adlService.joinTeamWithCode(code);
-      if (!mounted) return;
-
-      switch (result) {
-        case AdlJoinResult.success:
-        case AdlJoinResult.switched:
-          AppToast.show(context, 'ADL班に参加しました');
-          setState(() => _isLoading = false);
-          Navigator.pushNamed(context, '/name-input');
-        case AdlJoinResult.alreadyJoined:
-          // 既に同じ班に所属 → そのまま前進
-          setState(() => _isLoading = false);
-          Navigator.pushNamed(context, '/name-input');
-        case AdlJoinResult.notSeeded:
-          setState(() => _isLoading = false);
-          AppToast.show(context, '班データが準備中です。管理者にお問い合わせください');
-        case AdlJoinResult.disabled:
-          setState(() => _isLoading = false);
-          AppToast.show(context, 'ADLイベントは現在開催されていません');
-        case AdlJoinResult.invalidCode:
-          // isValidCode を通過しているので通常は到達しないが念のため
-          setState(() => _isLoading = false);
-          AppToast.show(context, '班コードが正しくありません');
-        case AdlJoinResult.error:
-          setState(() => _isLoading = false);
-          AppToast.show(context, '班への参加に失敗しました。もう一度お試しください');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      AppToast.show(context, 'エラーが発生しました');
-    }
   }
 
   /// 通常の招待コード（7文字英数字）の検証 + 使用済みマーク + コードオーナーフォロー
@@ -165,25 +109,19 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       // 招待コードを使用済みにし、コードオーナーをフォロー
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
-        await _inviteCodeService.markInviteCodeAsUsed(inviteCode, uid);
-        try {
-          final codeDoc = await FirebaseFirestore.instance
-              .collection('invite_codes')
-              .doc(inviteCode)
-              .get();
-          final ownerUid = codeDoc.data()?['ownerUid'] as String?;
-          if (ownerUid != null && ownerUid.isNotEmpty && ownerUid != uid) {
-            // 通知はスキップ（username未設定のため）。認証フロー完了後に送信
-            _userService.followUser(
-              currentUserId: uid,
-              targetUserId: ownerUid,
-              skipNotification: true,
-            ).catchError((_) {});
-            SharedPreferences.getInstance().then((prefs) {
-              prefs.setString('pending_follow_owner_uid', ownerUid);
-            });
-          }
-        } catch (_) {}
+        final ownerUid =
+            await _inviteCodeService.markInviteCodeAsUsed(inviteCode, uid);
+        if (ownerUid != null && ownerUid.isNotEmpty && ownerUid != uid) {
+          // 通知はスキップ（username未設定のため）。認証フロー完了後に送信
+          _userService.followUser(
+            currentUserId: uid,
+            targetUserId: ownerUid,
+            skipNotification: true,
+          ).catchError((_) {});
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.setString('pending_follow_owner_uid', ownerUid);
+          });
+        }
       }
 
       if (mounted) {

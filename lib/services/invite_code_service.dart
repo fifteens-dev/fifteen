@@ -72,25 +72,48 @@ class InviteCodeService {
     return result == InviteCodeValidationResult.valid;
   }
 
-  // 招待コードを使用済みにする
-  Future<void> markInviteCodeAsUsed(String code, String userId) async {
+  /// 招待コードを使用済みにする。
+  ///
+  /// invite_codes/{code} の usedCount を増やすと同時に、
+  /// invite_usages に「誰が誰のコードを使ったか」を1レコード記録する。
+  /// invite_usages は ADL個人賞（招待人数ランキング）の集計に使う。
+  ///
+  /// 戻り値: コードオーナーUID（招待者）。コード自己使用やグローバルコードの場合は null。
+  Future<String?> markInviteCodeAsUsed(String code, String userId) async {
     // グローバルコードは使用済み記録不要
     final globalCode = await _getGlobalInviteCode();
     if (globalCode != null &&
         globalCode.isNotEmpty &&
         code.toUpperCase() == globalCode.toUpperCase()) {
-      return;
+      return null;
     }
 
     try {
-      await _firestore
-          .collection(_inviteCodesCollection)
-          .doc(code.toUpperCase())
-          .update({
+      final upperCode = code.toUpperCase();
+      final codeRef = _firestore.collection(_inviteCodesCollection).doc(upperCode);
+      final codeSnap = await codeRef.get();
+      final ownerUid = codeSnap.data()?['ownerUid'] as String?;
+
+      final batch = _firestore.batch();
+      batch.update(codeRef, {
         'usedCount': FieldValue.increment(1),
         'lastUsedBy': userId,
         'lastUsedAt': FieldValue.serverTimestamp(),
       });
+
+      // 個人賞集計用: 招待者 != 自分 のときだけ記録する
+      if (ownerUid != null && ownerUid.isNotEmpty && ownerUid != userId) {
+        final usageRef = _firestore.collection('invite_usages').doc();
+        batch.set(usageRef, {
+          'ownerUid': ownerUid,
+          'usedBy': userId,
+          'code': upperCode,
+          'usedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+      return ownerUid;
     } catch (e) {
       if (kDebugMode) {
         print('Error marking invite code as used: $e');

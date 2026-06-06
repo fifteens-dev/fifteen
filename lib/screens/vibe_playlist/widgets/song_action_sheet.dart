@@ -9,7 +9,7 @@ import '../../../models/vibe_ranking_item.dart';
 import '../../../providers/saved_items_provider.dart';
 import '../../../services/post_service.dart';
 import '../../artist_profile_screen.dart';
-import '../../post_detail_screen.dart';
+import '../track_vibe_viewer_screen.dart';
 
 /// 曲行タップで表示されるアクションシート（Figma 3870:6805）
 /// - 上部: 曲情報バー（アルバム / 曲名 / アーティスト / Vibe追加カウント / +保存）
@@ -144,12 +144,15 @@ class _SongActionSheetState extends State<SongActionSheet> {
   }
 
   void _openPost(PostModel post) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    // タップした投稿のインデックスからVibeプレイリスト形式（VibePostCard）で開く
+    final initialIndex = _posts.indexWhere((p) => p.postId == post.postId);
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => PostDetailScreen(
-        post: post,
+      builder: (_) => TrackVibeViewerScreen(
+        track: widget.item.track,
+        posts: _posts,
         currentUserId: uid,
-        alwaysShowBack: true,
+        initialIndex: initialIndex >= 0 ? initialIndex : 0,
       ),
     ));
   }

@@ -635,7 +635,9 @@ class PostService {
               topicTitle: title,
               topicId: doc.id,
               date: (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
-              count: 0,
+              // Cloud Function (vibeTopicPostAggregation) が集計した postCount を使う。
+              // 過去60日の posts クエリに乗らなかった古いお題でも実数が表示される。
+              count: (data['postCount'] as num?)?.toInt() ?? 0,
               thumbnails: ['', '', '', ''],
             ));
             existingTopicIds.add(doc.id);

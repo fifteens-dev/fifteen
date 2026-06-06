@@ -33,6 +33,7 @@ class PostCardBackView extends StatefulWidget {
   final String? userIconUrl;
   final bool isVibe;
   final String? vibeTopicTitle;
+  final String? adlTeamId;
 
   /// 事前抽出済みのグラデーション色（提供されていれば再抽出しない）
   final Color? preExtractedGradientStart;
@@ -65,6 +66,7 @@ class PostCardBackView extends StatefulWidget {
     this.userIconUrl,
     this.isVibe = false,
     this.vibeTopicTitle,
+    this.adlTeamId,
     this.preExtractedGradientStart,
     this.preExtractedGradientEnd,
     this.showLyricsCard = true,
@@ -284,6 +286,7 @@ class _PostCardBackViewState extends State<PostCardBackView> {
                     ? '#${widget.vibeTopicTitle}'
                     : null,
                 showBackground: false,
+                teamId: widget.adlTeamId,
               ),
             ),
         ],

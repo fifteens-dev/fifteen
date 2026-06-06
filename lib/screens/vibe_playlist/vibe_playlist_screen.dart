@@ -67,6 +67,13 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
   final Map<String, int> _likeCountCache = {};
   final Map<String, bool> _isLikedCache = {};
 
+  // ── スクロール位置の保持 ────────────────────────────────────────
+  // ホーム遷移・タブ切替を跨いで画面に戻ったとき、保持した位置を一旦表示し
+  // 自動で次のページに進める（同じVibeトピック内のみ有効）。
+  static String? _resumeTopicId;
+  static int? _resumeFromPage;
+  bool _autoAdvancePending = false;
+
   // 各投稿のランキングアイテムをキャッシュ
   final Map<String, VibeRankingItem?> _rankingItemCache = {};
 
@@ -79,6 +86,11 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
   @override
   void initState() {
     super.initState();
+    // 同じトピックの保存位置があれば復元 → 後でロード完了時に1ページ進める
+    if (_resumeTopicId == widget.topic.topicId && _resumeFromPage != null) {
+      _currentPage = _resumeFromPage!;
+      _autoAdvancePending = true;
+    }
     _tabController = TabController(length: 2, vsync: this);
     _tabPageController = PageController();
     _tabController.addListener(_onTabControllerChanged);
@@ -99,6 +111,9 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
       _audioService.stop();
     } else if (_tabController.index == 0) {
       _playMusicForPage(_currentPage);
+      // 曲リストから投稿タブに戻ったタイミングで自動進行
+      _autoAdvancePending = true;
+      _maybeAutoAdvance();
     }
     if (_tabPageController.hasClients) {
       _tabPageController.animateToPage(
@@ -110,6 +125,33 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
     if (_selectedTab != _tabController.index) {
       setState(() => _selectedTab = _tabController.index);
     }
+  }
+
+  /// 自動で次のページへスクロール。
+  /// 保存位置を一瞬見せてから animateToPage で次へ進める。
+  void _maybeAutoAdvance() {
+    if (!_autoAdvancePending) return;
+    _autoAdvancePending = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // 保存位置を見せるため少し待つ
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (!mounted) return;
+      final controller = _pageController;
+      final posts = _posts;
+      if (controller == null ||
+          !controller.hasClients ||
+          posts == null ||
+          posts.isEmpty) {
+        return;
+      }
+      final nextPage = (_currentPage + 1).clamp(0, posts.length - 1);
+      if (nextPage == _currentPage) return; // already at end
+      await controller.animateToPage(
+        nextPage,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    });
   }
 
   List<VibeRankingItem> _sortRanking(List<VibeRankingItem> source) {
@@ -145,12 +187,18 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
   @override
   void dispose() {
+    // 画面を閉じる前に現在位置をスナップショット保存
+    _resumeTopicId = widget.topic.topicId;
+    _resumeFromPage = _currentPage;
+
     PostingState.instance.removeListener(_onPostingStateChanged);
     _tabController.removeListener(_onTabControllerChanged);
     _tabController.dispose();
     _tabPageController.dispose();
     _pageController?.dispose();
-    _audioService.dispose();
+    // AudioPlayerService はシングルトンのため dispose() するとアプリ全体の再生器を破壊する。
+    // 自画面の再生だけ止める stopIfOwner(this) を使う。
+    _audioService.stopIfOwner(this);
     super.dispose();
   }
 
@@ -161,13 +209,19 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
         widget.topic.date,
       );
       if (!mounted) return;
+      // 保存位置がポスト数を超えないようクランプ
+      if (_autoAdvancePending && posts.isNotEmpty) {
+        _currentPage = _currentPage.clamp(0, posts.length - 1);
+      }
       setState(() {
         _posts = posts;
         _isLoading = false;
         _buildSummaryImages();
       });
       if (posts.isNotEmpty) {
-        _playMusicForPage(0);
+        _playMusicForPage(_currentPage);
+        // 初回ロード完了 → 保存位置の次のページへ自動進行（必要時のみ）
+        _maybeAutoAdvance();
       }
     } catch (_) {
       if (mounted) setState(() => _isLoading = false);
@@ -379,7 +433,10 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
     final fraction = screenH > 0
         ? (822.0 / screenH).clamp(0.5, 1.0)
         : 1.0;
-    _pageController ??= PageController(viewportFraction: fraction);
+    _pageController ??= PageController(
+      initialPage: _currentPage,
+      viewportFraction: fraction,
+    );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,

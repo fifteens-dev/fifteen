@@ -227,6 +227,7 @@ class PostModel {
     int? audioDurationSec,
     String? university,
     bool? campusVibeParticipating,
+    String? adlTeamId,
   }) {
     return PostModel(
       postId: postId ?? this.postId,
@@ -265,6 +266,7 @@ class PostModel {
       university: university ?? this.university,
       campusVibeParticipating: campusVibeParticipating ?? this.campusVibeParticipating,
       campusVibePost: this.campusVibePost,
+      adlTeamId: adlTeamId ?? this.adlTeamId,
     );
   }
 

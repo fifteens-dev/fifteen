@@ -60,7 +60,7 @@ class TutorialAlbumCarousel extends StatefulWidget {
 class _TutorialAlbumCarouselState extends State<TutorialAlbumCarousel> {
   late final PageController _pageController;
   Timer? _autoplayTimer;
-  int _lastReportedActive = -1;
+  late int _lastReportedActive;
 
   List<TutorialAlbumItem> get _items =>
       widget.items ?? TutorialAlbumCarousel.defaultItems;
@@ -68,6 +68,9 @@ class _TutorialAlbumCarouselState extends State<TutorialAlbumCarousel> {
   @override
   void initState() {
     super.initState();
+    // 初期ページのインデックスをセットしておくことで、PageController アタッチ時の
+    // _onPageChange 発火による二重コールバックを防ぐ
+    _lastReportedActive = TutorialAlbumCarousel.initialPage % _items.length;
     // viewportFraction = 250 / 402 で隣接カードがピーク表示
     _pageController = PageController(
       initialPage: TutorialAlbumCarousel.initialPage,
@@ -75,6 +78,8 @@ class _TutorialAlbumCarouselState extends State<TutorialAlbumCarousel> {
     );
     _pageController.addListener(_onPageChange);
     _scheduleAutoplay();
+    // 初回 onActiveChanged は親 _CarouselSection.initState の postFrameCallback で発火される。
+    // ここで重複発火させると 2回 playPreview が呼ばれて音声状態が乱れるため、何もしない。
   }
 
   @override

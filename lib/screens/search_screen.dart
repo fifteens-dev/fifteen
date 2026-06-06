@@ -14,7 +14,6 @@ import '../widgets/common/common.dart';
 import 'other_user_profile_screen.dart';
 import '../widgets/common/app_toast.dart';
 import 'campus_vibe_history_screen.dart';
-import 'vibe_posts_list_screen.dart';
 import 'vibe_playlist/vibe_playlist_screen.dart';
 import '../models/vibe_topic_model.dart';
 
@@ -107,7 +106,7 @@ class _SearchScreenState extends State<SearchScreen> {
         createdAt: now,
         updatedAt: now,
       );
-      final ranking = await _postService.calculateVibeRanking(topicId, date);
+      final ranking = await _postService.calculateVibeRanking(topicId, date, limit: 1000);
       if (!mounted) return;
       await Navigator.push(
         context,
@@ -520,23 +519,12 @@ class _SearchScreenState extends State<SearchScreen> {
     int count,
     List<String> thumbnails,
   }) topic) {
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => VibePostsListScreen(
-              title: topic.topicTitle,
-              currentUserId: currentUserId,
-              fetchPosts: () => _postService.getVibePostsByTopicAndDate(
-                topic.topicId,
-                topic.date,
-              ),
-            ),
-          ),
-        );
-      },
+      onTap: () => _navigateToVibePlaylist(
+        topicId: topic.topicId,
+        topicTitle: topic.topicTitle,
+        date: topic.date,
+      ),
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
         width: 211,
@@ -937,24 +925,13 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// Vibeお題検索結果アイテム
   Widget _buildTopicListItem(({String topicTitle, String topicId, DateTime date, int count}) topic) {
-    final currentUserId = _auth.currentUser?.uid ?? '';
     final dateLabel = '${topic.date.month}月${topic.date.day}日';
     return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => VibePostsListScreen(
-              title: '$dateLabel ${topic.topicTitle}',
-              currentUserId: currentUserId,
-              fetchPosts: () => _postService.getVibePostsByTopicAndDate(
-                topic.topicId,
-                topic.date,
-              ),
-            ),
-          ),
-        );
-      },
+      onTap: () => _navigateToVibePlaylist(
+        topicId: topic.topicId,
+        topicTitle: topic.topicTitle,
+        date: topic.date,
+      ),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
         child: Row(

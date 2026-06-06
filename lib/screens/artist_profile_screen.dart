@@ -66,7 +66,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen>
 
   @override
   void dispose() {
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     _tabController.dispose();
     super.dispose();
   }

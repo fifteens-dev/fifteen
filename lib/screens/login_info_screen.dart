@@ -1,5 +1,7 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
@@ -59,35 +61,76 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
 
     setState(() => _isDeleting = true);
 
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) {
+      setState(() => _isDeleting = false);
+      if (mounted) AppToast.show(context, 'ログインが必要です');
+      return;
+    }
+
+    // Step 1: Firestoreデータ削除（失敗しても Auth 削除は続行）
     try {
-      User? user = FirebaseAuth.instance.currentUser;
-      final userId = user?.uid;
-      if (userId == null) {
+      await _userService.deleteUserData(userId);
+    } catch (e) {
+      if (kDebugMode) print('⚠️ Firestoreデータ削除エラー（Auth削除は続行）: $e');
+    }
+
+    // Step 2: Firebase Auth アカウント削除
+    // requires-recent-login の場合は Cloud Function（Admin SDK）経由にフォールバック
+    try {
+      await _authService.deleteAccount();
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) print('❌ deleteAccount FirebaseAuthException: code=${e.code} msg=${e.message}');
+      if (e.code == 'requires-recent-login') {
+        // Admin SDK 経由で削除（requires-recent-login 制約なし）
+        try {
+          await _authService.deleteAccountViaFunction();
+        } catch (funcErr) {
+          if (kDebugMode) print('❌ deleteAccountViaFunction error: $funcErr');
+          if (!mounted) return;
+          setState(() => _isDeleting = false);
+          AppToast.show(context, 'アカウントの削除に失敗しました');
+          return;
+        }
+        // Cloud Function 成功 → Step 3 へ続行
+      } else {
+        if (!mounted) return;
         setState(() => _isDeleting = false);
-        if (mounted) AppToast.show(context, 'ログインが必要です');
+        AppToast.show(context, '削除に失敗しました: ${e.message}');
         return;
       }
-
-      // Firestoreデータ削除
-      await _userService.deleteUserData(userId);
-
-      // Firebase Auth アカウント削除（再認証済みなので成功するはず）
-      await _authService.deleteAccount();
-
-      if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/phone-auth',
-          (route) => false,
-        );
-      }
-    } on FirebaseAuthException catch (e) {
+    } on FirebaseException catch (e) {
+      if (kDebugMode) print('❌ deleteAccount FirebaseException: code=${e.code} msg=${e.message}');
       if (!mounted) return;
       setState(() => _isDeleting = false);
       AppToast.show(context, '削除に失敗しました: ${e.message}');
-    } catch (e) {
+      return;
+    } on PlatformException catch (e) {
+      if (kDebugMode) print('❌ deleteAccount PlatformException: code=${e.code} msg=${e.message}');
       if (!mounted) return;
       setState(() => _isDeleting = false);
-      AppToast.show(context, '削除中にエラーが発生しました');
+      AppToast.show(context, 'アカウントの削除に失敗しました (${e.code})');
+      return;
+    } catch (e) {
+      if (kDebugMode) print('❌ deleteAccount unexpected error (${e.runtimeType}): $e');
+      if (!mounted) return;
+      setState(() => _isDeleting = false);
+      AppToast.show(context, 'アカウントの削除に失敗しました');
+      return;
+    }
+
+    // Step 3: Auth 削除成功 → ログイン画面へ
+    // user.delete() 後に Firebase が内部でサインアウト処理を行うため、
+    // ナビゲーション時に状態が変わっている場合がある。rootNavigator を使って確実に遷移する。
+    if (!mounted) return;
+    try {
+      Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
+        '/phone-auth',
+        (route) => false,
+      );
+    } catch (_) {
+      // ナビゲーションエラーが起きても削除は完了済み。
+      // アプリ再起動時に AuthGate が自動的にログイン画面へ遷移する。
     }
   }
 
@@ -314,7 +357,7 @@ class _ReauthDeleteSheetState extends State<_ReauthDeleteSheet> {
       _errorText = null;
     });
 
-    // テストユーザーバイパス
+    // メール認証アカウント（電話番号未登録）はバイパス
     if (widget.phoneNumber == _testPhone) {
       setState(() {
         _verificationId = '__TEST__';
@@ -381,7 +424,7 @@ class _ReauthDeleteSheetState extends State<_ReauthDeleteSheet> {
       _errorText = null;
     });
 
-    // テストユーザーバイパス
+    // メール認証アカウントのバイパス（電話番号未登録）
     if (vid == '__TEST__') {
       if (code != '000000') {
         setState(() {

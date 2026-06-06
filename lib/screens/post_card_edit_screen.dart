@@ -198,7 +198,7 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
     _curtainController.dispose();
     _positionSubscription?.cancel();
     _playerStateSubscription?.cancel();
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     _editState.dispose();
     super.dispose();
   }
@@ -545,6 +545,8 @@ class _PostCardEditScreenState extends State<PostCardEditScreen>
                               userIconUrl: _currentUserIconUrl,
                               isVibe: widget.isVibe,
                               vibeTopicTitle: widget.vibeTopicTitle,
+                              adlTeamId:
+                                  context.read<CurrentUserProvider>().adlTeamId,
                               preExtractedGradientStart: _gradientStart,
                               preExtractedGradientEnd: _gradientEnd,
                               showLyricsCard: false,

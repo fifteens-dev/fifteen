@@ -84,7 +84,7 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
     _pageController.dispose();
     _scrollController.dispose();
     _gridScrollController.dispose();
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     super.dispose();
   }
 

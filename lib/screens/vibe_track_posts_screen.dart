@@ -167,7 +167,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
 
   @override
   void dispose() {
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     _pageController.dispose();
     super.dispose();
   }

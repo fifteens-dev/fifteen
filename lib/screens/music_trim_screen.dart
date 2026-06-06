@@ -125,7 +125,7 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
   void dispose() {
     _positionSubscription?.cancel();
     _playerStateSubscription?.cancel();
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     super.dispose();
   }
 

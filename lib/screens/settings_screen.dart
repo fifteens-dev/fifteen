@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../providers/saved_items_provider.dart';
+import '../providers/current_user_provider.dart';
 import '../services/user_service.dart';
 import '../services/admin_service.dart';
 import '../models/user_model.dart';
@@ -509,6 +510,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (confirmed && context.mounted) {
       context.read<SavedItemsProvider>().clear();
+      context.read<CurrentUserProvider>().clear();
       await FirebaseAuth.instance.signOut();
       if (context.mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil(

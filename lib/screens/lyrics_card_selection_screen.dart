@@ -340,6 +340,7 @@ class _LyricsCardSelectionScreenState
                       ? '#${widget.vibeTopicTitle}'
                       : null,
                   showBackground: false,
+                  teamId: context.read<CurrentUserProvider>().adlTeamId,
                 ),
               ),
             ],

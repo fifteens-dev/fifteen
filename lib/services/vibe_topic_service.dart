@@ -8,7 +8,13 @@ class VibeTopicService {
   final String _topicsCollection = 'vibe_topics';
 
   /// 今日のお題を取得（activeステータス優先、フォールバックでarchived）
-  Future<VibeTopicModel?> getTodaysTopic() async {
+  ///
+  /// [forAdl] が true（ADL参加者かつADLモードON）の場合:
+  ///   - isAdlOnly=true のお題を優先
+  ///   - なければ汎用お題（isAdlOnly=false/未設定）にフォールバック
+  /// [forAdl] が false の場合:
+  ///   - isAdlOnly=true のお題は除外し、汎用お題のみ返す
+  Future<VibeTopicModel?> getTodaysTopic({bool forAdl = false}) async {
     try {
       final today = DateTime.now();
       final startOfDay = DateTime(today.year, today.month, today.day);
@@ -29,12 +35,22 @@ class VibeTopicService {
           .map((doc) => VibeTopicModel.fromFirestore(doc))
           .toList();
 
-      final activeTopic =
-          topics.where((t) => t.status == VibeTopicStatus.active).firstOrNull;
-      if (activeTopic != null) return activeTopic;
+      // ADL参加者: ADL専用 → 汎用 の優先順
+      // 非ADL: 汎用のみ（ADL専用は除外）
+      VibeTopicModel? pickFrom(Iterable<VibeTopicModel> source) {
+        final active = source
+            .where((t) => t.status == VibeTopicStatus.active)
+            .firstOrNull;
+        return active ?? source.firstOrNull;
+      }
 
-      // ステータス更新漏れのフォールバック
-      return topics.firstOrNull;
+      if (forAdl) {
+        final adlOnly = topics.where((t) => t.isAdlOnly);
+        final adlTopic = pickFrom(adlOnly);
+        if (adlTopic != null) return adlTopic;
+      }
+      final general = topics.where((t) => !t.isAdlOnly);
+      return pickFrom(general);
     } catch (e) {
       if (kDebugMode) {
         print('Error getting today\'s topic: $e');

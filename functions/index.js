@@ -476,7 +476,8 @@ exports.onPostCreated = onDocumentCreated(
 
       console.log(`onPostCreated: ${enabledFollowers.length} / ${followers.length} followers enabled`);
 
-      // 各フォロワーの状態遷移を処理
+      // 各フォロワーの状態遷移を処理 (10件ずつ並列実行)
+      const chunkSize = 10;
       for (let i = 0; i < enabledFollowers.length; i += chunkSize) {
         const chunk = enabledFollowers.slice(i, i + chunkSize);
         await Promise.all(
@@ -1217,6 +1218,52 @@ async function _sendVibeNotificationToUsers(db, topicDoc, skipPostedCheck, targe
  * deleteUserData() の補完として、サーバー側でも補助データを削除する。
  */
 /**
+ * adl_config/current から チーム賞期間（teamRankingStart〜teamRankingEnd）を読む。
+ * 設定されていない場合は null を返し、呼び出し側は「期間制限なし（全期間集計）」として扱う。
+ *
+ * インスタンス内で5分間キャッシュし、いいね集中時の Firestore 読み取りを削減する。
+ * ADL期間中に設定変更した場合、最大5分後に反映される。
+ */
+let _teamRankingWindowCache = undefined;
+let _teamRankingWindowCacheExpiry = 0;
+const _TEAM_RANKING_WINDOW_TTL_MS = 5 * 60 * 1000;
+
+async function getTeamRankingWindow() {
+  const now = Date.now();
+  if (_teamRankingWindowCache !== undefined && now < _teamRankingWindowCacheExpiry) {
+    return _teamRankingWindowCache;
+  }
+  try {
+    const snap = await admin.firestore().doc('adl_config/current').get();
+    if (!snap.exists) {
+      _teamRankingWindowCache = null;
+    } else {
+      const data = snap.data() || {};
+      const start = data.teamRankingStart?.toDate?.() || null;
+      const end = data.teamRankingEnd?.toDate?.() || null;
+      _teamRankingWindowCache = (!start || !end) ? null : { start, end };
+    }
+    _teamRankingWindowCacheExpiry = now + _TEAM_RANKING_WINDOW_TTL_MS;
+    return _teamRankingWindowCache;
+  } catch (e) {
+    console.warn('getTeamRankingWindow failed:', e);
+    // エラー時は古いキャッシュをそのまま返す（nullよりはマシ）
+    return _teamRankingWindowCache ?? null;
+  }
+}
+
+/**
+ * 投稿の作成日時がチーム賞期間内かを判定する。
+ * window が null（期間未設定）の場合は常に true（全期間集計）。
+ */
+function isPostInTeamRankingWindow(postData, window) {
+  if (!window) return true;
+  const createdAt = postData?.createdAt?.toDate?.() || null;
+  if (!createdAt) return false;
+  return createdAt >= window.start && createdAt < window.end;
+}
+
+/**
  * ADL いいね・投稿数集計
  *
  * posts コレクションの書き込みを監視し、post.adlTeamId に紐づく
@@ -1226,6 +1273,9 @@ async function _sendVibeNotificationToUsers(db, topicDoc, skipPostedCheck, targe
  * 投稿削除時は対応する班から likeCount と postCount を減算する。
  * post.adlTeamId フィールドを使用するため、投稿時点の所属班に固定される
  * （投稿者が後で別班に移っても、過去投稿のいいねは元の班に帰属し続ける）。
+ *
+ * チーム賞期間（teamRankingStart〜teamRankingEnd）が設定されている場合、
+ * post.createdAt が期間内のときだけ集計対象になる。
  */
 exports.adlLikeAggregation = onDocumentWritten(
   'posts/{postId}',
@@ -1240,6 +1290,13 @@ exports.adlLikeAggregation = onDocumentWritten(
 
     const isCreated = !before && !!after;
     const isDeleted = !!before && !after;
+
+    // 期間判定: 投稿の createdAt は不変なので before/after どちらかから取得可能
+    const window = await getTeamRankingWindow();
+    const inWindow = isPostInTeamRankingWindow(after || before, window);
+    if (!inWindow) {
+      return;
+    }
 
     // teamId → { likeDelta, postDelta } を集約
     const updates = new Map();
@@ -1292,6 +1349,9 @@ exports.adlLikeAggregation = onDocumentWritten(
  * posts コレクションを全走査し、adlTeamId ごとに likeCount/postCount を再集計して
  * adl_teams/{teamId} に書き戻す。ドリフト修正用。
  *
+ * チーム賞期間（teamRankingStart〜teamRankingEnd）が設定されている場合は
+ * 期間内の投稿のみを集計対象にする。
+ *
  * 9固定班すべてに対して書き込む（対象投稿がない班は 0 にリセット）。
  */
 exports.adlRecomputeLikeCounts = onCall(async (request) => {
@@ -1311,8 +1371,9 @@ exports.adlRecomputeLikeCounts = onCall(async (request) => {
   ];
 
   const db = admin.firestore();
+  const window = await getTeamRankingWindow();
 
-  // 全 posts を読み（adlTeamId を持つもののみ集計）
+  // 全 posts を読み（adlTeamId を持つもののみ集計、期間設定があれば絞る）
   const postsSnap = await db.collection('posts').get();
   const totals = {};
   for (const id of FIXED_TEAM_IDS) {
@@ -1322,6 +1383,7 @@ exports.adlRecomputeLikeCounts = onCall(async (request) => {
     const data = doc.data();
     const teamId = data.adlTeamId;
     if (!teamId || !totals[teamId]) continue;
+    if (!isPostInTeamRankingWindow(data, window)) continue;
     totals[teamId].likeCount += data.likeCount ?? 0;
     totals[teamId].postCount += 1;
   }
@@ -1337,6 +1399,171 @@ exports.adlRecomputeLikeCounts = onCall(async (request) => {
 
   console.log(`adlRecomputeLikeCounts by ${uid}: ${JSON.stringify(totals)}`);
   return { success: true, totals };
+});
+
+/**
+ * Vibeお題の投稿数 (vibe_topics/{topicId}.postCount) をリアルタイム集計する。
+ *
+ * onPostCreated / onPostDeleted / onPostUpdated を統合し、
+ * post.isVibe == true かつ post.vibeTopicId が変化したときに
+ * 該当する vibe_topics ドキュメントの postCount を増減する。
+ *
+ * 検索画面の「N件の投稿」表示はこのフィールドを参照するため、
+ * トリガーが落ちると 0 件表示のドリフトが起こる。
+ */
+exports.vibeTopicPostAggregation = onDocumentWritten(
+  'posts/{postId}',
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    const after  = event.data.after.exists  ? event.data.after.data()  : null;
+
+    // 「Vibe投稿として集計対象」かどうかの判定
+    const countedBefore = !!(before && before.isVibe === true && before.vibeTopicId);
+    const countedAfter  = !!(after  && after.isVibe  === true && after.vibeTopicId);
+
+    const beforeTopicId = countedBefore ? before.vibeTopicId : null;
+    const afterTopicId  = countedAfter  ? after.vibeTopicId  : null;
+
+    if (beforeTopicId === afterTopicId) return; // 変化なし
+
+    const db = admin.firestore();
+    const FieldValue = admin.firestore.FieldValue;
+    const batch = db.batch();
+    if (beforeTopicId) {
+      batch.set(
+        db.doc(`vibe_topics/${beforeTopicId}`),
+        { postCount: FieldValue.increment(-1) },
+        { merge: true },
+      );
+    }
+    if (afterTopicId) {
+      batch.set(
+        db.doc(`vibe_topics/${afterTopicId}`),
+        { postCount: FieldValue.increment(1) },
+        { merge: true },
+      );
+    }
+    await batch.commit();
+  }
+);
+
+/**
+ * vibe_topics.postCount を全走査で再集計する管理者用 callable。
+ * ドリフト修正・初回シード用。
+ */
+exports.recomputeVibeTopicPostCounts = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です');
+  }
+  const uid = request.auth.uid;
+  const userSnap = await admin.firestore().doc(`users/${uid}`).get();
+  if (!userSnap.exists || userSnap.data()?.isAdmin !== true) {
+    throw new HttpsError('permission-denied', '管理者権限がありません');
+  }
+
+  const db = admin.firestore();
+
+  // 全 posts を走査 → vibeTopicId 別にカウント
+  const postsSnap = await db.collection('posts')
+    .where('isVibe', '==', true)
+    .get();
+  const counts = {};
+  for (const doc of postsSnap.docs) {
+    const topicId = doc.data().vibeTopicId;
+    if (!topicId) continue;
+    counts[topicId] = (counts[topicId] || 0) + 1;
+  }
+
+  // 既存 vibe_topics 一覧を取得（集計結果が無い場合は 0 にリセット）
+  const topicsSnap = await db.collection('vibe_topics').get();
+  const allTopicIds = new Set(topicsSnap.docs.map(d => d.id));
+  for (const id of Object.keys(counts)) allTopicIds.add(id);
+
+  // 450件ずつバッチコミット
+  const ids = Array.from(allTopicIds);
+  let written = 0;
+  for (let i = 0; i < ids.length; i += 450) {
+    const batch = db.batch();
+    for (const id of ids.slice(i, i + 450)) {
+      batch.set(
+        db.collection('vibe_topics').doc(id),
+        { postCount: counts[id] || 0 },
+        { merge: true },
+      );
+      written++;
+    }
+    await batch.commit();
+  }
+
+  console.log(`recomputeVibeTopicPostCounts by ${uid}: ${written} topics, ${Object.keys(counts).length} non-zero`);
+  return { success: true, topicCount: written, nonZeroCount: Object.keys(counts).length };
+});
+
+/**
+ * 班員数 (adl_teams/{teamId}.memberCount) を実態に合わせて再集計する。
+ * users.adlTeamId の実数を数え直し、班アカウント自身 (users/{teamId}) は除外する。
+ *
+ * ドリフト要因:
+ *   - ダミーユーザー一括削除で leaveTeam を経由していない
+ *   - 管理 console から直接 users を削除した
+ *   - アカウント削除フローで班抜けが呼ばれていない
+ */
+exports.adlRecomputeMemberCounts = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です');
+  }
+  const uid = request.auth.uid;
+  const userSnap = await admin.firestore().doc(`users/${uid}`).get();
+  if (!userSnap.exists || userSnap.data()?.isAdmin !== true) {
+    throw new HttpsError('permission-denied', '管理者権限がありません');
+  }
+
+  const FIXED_TEAM_IDS = [
+    'adl_house', 'adl_break', 'adl_girls', 'adl_hiphop', 'adl_new',
+    'adl_free', 'adl_lock', 'adl_waack', 'adl_jazz',
+  ];
+
+  const db = admin.firestore();
+  const counts = {};
+  for (const id of FIXED_TEAM_IDS) counts[id] = 0;
+
+  // users コレクションを一括で読む（adlTeamId を持つもののみ集計）
+  const usersSnap = await db.collection('users').get();
+  for (const doc of usersSnap.docs) {
+    const teamId = doc.data().adlTeamId;
+    if (!teamId || !FIXED_TEAM_IDS.includes(teamId)) continue;
+    // 班アカウント自身 (users/{teamId}) は実メンバーに含めない
+    if (doc.id === teamId) continue;
+    counts[teamId] += 1;
+  }
+
+  const batch = db.batch();
+  for (const teamId of FIXED_TEAM_IDS) {
+    batch.update(db.doc(`adl_teams/${teamId}`), {
+      memberCount: counts[teamId],
+    });
+  }
+  await batch.commit();
+
+  console.log(`adlRecomputeMemberCounts by ${uid}: ${JSON.stringify(counts)}`);
+  return { success: true, counts };
+});
+
+/**
+ * 本人アカウント削除（Admin SDK 経由）
+ *
+ * クライアントの user.delete() は requires-recent-login が必要だが、
+ * Admin SDK は制約なしで削除できるため、再認証が完了できないケースでも動作する。
+ * request.auth で呼び出し元が本人であることを検証する。
+ */
+exports.deleteCurrentUser = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です');
+  }
+  const uid = request.auth.uid;
+  await admin.auth().deleteUser(uid);
+  console.log(`deleteCurrentUser: deleted auth user ${uid}`);
+  return { success: true };
 });
 
 exports.onUserDocDeleted = onDocumentDeleted(
@@ -1477,7 +1704,7 @@ function _getCenteredCardPos(layoutIndex) {
 }
 
 exports.dailyDummyUserPosts = onSchedule(
-  { schedule: '1 0 * * *', timeZone: 'Asia/Tokyo' },
+  { schedule: '1 0 * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 540 },
   async () => {
     const db = admin.firestore();
 
@@ -1568,131 +1795,843 @@ exports.dailyDummyUserPosts = onSchedule(
         console.error('dailyDummyUserPosts: Vibeトピック取得エラー:', e.message);
       }
 
-      function randomInt(min, max) {
-        return Math.floor(Math.random() * (max - min + 1)) + min;
-      }
-      function pickRandom(arr) {
-        return arr[Math.floor(Math.random() * arr.length)];
-      }
-
-      // ── ユーザーをシャッフルして投稿時刻を割り当て ──────────────
-      // 0:xx JST: 7人、1:xx JST: 1人、2:xx JST: 1人、3:xx JST: 1人
-      const shuffledIds = [...userIds].sort(() => Math.random() - 0.5);
-      function getPostHour(index) {
-        return index < 7 ? 0 : index - 6; // 0..6→0h, 7→1h, 8→2h, 9→3h
-      }
-
-      // ── ユーザー情報を一括取得 ──────────────────────────────────
-      const userDocs = await Promise.all(
-        shuffledIds.map(uid => db.collection('users').doc(uid).get())
+      // ── ダミー投稿を実際に生成する共通処理 ──────────────────────
+      const createdCount = await _createDummyPosts(
+        db, userIds, postPhotoUrls, tracks, activeTopic, jstYear, jstMonth, jstDate
       );
-
-      // ── ランダムデータを事前に計算 ──────────────────────────────────
-      const selections = shuffledIds.map(() => ({
-        photoUrl:    pickRandom(postPhotoUrls),
-        track:       pickRandom(tracks),
-        layoutIndex: pickRandom([1, 2, 3]), // 0(歌詞テキスト)は使用しない
-      }));
-
-      // ── アルバムアートから色を並列抽出 ─────────────────────────────
-      const themes = await Promise.all(
-        selections.map(sel => _extractThemeFromAlbumArt(sel.track.albumImageUrl))
-      );
-
-      // ── 各ユーザーの投稿を作成 ──────────────────────────────────
-      const batch = db.batch();
-      let createdCount = 0;
-
-      for (let i = 0; i < shuffledIds.length; i++) {
-        const userId  = shuffledIds[i];
-        const userDoc = userDocs[i];
-        if (!userDoc.exists) {
-          console.log(`  Skip ${userId}: ユーザードキュメントなし`);
-          continue;
-        }
-
-        const userData = userDoc.data();
-        const { photoUrl, track, layoutIndex } = selections[i];
-        const theme   = themes[i];
-        const cardPos = _getCenteredCardPos(layoutIndex);
-
-        // 投稿時刻: getPostHour(i) 時 JST、分秒はランダム
-        const postHour   = getPostHour(i);
-        const postMinute = randomInt(0, 59);
-        const postSecond = randomInt(0, 59);
-        const postTimeJst = new Date(Date.UTC(jstYear, jstMonth, jstDate, postHour, postMinute, postSecond));
-        const postTimeUtc = new Date(postTimeJst.getTime() - 9 * 60 * 60 * 1000);
-        const postTimestamp = admin.firestore.Timestamp.fromDate(postTimeUtc);
-
-        const postRef = db.collection('posts').doc();
-        batch.set(postRef, {
-          userId,
-          username:    userData.username || '',
-          userIconUrl: userData.profileImageUrl || null,
-          track: {
-            trackId:       track.trackId,
-            trackName:     track.trackName,
-            artistName:    track.artistName,
-            albumImageUrl: track.albumImageUrl,
-            previewUrl:    track.previewUrl || null,
-            trackUrl:      null,
-            lyrics:        null,
-            tempo:         null,
-          },
-          photoUrl,
-          imageOffsetX: 0.0,
-          imageOffsetY: 0.0,
-          imageScale:   1.0,
-          imageNaturalWidth:  0.0,
-          imageNaturalHeight: 0.0,
-          selectedLayoutIndex: layoutIndex,
-          cardPositionX: cardPos.x,
-          cardPositionY: cardPos.y,
-          cardScale:     1.0,
-          cardRotation:  0.0,
-          theme: {
-            gradientStart:        theme.gradientStart,
-            gradientEnd:          theme.gradientEnd,
-            commentButtonColor:   theme.commentButtonColor,
-            textColor:            theme.textColor,
-            iconColor:            theme.iconColor,
-          },
-          likeCount:           0,
-          commentCount:        0,
-          likedUserIds:        [],
-          likedByUserIconUrls: [],
-          savedByUserIds:      [],
-          savedByUserIconUrls: [],
-          isVibe:           activeTopic !== null,
-          vibeTopicId:      activeTopic?.id   || null,
-          vibeTopicTitle:   activeTopic?.title || null,
-          vibeDate:         activeTopic?.date  || null,
-          emotionTag:       null,
-          lyricsText:       null,
-          audioStartMs:     0,
-          audioDurationSec: 15,
-          university:       userData.university || null,
-          campusVibeParticipating: false,
-          campusVibePost:   false,
-          adlTeamId:        null,
-          isDummyPost:      true,
-          createdAt:        postTimestamp,
-          updatedAt:        postTimestamp,
-        });
-
-        batch.update(db.collection('users').doc(userId), {
-          postsCount: admin.firestore.FieldValue.increment(1),
-          updatedAt:  admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        createdCount++;
-        console.log(`  ✓ ${userData.username}: ${track.trackName} - ${track.artistName} (${postHour}:${String(postMinute).padStart(2,'0')} JST)`);
-      }
-
-      await batch.commit();
       console.log(`dailyDummyUserPosts: ${createdCount}件の投稿を作成しました`);
     } catch (err) {
       console.error('dailyDummyUserPosts error:', err);
     }
+  }
+);
+
+/**
+ * ダミー投稿生成の共通ロジック（スケジュール版・手動版で共有）
+ * 1ユーザーあたり POSTS_PER_USER 件の投稿を作成し、作成件数を返す。
+ */
+const POSTS_PER_USER = 1;
+
+async function _createDummyPosts(db, userIds, postPhotoUrls, tracks, activeTopic, jstYear, jstMonth, jstDate) {
+  function randomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+  function pickRandom(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  const shuffledIds = [...userIds].sort(() => Math.random() - 0.5);
+
+  // ── ユーザー情報を100件ずつ並列取得 ──────────────────────────
+  const FETCH_CHUNK = 100;
+  const userDocs = [];
+  for (let c = 0; c < shuffledIds.length; c += FETCH_CHUNK) {
+    const chunk = await Promise.all(
+      shuffledIds.slice(c, c + FETCH_CHUNK).map(uid => db.collection('users').doc(uid).get())
+    );
+    userDocs.push(...chunk);
+  }
+
+  // ── ユーザー×投稿数分のランダムデータを事前計算 ──────────────
+  // 表面はカードコードが track.albumImageUrl を使う。裏面は photoUrl を使うため
+  // photoUrl には事前用意の Storage 写真を割り当てる。
+  const allSelections = shuffledIds.map(() =>
+    Array.from({ length: POSTS_PER_USER }, () => ({
+      photoUrl:    pickRandom(postPhotoUrls),
+      track:       pickRandom(tracks),
+      layoutIndex: pickRandom([1, 2, 3]),
+    }))
+  );
+
+  // ── URLの重複を排除してアルバムアートから色を効率よく抽出 ─────
+  // Apple Music TOP50 は最大50曲なので最大50回のHTTPリクエストに収まる
+  const uniqueUrls = [...new Set(allSelections.flat().map(s => s.track.albumImageUrl))];
+  const urlToTheme = {};
+  const THEME_CHUNK = 50;
+  for (let c = 0; c < uniqueUrls.length; c += THEME_CHUNK) {
+    const chunkUrls = uniqueUrls.slice(c, c + THEME_CHUNK);
+    const themes = await Promise.all(chunkUrls.map(url => _extractThemeFromAlbumArt(url)));
+    chunkUrls.forEach((url, i) => { urlToTheme[url] = themes[i]; });
+  }
+
+  // ── 各ユーザーの投稿をバッチ作成（500件上限を考慮して分割）───
+  // 1ユーザーにつき post.set + user.update = 2ops → 400ops/batch = 200人/batch
+  const BATCH_THRESHOLD = 400;
+  const batchPromises = [];
+  let batch = db.batch();
+  let batchOps = 0;
+  let createdCount = 0;
+
+  function flushIfNeeded() {
+    if (batchOps >= BATCH_THRESHOLD) {
+      batchPromises.push(batch.commit());
+      batch = db.batch();
+      batchOps = 0;
+    }
+  }
+
+  for (let i = 0; i < shuffledIds.length; i++) {
+    const userId  = shuffledIds[i];
+    const userDoc = userDocs[i];
+    if (!userDoc.exists) {
+      console.log(`  Skip ${userId}: ユーザードキュメントなし`);
+      continue;
+    }
+
+    const userData = userDoc.data();
+
+    for (let p = 0; p < POSTS_PER_USER; p++) {
+      const { photoUrl, track, layoutIndex } = allSelections[i][p];
+      const theme   = urlToTheme[track.albumImageUrl] || _DUMMY_DEFAULT_THEME;
+      const cardPos = _getCenteredCardPos(layoutIndex);
+
+      const postHour   = randomInt(8, 22);
+      const postMinute = randomInt(0, 59);
+      const postSecond = randomInt(0, 59);
+      const postTimeJst = new Date(Date.UTC(jstYear, jstMonth, jstDate, postHour, postMinute, postSecond));
+      const postTimeUtc = new Date(postTimeJst.getTime() - 9 * 60 * 60 * 1000);
+      const postTimestamp = admin.firestore.Timestamp.fromDate(postTimeUtc);
+
+      const postRef = db.collection('posts').doc();
+      batch.set(postRef, {
+        userId,
+        username:    userData.username || '',
+        userIconUrl: userData.profileImageUrl || null,
+        track: {
+          trackId:       track.trackId,
+          trackName:     track.trackName,
+          artistName:    track.artistName,
+          albumImageUrl: track.albumImageUrl,
+          previewUrl:    track.previewUrl || null,
+          trackUrl:      null,
+          lyrics:        null,
+          tempo:         null,
+        },
+        photoUrl,
+        imageOffsetX: 0.0,
+        imageOffsetY: 0.0,
+        imageScale:   1.0,
+        imageNaturalWidth:  0.0,
+        imageNaturalHeight: 0.0,
+        selectedLayoutIndex: layoutIndex,
+        cardPositionX: cardPos.x,
+        cardPositionY: cardPos.y,
+        cardScale:     1.0,
+        cardRotation:  0.0,
+        theme: {
+          gradientStart:        theme.gradientStart,
+          gradientEnd:          theme.gradientEnd,
+          commentButtonColor:   theme.commentButtonColor,
+          textColor:            theme.textColor,
+          iconColor:            theme.iconColor,
+        },
+        likeCount:           0,
+        commentCount:        0,
+        likedUserIds:        [],
+        likedByUserIconUrls: [],
+        savedByUserIds:      [],
+        savedByUserIconUrls: [],
+        isVibe:           activeTopic !== null,
+        vibeTopicId:      activeTopic?.id   || null,
+        vibeTopicTitle:   activeTopic?.title || null,
+        vibeDate:         activeTopic?.date  || null,
+        emotionTag:       null,
+        lyricsText:       null,
+        audioStartMs:     0,
+        audioDurationSec: 15,
+        university:       userData.university || null,
+        campusVibeParticipating: false,
+        campusVibePost:   false,
+        adlTeamId:        userData.adlTeamId || null,
+        isDummyPost:      true,
+        createdAt:        postTimestamp,
+        updatedAt:        postTimestamp,
+      });
+      batchOps++;
+      createdCount++;
+      flushIfNeeded();
+    }
+
+    batch.update(db.collection('users').doc(userId), {
+      postsCount: admin.firestore.FieldValue.increment(POSTS_PER_USER),
+      updatedAt:  admin.firestore.FieldValue.serverTimestamp(),
+    });
+    batchOps++;
+    flushIfNeeded();
+  }
+
+  if (batchOps > 0) batchPromises.push(batch.commit());
+  await Promise.all(batchPromises);
+  console.log(`_createDummyPosts: ${createdCount}件を${batchPromises.length}バッチで作成`);
+  return createdCount;
+}
+
+/**
+ * ダミー投稿を手動で今すぐ生成（管理者専用・日付ロックなし）
+ * Firebase Console から呼び出し可能。テスト・デバッグ用。
+ */
+exports.manualDummyUserPosts = onCall(
+  { timeoutSeconds: 300 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    const now = new Date();
+    const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const jstYear  = jstNow.getUTCFullYear();
+    const jstMonth = jstNow.getUTCMonth();
+    const jstDate  = jstNow.getUTCDate();
+
+    const [usersSnap, photosSnap, tracksSnap] = await Promise.all([
+      db.doc('dummy_config/users').get(),
+      db.doc('dummy_config/photos').get(),
+      db.doc('dummy_config/tracks').get(),
+    ]);
+    if (!usersSnap.exists || !photosSnap.exists || !tracksSnap.exists) {
+      throw new HttpsError('not-found', 'dummy_config が未作成です');
+    }
+
+    const userIds       = usersSnap.data().userIds || [];
+    const postPhotoUrls = photosSnap.data().postPhotoUrls || [];
+    const tracks        = tracksSnap.data().list || [];
+
+    let activeTopic = null;
+    const topicSnap = await db.collection('vibe_topics').where('status', '==', 'active').limit(1).get();
+    if (!topicSnap.empty) {
+      const doc = topicSnap.docs[0];
+      activeTopic = { id: doc.id, ...doc.data() };
+    }
+
+    const createdCount = await _createDummyPosts(
+      db, userIds, postPhotoUrls, tracks, activeTopic, jstYear, jstMonth, jstDate
+    );
+    console.log(`manualDummyUserPosts: ${createdCount}件作成`);
+    return { success: true, createdCount };
+  }
+);
+
+// ── ADLプレテスト用: 大量ダミーユーザー作成・クリーンアップ ─────────────────────
+
+const _ADL_TEAM_IDS = [
+  'adl_house', 'adl_break', 'adl_girls', 'adl_hiphop', 'adl_new',
+  'adl_free', 'adl_lock', 'adl_waack', 'adl_jazz',
+];
+
+/**
+ * 大量ダミーユーザー作成（ADLプレテスト用・管理者限定）
+ *
+ * count 件（デフォルト600）のユーザードキュメントを Firestore に作成し、
+ * 9チームに均等配分する。dummy_config/users に追加して毎日投稿対象にする。
+ * クリーンアップ用に dummy_config/bulkDummyUsers に作成した UID 一覧を記録する。
+ */
+exports.createBulkDummyUsers = onCall(
+  { timeoutSeconds: 540 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    const totalCount = request.data?.count || 600;
+
+    // プロフィール画像リストを取得（なければ postPhotoUrls で代用）
+    const photosSnap = await db.doc('dummy_config/photos').get();
+    const profileImageUrls = photosSnap.exists
+      ? (photosSnap.data().profileImageUrls || photosSnap.data().postPhotoUrls || [])
+      : [];
+
+    const BATCH_THRESHOLD = 450;
+    const newUserIds = [];
+    let batch = db.batch();
+    let batchOps = 0;
+    const batchPromises = [];
+
+    function flushIfNeeded() {
+      if (batchOps >= BATCH_THRESHOLD) {
+        batchPromises.push(batch.commit());
+        batch = db.batch();
+        batchOps = 0;
+      }
+    }
+
+    for (let i = 0; i < totalCount; i++) {
+      const teamId = _ADL_TEAM_IDS[i % _ADL_TEAM_IDS.length];
+      const userNum = String(i + 1).padStart(4, '0');
+      const userRef = db.collection('users').doc();
+      newUserIds.push(userRef.id);
+
+      const profileImageUrl = profileImageUrls.length > 0
+        ? profileImageUrls[i % profileImageUrls.length]
+        : null;
+
+      batch.set(userRef, {
+        uid:              userRef.id,
+        username:         `dummy_${userNum}`,
+        name:             `ダミー${userNum}`,
+        displayName:      `ダミー${userNum}`,
+        bio:              '',
+        profileImageUrl,
+        savedPosts:       [],
+        isADLParticipant: true,
+        adlTeamId:        teamId,
+        isBulkDummyUser:  true,
+        isDummyUser:      true,
+        following:        [],
+        followers:        [],
+        followingCount:   0,
+        followerCount:    0,
+        postsCount:       0,
+        likeCount:        0,
+        university:       null,
+        isAdmin:          false,
+        createdAt:        admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt:        admin.firestore.FieldValue.serverTimestamp(),
+      });
+      batchOps++;
+      flushIfNeeded();
+    }
+    if (batchOps > 0) batchPromises.push(batch.commit());
+    await Promise.all(batchPromises);
+    console.log(`createBulkDummyUsers: ${totalCount}件のユーザードキュメントを${batchPromises.length}バッチで作成`);
+
+    // dummy_config/users を更新（既存 userIds にマージ）
+    const existingUsersSnap = await db.doc('dummy_config/users').get();
+    const existingIds = existingUsersSnap.exists ? (existingUsersSnap.data().userIds || []) : [];
+    await db.doc('dummy_config/users').set({ userIds: [...existingIds, ...newUserIds] });
+
+    // クリーンアップ用に作成 UID を記録
+    await db.doc('dummy_config/bulkDummyUsers').set({
+      userIds:   newUserIds,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const dist = _ADL_TEAM_IDS.map((id, idx) => ({
+      teamId: id,
+      count:  newUserIds.filter((_, i) => i % _ADL_TEAM_IDS.length === idx).length,
+    }));
+    console.log(`createBulkDummyUsers: 完了 チーム分布=${JSON.stringify(dist)}`);
+    return { success: true, createdCount: totalCount, distribution: dist };
+  }
+);
+
+/**
+ * 大量ダミーユーザー一括削除（ADLプレテスト後クリーンアップ・管理者限定）
+ *
+ * dummy_config/bulkDummyUsers に記録された UID のユーザードキュメントと
+ * その投稿をすべて削除し、dummy_config/users から除外する。
+ */
+exports.cleanupBulkDummyUsers = onCall(
+  { timeoutSeconds: 540 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    const bulkSnap = await db.doc('dummy_config/bulkDummyUsers').get();
+    if (!bulkSnap.exists) {
+      return { success: true, message: 'dummy_config/bulkDummyUsers が存在しません', deletedUsers: 0, deletedPosts: 0 };
+    }
+    const bulkUserIds = bulkSnap.data().userIds || [];
+    if (bulkUserIds.length === 0) {
+      return { success: true, message: '削除対象ユーザーなし', deletedUsers: 0, deletedPosts: 0 };
+    }
+    console.log(`cleanupBulkDummyUsers: ${bulkUserIds.length}件のユーザーを削除します`);
+
+    // ① 投稿を削除（userId が対象の全投稿を30件チャンクで取得）
+    const IN_CHUNK = 30;
+    let deletedPosts = 0;
+    let postBatch = db.batch();
+    let postOps = 0;
+    const postBatchPromises = [];
+
+    for (let c = 0; c < bulkUserIds.length; c += IN_CHUNK) {
+      const chunk = bulkUserIds.slice(c, c + IN_CHUNK);
+      const postsSnap = await db.collection('posts')
+        .where('userId', 'in', chunk)
+        .get();
+      for (const doc of postsSnap.docs) {
+        postBatch.delete(doc.ref);
+        postOps++;
+        deletedPosts++;
+        if (postOps >= 450) {
+          postBatchPromises.push(postBatch.commit());
+          postBatch = db.batch();
+          postOps = 0;
+        }
+      }
+    }
+    if (postOps > 0) postBatchPromises.push(postBatch.commit());
+    await Promise.all(postBatchPromises);
+    console.log(`cleanupBulkDummyUsers: ${deletedPosts}件の投稿を削除`);
+
+    // ②-a 削除前に班別の所属頭数を集計（memberCount のドリフト防止）
+    const teamMemberDelta = {};
+    for (let c = 0; c < bulkUserIds.length; c += IN_CHUNK) {
+      const chunk = bulkUserIds.slice(c, c + IN_CHUNK);
+      const refs = chunk.map((uid) => db.collection('users').doc(uid));
+      const docs = await db.getAll(...refs);
+      for (const d of docs) {
+        const teamId = d.exists ? d.data().adlTeamId : null;
+        if (teamId) {
+          teamMemberDelta[teamId] = (teamMemberDelta[teamId] || 0) + 1;
+        }
+      }
+    }
+
+    // ②-b ユーザードキュメントを削除
+    let deletedUsers = 0;
+    let userBatch = db.batch();
+    let userOps = 0;
+    const userBatchPromises = [];
+    for (const uid of bulkUserIds) {
+      userBatch.delete(db.collection('users').doc(uid));
+      userOps++;
+      deletedUsers++;
+      if (userOps >= 450) {
+        userBatchPromises.push(userBatch.commit());
+        userBatch = db.batch();
+        userOps = 0;
+      }
+    }
+    if (userOps > 0) userBatchPromises.push(userBatch.commit());
+    await Promise.all(userBatchPromises);
+    console.log(`cleanupBulkDummyUsers: ${deletedUsers}件のユーザードキュメントを削除`);
+
+    // ②-c 集計した班ごとの所属数を adl_teams.memberCount から減算
+    if (Object.keys(teamMemberDelta).length > 0) {
+      const memBatch = db.batch();
+      for (const [teamId, delta] of Object.entries(teamMemberDelta)) {
+        memBatch.update(db.collection('adl_teams').doc(teamId), {
+          memberCount: admin.firestore.FieldValue.increment(-delta),
+        });
+      }
+      await memBatch.commit();
+      console.log(`cleanupBulkDummyUsers: memberCount を減算 ${JSON.stringify(teamMemberDelta)}`);
+    }
+
+    // ③ dummy_config/users から除外（元の10件だけ残す）
+    const existingSnap = await db.doc('dummy_config/users').get();
+    const existingIds = existingSnap.exists ? (existingSnap.data().userIds || []) : [];
+    const bulkSet = new Set(bulkUserIds);
+    const remaining = existingIds.filter(id => !bulkSet.has(id));
+    await db.doc('dummy_config/users').set({ userIds: remaining });
+
+    // ④ bulkDummyUsers レコードを削除
+    await db.doc('dummy_config/bulkDummyUsers').delete();
+
+    // ⑤ テストフォロー設定があれば連鎖クリーンアップ
+    const followResult = await _cleanupTestFollowsInternal(db);
+
+    // ⑥ Auth アカウントがあれば連鎖削除
+    const authResult = await _cleanupBulkDummyAuthInternal(db);
+
+    console.log(`cleanupBulkDummyUsers: 完了 (users: ${deletedUsers}, posts: ${deletedPosts}, follows: ${followResult.unfollowed}, auth: ${authResult.deleted})`);
+    return {
+      success: true,
+      deletedUsers,
+      deletedPosts,
+      followsRemoved: followResult.unfollowed,
+      authDeleted: authResult.deleted,
+    };
+  }
+);
+
+// ── 負荷テスト用 Auth アカウント作成・削除 ──────────────────────────────────────
+
+const _LOAD_TEST_PASSWORD = 'LoadTest2026Secure!';
+const _LOAD_TEST_EMAIL_DOMAIN = 'loadtest.fifteens.test';
+
+/**
+ * 600人のダミーユーザーに Firebase Auth アカウントを付与する。
+ * 既存の Firestore UID をそのまま Auth UID として使用するため、
+ * dummy_config/bulkDummyUsers が事前に作成されている必要がある。
+ *
+ * email pattern: lt_<UID先頭12文字>@loadtest.fifteens.test
+ * password: 共通 (_LOAD_TEST_PASSWORD)
+ *
+ * 冪等: 既存アカウントは skipped にカウント
+ */
+exports.createBulkDummyAuthAccounts = onCall(
+  { timeoutSeconds: 540 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    const bulkSnap = await db.doc('dummy_config/bulkDummyUsers').get();
+    if (!bulkSnap.exists) {
+      throw new HttpsError('not-found', 'bulkDummyUsers がありません。先に600人作成してください');
+    }
+    const uids = bulkSnap.data().userIds || [];
+    if (uids.length === 0) {
+      return { created: 0, skipped: 0, failed: 0, total: 0 };
+    }
+
+    let created = 0, skipped = 0, failed = 0;
+    const CONCURRENCY = 50; // Auth API rate limit を意識
+    const errors = [];
+
+    for (let i = 0; i < uids.length; i += CONCURRENCY) {
+      const chunk = uids.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        chunk.map(uid => {
+          const email = `lt_${uid.substring(0, 12).toLowerCase()}@${_LOAD_TEST_EMAIL_DOMAIN}`;
+          return admin.auth().createUser({
+            uid,
+            email,
+            password: _LOAD_TEST_PASSWORD,
+            emailVerified: false,
+          });
+        })
+      );
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled') {
+          created++;
+        } else {
+          const code = r.reason?.code || '';
+          if (code === 'auth/uid-already-exists' || code === 'auth/email-already-exists') {
+            skipped++;
+          } else {
+            failed++;
+            if (errors.length < 5) errors.push(`${chunk[idx]}: ${r.reason?.message || code}`);
+          }
+        }
+      });
+    }
+
+    await db.doc('dummy_config/bulkDummyAuth').set({
+      password: _LOAD_TEST_PASSWORD,
+      emailDomain: _LOAD_TEST_EMAIL_DOMAIN,
+      emailPrefix: 'lt_',
+      emailUidLength: 12,
+      uids,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`createBulkDummyAuthAccounts: created=${created}, skipped=${skipped}, failed=${failed}`);
+    return { created, skipped, failed, total: uids.length, errors };
+  }
+);
+
+async function _cleanupBulkDummyAuthInternal(db) {
+  const authSnap = await db.doc('dummy_config/bulkDummyAuth').get();
+  if (!authSnap.exists) return { deleted: 0, failed: 0 };
+  const uids = authSnap.data().uids || [];
+  if (uids.length === 0) {
+    await db.doc('dummy_config/bulkDummyAuth').delete();
+    return { deleted: 0, failed: 0 };
+  }
+
+  let deleted = 0, failed = 0;
+  // deleteUsers は1呼び出しで最大1000件
+  for (let i = 0; i < uids.length; i += 1000) {
+    const chunk = uids.slice(i, i + 1000);
+    try {
+      const result = await admin.auth().deleteUsers(chunk);
+      deleted += result.successCount;
+      failed += result.failureCount;
+    } catch (e) {
+      console.warn(`deleteUsers chunk error: ${e.message}`);
+      failed += chunk.length;
+    }
+  }
+
+  await db.doc('dummy_config/bulkDummyAuth').delete();
+  return { deleted, failed };
+}
+
+exports.cleanupBulkDummyAuthAccounts = onCall(
+  { timeoutSeconds: 540 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+    const result = await _cleanupBulkDummyAuthInternal(db);
+    console.log(`cleanupBulkDummyAuthAccounts: deleted=${result.deleted}, failed=${result.failed}`);
+    return result;
+  }
+);
+
+// ── 負荷テスト用テストフォロー設定 ───────────────────────────────────────────
+
+/**
+ * 指定ユーザー（デフォルト呼び出し元）に全バルクダミーをフォローさせる。
+ * 双方向の場合、各ダミーも targetUid をフォローする（投稿時の通知配信テスト用）。
+ *
+ * 実機での通知暴発検証・タイムライン表示確認に使用。
+ *
+ * - count: フォロー対象を上限N件に絞る (省略時は全件)
+ * - bidirectional: 双方向フォロー (デフォルト true)
+ */
+exports.setupTestFollows = onCall(
+  { timeoutSeconds: 540 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    const targetUid = request.data?.targetUid || request.auth.uid;
+    const bidirectional = request.data?.bidirectional !== false;
+    const limitCount = request.data?.count || null;
+
+    const bulkSnap = await db.doc('dummy_config/bulkDummyUsers').get();
+    if (!bulkSnap.exists) {
+      throw new HttpsError('not-found', 'bulkDummyUsers がありません');
+    }
+    let dummyUids = bulkSnap.data().userIds || [];
+    if (limitCount !== null && limitCount < dummyUids.length) {
+      dummyUids = dummyUids.slice(0, limitCount);
+    }
+    if (dummyUids.length === 0) {
+      return { followedCount: 0, message: 'ダミーユーザーがありません' };
+    }
+
+    // 既存設定があれば事前に解除（重複防止）
+    const existingSnap = await db.doc('dummy_config/testFollows').get();
+    if (existingSnap.exists) {
+      console.log('setupTestFollows: 既存設定を解除中');
+      await _cleanupTestFollowsInternal(db);
+    }
+
+    // 1. ターゲットの following にダミーを追加（arrayUnion を200件ずつ）
+    const UNION_CHUNK = 200;
+    for (let i = 0; i < dummyUids.length; i += UNION_CHUNK) {
+      const chunk = dummyUids.slice(i, i + UNION_CHUNK);
+      await db.collection('users').doc(targetUid).update({
+        following: admin.firestore.FieldValue.arrayUnion(...chunk),
+      });
+    }
+    await db.collection('users').doc(targetUid).update({
+      followingCount: admin.firestore.FieldValue.increment(dummyUids.length),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // 2. 双方向: 各ダミーの followers に targetUid を追加（450件バッチ）
+    if (bidirectional) {
+      const BATCH = 450;
+      const batchPromises = [];
+      let batch = db.batch();
+      let ops = 0;
+      for (const uid of dummyUids) {
+        batch.update(db.collection('users').doc(uid), {
+          followers: admin.firestore.FieldValue.arrayUnion(targetUid),
+          followerCount: admin.firestore.FieldValue.increment(1),
+        });
+        ops++;
+        if (ops >= BATCH) {
+          batchPromises.push(batch.commit());
+          batch = db.batch();
+          ops = 0;
+        }
+      }
+      if (ops > 0) batchPromises.push(batch.commit());
+      await Promise.all(batchPromises);
+    }
+
+    await db.doc('dummy_config/testFollows').set({
+      targetUid,
+      dummyUids,
+      bidirectional,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`setupTestFollows: ${targetUid} → ${dummyUids.length}人 (bidirectional=${bidirectional})`);
+    return { targetUid, followedCount: dummyUids.length, bidirectional };
+  }
+);
+
+async function _cleanupTestFollowsInternal(db) {
+  const setupSnap = await db.doc('dummy_config/testFollows').get();
+  if (!setupSnap.exists) return { unfollowed: 0 };
+  const { targetUid, dummyUids, bidirectional } = setupSnap.data();
+  if (!targetUid || !Array.isArray(dummyUids) || dummyUids.length === 0) {
+    await db.doc('dummy_config/testFollows').delete();
+    return { unfollowed: 0 };
+  }
+
+  // 1. ターゲットの following からダミーを除外
+  const REMOVE_CHUNK = 200;
+  for (let i = 0; i < dummyUids.length; i += REMOVE_CHUNK) {
+    const chunk = dummyUids.slice(i, i + REMOVE_CHUNK);
+    try {
+      await db.collection('users').doc(targetUid).update({
+        following: admin.firestore.FieldValue.arrayRemove(...chunk),
+      });
+    } catch (e) {
+      console.warn(`arrayRemove chunk error: ${e.message}`);
+    }
+  }
+  try {
+    await db.collection('users').doc(targetUid).update({
+      followingCount: admin.firestore.FieldValue.increment(-dummyUids.length),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.warn(`followingCount update error: ${e.message}`);
+  }
+
+  // 2. 双方向だった場合、各ダミーの followers から除外（ダミーが存在する限り）
+  if (bidirectional) {
+    const BATCH = 450;
+    const batchPromises = [];
+    let batch = db.batch();
+    let ops = 0;
+    for (const uid of dummyUids) {
+      batch.update(db.collection('users').doc(uid), {
+        followers: admin.firestore.FieldValue.arrayRemove(targetUid),
+        followerCount: admin.firestore.FieldValue.increment(-1),
+      });
+      ops++;
+      if (ops >= BATCH) {
+        batchPromises.push(batch.commit().catch(e => console.warn(`follower removal batch error: ${e.message}`)));
+        batch = db.batch();
+        ops = 0;
+      }
+    }
+    if (ops > 0) batchPromises.push(batch.commit().catch(e => console.warn(`follower removal batch error: ${e.message}`)));
+    await Promise.all(batchPromises);
+  }
+
+  await db.doc('dummy_config/testFollows').delete();
+  return { unfollowed: dummyUids.length };
+}
+
+exports.cleanupTestFollows = onCall(
+  { timeoutSeconds: 540 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+    const result = await _cleanupTestFollowsInternal(db);
+    console.log(`cleanupTestFollows: ${result.unfollowed}人解除`);
+    return result;
+  }
+);
+
+/**
+ * 既存バルクダミーユーザーに不足フィールドを追加する修正用関数
+ *
+ * createBulkDummyUsers の初期版では uid / name / bio / savedPosts が
+ * 欠けており、UserModel.fromFirestore がプロフィール検索に失敗していた。
+ * この関数を1回だけ実行すれば既存600人を正しい状態にできる。
+ */
+exports.fixBulkDummyUserFields = onCall(
+  { timeoutSeconds: 540 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    const bulkSnap = await db.doc('dummy_config/bulkDummyUsers').get();
+    if (!bulkSnap.exists) {
+      throw new HttpsError('not-found', 'bulkDummyUsers がありません');
+    }
+    const uids = bulkSnap.data().userIds || [];
+
+    let fixed = 0;
+    const BATCH = 400;
+    const batchPromises = [];
+    let batch = db.batch();
+    let ops = 0;
+
+    for (let i = 0; i < uids.length; i++) {
+      const uid = uids[i];
+      const num = String(i + 1).padStart(4, '0');
+      batch.update(db.collection('users').doc(uid), {
+        uid:        uid,
+        name:       `ダミー${num}`,
+        bio:        '',
+        savedPosts: [],
+        updatedAt:  admin.firestore.FieldValue.serverTimestamp(),
+      });
+      ops++;
+      fixed++;
+      if (ops >= BATCH) {
+        batchPromises.push(batch.commit());
+        batch = db.batch();
+        ops = 0;
+      }
+    }
+    if (ops > 0) batchPromises.push(batch.commit());
+    await Promise.all(batchPromises);
+
+    console.log(`fixBulkDummyUserFields: ${fixed}件のユーザーを修正`);
+    return { fixed };
+  }
+);
+
+/**
+ * 今日の0:01に作成された既存ダミー投稿の isDummyPost フラグを外す。
+ * （バルクダミーユーザーの投稿のみ対象）
+ * これによりタイムラインにダミー投稿が流れるようになる。
+ */
+exports.unflagBulkDummyPosts = onCall(
+  { timeoutSeconds: 540 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ログインが必要です');
+    const db = admin.firestore();
+    const adminDoc = await db.collection('users').doc(request.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().isAdmin) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    const bulkSnap = await db.doc('dummy_config/bulkDummyUsers').get();
+    if (!bulkSnap.exists) {
+      throw new HttpsError('not-found', 'bulkDummyUsers がありません');
+    }
+    const bulkUids = bulkSnap.data().userIds || [];
+
+    let updated = 0;
+    const IN_CHUNK = 30;
+    const batchPromises = [];
+    let batch = db.batch();
+    let ops = 0;
+
+    for (let c = 0; c < bulkUids.length; c += IN_CHUNK) {
+      const chunk = bulkUids.slice(c, c + IN_CHUNK);
+      const snap = await db.collection('posts')
+        .where('userId', 'in', chunk)
+        .where('isDummyPost', '==', true)
+        .get();
+      for (const doc of snap.docs) {
+        batch.update(doc.ref, { isDummyPost: false });
+        ops++;
+        updated++;
+        if (ops >= 400) {
+          batchPromises.push(batch.commit());
+          batch = db.batch();
+          ops = 0;
+        }
+      }
+    }
+    if (ops > 0) batchPromises.push(batch.commit());
+    await Promise.all(batchPromises);
+
+    console.log(`unflagBulkDummyPosts: ${updated}件の投稿のフラグを解除`);
+    return { updated };
   }
 );

@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
@@ -187,11 +188,25 @@ class AuthService {
     await _auth.signOut();
   }
 
-  // アカウント削除
+  // アカウント削除（直接）
+  // 再認証直後など requires-recent-login が発生しない場合に使用
   Future<void> deleteAccount() async {
     final user = currentUser;
     if (user != null) {
+      try {
+        await user.getIdToken(true);
+      } catch (e) {
+        if (kDebugMode) print('⚠️ getIdToken(force) failed (continuing): $e');
+      }
       await user.delete();
     }
+  }
+
+  // Cloud Function 経由でアカウント削除（Admin SDK）
+  // requires-recent-login 制約なし。再認証が完了できないケースでも動作する。
+  Future<void> deleteAccountViaFunction() async {
+    await FirebaseFunctions.instance
+        .httpsCallable('deleteCurrentUser')
+        .call<Map<String, dynamic>>();
   }
 }

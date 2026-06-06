@@ -52,6 +52,31 @@ class StorageService {
     }
   }
 
+  /// ADL班プロフィール画像をアップロード
+  Future<String> uploadAdlTeamImage({
+    required String teamId,
+    required Uint8List imageBytes,
+  }) async {
+    try {
+      final storageRef =
+          _storage.ref().child('adl_team_images/$teamId/profile.jpg');
+      final metadata = SettableMetadata(
+        contentType: 'image/jpeg',
+        cacheControl: _imageCacheControl,
+        customMetadata: {'uploaded': DateTime.now().toIso8601String()},
+      );
+      final uploadTask = await storageRef.putData(imageBytes, metadata);
+      final downloadUrl = await uploadTask.ref.getDownloadURL();
+      if (kDebugMode) {
+        print('ADL team image uploaded successfully: $downloadUrl');
+      }
+      return downloadUrl;
+    } catch (e) {
+      if (kDebugMode) print('Error uploading ADL team image: $e');
+      rethrow;
+    }
+  }
+
   /// プロフィール画像を削除
   ///
   /// [userId] ユーザーID

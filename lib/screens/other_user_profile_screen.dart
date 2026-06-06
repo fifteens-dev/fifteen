@@ -92,7 +92,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
   @override
   void dispose() {
     _tabController.dispose();
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     super.dispose();
   }
 

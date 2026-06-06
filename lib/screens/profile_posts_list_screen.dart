@@ -197,7 +197,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
 
   @override
   void dispose() {
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     _scrollController.removeListener(_checkCardVisibility);
     _scrollController.dispose();
     super.dispose();

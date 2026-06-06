@@ -14,6 +14,7 @@ import '../services/music_service_manager.dart';
 import '../services/post_service.dart';
 import '../services/user_service.dart';
 import '../services/vibe_topic_service.dart';
+import '../services/adl_service.dart';
 import '../services/lyrics_service.dart';
 import '../utils/color_extractor.dart';
 import '../services/audio_player_service.dart';
@@ -143,7 +144,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
 
   @override
   void dispose() {
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     _searchController.dispose();
     _searchFocusNode.removeListener(_onSearchFocusChanged);
     _searchFocusNode.dispose();
@@ -289,7 +290,8 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   /// 今日のVibeお題を読み込み
   Future<void> _loadTodaysTopic() async {
     try {
-      final topic = await _vibeTopicService.getTodaysTopic();
+      final forAdl = await AdlService().isCurrentUserAdlParticipant();
+      final topic = await _vibeTopicService.getTodaysTopic(forAdl: forAdl);
       if (mounted) {
         setState(() {
           _todaysTopic = topic;

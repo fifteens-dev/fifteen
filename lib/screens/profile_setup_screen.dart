@@ -7,6 +7,7 @@ import '../services/user_service.dart';
 import '../services/storage_service.dart';
 import '../utils/context_menu_builder.dart';
 import '../widgets/common/app_toast.dart';
+import '../tutorial/tutorial_prefetch_service.dart';
 
 /// プロフィール設定画面
 class ProfileSetupScreen extends StatefulWidget {
@@ -195,6 +196,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       AppToast.show(context, 'ユーザー名を入力してください');
       return;
     }
+
+    // Firestoreへの保存と並行してチュートリアル用プレビューURLの取得を開始する
+    TutorialPrefetchService.instance.prefetchAll();
 
     final currentUser = _authService.currentUser;
 

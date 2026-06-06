@@ -265,7 +265,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
     _flipController.dispose();
     _playButtonAnimController.dispose();
     // 音楽再生を停止
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     super.dispose();
   }
 
@@ -304,6 +304,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
       createdAt: now,
       updatedAt: now,
       theme: PostTheme.defaultTheme, // デフォルトテーマを使用（色抽出は PostCard 内で実行される）
+      adlTeamId: context.read<CurrentUserProvider>().adlTeamId,
     );
   }
 
@@ -709,6 +710,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
           ? '#${widget.vibeTopicTitle}'
           : null,
       showBackground: false,
+      teamId: context.read<CurrentUserProvider>().adlTeamId,
     );
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -35,25 +36,37 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   final Map<String, String?> _freshIconUrls = {};
   // postId → アルバムアートURL のキャッシュ（albumArtUrlが未保存の古い通知向け）
   final Map<String, String?> _albumArtCache = {};
-  List<NotificationModel> _latestNotifications = [];
   Timer? _iconRefreshTimer;
   Timer? _markAsReadTimer;
   bool _isNavigating = false;
-  bool _hasMarkedAsRead = false;
   // 3秒後に視覚的に既読化するためのローカルフラグ
   bool _visuallyRead = false;
   // タップして開いた通知IDのローカル既読セット（Firestoreストリーム更新前に視覚反映）
   final Set<String> _openedNotificationIds = {};
-  // StreamBuilderが再サブスクライブしないようにキャッシュ
-  Stream<List<NotificationModel>>? _notificationsStream;
+
+  // ── ページネーション状態 ──────────────────────────────────────
+  static const int _pageSize = 20;
+  final List<NotificationModel> _notifications = [];
+  final Set<String> _loadedIds = {};
+  DocumentSnapshot? _lastDoc;
+  bool _hasMore = true;
+  bool _isInitialLoading = true;
+  bool _isLoadingMore = false;
+  // 先頭ページのみリアルタイム監視（新着反映用）
+  StreamSubscription<List<NotificationModel>>? _firstPageSubscription;
+  // スクロール検知
+  final ScrollController _scrollController = ScrollController();
+  static const double _loadMoreThreshold = 400;
 
   @override
   void initState() {
     super.initState();
     _currentUserId = _authService.currentUser?.uid ?? '';
     if (_currentUserId.isNotEmpty) {
-      _notificationsStream = _notificationService.getNotificationsStream(_currentUserId);
+      _loadInitial();
+      _subscribeFirstPage();
     }
+    _scrollController.addListener(_onScroll);
     _loadCurrentUsername();
     // 5分ごとにアイコンURLを再取得
     _iconRefreshTimer = Timer.periodic(
@@ -68,6 +81,95 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     });
   }
 
+  Future<void> _loadInitial() async {
+    try {
+      final result = await _notificationService.getNotificationsPaged(
+        _currentUserId,
+        limit: _pageSize,
+      );
+      if (!mounted) return;
+      setState(() {
+        _notifications.clear();
+        _loadedIds.clear();
+        for (final n in result.notifications) {
+          if (_loadedIds.add(n.notificationId)) _notifications.add(n);
+        }
+        _lastDoc = result.lastDoc;
+        _hasMore = result.hasMore;
+        _isInitialLoading = false;
+      });
+      _refreshIcons();
+      _fetchMissingAlbumArts(result.notifications);
+    } catch (_) {
+      if (mounted) setState(() => _isInitialLoading = false);
+    }
+  }
+
+  /// 先頭ページのみリアルタイム監視。新着通知は upsert。
+  void _subscribeFirstPage() {
+    _firstPageSubscription?.cancel();
+    _firstPageSubscription = _notificationService
+        .getNotificationsStream(_currentUserId, limit: _pageSize)
+        .listen((latest) {
+      if (!mounted) return;
+      bool changed = false;
+      // 先頭に新規通知をマージ（既存はFirestore側更新でstreamが反映）
+      for (final n in latest) {
+        if (!_loadedIds.contains(n.notificationId)) {
+          _notifications.insert(0, n);
+          _loadedIds.add(n.notificationId);
+          changed = true;
+        } else {
+          // 既存通知の更新（既読フラグなど）を反映
+          final idx = _notifications.indexWhere(
+              (e) => e.notificationId == n.notificationId);
+          if (idx != -1) {
+            _notifications[idx] = n;
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        setState(() {});
+        _refreshIcons();
+        _fetchMissingAlbumArts(latest);
+      }
+    });
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - _loadMoreThreshold) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore || _lastDoc == null) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final result = await _notificationService.getNotificationsPaged(
+        _currentUserId,
+        limit: _pageSize,
+        startAfter: _lastDoc,
+      );
+      if (!mounted) return;
+      setState(() {
+        for (final n in result.notifications) {
+          if (_loadedIds.add(n.notificationId)) _notifications.add(n);
+        }
+        _lastDoc = result.lastDoc ?? _lastDoc;
+        _hasMore = result.hasMore;
+        _isLoadingMore = false;
+      });
+      _refreshIcons();
+      _fetchMissingAlbumArts(result.notifications);
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
+  }
+
   Future<void> _loadCurrentUsername() async {
     if (_currentUserId.isEmpty) return;
     final user = await _userService.getUser(_currentUserId);
@@ -80,6 +182,9 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   void dispose() {
     _iconRefreshTimer?.cancel();
     _markAsReadTimer?.cancel();
+    _firstPageSubscription?.cancel();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     // 画面を離れるタイミング（戻るボタン含む）で必ず既読化
     // タイマーが3秒未満でキャンセルされた場合でも Firestore に書き込む
     if (_currentUserId.isNotEmpty) {
@@ -127,9 +232,9 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   Future<void> _refreshIcons() async {
     final refreshStart = DateTime.now();
 
-    if (_latestNotifications.isNotEmpty) {
+    if (_notifications.isNotEmpty) {
       // system など固定送信者を除外し、キャッシュ済みのIDはスキップ
-      final senderIds = _latestNotifications
+      final senderIds = _notifications
           .map((n) => n.senderId)
           .where((id) => id.isNotEmpty && id != 'system' && !_freshIconUrls.containsKey(id))
           .toSet()
@@ -156,7 +261,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     // 最低1秒はリフレッシュインジケーターを表示
     final elapsed = DateTime.now().difference(refreshStart);
     if (elapsed < const Duration(seconds: 1)) {
-      await Future.delayed(Duration(seconds: 1) - elapsed);
+      await Future.delayed(const Duration(seconds: 1) - elapsed);
     }
   }
 
@@ -194,77 +299,68 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         child: Column(
           children: [
             _buildHeader(),
-            Expanded(
-              child: StreamBuilder<List<NotificationModel>>(
-                stream: _notificationsStream,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting &&
-                      !snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Text(
-                        'エラーが発生しました',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: Color(0x80FFFFFF),
-                        ),
-                      ),
-                    );
-                  }
-
-                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                    return _buildEmptyState();
-                  }
-
-                  final notifications = snapshot.data!;
-
-                  // 通知リストが変わった or アルバムアート未取得のものがあればフェッチ
-                  final hasMissingArt = notifications.any((n) =>
-                      (n.albumArtUrl == null || n.albumArtUrl!.isEmpty) &&
-                      n.postId != null &&
-                      n.postId!.isNotEmpty &&
-                      !_albumArtCache.containsKey(n.postId));
-                  if (_latestNotifications.length != notifications.length ||
-                      _latestNotifications.isEmpty ||
-                      hasMissingArt) {
-                    _latestNotifications = notifications;
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _refreshIcons();
-                      _fetchMissingAlbumArts(notifications);
-                    });
-                  }
-
-                  // 既読化はTimerで3秒後に行う（initStateで設定済み）
-
-                  return CustomScrollView(
-                    physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics(),
-                    ),
-                    slivers: [
-                      CupertinoSliverRefreshControl(
-                        onRefresh: _refreshIcons,
-                      ),
-                      SliverPadding(
-                        padding: const EdgeInsets.symmetric(horizontal: 18),
-                        sliver: SliverList(
-                          delegate: SliverChildBuilderDelegate(
-                            (context, index) =>
-                                _buildNotificationCell(notifications[index]),
-                            childCount: notifications.length,
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
+            Expanded(child: _buildBody()),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isInitialLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_notifications.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    return CustomScrollView(
+      controller: _scrollController,
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      slivers: [
+        CupertinoSliverRefreshControl(
+          onRefresh: () async {
+            await _loadInitial();
+          },
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) =>
+                  _buildNotificationCell(_notifications[index]),
+              childCount: _notifications.length,
+            ),
+          ),
+        ),
+        if (_isLoadingMore)
+          const SliverPadding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            sliver: SliverToBoxAdapter(
+              child: Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CupertinoActivityIndicator(color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+        if (!_hasMore && _notifications.length > _pageSize)
+          const SliverPadding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            sliver: SliverToBoxAdapter(
+              child: Center(
+                child: Text(
+                  'すべての通知を表示しました',
+                  style: TextStyle(color: Color(0x40FFFFFF), fontSize: 12),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 

@@ -115,7 +115,7 @@ class _BatchPostsScreenState extends State<BatchPostsScreen> {
 
   @override
   void dispose() {
-    _audioService.stop();
+    _audioService.stopIfOwner(this);
     _pageController.dispose();
     super.dispose();
   }

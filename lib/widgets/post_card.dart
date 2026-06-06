@@ -12,8 +12,10 @@ import 'package:flutter/services.dart';
 import 'animated_waveform.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:just_audio/just_audio.dart';
+import '../constants/adl_teams.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
+import '../screens/adl_team_playlist_screen.dart';
 import '../screens/artist_profile_screen.dart';
 import '../screens/other_user_profile_screen.dart';
 import '../services/audio_player_service.dart';
@@ -589,6 +591,17 @@ class PostCardState extends State<PostCard>
               child: _buildUserInfoTopLeft(theme),
             ),
 
+            // 班ハンドル（右上）- ユーザーアイコンと垂直中央を揃える
+            Positioned(
+              right: 23,
+              top: 18,
+              height: 32,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _buildTeamHandleTopRight(),
+              ),
+            ),
+
             // 歌詞カード
             _buildLyricsCardOverlay(),
 
@@ -1021,7 +1034,6 @@ class PostCardState extends State<PostCard>
 
     return GestureDetector(
       onTap: () {
-        // ユーザープロフィール画面へ遷移
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -1032,58 +1044,77 @@ class PostCardState extends State<PostCard>
         );
       },
       child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // プロフィールアイコン
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.grey[400],
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.grey[400],
+            ),
+            child: ClipOval(
+              child: ProfileImage(
+                imageUrl: widget.post.userIconUrl,
+                size: 32,
               ),
-              child: ClipOval(
-                child: ProfileImage(
-                  imageUrl: widget.post.userIconUrl,
-                  size: 32,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildWeightAdjustedText(
+                  widget.post.username,
+                  fontSize: 12,
+                  baseWeight: FontWeight.w600,
+                  color: Colors.white,
                 ),
-              ),
-            ),
-            const SizedBox(width: 12),
-
-            // ユーザー名とハッシュタグ
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // ユーザー名
-                  _buildWeightAdjustedText(
-                    widget.post.username,
-                    fontSize: 12,
-                    baseWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-
-                  // ハッシュタグ/質問テキスト（感情タグの場合は非表示）
-                  if (displayText != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      displayText,
-                      style: const TextStyle(
-                        fontSize: 7,
-                        color: Colors.white,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                if (displayText != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    displayText,
+                    style: const TextStyle(
+                      fontSize: 7,
+                      color: Colors.white,
                     ),
-                  ],
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
-              ),
+              ],
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 裏面・右上の班ハンドル（@◯◯班）
+  /// 左のユーザー情報と同じ高さに揃え、右端に配置する。
+  Widget _buildTeamHandleTopRight() {
+    final teamId = widget.post.adlTeamId;
+    if (teamId == null || teamId.isEmpty) return const SizedBox.shrink();
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AdlTeamPlaylistScreen(teamId: teamId),
+          ),
+        );
+      },
+      child: Text(
+        '@${AdlTeamDefinitions.displayNameOf(teamId)}',
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFFD9D9D9),
         ),
+      ),
     );
   }
 
@@ -1510,46 +1541,76 @@ class PostCardState extends State<PostCard>
 
   /// ユーザー情報（表面の下部）
   Widget _buildUserInfo(PostTheme theme) {
-    return GestureDetector(
-      onTap: () {
-        // ユーザープロフィール画面へ遷移
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => OtherUserProfileScreen(
-              userId: widget.post.userId,
-            ),
+    final teamId = widget.post.adlTeamId;
+    final hasTeam = teamId != null && teamId.isNotEmpty;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // ユーザーアイコン + 名前（タップでユーザープロフィール）
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => OtherUserProfileScreen(
+                  userId: widget.post.userId,
+                ),
+              ),
+            );
+          },
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.grey[400],
+                ),
+                child: ClipOval(
+                  child: ProfileImage(
+                    imageUrl: widget.post.userIconUrl,
+                    size: 32,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              _buildWeightAdjustedText(
+                widget.post.username,
+                fontSize: 12,
+                baseWeight: FontWeight.w600,
+                color: theme.textColor,
+              ),
+            ],
           ),
-        );
-      },
-      child: Row(
-        children: [
-          // ユーザーアイコン
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.grey[400],
-            ),
-            child: ClipOval(
-              child: ProfileImage(
-                imageUrl: widget.post.userIconUrl,
-                size: 32,
+        ),
+
+        // 班ハンドル（@◯◯班）。タップで班プロフィールへ。
+        if (hasTeam) ...[
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AdlTeamPlaylistScreen(teamId: teamId),
+                ),
+              );
+            },
+            child: Text(
+              '@${AdlTeamDefinitions.displayNameOf(teamId)}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                // 背景色に合わせて黒/白が切り替わる（ユーザー名と同じ規則）
+                // ややトーンダウンさせて補助情報として馴染ませる
+                color: theme.textColor.withValues(alpha: 0.7),
               ),
             ),
           ),
-          const SizedBox(width: 12),
-
-          // ユーザー名
-          _buildWeightAdjustedText(
-            widget.post.username,
-            fontSize: 12,
-            baseWeight: FontWeight.w600,
-            color: theme.textColor,
-          ),
         ],
-      ),
+      ],
     );
   }
 

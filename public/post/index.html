@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Fifteensで開く</title>
+
+  <meta property="og:title" content="Fifteens">
+  <meta property="og:description" content="音楽と写真で「今の気分」をシェアするSNS">
+  <meta property="og:site_name" content="Fifteens">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+      background: #111111;
+      color: #ffffff;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 360px;
+      background: #1c1c1e;
+      border-radius: 20px;
+      padding: 40px 32px 36px;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .logo {
+      font-size: 52px;
+      font-weight: 700;
+      letter-spacing: -2px;
+      margin-bottom: 8px;
+    }
+
+    .app-name {
+      font-size: 15px;
+      color: #888;
+      letter-spacing: 0.5px;
+      margin-bottom: 32px;
+    }
+
+    .message {
+      font-size: 16px;
+      font-weight: 500;
+      color: #e5e5e7;
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+
+    .open-btn {
+      display: block;
+      width: 100%;
+      background: #ffffff;
+      color: #111111;
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 12px;
+      transition: opacity 0.15s;
+      cursor: pointer;
+      border: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .open-btn:active { opacity: 0.75; }
+
+    .store-btn {
+      display: block;
+      width: 100%;
+      background: transparent;
+      color: #888;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      border-radius: 14px;
+      padding: 14px;
+      border: 1px solid #333;
+      transition: border-color 0.15s, color 0.15s;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .store-btn:active { border-color: #555; color: #bbb; }
+
+    .hint {
+      font-size: 12px;
+      color: #555;
+      margin-top: 24px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">15s</div>
+    <div class="app-name">Fifteens</div>
+
+    <p class="message">投稿をFifteensアプリで確認しませんか？</p>
+
+    <button class="open-btn" id="openBtn">Fifteensで開く</button>
+    <a class="store-btn" id="storeBtn"
+       href="https://apps.apple.com/jp/app/id6741791979"
+       target="_blank" rel="noopener">
+      App Storeでダウンロード
+    </a>
+
+    <p class="hint" id="hint">アプリを起動しています…</p>
+  </div>
+
+  <script>
+    (function () {
+      var STORE_URL = 'https://apps.apple.com/jp/app/id6741791979';
+
+      // URLパスから postId を抽出: /post/{postId}
+      var pathParts = window.location.pathname.replace(/\/$/, '').split('/');
+      var postId = pathParts[pathParts.length - 1];
+      if (postId === 'post' || postId === '' || postId === 'index.html') postId = null;
+
+      var APP_URL = postId ? ('fifteenapp://post/' + postId) : 'fifteenapp://';
+
+      var launched = false;
+      function tryOpen() {
+        if (launched) return;
+        launched = true;
+        window.location.href = APP_URL;
+      }
+
+      setTimeout(function () {
+        var hint = document.getElementById('hint');
+        if (hint) {
+          hint.textContent = 'アプリが開かない場合は上のボタンをタップしてください。';
+        }
+      }, 1500);
+
+      document.getElementById('openBtn').addEventListener('click', function () {
+        tryOpen();
+        setTimeout(function () {
+          window.location.href = STORE_URL;
+        }, 2000);
+      });
+
+      if (document.readyState === 'complete') {
+        setTimeout(tryOpen, 200);
+      } else {
+        window.addEventListener('load', function () {
+          setTimeout(tryOpen, 200);
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -109,3 +109,7 @@ coverage/
 # macOS
 .DS_Store
 .firebase/
+
+# 負荷テスト用スクリプト（ハードコード認証情報を含む）
+scripts/load_test.js
+scripts/load_test_data_setup.js

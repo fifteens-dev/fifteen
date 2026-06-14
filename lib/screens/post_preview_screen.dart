@@ -15,9 +15,13 @@ import '../widgets/post_creation/lyrics_card_layouts.dart';
 import '../services/audio_player_service.dart';
 import '../services/lyrics_service.dart';
 import '../services/itunes_search_service.dart';
+import '../services/post_service.dart';
+import '../services/posting_state.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../utils/color_extractor.dart';
 import '../providers/current_user_provider.dart';
+import '../widgets/shared/team_handle_label.dart';
 import '../widgets/shared/user_info_badge.dart';
 import 'post_photo_selection_screen.dart';
 
@@ -60,6 +64,23 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
   final AudioPlayerService _audioService = AudioPlayerService();
   String? _cachedPreviewUrl; // 再生ボタン用にキャッシュ
 
+  // 今日既に投稿済みか（true なら裏面右上の @◯◯ を出さない）
+  bool _hasPostedToday = false;
+  final PostService _postService = PostService();
+
+  Future<void> _loadHasPostedToday() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      final hasInFirestore = await _postService.hasUserPostedToday(uid);
+      // セッション中に投稿開始済なら Firestore 反映前でも true
+      final hasInSession = PostingState.instance.hasStartedPostToday;
+      if (mounted) {
+        setState(() => _hasPostedToday = hasInFirestore || hasInSession);
+      }
+    } catch (_) {}
+  }
+
   // 歌詞カード関連
   int _selectedLayoutIndex = 0; // 選択されたレイアウト (0-4)
   Rect _rect = const Rect.fromLTWH(0, 0, 196, 126); // 歌詞カードの位置とサイズ
@@ -95,6 +116,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
     super.initState();
     print('🎬 PostPreviewScreen initState()');
     print('  - track: ${widget.track.trackName} by ${widget.track.artistName}');
+
+    _loadHasPostedToday();
 
     // 歌詞データの初期化
     _lyricsData = widget.lyricsData;
@@ -305,6 +328,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
       updatedAt: now,
       theme: PostTheme.defaultTheme, // デフォルトテーマを使用（色抽出は PostCard 内で実行される）
       adlTeamId: context.read<CurrentUserProvider>().adlTeamId,
+      // 2投稿目以降は表面の @◯◯ も非表示にする
+      countsForAdl: _hasPostedToday ? false : null,
     );
   }
 
@@ -526,6 +551,20 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
                   top: 18,
                   child: _buildUserInfoBack(),
                 ),
+
+                // 班ハンドル（右上）。今日既に投稿済みなら非表示。
+                Positioned(
+                  right: 23,
+                  top: 18,
+                  height: 32,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TeamHandleLabel(
+                      teamId: context.read<CurrentUserProvider>().adlTeamId,
+                      enabled: !_hasPostedToday,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -710,7 +749,6 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
           ? '#${widget.vibeTopicTitle}'
           : null,
       showBackground: false,
-      teamId: context.read<CurrentUserProvider>().adlTeamId,
     );
   }
 

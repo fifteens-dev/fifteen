@@ -405,6 +405,13 @@ class PostCardState extends State<PostCard>
                 ),
               ),
 
+              // 公開範囲バッジ（アルバム右下、グラデーション上の高さに配置）
+              Positioned(
+                top: albumSize - 30 - 10,
+                right: 10,
+                child: _buildAudienceBadge(),
+              ),
+
               // グラデーションオーバーレイ（下部3/7）
               Positioned(
                 left: 0,
@@ -827,6 +834,28 @@ class PostCardState extends State<PostCard>
     );
   }
 
+  /// 公開範囲バッジ（アルバム右下の円形アイコン）
+  Widget _buildAudienceBadge() {
+    final isFollowers = widget.post.audience == PostAudience.followers;
+    return Container(
+      width: 30,
+      height: 30,
+      decoration: const BoxDecoration(
+        color: Color(0xCC1F1F1F),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Image.asset(
+          isFollowers
+              ? 'assets/icons/audience_badge_lock.png'
+              : 'assets/icons/audience_badge_globe.png',
+          width: 16,
+          height: 16,
+        ),
+      ),
+    );
+  }
+
   /// アルバムプレースホルダー
   Widget _buildAlbumPlaceholder() {
     return Container(
@@ -1093,11 +1122,13 @@ class PostCardState extends State<PostCard>
     );
   }
 
-  /// 裏面・右上の班ハンドル（@◯◯班）
+  /// 裏面・右上の班ハンドル（@◯◯）
   /// 左のユーザー情報と同じ高さに揃え、右端に配置する。
+  /// 同日2投稿目以降（countsForAdl == false）はハンドル非表示。
   Widget _buildTeamHandleTopRight() {
     final teamId = widget.post.adlTeamId;
     if (teamId == null || teamId.isEmpty) return const SizedBox.shrink();
+    if (widget.post.countsForAdl == false) return const SizedBox.shrink();
     return GestureDetector(
       onTap: () {
         Navigator.push(
@@ -1542,7 +1573,10 @@ class PostCardState extends State<PostCard>
   /// ユーザー情報（表面の下部）
   Widget _buildUserInfo(PostTheme theme) {
     final teamId = widget.post.adlTeamId;
-    final hasTeam = teamId != null && teamId.isNotEmpty;
+    // 同日2投稿目以降（countsForAdl == false）はハンドル非表示。
+    final hasTeam = teamId != null &&
+        teamId.isNotEmpty &&
+        widget.post.countsForAdl != false;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

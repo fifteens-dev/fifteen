@@ -27,10 +27,13 @@ import '../utils/campus_vibe_utils.dart';
 import '../utils/color_extractor.dart';
 import 'package:provider/provider.dart';
 import '../providers/current_user_provider.dart';
+import '../providers/post_ui_state.dart';
 import '../utils/photo_helper.dart';
 import '../widgets/campus_vibe_toggle_bar.dart';
+import '../widgets/audience_toggle_bar.dart';
 import '../services/vibe_topic_service.dart';
 import '../services/adl_service.dart';
+import '../widgets/shared/team_handle_label.dart';
 import '../widgets/shared/user_info_badge.dart';
 import '../services/posting_state.dart';
 import '../widgets/post_creation/posting_card_overlay.dart';
@@ -163,6 +166,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   // Campus Vibe 参加フラグ（デフォルトON）
   bool _campusVibeParticipating = true;
 
+  // 投稿の公開範囲（デフォルト: 全体公開）
+  String _audience = PostAudience.public;
+
   // Vibe/感情 選択状態（最終プレビューで選択可能に）
   late bool _isVibe;
   String? _vibeTopicId;
@@ -170,6 +176,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
 
   // ADL班タグ
   String? _adlTeamId;
+
+  // 今日既に投稿済みか（true なら裏面右上の @◯◯ を出さない）
+  bool _hasPostedToday = false;
 
   @override
   void initState() {
@@ -181,6 +190,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
 
     _currentUniversity = widget.initialUniversity;
     _loadADLTeam();
+    _loadHasPostedToday();
 
     _imageOffset = widget.imageOffset;
     _imageScale = widget.imageScale;
@@ -273,6 +283,23 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         if (mounted && membership != null) {
           setState(() => _adlTeamId = membership['teamId'] as String?);
         }
+      }
+    } catch (_) {}
+  }
+
+  /// 今日既に投稿しているかを判定。true なら 2投稿目以降扱いで @◯◯ を出さない。
+  ///
+  /// Firestore のクエリだけだと 1投稿目アップロード完了前に2投稿目フローへ進んだ場合に
+  /// false を返してしまうため、`PostingState.hasStartedPostToday` （セッション中に
+  /// 投稿開始したか）も OR して判定する。
+  Future<void> _loadHasPostedToday() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      final hasInFirestore = await _postService.hasUserPostedToday(uid);
+      final hasInSession = PostingState.instance.hasStartedPostToday;
+      if (mounted) {
+        setState(() => _hasPostedToday = hasInFirestore || hasInSession);
       }
     } catch (_) {}
   }
@@ -412,6 +439,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       updatedAt: now,
       theme: PostTheme.defaultTheme,
       adlTeamId: _adlTeamId,
+      // 2投稿目以降は表面の @◯◯ も非表示にする
+      countsForAdl: _hasPostedToday ? false : null,
     );
   }
 
@@ -674,6 +703,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     final vibeTopicTitle = _vibeTopicTitle;
     final university = _currentUniversity;
     final campusVibeParticipating = _campusVibeParticipating;
+    final audience = _audience;
     final adlTeamId = _adlTeamId;
     final track = widget.track;
     final lyricsData = widget.lyricsData;
@@ -706,6 +736,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       isVibe: isVibe,
       vibeTopicTitle: vibeTopicTitle,
       adlTeamId: _adlTeamId,
+      willCountForAdl: !_hasPostedToday,
     ));
 
     if (mounted) {
@@ -749,7 +780,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       audioDurationSec: audioDurationSec,
       university: university,
       campusVibeParticipating: campusVibeParticipating,
+      audience: audience,
       adlTeamId: adlTeamId,
+      willCountForAdl: !_hasPostedToday,
       postService: postService,
       storageService: storageService,
     );
@@ -779,7 +812,9 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     required int audioDurationSec,
     required String? university,
     required bool campusVibeParticipating,
+    required String audience,
     required String? adlTeamId,
+    required bool willCountForAdl,
     required postService,
     required storageService,
   }) async {
@@ -876,6 +911,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         university: university,
         campusVibeParticipating: campusVibeParticipating,
         adlTeamId: adlTeamId,
+        audience: audience,
       );
 
       final results2 = await Future.wait<dynamic>([urlFuture, postIdFuture]);
@@ -887,6 +923,11 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         // ignore: unawaited_futures
         postService.updatePostPhotoUrl(postId: postId, photoUrl: photoUrl);
       }
+
+      // Cloud Function が countsForAdl を書く前でも、UI で @◯◯ を即座に正しく
+      // 反映するため、PostUIState に楽観的 override を登録する。
+      // willCountForAdl=true（初回投稿）→ countsForAdl=true、false（2投稿目以降）→ false
+      PostUIState.setCountsForAdlOverrideStatic(postId, willCountForAdl);
 
       print('✅ 投稿を作成しました: $postId');
 
@@ -993,6 +1034,15 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                                   onChanged: (v) => setState(() => _campusVibeParticipating = v),
                                 ),
                               ),
+                            // 公開範囲トグル（全体 / フォロワーのみ）
+                            Positioned(
+                              right: 9,
+                              bottom: toggleBottom,
+                              child: AudienceToggleBar(
+                                audience: _audience,
+                                onChanged: (v) => setState(() => _audience = v),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1275,9 +1325,22 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                         ? '#${widget.vibeTopicTitle}'
                         : null,
                     showBackground: false,
-                    teamId: _adlTeamId,
                   ),
                 ),
+
+                // 班ハンドル（右上）。今日既に投稿済みの場合は非表示。
+                if (_adlTeamId != null &&
+                    _adlTeamId!.isNotEmpty &&
+                    !_hasPostedToday)
+                  Positioned(
+                    right: 23,
+                    top: 18,
+                    height: 32,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: TeamHandleLabel(teamId: _adlTeamId),
+                    ),
+                  ),
               ],
             ),
           ),

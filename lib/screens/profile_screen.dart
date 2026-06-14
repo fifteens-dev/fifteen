@@ -252,7 +252,7 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
   }
 
 
-  /// プロフィール画像を拡大表示
+  /// プロフィール画像を拡大表示（円形に切り抜き）
   void _showProfileImageDialog(String imageUrl) {
     showDialog(
       context: context,
@@ -261,16 +261,22 @@ class ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderS
         onTap: () => Navigator.pop(context),
         child: Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(16),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: CachedNetworkImage(
-              imageUrl: imageUrl,
-              fit: BoxFit.contain,
-              errorWidget: (_, __, ___) => const Icon(
-                Icons.person,
-                color: Colors.white54,
-                size: 80,
+          insetPadding: const EdgeInsets.all(40),
+          child: AspectRatio(
+            aspectRatio: 1.0,
+            child: ClipOval(
+              child: CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => Container(
+                  color: const Color(0xFF2A2A2A),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.person,
+                    color: Colors.white54,
+                    size: 80,
+                  ),
+                ),
               ),
             ),
           ),

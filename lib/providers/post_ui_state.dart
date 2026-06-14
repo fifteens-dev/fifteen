@@ -1,10 +1,21 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:provider/provider.dart';
 import '../models/post_model.dart';
+import '../services/post_service.dart';
 
 /// 投稿のUI状態を一元管理するプロバイダー（コメント数・いいね）。
 ///
 /// 保存状態は別の `SavedItemsProvider` が管理する（一つのソース・オブ・トゥルース）。
 class PostUIState extends ChangeNotifier {
+  /// 静的アクセス用のインスタンス参照。
+  /// `_runUpload` のような非 widget コンテキストから override を書き込むため。
+  static PostUIState? _instance;
+
+  PostUIState() {
+    _instance = this;
+  }
+
   /// 投稿ごとのコメント数（楽観的UI更新用）
   final Map<String, int> _commentCounts = {};
 
@@ -19,6 +30,11 @@ class PostUIState extends ChangeNotifier {
 
   /// いいねしたユーザーのID（postId -> userIds）
   final Map<String, List<String>> _likedUserIds = {};
+
+  /// 投稿ごとの countsForAdl 楽観的 override。
+  /// 投稿完了直後、Cloud Function の集計トリガーが flag を書く前でも
+  /// UI に「@◯◯ を表示するかしないか」を正しく反映するために使う。
+  final Map<String, bool> _countsForAdlOverrides = {};
 
   // ==================== ゲッター ====================
 
@@ -159,7 +175,48 @@ class PostUIState extends ChangeNotifier {
       }
     }
 
+    // countsForAdl の楽観的 override を適用（Cloud Function 反映前の暫定値）
+    final countsForAdlOverride = _countsForAdlOverrides[post.postId];
+    if (countsForAdlOverride != null) {
+      displayPost =
+          displayPost.copyWith(countsForAdl: countsForAdlOverride);
+    }
+
     return displayPost;
+  }
+
+  /// 投稿の countsForAdl 値を楽観的に上書きする。
+  /// 投稿完了直後に呼ぶことで、Cloud Function が flag を書く前でも
+  /// 「@◯◯ を表示するかしないか」を正しく UI に反映できる。
+  void setCountsForAdlOverride(String postId, bool value) {
+    _countsForAdlOverrides[postId] = value;
+    notifyListeners();
+  }
+
+  /// 静的ショートカット。`_runUpload` のような非 widget コンテキスト用。
+  static void setCountsForAdlOverrideStatic(String postId, bool value) {
+    _instance?.setCountsForAdlOverride(postId, value);
+  }
+
+  /// 既存のいいね状態を保持したまま、新しい posts を追加で登録する。
+  ///
+  /// `resetAndInitialize` と違い既存の楽観的更新を上書きしない。
+  /// プロフィール画面や Vibe プレイリスト等、ホーム以外で投稿一覧を
+  /// 表示する画面の初期化に使う。これにより、ホームで like → プロフィール
+  /// で見ても like 反映済み、という状態が共有される。
+  void mergePosts({
+    required List<PostModel> posts,
+    required String currentUserId,
+  }) {
+    for (final post in posts) {
+      // 既に楽観的更新済みの postId はスキップ（最新の操作結果を保持）
+      if (_likeCounts.containsKey(post.postId)) continue;
+      _likeCounts[post.postId] = post.likeCount;
+      if (post.likedUserIds.contains(currentUserId)) {
+        _likedPostIds.add(post.postId);
+      }
+    }
+    notifyListeners();
   }
 
   // ==================== 初期化（一括リセット） ====================
@@ -203,5 +260,45 @@ class PostUIState extends ChangeNotifier {
     _likedUserIconUrls.remove(postId);
     _likedUserIds.remove(postId);
     notifyListeners();
+  }
+
+  // ==================== 共通ヘルパー ====================
+
+  /// いいねトグル + Firestore 書き込み + 失敗時ロールバック の共通フロー。
+  /// どの画面の onLike からも呼べる。
+  Future<void> togglePostLike({
+    required PostModel post,
+    required String userId,
+    required PostService postService,
+  }) async {
+    final currentLikeCount = getLikeCount(post.postId) ?? post.likeCount;
+    final wasLiked = isLiked(post.postId);
+    toggleLike(post.postId, currentLikeCount: currentLikeCount);
+    try {
+      await postService.toggleLike(postId: post.postId, userId: userId);
+    } catch (_) {
+      revertLikeToggle(
+        post.postId,
+        originalLikeCount: currentLikeCount,
+        wasLiked: wasLiked,
+      );
+    }
+  }
+
+  /// BuildContext から PostUIState を取って togglePostLike を呼ぶショートカット。
+  /// `onLike: () => PostUIState.handleLike(context, post, userId, postService)`
+  /// の形で書けるので、4 画面の重複コードを排除できる。
+  static Future<void> handleLike({
+    required BuildContext context,
+    required PostModel post,
+    required String userId,
+    required PostService postService,
+  }) async {
+    final provider = context.read<PostUIState>();
+    await provider.togglePostLike(
+      post: post,
+      userId: userId,
+      postService: postService,
+    );
   }
 }

@@ -88,8 +88,14 @@ class _AdlTeamPlaylistScreenState extends State<AdlTeamPlaylistScreen> {
           .orderBy('createdAt', descending: true)
           .get();
       if (!mounted) return;
+      // countsForAdl == false（同日2投稿目以降）は班員投稿として扱わないので除外。
+      // countsForAdl が undefined のレガシー投稿は表示する。
+      final posts = snap.docs
+          .map(PostModel.fromFirestore)
+          .where((p) => p.countsForAdl != false)
+          .toList();
       setState(() {
-        _posts = snap.docs.map(PostModel.fromFirestore).toList();
+        _posts = posts;
         _isLoadingPosts = false;
       });
     } catch (_) {

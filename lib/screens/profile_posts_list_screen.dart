@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../models/post_model.dart';
 import '../providers/current_user_provider.dart';
+import '../providers/post_ui_state.dart';
 import '../providers/saved_items_provider.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
@@ -66,6 +67,13 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
     _scrollController.addListener(_checkCardVisibility);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // PostUIState に投稿リストをマージ（他画面の楽観的更新は保持される）
+      if (mounted && _currentUserId != null) {
+        context.read<PostUIState>().mergePosts(
+              posts: _posts,
+              currentUserId: _currentUserId!,
+            );
+      }
       // 初期インデックスへスクロール
       if (_scrollController.hasClients && widget.initialIndex > 0) {
         _scrollController.jumpTo(widget.initialIndex * _cardItemHeight);
@@ -74,6 +82,33 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
       _playingIndex = widget.initialIndex;
       _playMusicForPage(widget.initialIndex);
     });
+  }
+
+  /// いいねトグル（PostUIState の楽観的更新 + Firestore 書き込み + 失敗時ロールバック）。
+  /// HomeScreen._handleLike と同じパターン。
+  Future<void> _handleLike(PostModel post) async {
+    if (widget.disableInteractions) return;
+    final userId = _currentUserId;
+    if (userId == null) return;
+
+    final postUIState = context.read<PostUIState>();
+    final currentLikeCount =
+        postUIState.getLikeCount(post.postId) ?? post.likeCount;
+    final wasLiked = postUIState.isLiked(post.postId);
+
+    postUIState.toggleLike(post.postId, currentLikeCount: currentLikeCount);
+
+    try {
+      await _postService.toggleLike(postId: post.postId, userId: userId);
+    } catch (_) {
+      if (mounted) {
+        postUIState.revertLikeToggle(
+          post.postId,
+          originalLikeCount: currentLikeCount,
+          wasLiked: wasLiked,
+        );
+      }
+    }
   }
 
   /// 指定インデックスの音楽を再生する（画面側が音楽を一括管理）
@@ -164,7 +199,7 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
       }
       _audioService.stop();
       setState(() => _playingIndex = newPlayingIndex);
-      _playMusicForPage(newPlayingIndex!);
+      _playMusicForPage(newPlayingIndex);
     }
   }
 
@@ -218,43 +253,52 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
               _checkCardVisibility();
               return false;
             },
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: EdgeInsets.only(top: headerAreaHeight, bottom: 80),
-              itemCount: _posts.length,
-              itemBuilder: (context, index) {
-                final post = _posts[index];
-                _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  child: Center(
-                    child: PostCard(
-                      key: _cardKeys[index],
-                      post: post,
-                      currentUserId: _currentUserId,
-                      currentUserIconUrl: _currentUserIconUrl,
-                      audioService: _audioService,
-                      startFromBack: true, // 常に裏面スタート
-                      audioManagedExternally: true,
-                      externalPreviewUrl: _previewUrlCache[index],
-                      disableInteractions: widget.disableInteractions,
-                      onPlayStarted: () => setState(() { _playingIndex = index; }),
-                      isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
-                      onAdd: () => _handleSave(post),
-                      onDelete: (_currentUserId != null && post.userId == _currentUserId)
-                          ? () => _handleDelete(post)
-                          : null,
-                      onShare: () => showCardShareSheet(
-                        context,
+            child: Consumer<PostUIState>(
+              builder: (context, postUIState, _) => ListView.builder(
+                controller: _scrollController,
+                padding: EdgeInsets.only(top: headerAreaHeight, bottom: 80),
+                itemCount: _posts.length,
+                itemBuilder: (context, index) {
+                  final basePost = _posts[index];
+                  // PostUIState の楽観的更新を反映した PostModel を取得
+                  final post = postUIState.getDisplayPost(
+                    basePost,
+                    currentUserId: _currentUserId,
+                    currentUserIconUrl: _currentUserIconUrl,
+                  );
+                  _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    child: Center(
+                      child: PostCard(
+                        key: _cardKeys[index],
                         post: post,
                         currentUserId: _currentUserId,
                         currentUserIconUrl: _currentUserIconUrl,
+                        audioService: _audioService,
+                        startFromBack: true, // 常に裏面スタート
+                        audioManagedExternally: true,
+                        externalPreviewUrl: _previewUrlCache[index],
+                        disableInteractions: widget.disableInteractions,
+                        onPlayStarted: () => setState(() { _playingIndex = index; }),
                         isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
+                        onLike: () => _handleLike(basePost),
+                        onAdd: () => _handleSave(basePost),
+                        onDelete: (_currentUserId != null && post.userId == _currentUserId)
+                            ? () => _handleDelete(basePost)
+                            : null,
+                        onShare: () => showCardShareSheet(
+                          context,
+                          post: post,
+                          currentUserId: _currentUserId,
+                          currentUserIconUrl: _currentUserIconUrl,
+                          isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
           // 投稿タイトル（中央上部）

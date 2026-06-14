@@ -9,7 +9,8 @@ import '../models/music_service_type.dart';
 import '../widgets/dialogs/bottom_sheet_dialog.dart';
 import 'home_screen.dart';
 import '../widgets/common/app_toast.dart';
-import '../tutorial/tutorial.dart';
+// チュートリアルを表示しないため import を無効化
+// import '../tutorial/tutorial.dart';
 
 /// 音楽ライブラリ接続画面
 ///
@@ -23,38 +24,64 @@ class MusicConnectionScreen extends StatefulWidget {
   State<MusicConnectionScreen> createState() => _MusicConnectionScreenState();
 }
 
-class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
+class _MusicConnectionScreenState extends State<MusicConnectionScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _fadeController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 600),
+  );
   bool _isAppleMusicLoading = false;
   bool _isSpotifyLoading = false;
 
   @override
   void initState() {
     super.initState();
-    TutorialPrefetchService.instance.prefetchAll();
+    // チュートリアル無効化中はプリフェッチも不要
+    // TutorialPrefetchService.instance.prefetchAll();
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: Stack(
-        children: [
-          // 背景: ホーム画面（非インタラクティブ）
-          const IgnorePointer(
-            child: Opacity(
-              opacity: 0.3,
-              child: HomeScreen(),
-            ),
-          ),
-
-          // グラデーションオーバーレイ
-          _buildGradientOverlay(),
-
-          // メインコンテンツ
-          SafeArea(
-            child: _buildContent(context),
-          ),
-        ],
+      body: AnimatedBuilder(
+        animation: _fadeController,
+        builder: (context, _) {
+          // _fadeController: 0 → 1 で「幕が消えてホームが現れる」遷移を表現
+          final t = _fadeController.value;
+          final curtainOpacity = 1.0 - t;
+          final homeOpacity = 0.3 + 0.7 * t;
+          return Stack(
+            children: [
+              // 背景: ホーム画面（非インタラクティブ・徐々に不透明化）
+              IgnorePointer(
+                child: Opacity(
+                  opacity: homeOpacity,
+                  child: const HomeScreen(),
+                ),
+              ),
+              // 幕（グラデーション + コンテンツ）。フェードアウト対象。
+              IgnorePointer(
+                ignoring: t > 0,
+                child: Opacity(
+                  opacity: curtainOpacity,
+                  child: Stack(
+                    children: [
+                      _buildGradientOverlay(),
+                      SafeArea(child: _buildContent(context)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -340,10 +367,21 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen> {
     }
   }
 
-  /// チュートリアルを開始してホームへ遷移
+  /// ホームへ遷移。右からスライドではなく、上に重なっている音楽サービス連携の
+  /// 幕がフェードアウトしてホームが現れる演出にする。
   Future<void> _goToHome() async {
-    await TutorialController.instance.startFresh();
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, '/home');
+    // 幕をフェードアウト（背景のHomeScreenが徐々に不透明になる）
+    await _fadeController.forward();
+    if (!mounted) return;
+    // 視覚的にはホームが既に見えているので、遷移は瞬時に行う（スライドなし）
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const HomeScreen(),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
   }
 }

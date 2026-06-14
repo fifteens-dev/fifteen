@@ -1,12 +1,15 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
+import 'package:flutter/rendering.dart';
 import 'package:image_picker/image_picker.dart';
 import '../widgets/common/app_toast.dart';
 
 /// 写真選択画面
 ///
-/// プロフィール写真を選択・編集する画面
-/// ギャラリーから写真を選択し、円形にクロップしてプレビュー表示
+/// プロフィール写真を選択・編集する画面。
+/// ギャラリーから写真を選択し、円形プレビュー内でパン／ピンチで位置とサイズを調整できる。
+/// 保存時には円形プレビューの領域を PNG として書き出す（円形クロップ済み）。
 class PhotoPickerScreen extends StatefulWidget {
   const PhotoPickerScreen({super.key});
 
@@ -16,7 +19,19 @@ class PhotoPickerScreen extends StatefulWidget {
 
 class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
   final ImagePicker _picker = ImagePicker();
+  final GlobalKey _previewKey = GlobalKey();
   Uint8List? _imageBytes;
+
+  // パン/ピンチ操作用の状態
+  Offset _offset = Offset.zero;
+  double _scale = 1.0;
+  Offset _focalPointStart = Offset.zero;
+  Offset _offsetStart = Offset.zero;
+  double _scaleStart = 1.0;
+
+  static const double _previewSize = 393.0;
+  static const double _minScale = 0.5;
+  static const double _maxScale = 4.0;
 
   void _handleCancel() {
     Navigator.pop(context);
@@ -36,6 +51,8 @@ class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
         final bytes = await image.readAsBytes();
         setState(() {
           _imageBytes = bytes;
+          _offset = Offset.zero;
+          _scale = 1.0;
         });
       }
     } catch (e) {
@@ -45,13 +62,43 @@ class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
     }
   }
 
-  void _handleSave() {
-    if (_imageBytes != null) {
-      // 選択した画像のバイトデータを返す
-      Navigator.pop(context, _imageBytes);
-    } else {
+  Future<void> _handleSave() async {
+    if (_imageBytes == null) {
       AppToast.show(context, '写真を選択してください');
+      return;
     }
+    try {
+      final cropped = await _captureCroppedBytes();
+      if (!mounted) return;
+      Navigator.pop(context, cropped ?? _imageBytes);
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.pop(context, _imageBytes);
+    }
+  }
+
+  /// 円形プレビュー領域を PNG バイト列としてキャプチャする
+  Future<Uint8List?> _captureCroppedBytes() async {
+    final boundary = _previewKey.currentContext?.findRenderObject()
+        as RenderRepaintBoundary?;
+    if (boundary == null) return null;
+    final image = await boundary.toImage(pixelRatio: 3.0);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData?.buffer.asUint8List();
+  }
+
+  void _onScaleStart(ScaleStartDetails details) {
+    _focalPointStart = details.focalPoint;
+    _offsetStart = _offset;
+    _scaleStart = _scale;
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails details) {
+    setState(() {
+      _scale = (_scaleStart * details.scale).clamp(_minScale, _maxScale);
+      final delta = details.focalPoint - _focalPointStart;
+      _offset = _offsetStart + delta;
+    });
   }
 
   @override
@@ -69,7 +116,7 @@ class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
               _buildPreviewArea(),
 
               // 写真グリッド
-              Container(
+              SizedBox(
                 height: 300,
                 child: _buildPhotoGrid(),
               ),
@@ -136,77 +183,68 @@ class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
   }
 
   /// メインプレビューエリア（選択した写真の円形プレビュー）
+  /// パン/ピンチで位置とサイズを調整可能。
   Widget _buildPreviewArea() {
-    return Container(
-      width: 393,
-      height: 393,
-      color: Colors.white,
-      child: Stack(
-        children: [
-          // 背景画像（選択されている場合）
-          if (_imageBytes != null)
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.4,
-                child: Image.memory(
-                  _imageBytes!,
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ),
-
-          // 円形クロップオーバーレイ
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.5),
-                  width: 2,
-                ),
+    return GestureDetector(
+      onScaleStart: _imageBytes == null ? null : _onScaleStart,
+      onScaleUpdate: _imageBytes == null ? null : _onScaleUpdate,
+      child: Container(
+        width: _previewSize,
+        height: _previewSize,
+        color: const Color(0xFF050505),
+        alignment: Alignment.center,
+        child: RepaintBoundary(
+          key: _previewKey,
+          child: SizedBox(
+            width: _previewSize,
+            height: _previewSize,
+            child: ClipOval(
+              child: Container(
+                color: const Color(0xFF1A1A1A),
+                child: _imageBytes != null
+                    ? _buildTransformedImage()
+                    : _buildPlaceholder(),
               ),
             ),
           ),
-
-          // 円形にクロップされた画像プレビュー
-          if (_imageBytes != null)
-            Center(
-              child: ClipOval(
-                child: Container(
-                  width: 393,
-                  height: 393,
-                  child: Image.memory(
-                    _imageBytes!,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-            ),
-
-          // 画像未選択時のプレースホルダー
-          if (_imageBytes == null)
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.add_photo_alternate,
-                    size: 80,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '写真を選択してください',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildTransformedImage() {
+    return Transform.translate(
+      offset: _offset,
+      child: Transform.scale(
+        scale: _scale,
+        child: Image.memory(
+          _imageBytes!,
+          fit: BoxFit.cover,
+          width: _previewSize,
+          height: _previewSize,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholder() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.add_photo_alternate,
+          size: 80,
+          color: Colors.grey[400],
+        ),
+        const SizedBox(height: 16),
+        Text(
+          '写真を選択してください',
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
     );
   }
 
@@ -232,18 +270,18 @@ class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
                     width: 2,
                   ),
                 ),
-                child: Column(
+                child: const Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.photo_library,
                       size: 80,
                       color: Colors.white54,
                     ),
-                    const SizedBox(height: 16),
+                    SizedBox(height: 16),
                     Text(
                       'ギャラリーから選択',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: Colors.white70,
@@ -255,16 +293,18 @@ class _PhotoPickerScreenState extends State<PhotoPickerScreen> {
             ),
             const SizedBox(height: 24),
             Text(
-              '写真をタップして選択してください',
+              _imageBytes == null
+                  ? '写真をタップして選択してください'
+                  : '円の中で写真をドラッグ・ピンチして位置を調整',
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[500],
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
       ),
     );
   }
-
 }

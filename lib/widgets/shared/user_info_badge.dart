@@ -1,18 +1,14 @@
 import 'package:flutter/material.dart';
-import '../../constants/adl_teams.dart';
 import 'user_avatar.dart';
 
 /// 投稿カード左上に表示するユーザー情報バッジ
-/// アバター + ユーザー名 + オプションのハッシュタグを半透明背景で表示
+/// アバター + ユーザー名 + オプションのハッシュタグを半透明背景で表示。
+/// 班ハンドル「@◯◯」は別途 [TeamHandleLabel] を裏面の右上に置く方針。
 class UserInfoBadge extends StatelessWidget {
   final String username;
   final String? iconUrl;
   final String? hashtagText;
   final bool showBackground;
-
-  /// ADL班ID。設定されていればユーザー名の右に「@◯◯班」を表示する。
-  /// プレビュー段階では navigation は伴わず、表示のみ。
-  final String? teamId;
 
   const UserInfoBadge({
     super.key,
@@ -20,12 +16,10 @@ class UserInfoBadge extends StatelessWidget {
     this.iconUrl,
     this.hashtagText,
     this.showBackground = true,
-    this.teamId,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasTeam = teamId != null && teamId!.isNotEmpty;
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -44,29 +38,13 @@ class UserInfoBadge extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    username,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
-                  if (hasTeam) ...[
-                    const SizedBox(width: 6),
-                    Text(
-                      '@${AdlTeamDefinitions.displayNameOf(teamId!)}班',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFFD9D9D9),
-                      ),
-                    ),
-                  ],
-                ],
+              Text(
+                username,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
               ),
               if (hashtagText != null) ...[
                 const SizedBox(height: 2),

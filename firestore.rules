@@ -63,8 +63,28 @@ service cloud.firestore {
 
     // ── posts コレクション ───────────────────────────────────
     match /posts/{postId} {
-      // 読み取り：ログイン済みなら誰でも可
-      allow read: if isAuthenticated();
+      // ── Read 制限（公開範囲 audience の実装） ──
+      //
+      // 単一取得 (get)：ディープリンク・通知タップ・getPost(postId) など。
+      //   public 投稿 / 自分の投稿 / 自分がフォローしている author の投稿 のみ可。
+      //   既存投稿（audience フィールド無し）は public 扱い。
+      //
+      //   非フォロワーが鍵投稿の URL を直接踏んでも fetch が失敗するため、
+      //   PostDetailScreen は post を null として「表示できません」表示になる。
+      allow get: if isAuthenticated() && (
+        resource.data.get('audience', 'public') == 'public' ||
+        resource.data.userId == request.auth.uid ||
+        request.auth.uid in get(/databases/$(database)/documents/users/$(resource.data.userId)).data.get('followers', [])
+      );
+
+      // リストクエリ (list)：タイムライン・プロフィール・Vibe・ADL班 等。
+      //   ログイン済みなら可。各画面側でクライアントフィルタを適用する：
+      //     - Vibe プレイリスト: audience == 'public' のみ表示
+      //     - 他人プロフィール: 自分／フォロー中のみ followers 投稿を表示
+      //     - ADL 班プロフィール: 全件表示（仕様により例外として鍵投稿も見える）
+      //   ADL班プロフィールから PostDetailScreen への遷移は post オブジェクトを
+      //   直接渡しているため、deep-link 取得（get ルール）を経由しない。
+      allow list: if isAuthenticated();
 
       // 作成：ログイン済み、かつ userId が自分のUID
       allow create: if isAuthenticated() &&

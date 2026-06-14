@@ -677,9 +677,13 @@ exports.dailyVibeTopicRotation = onSchedule(
 
     try {
       // JST基準で今日の日付を計算
+      // jstDayStartFor() は JST 00:00 を UTC モーメントとして返す。
+      // 以前は new Date(y,m,d) を使っていたが、Cloud Functions の TZ が UTC のため
+      // 結果が「JST 09:00」相当にずれ、JST 00:00 に手動作成された当日のお題が
+      // todayStart 未満と判定されて archive → ランダム生成に置き換わるバグがあった。
       const now = new Date();
       const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-      const todayStart = new Date(jst.getFullYear(), jst.getMonth(), jst.getDate());
+      const todayStart = jstDayStartFor(now);
       const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
       const todayTimestamp = admin.firestore.Timestamp.fromDate(todayStart);
 
@@ -801,9 +805,11 @@ exports.dailyVibeNotification = onSchedule(
 
     try {
       // 今日のactiveなお題を取得（JST基準）
+      // jstDayStartFor() で正しい JST 00:00 UTC モーメントを得る。
+      // 旧コードは new Date(y,m,d) を使い UTC TZ で解釈されて 9h ずれていた。
       const now = new Date();
       const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-      const todayStart = new Date(jst.getFullYear(), jst.getMonth(), jst.getDate());
+      const todayStart = jstDayStartFor(now);
 
       // ── 冪等チェック ────────────────────────────────────────────────
       // Cloud Scheduler は at-least-once 保証のため同じジョブが2回起動される場合がある。
@@ -1072,10 +1078,10 @@ exports.testVibeNotification = onCall(
     const skipPostedCheck = request.data?.skipPostedCheck === true;
     const targetUserId = request.data?.targetUserId || null;
 
-    // 今日のactiveなお題を取得
+    // 今日のactiveなお題を取得（JST基準）
+    // jstDayStartFor() で正しい JST 00:00 UTC モーメントを得る。
     const now = new Date();
-    const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    const todayStart = new Date(jst.getFullYear(), jst.getMonth(), jst.getDate());
+    const todayStart = jstDayStartFor(now);
     const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
     const activeTopics = await db.collection('vibe_topics')
@@ -1264,6 +1270,96 @@ function isPostInTeamRankingWindow(postData, window) {
 }
 
 /**
+ * 与えた UTC Date を含む JST 日付の 0:00:00 (UTCで表現) を返す。
+ * 例: 2026-06-08 14:00:00 UTC → 2026-06-08 15:00:00 UTC（JSTでは6/9 0:00）の手前である
+ *     6/8 15:00 JST = 6/8 06:00 UTC を返す
+ */
+function jstDayStartFor(utcDate) {
+  const jstOffsetMs = 9 * 60 * 60 * 1000;
+  const jstTs = new Date(utcDate.getTime() + jstOffsetMs);
+  const jstDayUtcMs = Date.UTC(
+    jstTs.getUTCFullYear(), jstTs.getUTCMonth(), jstTs.getUTCDate()
+  );
+  return new Date(jstDayUtcMs - jstOffsetMs);
+}
+
+/**
+ * 同じ userId が同 JST 日にこれより早い ADL 投稿を持っているか判定する。
+ * いれば「初回ではない」= false を返す。
+ *
+ * 既存の `userId ASC + createdAt DESC` 複合インデックスにマッチさせるため
+ * 明示的に orderBy('createdAt', 'desc') を付ける（無いとクエリが失敗していた）。
+ */
+async function isFirstAdlPostOfDay(post, db) {
+  const userId = post?.userId;
+  const createdAt = post?.createdAt?.toDate?.();
+  if (!userId || !createdAt) return false;
+  const dayStart = jstDayStartFor(createdAt);
+  const snap = await db.collection('posts')
+    .where('userId', '==', userId)
+    .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(dayStart))
+    .where('createdAt', '<', admin.firestore.Timestamp.fromDate(createdAt))
+    .orderBy('createdAt', 'desc')
+    .limit(20)
+    .get();
+  for (const d of snap.docs) {
+    if (d.data().adlTeamId) return false;
+  }
+  return true;
+}
+
+/**
+ * 初回投稿が消えた時の昇格処理。
+ * 同 JST 日・同 userId の中で次に古い ADL 投稿を探し、
+ * countsForAdl=false なら true に書き換える（書き換えがトリガーされて加算される）。
+ * countsForAdl=true は既に集計済み、undefined はレガシー（既に集計済みとして放置）。
+ */
+async function promoteNextAdlPostIfAny(before, db) {
+  const userId = before?.userId;
+  const createdAt = before?.createdAt?.toDate?.();
+  if (!userId || !createdAt) return;
+  const dayStart = jstDayStartFor(createdAt);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  // 既存の `userId ASC + createdAt DESC` インデックスに合わせ DESC で取得 → 反転で最古を取る。
+  const snap = await db.collection('posts')
+    .where('userId', '==', userId)
+    .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(dayStart))
+    .where('createdAt', '<', admin.firestore.Timestamp.fromDate(dayEnd))
+    .orderBy('createdAt', 'desc')
+    .get();
+  const docs = snap.docs.slice().reverse();
+  for (const d of docs) {
+    const data = d.data();
+    if (!data.adlTeamId) continue;
+    if (data.countsForAdl === true) return; // 既に集計済み
+    if (data.countsForAdl === false) {
+      await d.ref.set({ countsForAdl: true }, { merge: true });
+      return;
+    }
+    // countsForAdl === undefined（レガシー）はバックフィル後 false/true のいずれかになるので
+    // ここでは扱わない（バックフィル前は集計済みとして放置）。
+    return;
+  }
+}
+
+/**
+ * 集計対象として扱うかどうかを判定する。
+ * - team window 外 → false
+ * - adlTeamId なし → false
+ * - countsForAdl === true → true
+ * - それ以外（false / undefined）→ false
+ *
+ * 既存（フラグなし）投稿は backfillCountsForAdl callable で flag が付くまで集計対象外。
+ * 既存 adl_teams 集計値は触らない方針なので、新規 like だけが影響を受ける。
+ */
+function effectiveCountedForAdl(state, window) {
+  if (!state) return false;
+  if (!state.adlTeamId) return false;
+  if (!isPostInTeamRankingWindow(state, window)) return false;
+  return state.countsForAdl === true;
+}
+
+/**
  * ADL いいね・投稿数集計
  *
  * posts コレクションの書き込みを監視し、post.adlTeamId に紐づく
@@ -1282,23 +1378,66 @@ exports.adlLikeAggregation = onDocumentWritten(
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : null;
     const after  = event.data.after.exists  ? event.data.after.data()  : null;
+    const postId = event.params.postId;
 
-    const beforeCount  = before?.likeCount ?? 0;
-    const afterCount   = after?.likeCount  ?? 0;
-    const beforeTeamId = before?.adlTeamId ?? null;
-    const afterTeamId  = after?.adlTeamId  ?? null;
-
-    const isCreated = !before && !!after;
-    const isDeleted = !!before && !after;
-
-    // 期間判定: 投稿の createdAt は不変なので before/after どちらかから取得可能
     const window = await getTeamRankingWindow();
-    const inWindow = isPostInTeamRankingWindow(after || before, window);
-    if (!inWindow) {
+    const db = admin.firestore();
+    const FieldValue = admin.firestore.FieldValue;
+
+    // ── Case 1: 新規投稿でフラグ未付与 ─────────────────────────────
+    // 「1人1日1投稿（初回のみカウント）」を判定し、フラグを書き戻す。
+    // フラグ書き戻しが次の trigger を引き起こすが、Case 2 で早期 return する。
+    if (!before && after && after.countsForAdl === undefined) {
+      let desired = false;
+      let reason = 'default';
+      try {
+        if (!after.adlTeamId) {
+          reason = 'no-adlTeamId';
+        } else if (!isPostInTeamRankingWindow(after, window)) {
+          reason = 'outside-window';
+        } else {
+          desired = await isFirstAdlPostOfDay(after, db);
+          reason = desired ? 'first-of-day' : 'already-posted-today';
+        }
+      } catch (e) {
+        // クエリ失敗時は安全側 (false) に倒し、必ずフラグは書き込む。
+        // 過去はクエリエラーで関数全体が落ち、フラグが書かれず legacy 扱いになり
+        // すべてカウントされてしまっていた。
+        console.error(`adlLikeAggregation[new]: ${postId} query failed`, e);
+        desired = false;
+        reason = 'query-error';
+      }
+      try {
+        if (desired && after.adlTeamId) {
+          await db.doc(`adl_teams/${after.adlTeamId}`).update({
+            likeCount: FieldValue.increment(after.likeCount || 0),
+            postCount: FieldValue.increment(1),
+          });
+        }
+        await event.data.after.ref.set({ countsForAdl: desired }, { merge: true });
+      } catch (e) {
+        console.error(`adlLikeAggregation[new]: ${postId} write failed`, e);
+      }
+      console.log(`adlLikeAggregation[new]: ${postId} countsForAdl=${desired} reason=${reason}`);
       return;
     }
 
-    // teamId → { likeDelta, postDelta } を集約
+    // ── Case 2: 自分の書き戻しで発火した phase 3 ───────────────────
+    // before にフラグが無く after に付いた状態。集計は Case 1 で済んでいるのでスキップ。
+    if (before && after &&
+        before.countsForAdl === undefined &&
+        after.countsForAdl !== undefined) {
+      return;
+    }
+
+    // ── Case 3: 通常の更新/削除/班変更/フラグ昇格 ────────────────────
+    const beforeCounted = effectiveCountedForAdl(before, window);
+    const afterCounted  = effectiveCountedForAdl(after,  window);
+    const beforeCount   = before?.likeCount ?? 0;
+    const afterCount    = after?.likeCount  ?? 0;
+    const beforeTeamId  = before?.adlTeamId ?? null;
+    const afterTeamId   = after?.adlTeamId  ?? null;
+
     const updates = new Map();
     const addUpdate = (teamId, likeDelta, postDelta) => {
       if (!teamId) return;
@@ -1308,38 +1447,31 @@ exports.adlLikeAggregation = onDocumentWritten(
       updates.set(teamId, cur);
     };
 
-    if (isCreated) {
-      addUpdate(afterTeamId, afterCount, 1);
-    } else if (isDeleted) {
-      addUpdate(beforeTeamId, -beforeCount, -1);
-    } else {
-      // 更新
-      if (beforeTeamId === afterTeamId) {
-        const delta = afterCount - beforeCount;
-        if (delta !== 0) addUpdate(afterTeamId, delta, 0);
-      } else {
-        // 班タグ変更: 旧班から全減算、新班に全加算
-        addUpdate(beforeTeamId, -beforeCount, -1);
-        addUpdate(afterTeamId, afterCount, 1);
+    if (beforeCounted) addUpdate(beforeTeamId, -beforeCount, -1);
+    if (afterCounted)  addUpdate(afterTeamId,  afterCount,  1);
+
+    if (updates.size > 0) {
+      const batch = db.batch();
+      for (const [teamId, { likeDelta, postDelta }] of updates) {
+        const update = {};
+        if (likeDelta !== 0) update.likeCount = FieldValue.increment(likeDelta);
+        if (postDelta !== 0) update.postCount = FieldValue.increment(postDelta);
+        if (Object.keys(update).length > 0) {
+          batch.update(db.doc(`adl_teams/${teamId}`), update);
+        }
       }
+      await batch.commit();
     }
 
-    if (updates.size === 0) return;
-
-    const db = admin.firestore();
-    const batch = db.batch();
-    const FieldValue = admin.firestore.FieldValue;
-    for (const [teamId, { likeDelta, postDelta }] of updates) {
-      const update = {};
-      if (likeDelta !== 0) update.likeCount = FieldValue.increment(likeDelta);
-      if (postDelta !== 0) update.postCount = FieldValue.increment(postDelta);
-      if (Object.keys(update).length > 0) {
-        batch.update(db.doc(`adl_teams/${teamId}`), update);
-      }
+    // ── Case 3 補助: 初回投稿を失った場合は次の投稿を昇格 ─────────
+    // before が集計対象、after が（削除 or 班外し or フラグ false）になった時のみ。
+    if (beforeCounted && !afterCounted) {
+      await promoteNextAdlPostIfAny(before, db);
     }
-    await batch.commit();
 
-    console.log(`adlLikeAggregation: ${JSON.stringify(Array.from(updates))}`);
+    if (updates.size > 0) {
+      console.log(`adlLikeAggregation[diff]: ${JSON.stringify(Array.from(updates))}`);
+    }
   }
 );
 
@@ -1384,6 +1516,9 @@ exports.adlRecomputeLikeCounts = onCall(async (request) => {
     const teamId = data.adlTeamId;
     if (!teamId || !totals[teamId]) continue;
     if (!isPostInTeamRankingWindow(data, window)) continue;
+    // 「1人1日1投稿（初回のみカウント）」ルールに従い、countsForAdl=true のみ集計対象。
+    // 自動集計トリガー (adlLikeAggregation) と整合性を保つため、ここでも必須。
+    if (data.countsForAdl !== true) continue;
     totals[teamId].likeCount += data.likeCount ?? 0;
     totals[teamId].postCount += 1;
   }

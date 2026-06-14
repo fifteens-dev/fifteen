@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../providers/current_user_provider.dart';
+import '../providers/post_ui_state.dart';
 import '../providers/saved_items_provider.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
@@ -95,9 +96,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       return;
     }
 
-    // 他人の投稿: その投稿日に自分も投稿していたか確認
-    final hasPosted = await _postService.hasUserPostedOnDate(
-        _currentUserId, widget.post.createdAt);
+    // 他人の投稿: 自分が「今日」投稿していれば、過去の投稿の裏面も閲覧可能。
+    // （以前は同日投稿のみだったが、班アカウントの過去投稿が見られないため緩和）
+    final hasPosted = await _postService.hasUserPostedToday(_currentUserId);
     if (mounted) {
       setState(() {
         _hasPostedToday = hasPosted;
@@ -210,7 +211,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: PostCard(
-                    post: widget.post,
+                    post: context.watch<PostUIState>().getDisplayPost(
+                          widget.post,
+                          currentUserId: _currentUserId,
+                          currentUserIconUrl: _currentUserIconUrl,
+                        ),
                     currentUserId: _currentUserId,
                     currentUserIconUrl: _currentUserIconUrl,
                     audioService: _audioService,
@@ -221,7 +226,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     backSideEnabled: _hasPostedToday,
                     isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(widget.post),
                     disableInteractions: widget.disableInteractions,
-                    onLike: () {},
+                    onLike: _currentUserId.isEmpty
+                        ? () {}
+                        : () => PostUIState.handleLike(
+                              context: context,
+                              post: widget.post,
+                              userId: _currentUserId,
+                              postService: _postService,
+                            ),
                     onComment: _handleComment,
                     onAdd: _handleSave,
                   ),

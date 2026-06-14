@@ -115,6 +115,7 @@ class PostService {
     String? university,
     bool campusVibeParticipating = true,
     String? adlTeamId,
+    String audience = 'public',
   }) => _writeService.createPost(
     userId: userId,
     username: username,
@@ -142,6 +143,7 @@ class PostService {
     university: university,
     campusVibeParticipating: campusVibeParticipating,
     adlTeamId: adlTeamId,
+    audience: audience,
   );
 
   /// 投稿を削除
@@ -263,9 +265,14 @@ class PostService {
           .where('vibeDate', isLessThan: Timestamp.fromDate(nextDay))
           .get();
 
+      // Vibe プレイリストには「鍵投稿（フォロワー限定）」は流さない仕様。
+      // ただし ADL/Vibe の集計値（postCount）には鍵投稿も含めるため、
+      // ここで表示用にだけフィルタする（書き込み側は変更しない）。
       final posts = snapshot.docs
           .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
+          .where((p) => p.audience == PostAudience.public)
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return await _fetchService.applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
@@ -665,7 +672,11 @@ class PostService {
           .where('vibeDate', isGreaterThanOrEqualTo: Timestamp.fromDate(normalized))
           .where('vibeDate', isLessThan: Timestamp.fromDate(nextDay))
           .get();
-      final posts = snapshot.docs.map((d) => PostModel.fromFirestore(d)).toList()
+      // Vibe プレイリスト系には鍵投稿を流さない（[getVibePostsByTopic] と同じ方針）。
+      final posts = snapshot.docs
+          .map((d) => PostModel.fromFirestore(d))
+          .where((p) => p.audience == PostAudience.public)
+          .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return posts;
     } catch (e) {

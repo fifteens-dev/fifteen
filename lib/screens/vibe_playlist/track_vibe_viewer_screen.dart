@@ -7,6 +7,7 @@ import '../../constants/app_colors.dart';
 import '../../models/post_model.dart';
 import '../../models/track_model.dart';
 import '../../models/vibe_ranking_item.dart';
+import '../../providers/post_ui_state.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/itunes_search_service.dart';
 import '../../services/post_service.dart';
@@ -58,8 +59,7 @@ class _TrackVibeViewerScreenState extends State<TrackVibeViewerScreen> {
 
   late int _currentPage;
   final Map<int, String?> _previewUrlCache = {};
-  final Map<String, int> _likeCountCache = {};
-  final Map<String, bool> _isLikedCache = {};
+  // いいね状態は PostUIState に集約（旧 _likeCountCache / _isLikedCache は撤去）
 
   @override
   void initState() {
@@ -69,6 +69,15 @@ class _TrackVibeViewerScreenState extends State<TrackVibeViewerScreen> {
     if (widget.posts.isNotEmpty) {
       _playMusicForPage(_currentPage);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // PostUIState にマージ（他画面の楽観的更新は保持される）
+      if (mounted) {
+        context.read<PostUIState>().mergePosts(
+              posts: widget.posts,
+              currentUserId: widget.currentUserId,
+            );
+      }
+    });
   }
 
   @override
@@ -132,26 +141,23 @@ class _TrackVibeViewerScreenState extends State<TrackVibeViewerScreen> {
 
   Future<void> _handleLike(PostModel post) async {
     HapticFeedback.lightImpact();
-    final postId = post.postId;
-    final wasLiked =
-        _isLikedCache[postId] ?? post.isLikedBy(widget.currentUserId);
-    final count = _likeCountCache[postId] ?? post.likeCount;
-    setState(() {
-      _isLikedCache[postId] = !wasLiked;
-      _likeCountCache[postId] =
-          wasLiked ? (count - 1).clamp(0, 999999) : count + 1;
-    });
+    final postUIState = context.read<PostUIState>();
+    final currentLikeCount =
+        postUIState.getLikeCount(post.postId) ?? post.likeCount;
+    final wasLiked = postUIState.isLiked(post.postId);
+    postUIState.toggleLike(post.postId, currentLikeCount: currentLikeCount);
     try {
       await _postService.toggleLike(
-        postId: postId,
+        postId: post.postId,
         userId: widget.currentUserId,
       );
     } catch (_) {
       if (mounted) {
-        setState(() {
-          _isLikedCache[postId] = wasLiked;
-          _likeCountCache[postId] = count;
-        });
+        postUIState.revertLikeToggle(
+          post.postId,
+          originalLikeCount: currentLikeCount,
+          wasLiked: wasLiked,
+        );
       }
     }
   }
@@ -307,9 +313,11 @@ class _TrackVibeViewerScreenState extends State<TrackVibeViewerScreen> {
   }
 
   Widget _buildVibePostCard(PostModel post) {
-    final isLiked =
-        _isLikedCache[post.postId] ?? post.isLikedBy(widget.currentUserId);
-    final likeCount = _likeCountCache[post.postId] ?? post.likeCount;
+    final postUIState = context.watch<PostUIState>();
+    final isLiked = postUIState.isLiked(post.postId) ||
+        (postUIState.getLikeCount(post.postId) == null &&
+            post.isLikedBy(widget.currentUserId));
+    final likeCount = postUIState.getLikeCount(post.postId) ?? post.likeCount;
     final isSaved =
         context.watch<SavedItemsProvider>().isPostOrTrackSaved(post);
     // 単一曲表示なのでランキング情報は空のものを渡す

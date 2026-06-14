@@ -2,6 +2,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'track_model.dart';
 import 'post_theme.dart';
 
+/// 投稿の公開範囲。
+/// - `public`: 全ユーザーに公開（既定）
+/// - `followers`: 投稿者をフォローしているユーザーのみ閲覧可
+class PostAudience {
+  static const String public = 'public';
+  static const String followers = 'followers';
+
+  /// Firestore 値が null/未知のときは public として扱う（既存投稿の後方互換）。
+  static String normalize(dynamic value) {
+    if (value == followers) return followers;
+    return public;
+  }
+}
+
 /// 投稿情報を表すモデル
 class PostModel {
   final String postId;
@@ -41,6 +55,13 @@ class PostModel {
   final bool campusVibeParticipating; // Campus Vibe参加フラグ（デフォルトtrue）
   final bool campusVibePost; // Campus Vibe参加投稿フラグ（作成時確定・変更不可）
   final String? adlTeamId; // ADL班タグ
+  /// ADL集計対象として「班員の投稿」と扱うか。
+  /// Cloud Functionが「1人1日1投稿」ルールで初回投稿のみtrueにする。
+  /// null（フラグ未設定）の場合はレガシー投稿として扱い、UIは表示する。
+  final bool? countsForAdl;
+  /// 公開範囲（`PostAudience.public` または `PostAudience.followers`）。
+  /// 投稿時に確定し、後から変更不可。既存投稿（フィールドなし）は `public` 扱い。
+  final String audience;
 
   PostModel({
     required this.postId,
@@ -80,6 +101,8 @@ class PostModel {
     this.campusVibeParticipating = true,
     this.campusVibePost = false,
     this.adlTeamId,
+    this.countsForAdl,
+    this.audience = PostAudience.public,
   });
 
   // Firestoreドキュメントから作成
@@ -146,6 +169,10 @@ class PostModel {
       campusVibeParticipating: data['campusVibeParticipating'] != false,
       campusVibePost: data['campusVibePost'] == true,
       adlTeamId: data['adlTeamId']?.toString(),
+      countsForAdl: data['countsForAdl'] is bool
+          ? data['countsForAdl'] as bool
+          : null,
+      audience: PostAudience.normalize(data['audience']),
     );
   }
 
@@ -187,6 +214,7 @@ class PostModel {
       'university': university,
       'campusVibeParticipating': campusVibeParticipating,
       'adlTeamId': adlTeamId,
+      'audience': audience,
     };
   }
 
@@ -228,6 +256,7 @@ class PostModel {
     String? university,
     bool? campusVibeParticipating,
     String? adlTeamId,
+    bool? countsForAdl,
   }) {
     return PostModel(
       postId: postId ?? this.postId,
@@ -267,6 +296,9 @@ class PostModel {
       campusVibeParticipating: campusVibeParticipating ?? this.campusVibeParticipating,
       campusVibePost: this.campusVibePost,
       adlTeamId: adlTeamId ?? this.adlTeamId,
+      countsForAdl: countsForAdl ?? this.countsForAdl,
+      // audience は投稿時に確定（後から変更不可）
+      audience: this.audience,
     );
   }
 

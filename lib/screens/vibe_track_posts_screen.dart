@@ -5,6 +5,7 @@ import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../models/track_model.dart';
 import '../providers/current_user_provider.dart';
+import '../providers/post_ui_state.dart';
 import '../providers/saved_items_provider.dart';
 import '../widgets/post_card.dart';
 import 'package:flutter/services.dart';
@@ -71,6 +72,14 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
       _playingPageIndex = 0;
       _playMusicForPage(0);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<PostUIState>().mergePosts(
+              posts: widget.posts,
+              currentUserId: widget.currentUserId,
+            );
+      }
+    });
   }
 
   Future<void> _loadHasPostedToday() async {
@@ -194,7 +203,12 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                   onPageChanged: _onPageChanged,
                   itemCount: widget.posts.length,
                   itemBuilder: (context, index) {
-                    final post = widget.posts[index];
+                    final basePost = widget.posts[index];
+                    final post = context.watch<PostUIState>().getDisplayPost(
+                          basePost,
+                          currentUserId: widget.currentUserId,
+                          currentUserIconUrl: _currentUserIconUrl,
+                        );
                     _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
                     // ヘッダー分を上に、ナビバー分(71px)を下に padding してカードを中央に寄せる
                     return Padding(
@@ -213,8 +227,13 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                               audioManagedExternally: true,
                               externalPreviewUrl: _previewUrlCache[index],
                               backSideEnabled: _hasPostedToday,
-                              onLike: () {},
-                              onComment: () => _handleComment(post),
+                              onLike: () => PostUIState.handleLike(
+                                context: context,
+                                post: basePost,
+                                userId: widget.currentUserId,
+                                postService: _postService,
+                              ),
+                              onComment: () => _handleComment(basePost),
                               isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
                               onAdd: () => _handleSave(post),
                               onShare: () => showCardShareSheet(

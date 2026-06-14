@@ -32,7 +32,8 @@ import 'services/auth_service.dart';
 import 'services/settings_service.dart';
 import 'services/post_service.dart';
 import 'services/font_service.dart';
-import 'tutorial/tutorial.dart';
+// チュートリアルを表示しないため import を無効化
+// import 'tutorial/tutorial.dart';
 import 'services/user_service.dart';
 import 'services/vibe_topic_service.dart';
 import 'services/adl_service.dart';
@@ -55,6 +56,11 @@ final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<v
 void main() async {
   // Flutter バインディングの初期化
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 縦画面固定（横回転を無効化）
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
 
   // 画像メモリキャッシュ上限を設定（デフォルト: 1000枚・100MB → 古い端末でOOMを防ぐ）
   PaintingBinding.instance.imageCache.maximumSize = 100;
@@ -95,8 +101,8 @@ void main() async {
   // SF Pro フォントをロード（iOS のみ・失敗時はフォールバック）
   await FontService.loadSFPro();
 
-  // チュートリアル状態をロード（永続化されたステップを復元）
-  await TutorialController.instance.ensureInitialized();
+  // チュートリアル状態のロードは無効化（表示しないため）
+  // await TutorialController.instance.ensureInitialized();
 
   // runApp を先に呼んで「15s」をすぐ表示し、FCM初期化はバックグラウンドで実行
   runApp(const FifteenApp());

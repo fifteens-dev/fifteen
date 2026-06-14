@@ -60,6 +60,38 @@ class VibePostCard extends StatelessWidget {
     );
   }
 
+  /// 公開範囲バッジ（アルバム/写真下部の円形アイコン）
+  Widget _buildAudienceBadge(PostModel post) {
+    final isFollowers = post.audience == PostAudience.followers;
+    return Container(
+      width: 30,
+      height: 30,
+      decoration: const BoxDecoration(
+        color: Color(0xCC1F1F1F),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Image.asset(
+          isFollowers
+              ? 'assets/icons/audience_badge_lock.png'
+              : 'assets/icons/audience_badge_globe.png',
+          width: 16,
+          height: 16,
+        ),
+      ),
+    );
+  }
+
+  /// 投稿時刻からの経過時間を「6時間前」形式で返す。
+  /// 6時間36分前 → 「6時間前」（分は切り捨て）。
+  String _formatTimeAgo(DateTime createdAt) {
+    final diff = DateTime.now().difference(createdAt);
+    if (diff.inMinutes < 1) return 'たった今';
+    if (diff.inHours < 1) return '${diff.inMinutes}分前';
+    if (diff.inDays < 1) return '${diff.inHours}時間前';
+    return '${diff.inDays}日前';
+  }
+
   /// アーティスト画像URLを取得する。spotifyArtistId があれば by-ID（正確）で、
   /// なければ名前ベースのSpotify検索にフォールバック。
   Future<String?> _fetchArtistImageUrl(TrackModel track) async {
@@ -87,6 +119,12 @@ class VibePostCard extends StatelessWidget {
         child: Stack(
           children: [
             Positioned.fill(child: _buildPhotoBackground(post)),
+            // 公開範囲バッジ（カード下部情報領域のすぐ上、右側）
+            Positioned(
+              bottom: 275 + 12,
+              right: 14,
+              child: _buildAudienceBadge(post),
+            ),
             Positioned(
               bottom: 0,
               left: 0,
@@ -213,16 +251,34 @@ class VibePostCard extends StatelessWidget {
             onTap: () => _openUserProfile(context, post.userId),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text(
-                post.username,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  letterSpacing: -0.12,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Flexible(
+                    child: Text(
+                      post.username,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                        letterSpacing: -0.12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _formatTimeAgo(post.createdAt),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFA8A8A8),
+                      letterSpacing: -0.12,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

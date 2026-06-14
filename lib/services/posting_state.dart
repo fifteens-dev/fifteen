@@ -28,6 +28,9 @@ class PostingCardData {
   final bool isVibe;
   final String? vibeTopicTitle;
   final String? adlTeamId;
+  /// 「1人1日1投稿」ルール上、この投稿が班員投稿として扱われる予定か。
+  /// false の場合は裏面右上の @◯◯ を非表示にする。
+  final bool willCountForAdl;
 
   const PostingCardData({
     required this.track,
@@ -51,6 +54,7 @@ class PostingCardData {
     this.isVibe = false,
     this.vibeTopicTitle,
     this.adlTeamId,
+    this.willCountForAdl = true,
   });
 }
 
@@ -67,12 +71,29 @@ class PostingState extends ChangeNotifier {
   PostingCardData? _cardData;
   OverlayEntry? _overlayEntry;
 
+  /// 直近で `startPosting` を呼んだ日付（端末ローカル）。
+  /// 1投稿目のアップロード中に2投稿目フローへ進むケースで、
+  /// Firestore 反映前でも「今日もう開始した」と判定するために使う。
+  DateTime? _lastPostStartedDate;
+
   bool get isPosting => _isPosting;
   PostingCardData? get cardData => _cardData;
+
+  /// 今セッションで本日中に投稿開始したか。
+  /// Firestore 反映ラグを補うフォールバック判定として使う。
+  bool get hasStartedPostToday {
+    final last = _lastPostStartedDate;
+    if (last == null) return false;
+    final now = DateTime.now();
+    return last.year == now.year &&
+        last.month == now.month &&
+        last.day == now.day;
+  }
 
   void startPosting(PostingCardData data) {
     _isPosting = true;
     _cardData = data;
+    _lastPostStartedDate = DateTime.now();
     notifyListeners();
   }
 

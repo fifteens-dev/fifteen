@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../providers/current_user_provider.dart';
+import '../providers/post_ui_state.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
@@ -58,6 +59,11 @@ class _BatchPostsScreenState extends State<BatchPostsScreen> {
         _posts = posts;
         _isLoading = false;
       });
+      // PostUIState にマージ（他画面の楽観的更新は保持される）
+      context.read<PostUIState>().mergePosts(
+            posts: posts,
+            currentUserId: widget.currentUserId,
+          );
       if (posts.isNotEmpty) {
         _playingPageIndex = 0;
         _playMusicForPage(0);
@@ -153,7 +159,12 @@ class _BatchPostsScreenState extends State<BatchPostsScreen> {
               onPageChanged: _onPageChanged,
               itemCount: _posts.length,
               itemBuilder: (context, index) {
-                final post = _posts[index];
+                final basePost = _posts[index];
+                final post = context.watch<PostUIState>().getDisplayPost(
+                      basePost,
+                      currentUserId: widget.currentUserId,
+                      currentUserIconUrl: _currentUserIconUrl,
+                    );
                 _cardKeys.putIfAbsent(index, () => GlobalKey<PostCardState>());
                 return Padding(
                   padding: EdgeInsets.only(top: headerAreaHeight, bottom: 71),
@@ -171,7 +182,12 @@ class _BatchPostsScreenState extends State<BatchPostsScreen> {
                           audioManagedExternally: true,
                           externalPreviewUrl: _previewUrlCache[index],
                           backSideEnabled: true,
-                          onLike: () {},
+                          onLike: () => PostUIState.handleLike(
+                            context: context,
+                            post: basePost,
+                            userId: widget.currentUserId,
+                            postService: _postService,
+                          ),
                           onComment: () {},
                           onAdd: () {},
                           onShare: () => showCardShareSheet(

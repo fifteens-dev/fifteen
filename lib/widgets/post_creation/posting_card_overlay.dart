@@ -13,6 +13,7 @@ import '../../widgets/post_card.dart';
 import '../../widgets/post_card_back_info.dart';
 import '../../widgets/post_creation/lyrics_card_layouts.dart';
 import '../../widgets/post_creation/post_card_back_view.dart';
+import '../../widgets/shared/team_handle_label.dart';
 import '../../widgets/shared/user_info_badge.dart';
 
 /// 投稿アップロード中にホーム画面の上に表示するオーバーレイ。
@@ -172,6 +173,8 @@ class _PostingCardOverlayState extends State<PostingCardOverlay>
       createdAt: now,
       updatedAt: now,
       adlTeamId: data.adlTeamId,
+      // 2投稿目以降は表面の @◯◯ も非表示にする
+      countsForAdl: data.willCountForAdl ? null : false,
     );
     return PostCard(
       post: post,
@@ -222,9 +225,22 @@ class _PostingCardOverlayState extends State<PostingCardOverlay>
                       ? '#${data.vibeTopicTitle}'
                       : null,
                   showBackground: false,
-                  teamId: data.adlTeamId,
                 ),
               ),
+
+              // 班ハンドル（右上）。今日2投稿目以降は非表示。
+              if (data.adlTeamId != null &&
+                  data.adlTeamId!.isNotEmpty &&
+                  data.willCountForAdl)
+                Positioned(
+                  right: 23,
+                  top: 18,
+                  height: 32,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TeamHandleLabel(teamId: data.adlTeamId),
+                  ),
+                ),
             ],
           ),
         ),

@@ -5,10 +5,12 @@ import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/post_model.dart';
 import '../providers/current_user_provider.dart';
+import '../providers/post_ui_state.dart';
 import '../providers/saved_items_provider.dart';
 import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
+import '../services/post_service.dart';
 import 'card_share_screen.dart';
 
 /// Vibe / CampusVibe 過去投稿一覧画面（TikTok式縦スクロール）
@@ -32,6 +34,7 @@ class _VibePostsListScreenState extends State<VibePostsListScreen> {
   final PageController _pageController = PageController();
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
+  final PostService _postService = PostService();
 
   List<PostModel> _posts = [];
   bool _isLoading = true;
@@ -59,6 +62,10 @@ class _VibePostsListScreenState extends State<VibePostsListScreen> {
         _posts = posts;
         _isLoading = false;
       });
+      context.read<PostUIState>().mergePosts(
+            posts: posts,
+            currentUserId: widget.currentUserId,
+          );
       if (posts.isNotEmpty) {
         _playingPageIndex = 0;
         _playMusicForPage(0);
@@ -160,7 +167,11 @@ class _VibePostsListScreenState extends State<VibePostsListScreen> {
                         padding: const EdgeInsets.all(16),
                         child: PostCard(
                           key: _cardKeys[index],
-                          post: post,
+                          post: context.watch<PostUIState>().getDisplayPost(
+                                post,
+                                currentUserId: widget.currentUserId,
+                                currentUserIconUrl: _currentUserIconUrl,
+                              ),
                           currentUserId: widget.currentUserId,
                           currentUserIconUrl: _currentUserIconUrl,
                           audioService: _audioService,
@@ -168,7 +179,12 @@ class _VibePostsListScreenState extends State<VibePostsListScreen> {
                           audioManagedExternally: true,
                           externalPreviewUrl: _previewUrlCache[index],
                           backSideEnabled: true,
-                          onLike: () {},
+                          onLike: () => PostUIState.handleLike(
+                            context: context,
+                            post: post,
+                            userId: widget.currentUserId,
+                            postService: _postService,
+                          ),
                           onComment: () {},
                           isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
                           onAdd: () => _handleSave(post),

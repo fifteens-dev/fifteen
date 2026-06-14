@@ -15,6 +15,7 @@ import '../../models/vibe_topic_model.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/itunes_search_service.dart';
 import '../../services/music_service_manager.dart';
+import '../../providers/post_ui_state.dart';
 import '../../providers/saved_items_provider.dart';
 import '../../services/post_service.dart';
 import '../../services/posting_state.dart';
@@ -64,8 +65,16 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
   int _currentPage = 0;
   final Map<int, String?> _previewUrlCache = {};
-  final Map<String, int> _likeCountCache = {};
-  final Map<String, bool> _isLikedCache = {};
+  // いいね状態は PostUIState に集約（旧 _likeCountCache / _isLikedCache は撤去）
+
+  // ── 再生レース対策 ──────────────────────────────────────────────
+  // 高速スクロール中、_onPageChanged は通過ページ全てで発火する。
+  // それぞれの _playMusicForPage は async（fetch → stop → play）で実行され、
+  // 古いコールが新しいコールの後に playPreview を呼ぶと「表示と違う曲が鳴る」状態になる。
+  // 1) Timer デバウンスで通過ページはそもそも再生開始しない
+  // 2) 世代カウンタで await を跨いで自分が最新でなければ中断
+  Timer? _playDebounce;
+  int _playGeneration = 0;
 
   // ── スクロール位置の保持 ────────────────────────────────────────
   // ホーム遷移・タブ切替を跨いで画面に戻ったとき、保持した位置を一旦表示し
@@ -196,6 +205,7 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
     _tabController.dispose();
     _tabPageController.dispose();
     _pageController?.dispose();
+    _playDebounce?.cancel();
     // AudioPlayerService はシングルトンのため dispose() するとアプリ全体の再生器を破壊する。
     // 自画面の再生だけ止める stopIfOwner(this) を使う。
     _audioService.stopIfOwner(this);
@@ -218,6 +228,13 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
         _isLoading = false;
         _buildSummaryImages();
       });
+      // PostUIState にマージ（他画面の楽観的更新は保持される）
+      if (mounted) {
+        context.read<PostUIState>().mergePosts(
+              posts: posts,
+              currentUserId: widget.currentUserId,
+            );
+      }
       if (posts.isNotEmpty) {
         _playMusicForPage(_currentPage);
         // 初回ロード完了 → 保存位置の次のページへ自動進行（必要時のみ）
@@ -230,27 +247,29 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
   Future<void> _playMusicForPage(int index) async {
     if (_posts == null || index >= _posts!.length) return;
+    final myGen = ++_playGeneration;
     final post = _posts![index];
 
+    // URL未取得ならフェッチ。await を跨ぐので終了後に世代チェック。
     if (!_previewUrlCache.containsKey(index)) {
       final url = await _itunesService.getPreviewUrl(
         trackName: post.track.trackName,
         artistName: post.track.artistName,
       );
+      if (myGen != _playGeneration || !mounted) return;
       _previewUrlCache[index] = url;
     }
 
     final url = _previewUrlCache[index];
     if (url != null && mounted) {
-      // ページ切り替えの度に必ず一度再生を止めて、
-      // その投稿が持つ再生開始位置(audioStartMs)から再生し直す。
-      // 同URL+同startFromでも強制的にリスタートさせるため stop を挟む。
+      // 直前の再生を止めてから、当投稿の開始位置で再生し直す。
       await _audioService.stop();
-      if (!mounted) return;
+      if (myGen != _playGeneration || !mounted) return;
       await _audioService.playPreview(
         url,
         startFrom: Duration(milliseconds: post.audioStartMs),
       );
+      if (myGen != _playGeneration || !mounted) return;
     }
     // 隣接（次ページ）の音声をプリロードしておく
     _preloadNeighborAudio(index);
@@ -285,7 +304,13 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
   void _onPageChanged(int index) {
     setState(() => _currentPage = index);
-    _playMusicForPage(index);
+    // 高速スクロール時の通過ページは再生を起こさない。
+    // 直近のページ変更から 80ms 何も来なければ「ここに止まった」と判定して再生開始。
+    _playDebounce?.cancel();
+    _playDebounce = Timer(const Duration(milliseconds: 80), () {
+      if (!mounted || _currentPage != index) return;
+      _playMusicForPage(index);
+    });
   }
 
   VibeRankingItem? _rankingFor(PostModel post) {
@@ -579,9 +604,12 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
   Widget _buildVibePostCard(PostModel post, VibeRankingItem? rankingItem) {
     final modalItem = rankingItem ??
         VibeRankingItem(rank: 0, track: post.track, postCount: 0);
-    final isLiked =
-        _isLikedCache[post.postId] ?? post.isLikedBy(widget.currentUserId);
-    final likeCount = _likeCountCache[post.postId] ?? post.likeCount;
+    // PostUIState から最新の like 状態を取得（他画面で like → 即反映）
+    final postUIState = context.watch<PostUIState>();
+    final isLiked = postUIState.isLiked(post.postId) ||
+        (postUIState.getLikeCount(post.postId) == null &&
+            post.isLikedBy(widget.currentUserId));
+    final likeCount = postUIState.getLikeCount(post.postId) ?? post.likeCount;
     final isSaved = context.watch<SavedItemsProvider>().isPostOrTrackSaved(post);
     return VibePostCard(
       post: post,
@@ -600,24 +628,23 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
 
   Future<void> _handleLike(PostModel post) async {
     HapticFeedback.lightImpact();
-    final postId = post.postId;
-    final wasLiked = _isLikedCache[postId] ?? post.isLikedBy(widget.currentUserId);
-    final count = _likeCountCache[postId] ?? post.likeCount;
-    setState(() {
-      _isLikedCache[postId] = !wasLiked;
-      _likeCountCache[postId] = wasLiked ? (count - 1).clamp(0, 999999) : count + 1;
-    });
+    final postUIState = context.read<PostUIState>();
+    final currentLikeCount =
+        postUIState.getLikeCount(post.postId) ?? post.likeCount;
+    final wasLiked = postUIState.isLiked(post.postId);
+    postUIState.toggleLike(post.postId, currentLikeCount: currentLikeCount);
     try {
       await _postService.toggleLike(
-        postId: postId,
+        postId: post.postId,
         userId: widget.currentUserId,
       );
     } catch (_) {
       if (mounted) {
-        setState(() {
-          _isLikedCache[postId] = wasLiked;
-          _likeCountCache[postId] = count;
-        });
+        postUIState.revertLikeToggle(
+          post.postId,
+          originalLikeCount: currentLikeCount,
+          wasLiked: wasLiked,
+        );
       }
     }
   }

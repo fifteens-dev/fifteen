@@ -9,6 +9,10 @@ import 'package:provider/provider.dart';
 import '../models/track_model.dart';
 import '../providers/current_user_provider.dart';
 import '../services/lyrics_service.dart';
+import '../services/post_service.dart';
+import '../services/posting_state.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../widgets/shared/team_handle_label.dart';
 import '../widgets/shared/user_info_badge.dart';
 import 'package:image_picker/image_picker.dart';
 import 'post_final_preview_screen.dart';
@@ -64,10 +68,27 @@ class _LyricsCardSelectionScreenState
   LyricsData? _lyricsData; // 取得した歌詞データ
   bool _isLoadingLyrics = false; // 歌詞取得中フラグ
 
+  // 今日既に投稿済みか（true なら裏面右上の @◯◯ を出さない）
+  bool _hasPostedToday = false;
+  final PostService _postService = PostService();
+
+  Future<void> _loadHasPostedToday() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      final hasInFirestore = await _postService.hasUserPostedToday(uid);
+      final hasInSession = PostingState.instance.hasStartedPostToday;
+      if (mounted) {
+        setState(() => _hasPostedToday = hasInFirestore || hasInSession);
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
     _lyricsData = widget.lyricsData;
+    _loadHasPostedToday();
 
     // 歌詞がまだ取得されていない場合はバックグラウンドで取得
     if (_lyricsData == null) {
@@ -340,7 +361,20 @@ class _LyricsCardSelectionScreenState
                       ? '#${widget.vibeTopicTitle}'
                       : null,
                   showBackground: false,
-                  teamId: context.read<CurrentUserProvider>().adlTeamId,
+                ),
+              ),
+
+              // 班ハンドル（右上）。今日既に投稿済みなら非表示。
+              Positioned(
+                right: 15,
+                top: 15,
+                height: 32,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: TeamHandleLabel(
+                    teamId: context.read<CurrentUserProvider>().adlTeamId,
+                    enabled: !_hasPostedToday,
+                  ),
                 ),
               ),
             ],

@@ -10,6 +10,7 @@ import '../../utils/color_extractor.dart';
 import '../../models/post_theme.dart';
 import '../post_card_back_info.dart';
 import '../post_creation/lyrics_card_layouts.dart';
+import '../shared/team_handle_label.dart';
 import '../shared/user_info_badge.dart';
 
 /// 投稿カード裏面の共通ウィジェット
@@ -34,6 +35,9 @@ class PostCardBackView extends StatefulWidget {
   final bool isVibe;
   final String? vibeTopicTitle;
   final String? adlTeamId;
+  /// 「1人1日1投稿」ルール上、この投稿が班員投稿として扱われるか。
+  /// false の場合は裏面右上の @◯◯ を非表示にする。デフォルトは true。
+  final bool willCountForAdl;
 
   /// 事前抽出済みのグラデーション色（提供されていれば再抽出しない）
   final Color? preExtractedGradientStart;
@@ -67,6 +71,7 @@ class PostCardBackView extends StatefulWidget {
     this.isVibe = false,
     this.vibeTopicTitle,
     this.adlTeamId,
+    this.willCountForAdl = true,
     this.preExtractedGradientStart,
     this.preExtractedGradientEnd,
     this.showLyricsCard = true,
@@ -286,7 +291,21 @@ class _PostCardBackViewState extends State<PostCardBackView> {
                     ? '#${widget.vibeTopicTitle}'
                     : null,
                 showBackground: false,
-                teamId: widget.adlTeamId,
+              ),
+            ),
+
+          // ⑥ 班ハンドル（右上）。ホーム投稿カードと同じ位置/スタイル。
+          if (widget.showUserBadge &&
+              widget.adlTeamId != null &&
+              widget.adlTeamId!.isNotEmpty &&
+              widget.willCountForAdl)
+            Positioned(
+              right: 23,
+              top: 18,
+              height: 32,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TeamHandleLabel(teamId: widget.adlTeamId),
               ),
             ),
         ],

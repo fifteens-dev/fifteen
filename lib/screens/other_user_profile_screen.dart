@@ -96,7 +96,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
     super.dispose();
   }
 
-  /// プロフィール画像を拡大表示
+  /// プロフィール画像を拡大表示（円形に切り抜き）
   void _showProfileImageDialog(String imageUrl) {
     showDialog(
       context: context,
@@ -105,16 +105,22 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
         onTap: () => Navigator.pop(context),
         child: Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(16),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: CachedNetworkImage(
-              imageUrl: imageUrl,
-              fit: BoxFit.contain,
-              errorWidget: (_, __, ___) => const Icon(
-                Icons.person,
-                color: Colors.white54,
-                size: 80,
+          insetPadding: const EdgeInsets.all(40),
+          child: AspectRatio(
+            aspectRatio: 1.0,
+            child: ClipOval(
+              child: CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => Container(
+                  color: const Color(0xFF2A2A2A),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.person,
+                    color: Colors.white54,
+                    size: 80,
+                  ),
+                ),
               ),
             ),
           ),
@@ -155,15 +161,27 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
         final isDummyUser =
             _dummyUsernames.contains(userData?.username ?? '');
 
-        // 48時間フィルタ
+        // 公開範囲フィルタ: 鍵投稿は「自分自身」or「フォローしている」場合のみ表示。
+        // ADL班プロフィールは別画面（[AdlTeamPlaylistScreen]）で扱うのでここでは考慮不要。
+        final isViewerAuthor = currentUserId == widget.userId;
+        final viewerFollowsAuthor =
+            currentUser?.isFollowing(widget.userId) ?? false;
+        final canSeeFollowersOnly = isViewerAuthor || viewerFollowsAuthor;
+
+        // 48時間 + 公開範囲フィルタ
         final cutoff48h = DateTime.now().subtract(const Duration(hours: 48));
-        final visibleOtherPosts =
-            otherPosts.where((p) => p.createdAt.isBefore(cutoff48h)).toList();
+        final visibleOtherPosts = otherPosts.where((p) {
+          if (!p.createdAt.isBefore(cutoff48h)) return false;
+          if (p.audience == PostAudience.followers && !canSeeFollowersOnly) {
+            return false;
+          }
+          return true;
+        }).toList();
 
         setState(() {
           _userData = userData;
           _otherPosts = visibleOtherPosts;
-          _isFollowing = currentUser?.isFollowing(widget.userId) ?? false;
+          _isFollowing = viewerFollowsAuthor;
           _isFollowedBy = userData?.following.contains(currentUserId) ?? false;
           _isLoading = false;
 

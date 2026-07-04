@@ -1838,6 +1838,34 @@ function _getCenteredCardPos(layoutIndex) {
   return { x: (363 - size.w) / 2, y: (645 - size.h) / 2 };
 }
 
+/**
+ * ダミー投稿生成で使う「今日(JST)のアクティブな汎用Vibeトピック」を1件返す。
+ *
+ * 条件:
+ *   - status == 'active'
+ *   - date が JST の今日 0:00 以上、翌日 0:00 未満
+ *   - isAdlOnly !== true（ダミーはADL班に所属していないため汎用トピックに割り当てる）
+ *
+ * 該当ゼロなら null。複合インデックスを避けるため status のみで取得して
+ * 日付フィルタはコード側で行う（[dailyVibeNotification] と同じ方針）。
+ */
+async function _findTodayActiveVibeTopic(db) {
+  const todayStart = jstDayStartFor(new Date());
+  const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+  const snap = await db.collection('vibe_topics')
+    .where('status', '==', 'active')
+    .get();
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const topicDate = data.date?.toDate?.();
+    if (!topicDate) continue;
+    if (topicDate < todayStart || topicDate >= todayEnd) continue;
+    if (data.isAdlOnly === true) continue;
+    return { id: doc.id, ...data };
+  }
+  return null;
+}
+
 exports.dailyDummyUserPosts = onSchedule(
   { schedule: '1 0 * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 540 },
   async () => {
@@ -1917,14 +1945,18 @@ exports.dailyDummyUserPosts = onSchedule(
         console.error('dailyDummyUserPosts: Apple Music TOP50取得失敗、フォールバックを使用:', e.message);
       }
 
-      // ── 今日のアクティブなVibe topicを取得 ──────────────────────
+      // ── 今日(JST)のアクティブなVibe topicを取得 ──────────────────────
+      // 旧コードは status=='active' で limit(1) するだけだったため、未来日付の
+      // active topic が複数残っていると、その中から「適当な1件」が選ばれていた。
+      // 結果としてダミー投稿が翌日や数日後のトピックに割り当たり、ユーザー側の
+      // 「今日のVibeプレイリスト」には何も表示されない事故が発生していた。
       let activeTopic = null;
       try {
-        const topicSnap = await db.collection('vibe_topics').where('status', '==', 'active').limit(1).get();
-        if (!topicSnap.empty) {
-          const doc = topicSnap.docs[0];
-          activeTopic = { id: doc.id, ...doc.data() };
+        activeTopic = await _findTodayActiveVibeTopic(db);
+        if (activeTopic) {
           console.log(`dailyDummyUserPosts: Vibe topic="${activeTopic.title}"`);
+        } else {
+          console.warn('dailyDummyUserPosts: 今日(JST)のactive topicが見つかりません');
         }
       } catch (e) {
         console.error('dailyDummyUserPosts: Vibeトピック取得エラー:', e.message);
@@ -2020,11 +2052,12 @@ async function _createDummyPosts(db, userIds, postPhotoUrls, tracks, activeTopic
       const theme   = urlToTheme[track.albumImageUrl] || _DUMMY_DEFAULT_THEME;
       const cardPos = _getCenteredCardPos(layoutIndex);
 
-      const postHour   = randomInt(8, 22);
-      const postMinute = randomInt(0, 59);
-      const postSecond = randomInt(0, 59);
-      const postTimeJst = new Date(Date.UTC(jstYear, jstMonth, jstDate, postHour, postMinute, postSecond));
-      const postTimeUtc = new Date(postTimeJst.getTime() - 9 * 60 * 60 * 1000);
+      // createdAt は「今この瞬間から過去 0〜23 時間のランダム」にする。
+      // 旧コードは Date.UTC(jstY,jstM,jstD, randHour, ...) で「今日の8〜22時JST」を
+      // 計算していたため、関数実行時刻（≈ 0:01 JST）から見ると未来の時刻が
+      // 大量に生まれ、Flutter 側の time-ago 表示が「たった今」固定になっていた。
+      const offsetMinutes = randomInt(0, 23 * 60);
+      const postTimeUtc = new Date(Date.now() - offsetMinutes * 60 * 1000);
       const postTimestamp = admin.firestore.Timestamp.fromDate(postTimeUtc);
 
       const postRef = db.collection('posts').doc();
@@ -2134,12 +2167,8 @@ exports.manualDummyUserPosts = onCall(
     const postPhotoUrls = photosSnap.data().postPhotoUrls || [];
     const tracks        = tracksSnap.data().list || [];
 
-    let activeTopic = null;
-    const topicSnap = await db.collection('vibe_topics').where('status', '==', 'active').limit(1).get();
-    if (!topicSnap.empty) {
-      const doc = topicSnap.docs[0];
-      activeTopic = { id: doc.id, ...doc.data() };
-    }
+    // 今日(JST) のアクティブな汎用 Vibe トピックを取得（[dailyDummyUserPosts] と同じロジック）
+    const activeTopic = await _findTodayActiveVibeTopic(db);
 
     const createdCount = await _createDummyPosts(
       db, userIds, postPhotoUrls, tracks, activeTopic, jstYear, jstMonth, jstDate

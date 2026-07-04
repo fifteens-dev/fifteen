@@ -181,6 +181,7 @@ class _PostingCardOverlayState extends State<PostingCardOverlay>
       audioService: _audioService,
       showFrontOnly: true,
       hideReactionCounts: true,
+      hideAudienceBadge: true,
       preExtractedGradientStart: data.gradientStart,
       preExtractedGradientEnd: data.gradientEnd,
       externalPreviewUrl: data.previewUrl,

@@ -421,6 +421,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
                                         audioService: _audioService,
                                         showFrontOnly: true,
                                         hideReactionCounts: true,
+                                        hideAudienceBadge: true,
                                         onCardTap: _flipCard,
                                         preExtractedGradientStart: _extractedGradientStart,
                                         preExtractedGradientEnd: _extractedGradientEnd,

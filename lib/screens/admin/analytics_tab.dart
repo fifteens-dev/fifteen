@@ -32,6 +32,30 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
     }
   }
 
+  /// ダミーユーザーのUID一覧を `dummy_config/users` + `bulkDummyUsers`（あれば）から取得。
+  /// 集計から除外するために使う。
+  Future<Set<String>> _loadDummyUids() async {
+    final ids = <String>{};
+    try {
+      final snap = await _firestore.doc('dummy_config/users').get();
+      final list = (snap.data()?['userIds'] as List?) ?? const [];
+      for (final v in list) {
+        if (v is String) ids.add(v);
+      }
+    } catch (_) {}
+    try {
+      final snap = await _firestore.doc('dummy_config/bulkDummyUsers').get();
+      final list = (snap.data()?['userIds'] as List?) ?? const [];
+      for (final v in list) {
+        if (v is String) ids.add(v);
+      }
+    } catch (_) {}
+    return ids;
+  }
+
+  /// 引き算後に 0 未満にしない（null の場合は null をそのまま返す）
+  int? _sub(int? a, int b) => a == null ? null : (a - b).clamp(0, a);
+
   Future<void> _load() async {
     setState(() => _isLoading = true);
 
@@ -41,6 +65,9 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
     final monthKey =
         '${now.year}-${now.month.toString().padLeft(2, '0')}';
     final todayTs = Timestamp.fromDate(DateTime(now.year, now.month, now.day));
+
+    // 先にダミーUIDを取得（後で集計値から差し引く）
+    final dummyUids = await _loadDummyUids();
 
     // 各クエリを独立実行（一部失敗しても他は表示）
     final results = await Future.wait([
@@ -64,22 +91,75 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
           .where('createdAt', isGreaterThanOrEqualTo: todayTs)),
       // 7: 投稿開始数（今日）— createdAt のみで絞り、type をメモリフィルタ
       _countPostStartsToday(todayTs),
+      // 8: ダミー投稿総数（累計）
+      _countQuery(_firestore.collection('posts')
+          .where('isDummyPost', isEqualTo: true)),
+      // 9: ダミー投稿（今日）
+      _countQuery(_firestore.collection('posts')
+          .where('isDummyPost', isEqualTo: true)
+          .where('createdAt', isGreaterThanOrEqualTo: todayTs)),
+      // 10: 今日新規登録されたユーザーのうちダミー（通常0だが念のため）
+      _countDummyUsersCreatedSince(dummyUids, todayTs),
+      // 11: postsCount > 0 のダミーユーザー数
+      _countDummyPosters(dummyUids),
     ]);
 
     if (mounted) {
       setState(() {
+        // 全指標からダミー分を差し引く。
+        // DAU/MAU/投稿開始数 は app_open_events / analytics_events ベースで
+        // ダミーが書き込まないため引き算不要。
         _data = _AnalyticsData(
-          totalUsers: results[0],
-          dailyNewUsers: results[1],
+          totalUsers: _sub(results[0], dummyUids.length),
+          dailyNewUsers: _sub(results[1], results[10] ?? 0),
           dau: results[2],
           mau: results[3],
-          totalPosters: results[4],
-          totalPostCompletions: results[5],
-          postCompletionsToday: results[6],
+          totalPosters: _sub(results[4], results[11] ?? 0),
+          totalPostCompletions: _sub(results[5], results[8] ?? 0),
+          postCompletionsToday: _sub(results[6], results[9] ?? 0),
           postStartsToday: results[7],
         );
         _isLoading = false;
       });
+    }
+  }
+
+  /// 指定 timestamp 以降に作成されたダミーユーザー数。
+  Future<int?> _countDummyUsersCreatedSince(
+      Set<String> dummyUids, Timestamp since) async {
+    if (dummyUids.isEmpty) return 0;
+    try {
+      var matched = 0;
+      // Firestore whereIn は 30 件上限
+      for (var i = 0; i < dummyUids.length; i += 30) {
+        final batch = dummyUids.skip(i).take(30).toList();
+        final snap = await _firestore
+            .collection('users')
+            .where(FieldPath.documentId, whereIn: batch)
+            .where('createdAt', isGreaterThanOrEqualTo: since)
+            .count()
+            .get();
+        matched += snap.count ?? 0;
+      }
+      return matched;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// postsCount > 0 のダミーユーザー数。
+  Future<int?> _countDummyPosters(Set<String> dummyUids) async {
+    if (dummyUids.isEmpty) return 0;
+    try {
+      var matched = 0;
+      for (final uid in dummyUids) {
+        final doc = await _firestore.collection('users').doc(uid).get();
+        final pc = (doc.data()?['postsCount'] as num?)?.toInt() ?? 0;
+        if (pc > 0) matched++;
+      }
+      return matched;
+    } catch (_) {
+      return null;
     }
   }
 

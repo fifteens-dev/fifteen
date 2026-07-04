@@ -104,7 +104,13 @@ class PostFetchService {
       }
 
       final snapshot = await query.get();
+      // Vibe 投稿（isVibe==true）はストーリーバー専用のため、
+      // ホームタイムラインの投稿カードには載せない。
       final posts = snapshot.docs
+          .where((doc) {
+            final data = doc.data() as Map<String, dynamic>?;
+            return data?['isVibe'] != true;
+          })
           .map((doc) => PostModel.fromFirestore(doc))
           .toList();
 
@@ -118,7 +124,7 @@ class PostFetchService {
   }
 
   /// フォロー中のユーザーの投稿を取得（Firestore whereIn のバッチ処理）
-  /// ダミーユーザー投稿はタイムラインには出さない（Vibeのみで表示）
+  /// ダミーユーザー投稿・Vibe 投稿（ストーリー）はタイムラインには出さない。
   Future<List<PostModel>> getPostsForFollowing(List<String> userIds, {int limit = 50}) async {
     if (userIds.isEmpty) return [];
 
@@ -140,9 +146,11 @@ class PostFetchService {
 
         for (final doc in snapshot.docs) {
           if (seenIds.add(doc.id)) {
-            // ダミー投稿はタイムラインに出さない（Vibeでは表示）
             final data = doc.data();
+            // ダミー投稿はタイムラインに出さない（Vibeでは表示）
             if (data['isDummyPost'] == true) continue;
+            // Vibe 投稿（ストーリー）は投稿カードとして載せない
+            if (data['isVibe'] == true) continue;
             allPosts.add(PostModel.fromFirestore(doc));
           }
         }
@@ -154,6 +162,76 @@ class PostFetchService {
     } catch (e) {
       if (kDebugMode) {
         print('Error getting posts for following: $e');
+      }
+      return [];
+    }
+  }
+
+  /// Vibe ストーリーバー用: 過去 24 時間の投稿をユーザー別にグループ化して返す。
+  ///
+  /// - 入力 [userIds] には「自分のフォロー先 + 自分」を渡す想定（自分の投稿は
+  ///   ストーリーバー先頭の Vibe 円で別表示するため、呼び出し元で除外してもよい）
+  /// - audience=followers の投稿は [viewerFollowsAuthor] が true でないと弾く
+  /// - ダミー投稿（isDummyPost=true）は表示対象外
+  /// - 結果は「ユーザーごとの最新 createdAt の降順」で並ぶ
+  ///
+  /// 返り値: 各 entry は1ユーザー分の `List<PostModel>`（そのユーザーの 24h 投稿、新しい順）
+  Future<List<List<PostModel>>> getRecentPostsGroupedByUser({
+    required List<String> userIds,
+    required bool Function(String authorUid) viewerFollowsAuthor,
+  }) async {
+    if (userIds.isEmpty) return [];
+    try {
+      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+      final byUser = <String, List<PostModel>>{};
+
+      for (int i = 0; i < userIds.length; i += 30) {
+        final batch = userIds.skip(i).take(30).toList();
+        final snapshot = await _firestore
+            .collection(_postsCollection)
+            .where('userId', whereIn: batch)
+            .where('createdAt', isGreaterThan: Timestamp.fromDate(cutoff))
+            .orderBy('createdAt', descending: true)
+            .get();
+
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          if (data['isDummyPost'] == true) continue;
+          final post = PostModel.fromFirestore(doc);
+          // audience=followers なら閲覧権限を確認（自分の投稿は常に可視）
+          if (post.audience == PostAudience.followers &&
+              !viewerFollowsAuthor(post.userId)) {
+            continue;
+          }
+          (byUser[post.userId] ??= []).add(post);
+        }
+      }
+
+      // 各ユーザーの投稿リスト内も念のため新しい順にソート
+      for (final list in byUser.values) {
+        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      }
+
+      // ユーザーリストを「最新投稿の createdAt 降順」で並べる
+      final entries = byUser.entries.toList()
+        ..sort((a, b) =>
+            b.value.first.createdAt.compareTo(a.value.first.createdAt));
+
+      // 投稿者ユーザー情報を最新化（アイコン・ユーザー名を流用するため）
+      final flat = entries.expand((e) => e.value).toList();
+      final updated = await applyLatestUserInfo(flat);
+      // updated の順序は flat と同じ（applyLatestUserInfo は順序保持）
+      int cursor = 0;
+      final result = <List<PostModel>>[];
+      for (final e in entries) {
+        final n = e.value.length;
+        result.add(updated.sublist(cursor, cursor + n));
+        cursor += n;
+      }
+      return result;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getRecentPostsGroupedByUser: $e');
       }
       return [];
     }

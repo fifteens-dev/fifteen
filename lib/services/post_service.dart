@@ -34,6 +34,19 @@ class PostService {
   Future<List<PostModel>> getPostsByUserId(String userId, {int limit = 20}) =>
       _fetchService.getPostsByUserId(userId, limit: limit);
 
+  /// Vibe ストーリーバー用: 過去 24h の投稿をユーザー単位でグループ化して取得。
+  ///
+  /// [userIds] には「自分のフォロー + 自分」を想定。[viewerFollowsAuthor] は鍵投稿の
+  /// 可視性判定に使う（自分自身は常に可視、フォロー先の鍵投稿も可視）。
+  Future<List<List<PostModel>>> getRecentPostsGroupedByUser({
+    required List<String> userIds,
+    required bool Function(String authorUid) viewerFollowsAuthor,
+  }) =>
+      _fetchService.getRecentPostsGroupedByUser(
+        userIds: userIds,
+        viewerFollowsAuthor: viewerFollowsAuthor,
+      );
+
   /// ユーザーの投稿をカーソルページネーション付きで取得
   Future<({List<PostModel> posts, DocumentSnapshot? lastDoc, bool hasMore})>
       getPostsByUserIdPaged(

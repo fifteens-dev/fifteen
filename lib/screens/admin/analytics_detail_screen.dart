@@ -76,12 +76,18 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
+    // ダミーユーザーは指標から除外する。
+    // 集計タブと同じく dummy_config/users(+ bulkDummyUsers) を起点にする。
+    final dummyUids = await _loadDummyUids();
+
     switch (widget.seriesType) {
       case MetricSeriesType.dailyNewUsers:
-        return _fetchDailyFromCollection('users', 'createdAt', today);
+        return _fetchDailyFromCollection('users', 'createdAt', today,
+            skipDoc: (doc) => dummyUids.contains(doc.id));
 
       case MetricSeriesType.cumulativeUsers:
-        return _fetchCumulative('users', 'createdAt', today);
+        return _fetchCumulative('users', 'createdAt', today,
+            skipDoc: (doc) => dummyUids.contains(doc.id));
 
       case MetricSeriesType.dau:
         return _fetchDauHistory(today);
@@ -90,37 +96,76 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         return _fetchMauHistory(now);
 
       case MetricSeriesType.dailyPosters:
-        return _fetchDailyDistinctPosters(today);
+        return _fetchDailyDistinctPosters(today, dummyUids);
 
       case MetricSeriesType.postStarts:
         return _fetchPostStartsDaily(today);
 
       case MetricSeriesType.postCompletions:
-        return _fetchDailyFromCollection('posts', 'createdAt', today);
+        return _fetchDailyFromCollection('posts', 'createdAt', today,
+            skipDoc: (doc) =>
+                (doc.data() as Map<String, dynamic>)['isDummyPost'] == true);
 
       case MetricSeriesType.cumulativePostCompletions:
-        return _fetchCumulative('posts', 'createdAt', today);
+        return _fetchCumulative('posts', 'createdAt', today,
+            skipDoc: (doc) =>
+                (doc.data() as Map<String, dynamic>)['isDummyPost'] == true);
     }
   }
 
+  /// ダミーユーザーのUID一覧を `dummy_config/users` + `bulkDummyUsers`（あれば）から取得。
+  Future<Set<String>> _loadDummyUids() async {
+    final ids = <String>{};
+    try {
+      final snap = await _firestore.doc('dummy_config/users').get();
+      final list = (snap.data()?['userIds'] as List?) ?? const [];
+      for (final v in list) {
+        if (v is String) ids.add(v);
+      }
+    } catch (_) {}
+    try {
+      final snap = await _firestore.doc('dummy_config/bulkDummyUsers').get();
+      final list = (snap.data()?['userIds'] as List?) ?? const [];
+      for (final v in list) {
+        if (v is String) ids.add(v);
+      }
+    } catch (_) {}
+    return ids;
+  }
+
   /// 累計グラフ用：30日窓より前のベース件数 + 日次累積
+  ///
+  /// [skipDoc] が指定された場合、ベース件数からも該当ドキュメント分を差し引く。
+  /// ただし count() API では中身を見れないため、Map にして全件取得→フィルタする。
   Future<List<_DataPoint>> _fetchCumulative(
     String collection,
     String dateField,
-    DateTime today,
-  ) async {
+    DateTime today, {
+    bool Function(QueryDocumentSnapshot doc)? skipDoc,
+  }) async {
     final cutoff = today.subtract(const Duration(days: 29));
 
-    // 窓より前の全件数をベースとして取得
-    final baseSnap = await _firestore
-        .collection(collection)
-        .where(dateField, isLessThan: Timestamp.fromDate(cutoff))
-        .count()
-        .get();
-    final base = baseSnap.count ?? 0;
+    int base;
+    if (skipDoc == null) {
+      // フィルタなし → count() API で軽量に取得
+      final baseSnap = await _firestore
+          .collection(collection)
+          .where(dateField, isLessThan: Timestamp.fromDate(cutoff))
+          .count()
+          .get();
+      base = baseSnap.count ?? 0;
+    } else {
+      // ダミー除外あり → 全件取得して skipDoc を弾く
+      final baseSnap = await _firestore
+          .collection(collection)
+          .where(dateField, isLessThan: Timestamp.fromDate(cutoff))
+          .get();
+      base = baseSnap.docs.where((d) => !skipDoc(d)).length;
+    }
 
-    // 窓内の日次データを取得
-    final daily = await _fetchDailyFromCollection(collection, dateField, today);
+    // 窓内の日次データを取得（skipDoc が指定されていれば反映される）
+    final daily = await _fetchDailyFromCollection(collection, dateField, today,
+        skipDoc: skipDoc);
 
     // ベース＋累積和
     int running = base;
@@ -131,17 +176,22 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
   }
 
   /// 単一コレクションを日付フィールドで過去30日分取得
+  ///
+  /// [skipDoc] が指定された場合、該当ドキュメントは集計から除外する。
   Future<List<_DataPoint>> _fetchDailyFromCollection(
     String collection,
     String dateField,
-    DateTime today,
-  ) async {
+    DateTime today, {
+    bool Function(QueryDocumentSnapshot doc)? skipDoc,
+  }) async {
     final cutoff = today.subtract(const Duration(days: 29));
     final snap = await _firestore
         .collection(collection)
         .where(dateField, isGreaterThanOrEqualTo: Timestamp.fromDate(cutoff))
         .get();
-    return _groupByDay(snap.docs, dateField, today);
+    final docs =
+        skipDoc == null ? snap.docs : snap.docs.where((d) => !skipDoc(d)).toList();
+    return _groupByDay(docs, dateField, today);
   }
 
   /// analytics_events から post_start を日次集計（複合インデックス不要）
@@ -158,8 +208,10 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     return _groupByDay(filtered, 'createdAt', today);
   }
 
-  /// posts から日ごとのユニーク投稿者数
-  Future<List<_DataPoint>> _fetchDailyDistinctPosters(DateTime today) async {
+  /// posts から日ごとのユニーク投稿者数。
+  /// ダミーユーザーの userId は集計対象から外す。
+  Future<List<_DataPoint>> _fetchDailyDistinctPosters(
+      DateTime today, Set<String> dummyUids) async {
     final cutoff = today.subtract(const Duration(days: 29));
     final snap = await _firestore
         .collection('posts')
@@ -172,6 +224,9 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       final ts = data['createdAt'] as Timestamp?;
       final userId = data['userId'] as String?;
       if (ts == null || userId == null) continue;
+      if (dummyUids.contains(userId)) continue;
+      // isDummyPost 直接マーキングされている投稿も除外（保険）
+      if (data['isDummyPost'] == true) continue;
       final d = ts.toDate();
       final day = DateTime(d.year, d.month, d.day);
       usersByDay.putIfAbsent(day, () => {}).add(userId);

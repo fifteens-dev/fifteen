@@ -453,10 +453,14 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
     final screenH = MediaQuery.of(context).size.height;
-    // PageView の viewportFraction は 0..1 の範囲が安全。
-    // 小型端末（screenH < 822）では 1.0 にクランプして崩れを防ぐ。
+    // Vibe カードは Figma 4028:8321 の Component 112 に従い **402×814 固定**。
+    // カード間 gap = 8px、ピッチ = 822px。
+    // viewportFraction = ピッチ / 端末高さ にすると 1 ページにカード 1 枚 + gap が
+    // 表示され、画面の上下に次/前カードの頭が少しだけ覗く（PageView の構造上対称）。
+    const cardH = 814.0;
+    const pagePitch = cardH + 8.0; // 822
     final fraction = screenH > 0
-        ? (822.0 / screenH).clamp(0.5, 1.0)
+        ? (pagePitch / screenH).clamp(0.5, 1.0)
         : 1.0;
     _pageController ??= PageController(
       initialPage: _currentPage,
@@ -611,17 +615,34 @@ class _VibePlaylistScreenState extends State<VibePlaylistScreen>
             post.isLikedBy(widget.currentUserId));
     final likeCount = postUIState.getLikeCount(post.postId) ?? post.likeCount;
     final isSaved = context.watch<SavedItemsProvider>().isPostOrTrackSaved(post);
-    return VibePostCard(
-      post: post,
-      rankingItem: rankingItem,
-      isLiked: isLiked,
-      likeCount: likeCount,
-      isSaved: isSaved,
-      onLikeTap: () => _handleLike(post),
-      onCommentTap: () => _handleComment(post),
-      onSaveTap: () => _handleSave(post),
-      onCuratorBarTap: () => _showSongModal(modalItem),
-      onPostNoteTap: () => _navigateToPostPreviewWithTrack(post.track),
+    // カードサイズは Figma 4028:8321 Component 112 に従い **402×814 固定**。
+    // PageView の各ページ枠 (画面 × viewportFraction) より大きい場合のために、
+    // - OverflowBox で 402×814 を子に強制（親より大きい子の警告を抑制）
+    // - 外側を ClipRect で囲み、ページ枠を超えた領域をクリップ
+    const cardWidth = 402.0;
+    const cardHeight = 814.0;
+    return Center(
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.center,
+          minWidth: cardWidth,
+          maxWidth: cardWidth,
+          minHeight: cardHeight,
+          maxHeight: cardHeight,
+          child: VibePostCard(
+          post: post,
+          rankingItem: rankingItem,
+          isLiked: isLiked,
+          likeCount: likeCount,
+          isSaved: isSaved,
+          onLikeTap: () => _handleLike(post),
+          onCommentTap: () => _handleComment(post),
+          onSaveTap: () => _handleSave(post),
+          onCuratorBarTap: () => _showSongModal(modalItem),
+          onPostNoteTap: () => _navigateToPostPreviewWithTrack(post.track),
+        ),
+        ),
+      ),
     );
   }
 

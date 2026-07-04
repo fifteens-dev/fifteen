@@ -1,4 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../../models/post_model.dart';
@@ -6,6 +8,7 @@ import '../../../models/vibe_ranking_item.dart';
 import '../../../models/track_model.dart';
 import '../../../services/artist_service.dart';
 import '../../../services/spotify_service.dart';
+import '../../../widgets/post_creation/lyrics_card_layouts.dart';
 import '../../../widgets/profile_widgets.dart';
 import '../../artist_profile_screen.dart';
 import '../../other_user_profile_screen.dart';
@@ -60,23 +63,59 @@ class VibePostCard extends StatelessWidget {
     );
   }
 
-  /// 公開範囲バッジ（アルバム/写真下部の円形アイコン）
-  Widget _buildAudienceBadge(PostModel post) {
-    final isFollowers = post.audience == PostAudience.followers;
-    return Container(
-      width: 30,
-      height: 30,
-      decoration: const BoxDecoration(
-        color: Color(0xCC1F1F1F),
-        shape: BoxShape.circle,
-      ),
-      child: Center(
-        child: Image.asset(
-          isFollowers
-              ? 'assets/icons/audience_badge_lock.png'
-              : 'assets/icons/audience_badge_globe.png',
-          width: 16,
-          height: 16,
+  /// 投稿カード裏面（363×645）を「写真背景＋歌詞カード」のセットで組み立て、
+  /// それを一括で等比拡大して Vibe カードに収める。
+  ///
+  /// 重要: `FittedBox` を使う理由
+  ///   `Transform.scale + SizedBox(363,645)` だと、外側 `Positioned.fill` から
+  ///   タイト制約 (= cardW × cardH) が SizedBox まで伝わり、SizedBox は 363×645
+  ///   ではなく 402×814 等で描画されてしまう（その後 Transform.scale で更に
+  ///   拡大されて右がはみ出す）。
+  ///   `FittedBox` は子を unbounded 制約で描画したあと、親に合わせてスケール
+  ///   するので、SizedBox(363,645) が確実に 363×645 で描画される。
+  ///   投稿フロー（最終プレビュー）と同じ手法。
+  ///
+  /// 仕様:
+  /// - `BoxFit.fitHeight`: **縦を Vibe カード高さにぴったり**、横は等比で広がる。
+  /// - `alignment: center`: 中央寄せ、横が親幅を超えたぶんは両端で均等に見切れる
+  ///   （外側の `ClipRRect` に任せる）。
+  /// - 写真背景・歌詞カードは 363×645 の native 座標で配置 → 投稿フロー裏面と完全等比。
+  static Widget _buildScaledBackComposition(PostModel post) {
+    final layoutType = LyricsCardLayout.getLayoutType(post.selectedLayoutIndex);
+
+    return FittedBox(
+      fit: BoxFit.fitHeight,
+      alignment: Alignment.center,
+      child: SizedBox(
+        width: 363,
+        height: 645,
+        child: Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            // 写真背景: 投稿フロー裏面と同じ「縦埋め」スケーリング
+            // （内側の LayoutBuilder は 363×645 を受け取るので native 動作）
+            Positioned.fill(child: _buildPhotoBackground(post)),
+            // 歌詞カード: 同じ 363×645 内の native 位置で配置
+            Positioned(
+              left: post.cardPositionX,
+              top: post.cardPositionY,
+              child: Transform.scale(
+                scale: post.cardScale,
+                alignment: Alignment.topLeft,
+                child: Transform.rotate(
+                  angle: post.cardRotation,
+                  alignment: Alignment.center,
+                  child: IgnorePointer(
+                    child: LyricsCardLayout(
+                      layoutType: layoutType,
+                      track: post.track,
+                      lyricsText: post.lyricsText,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -84,8 +123,10 @@ class VibePostCard extends StatelessWidget {
 
   /// 投稿時刻からの経過時間を「6時間前」形式で返す。
   /// 6時間36分前 → 「6時間前」（分は切り捨て）。
+  /// サーバー側のクロックずれや未来日付投稿対策で、負の Duration は 0 に clamp する。
   String _formatTimeAgo(DateTime createdAt) {
-    final diff = DateTime.now().difference(createdAt);
+    final rawDiff = DateTime.now().difference(createdAt);
+    final diff = rawDiff.isNegative ? Duration.zero : rawDiff;
     if (diff.inMinutes < 1) return 'たった今';
     if (diff.inHours < 1) return '${diff.inMinutes}分前';
     if (diff.inDays < 1) return '${diff.inHours}時間前';
@@ -118,13 +159,10 @@ class VibePostCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(23),
         child: Stack(
           children: [
-            Positioned.fill(child: _buildPhotoBackground(post)),
-            // 公開範囲バッジ（カード下部情報領域のすぐ上、右側）
-            Positioned(
-              bottom: 275 + 12,
-              right: 14,
-              child: _buildAudienceBadge(post),
-            ),
+            // 写真背景 + 歌詞カードを「363×645 の投稿カード裏面」として
+            // 1つにまとめてから等比スケールする。
+            // → 写真と歌詞カードが必ず同じ倍率で拡大される。
+            Positioned.fill(child: _buildScaledBackComposition(post)),
             Positioned(
               bottom: 0,
               left: 0,
@@ -459,39 +497,15 @@ class VibePostCard extends StatelessWidget {
             },
           ),
         ),
-        // フォローするボタン
+        // フォローボタン（現状で「フォロー中/フォローする」を切替表示）
         Positioned(
           left: 158,
           top: 7,
           width: 83,
           height: 19,
-          child: GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    ArtistProfileScreen(
-                      artistName: post.track.artistName,
-                      spotifyArtistId: post.track.spotifyArtistId,
-                    ),
-              ),
-            ),
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.white, width: 1),
-                borderRadius: BorderRadius.circular(25),
-              ),
-              alignment: Alignment.center,
-              child: const Text(
-                'フォローする',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  height: 1.0,
-                ),
-              ),
-            ),
+          child: _ArtistFollowButton(
+            artistName: post.track.artistName,
+            spotifyArtistId: post.track.spotifyArtistId,
           ),
         ),
       ],
@@ -704,5 +718,113 @@ class VibePostCard extends StatelessWidget {
       );
     }
     return const Icon(Icons.add_circle_outline, size: 32, color: Colors.white);
+  }
+}
+
+/// アーティストへの「フォローする / フォロー中」トグル表示ボタン。
+///
+/// - init 時に Firestore の artists ドキュメントを名前で 1 件検索し、
+///   followerIds に自分の uid が含まれるかを判定する。
+/// - タップで ArtistProfileScreen へ遷移し、戻り時にフォロー状態を再取得する
+///   （プロフィール側で切替した結果がバナーに反映される）。
+class _ArtistFollowButton extends StatefulWidget {
+  final String artistName;
+  final String? spotifyArtistId;
+
+  const _ArtistFollowButton({
+    required this.artistName,
+    this.spotifyArtistId,
+  });
+
+  @override
+  State<_ArtistFollowButton> createState() => _ArtistFollowButtonState();
+}
+
+class _ArtistFollowButtonState extends State<_ArtistFollowButton> {
+  bool _isFollowing = false;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshFollowState();
+  }
+
+  Future<void> _refreshFollowState() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || widget.artistName.isEmpty) {
+      if (mounted) setState(() => _loaded = true);
+      return;
+    }
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('artists')
+          .where('artistName', isEqualTo: widget.artistName)
+          .limit(1)
+          .get();
+      if (!mounted) return;
+      if (snap.docs.isEmpty) {
+        setState(() {
+          _isFollowing = false;
+          _loaded = true;
+        });
+        return;
+      }
+      final data = snap.docs.first.data();
+      final ids =
+          (data['followerIds'] as List?)?.whereType<String>().toList() ??
+              const <String>[];
+      setState(() {
+        _isFollowing = ids.contains(uid);
+        _loaded = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loaded = true);
+    }
+  }
+
+  Future<void> _openArtist() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ArtistProfileScreen(
+          artistName: widget.artistName,
+          spotifyArtistId: widget.spotifyArtistId,
+        ),
+      ),
+    );
+    // プロフィール側でフォロー状態が変化した可能性があるので再取得
+    if (mounted) _refreshFollowState();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 未ロード中は「フォローする」表示で先出し（チカつきを抑える）
+    final showFollowing = _loaded && _isFollowing;
+    final label = showFollowing ? 'フォロー中' : 'フォローする';
+    final borderColor =
+        showFollowing ? Colors.white.withValues(alpha: 0.4) : Colors.white;
+    final textColor =
+        showFollowing ? Colors.white.withValues(alpha: 0.85) : Colors.white;
+
+    return GestureDetector(
+      onTap: _openArtist,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: borderColor, width: 1),
+          borderRadius: BorderRadius.circular(25),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: textColor,
+            height: 1.0,
+          ),
+        ),
+      ),
+    );
   }
 }

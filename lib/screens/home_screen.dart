@@ -37,6 +37,9 @@ import 'vibe_track_posts_screen.dart';
 import 'vibe_playlist/vibe_playlist_screen.dart';
 import 'card_share_screen.dart';
 import 'home/vibe_bar_section.dart';
+import 'home/vibe_story_bar_section.dart';
+import 'vibe_story_post_sheet.dart';
+import 'vibe_user_story_screen.dart';
 import 'home/home_bottom_nav.dart';
 import '../widgets/common/app_toast.dart';
 import '../services/posting_state.dart';
@@ -103,6 +106,15 @@ class _HomeScreenState extends State<HomeScreen>
   // 投稿リストをキャッシュ（再構築を避けるため）
   List<PostModel>? _cachedPosts;
 
+  // Vibe ストーリーバー用: 24h 以内に投稿したユーザーごとの可視投稿群（新しい順）。
+  // タイムラインフェッチと同じタイミングで一度だけ取得する。
+  List<VibeStoryItem> _storyItems = const [];
+
+  /// Vibe ストーリーで一度開いた postId のセット（SharedPreferences 永続化）。
+  /// インスタ風: ユーザーの全直近投稿がこのセットに含まれていれば、
+  /// その人のリングを「グレー（既読）」表示にする。
+  Set<String> _viewedStoryPostIds = {};
+
   // 投稿ごとの音楽プレビューURL（postId → URL）
   final Map<String, String?> _previewUrlCache = {};
 
@@ -120,6 +132,7 @@ class _HomeScreenState extends State<HomeScreen>
         ? Future.value(widget.initialVibeData)
         : _loadVibeData();
     _loadRevealedPostIds();
+    _loadViewedStoryPostIds();
     // CurrentUserProvider に initialUserModel を流し込んでおく（Firestore 再フェッチ不要）
     if (widget.initialUserModel != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -221,6 +234,50 @@ class _HomeScreenState extends State<HomeScreen>
     await prefs.setStringList(key, _revealedPostIds.toList());
   }
 
+  /// Vibe ストーリー既読 postId を読み込む
+  Future<void> _loadViewedStoryPostIds() async {
+    final currentUserId = _auth.currentUser?.uid;
+    if (currentUserId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final ids = prefs.getStringList('viewed_story_posts_$currentUserId') ?? [];
+    if (mounted) {
+      setState(() => _viewedStoryPostIds = ids.toSet());
+    }
+  }
+
+  /// Vibe ストーリー閲覧時に呼ぶ: 渡された postId 群を既読セットに追加 + 永続化。
+  /// 既読のリング表示（グレー化）にも即時反映するため _storyItems も再構成する。
+  Future<void> _markStoryPostsViewed(Iterable<String> postIds) async {
+    final newIds = postIds.where((id) => !_viewedStoryPostIds.contains(id));
+    if (newIds.isEmpty) return;
+    final updated = {..._viewedStoryPostIds, ...newIds};
+    setState(() {
+      _viewedStoryPostIds = updated;
+      // unread フラグを再評価して即時反映
+      _storyItems = _storyItems
+          .map((s) => VibeStoryItem(
+                userId: s.userId,
+                username: s.username,
+                iconUrl: s.iconUrl,
+                posts: s.posts,
+                unread: _isStoryUnread(s, updated),
+              ))
+          .toList();
+    });
+    final currentUserId = _auth.currentUser?.uid;
+    if (currentUserId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'viewed_story_posts_$currentUserId',
+      updated.toList(),
+    );
+  }
+
+  /// ストーリーアイテムの全投稿が既読セットに含まれていれば既読扱い（false）
+  bool _isStoryUnread(VibeStoryItem story, Set<String> viewedIds) {
+    return story.posts.any((p) => !viewedIds.contains(p.postId));
+  }
+
   /// 招待コードによる自動フォローの通知を遅延送信（認証フロー完了後）
   Future<void> _processPendingFollowNotification() async {
     try {
@@ -304,6 +361,59 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  /// Vibe ストーリーバー用に、フォロー先 + 自分の 24h 投稿をユーザー単位で取得する。
+  ///
+  /// 仕様（[VibeStoryBarSection]）:
+  /// - 24時間以内に投稿があるユーザーだけを並べる
+  /// - 鍵投稿（audience=followers）は閲覧権限がない人には見えない
+  ///   → そのユーザーに公開可能な投稿が0件なら、ストーリー円自体も出さない
+  /// - 並びは「最新投稿の createdAt 降順」（左 = 最新、右 = 古い順）
+  Future<List<VibeStoryItem>> _fetchStoryItems({
+    required UserModel? viewer,
+    required List<String> targetUserIds,
+  }) async {
+    if (targetUserIds.isEmpty) return const [];
+    try {
+      // viewer がフォローしている UID 集合（鍵投稿の可視判定に使う）
+      final followingSet = (viewer?.following ?? const []).toSet();
+      final viewerUid = viewer?.uid;
+      bool viewerFollowsAuthor(String authorUid) {
+        if (authorUid == viewerUid) return true; // 自分の投稿は常に可視
+        return followingSet.contains(authorUid);
+      }
+
+      final grouped = await _postService.getRecentPostsGroupedByUser(
+        userIds: targetUserIds,
+        viewerFollowsAuthor: viewerFollowsAuthor,
+      );
+
+      return grouped
+          .where((posts) => posts.isNotEmpty)
+          .map((posts) {
+            final head = posts.first;
+            final tmp = VibeStoryItem(
+              userId: head.userId,
+              username: head.username,
+              iconUrl: head.userIconUrl,
+              posts: posts,
+              unread: true,
+            );
+            return VibeStoryItem(
+              userId: tmp.userId,
+              username: tmp.username,
+              iconUrl: tmp.iconUrl,
+              posts: tmp.posts,
+              // 既読セットに全 postId が含まれていればグレー枠（unread=false）
+              unread: _isStoryUnread(tmp, _viewedStoryPostIds),
+            );
+          })
+          .toList();
+    } catch (e) {
+      print('⚠️ ストーリーアイテム取得エラー: $e');
+      return const [];
+    }
+  }
+
 /// 投稿データをFirestoreから取得して返す（setState なし・_loadPosts/_onRefresh 共用）
   Future<({List<PostModel> posts, bool hasPostedToday, UserModel? user})> _fetchPostsData() async {
     try {
@@ -338,6 +448,21 @@ class _HomeScreenState extends State<HomeScreen>
         print('📥 Firestoreから取得した投稿数: ${firestorePosts.length}');
       } catch (e) {
         print('⚠️ Firestore取得エラー（権限エラーの可能性）: $e');
+      }
+
+      // Vibe ストーリーバー用のユーザー別 24h 投稿も同時取得して state に流す。
+      // タイムラインフェッチと別タイミングにすると、ストーリーだけ古いままで残るため
+      // ここでまとめてやる（追加の往復は1回）。
+      try {
+        final storyItems = await _fetchStoryItems(
+          viewer: userModel,
+          targetUserIds: allTargetIds,
+        );
+        if (mounted) {
+          setState(() => _storyItems = storyItems);
+        }
+      } catch (e) {
+        print('⚠️ ストーリーアイテム取得エラー: $e');
       }
 
       final postsToUse = firestorePosts;
@@ -825,16 +950,60 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ),
                       ] else ...[
+                        // 新 Vibe ストーリーバー（インスタ風、ユーザー単位）
                         SliverToBoxAdapter(
-                          child: VibeBarSection(
-                            vibeDataFuture: _vibeDataFuture!,
-                            onRankingItemTap: _handleRankingItemTap,
-                            onPostTap: _navigateToVibePost,
-                            onAddTap: _navigateToPostFlow,
-                            vibeIconKey: _tutorialVibeIconKey,
-                            addButtonKey: _tutorialAddButtonKey,
+                          child: FutureBuilder<Map<String, dynamic>>(
+                            future: _vibeDataFuture!,
+                            builder: (context, snap) {
+                              final topic = snap.data?['topic'];
+                              // 「右から左に新しい順」= 並びを反転して描画。
+                              // _storyItems は最新順（先頭=最新）なので reverse する。
+                              final stories = _storyItems.reversed.toList();
+                              return VibeStoryBarSection(
+                                topic: topic,
+                                myIconUrl: context
+                                    .read<CurrentUserProvider>()
+                                    .iconUrl,
+                                stories: stories,
+                                onAddVibeTap: () => VibeStoryPostSheet.show(
+                                  context,
+                                  topic: topic,
+                                ),
+                                onPlaylistTap: _navigateToVibePost,
+                                onStoryTap: (story) {
+                                  // タップした瞬間にそのストーリーの全 postId を
+                                  // 既読セットに追加 → リングが即グレーに変わる。
+                                  _markStoryPostsViewed(
+                                      story.posts.map((p) => p.postId));
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => VibeUserStoryScreen(
+                                        posts: story.posts,
+                                        currentUserId:
+                                            _auth.currentUser?.uid ?? '',
+                                        displayUsername: story.username,
+                                        hasPostedToday: _hasPostedToday,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
                           ),
                         ),
+                        // 旧バーは無効化（差し替え）
+                        if (false)
+                          SliverToBoxAdapter(
+                            child: VibeBarSection(
+                              vibeDataFuture: _vibeDataFuture!,
+                              onRankingItemTap: _handleRankingItemTap,
+                              onPostTap: _navigateToVibePost,
+                              onAddTap: _navigateToPostFlow,
+                              vibeIconKey: _tutorialVibeIconKey,
+                              addButtonKey: _tutorialAddButtonKey,
+                            ),
+                          ),
                         if (false && CampusVibeUtils.shouldShow())
                           SliverToBoxAdapter(
                             child: Padding(

@@ -35,6 +35,72 @@ class PhotoHelper {
     }
   }
 
+  /// クロップなしでリサイズ + JPEG 圧縮だけ行う軽量版。
+  ///
+  /// Vibe ストーリー投稿のように「写真をそのまま全画面表示」する用途で使う。
+  /// 投稿フローのカード裏面表示用クロップは行わないため、構図はユーザーの
+  /// 選択そのまま保たれる。
+  ///
+  /// 戻り値: (リサイズ・圧縮済みバイト列, 幅px, 高さpx)
+  static Future<(Uint8List, int, int)> compressForUpload(
+      Uint8List bytes) async {
+    return _compressImage(bytes);
+  }
+
+  /// 圧縮済みバイト列をそのまま PUT し、Reference を返す軽量版。
+  /// 後段で getDownloadURL + createPost を並列化できるよう URL は取らない。
+  static Future<({Reference? storageRef, int width, int height})>
+      uploadCompressedSplit({
+    required Uint8List imageBytes,
+    required String userId,
+    required StorageService storageService,
+  }) async {
+    final (processed, w, h) = await _compressImage(imageBytes);
+    if (kIsWeb) {
+      // Web は base64 で returnImmediateUrl 想定なのでここでは未対応
+      throw UnsupportedError('uploadCompressedSplit is not supported on web');
+    }
+    final ref = await storageService
+        .uploadPostImageGetRef(userId: userId, imageBytes: processed)
+        .timeout(
+      const Duration(seconds: 30),
+      onTimeout: () => throw Exception('アップロードがタイムアウトしました'),
+    );
+    return (storageRef: ref, width: w, height: h);
+  }
+
+  /// リサイズ + JPEG 再エンコード（クロップなしの共通ロジック）。
+  /// [PhotoConstants.maxImageWidth] / [maxImageHeight] を超えていれば縮小し、
+  /// quality 85 → 大きすぎたら 70 に下げる。
+  static Future<(Uint8List, int, int)> _compressImage(Uint8List bytes) async {
+    final src = img.decodeImage(bytes);
+    if (src == null) return (bytes, 0, 0);
+
+    img.Image resized = src;
+    if (src.width > PhotoConstants.maxImageWidth ||
+        src.height > PhotoConstants.maxImageHeight) {
+      resized = img.copyResize(
+        src,
+        width: src.width > src.height ? PhotoConstants.maxImageWidth : null,
+        height: src.height > src.width ? PhotoConstants.maxImageHeight : null,
+      );
+    }
+
+    final finalWidth = resized.width;
+    final finalHeight = resized.height;
+
+    final encoded = Uint8List.fromList(
+        img.encodeJpg(resized, quality: PhotoConstants.compressionQuality));
+    if (encoded.length > PhotoConstants.maxImageSizeBytes) {
+      return (
+        Uint8List.fromList(img.encodeJpg(resized, quality: 70)),
+        finalWidth,
+        finalHeight,
+      );
+    }
+    return (encoded, finalWidth, finalHeight);
+  }
+
   /// 写真をアップロードし、URL取得前のReferenceを返す（並列化用）
   ///
   /// [imageOffset]・[imageScale]・[imageNaturalSize] を渡すと、

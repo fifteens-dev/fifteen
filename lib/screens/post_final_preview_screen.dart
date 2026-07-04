@@ -24,6 +24,7 @@ import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../services/lyrics_service.dart';
 import '../utils/campus_vibe_utils.dart';
+import '../utils/two_finger_rotation_tracker.dart';
 import '../utils/color_extractor.dart';
 import 'package:provider/provider.dart';
 import '../providers/current_user_provider.dart';
@@ -142,7 +143,6 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   bool _isHorizontalSnap = false;
   // 水平スナップ時の回転ロック
   bool _horizontalSnapLockActive = false;
-  double _snapStartGestureRotation = 0.0; // スナップした瞬間の details.rotation
   double _snapLockedAngle = 0.0;          // スナップ先の角度（0 or π）
 
   // 写真パン・ズーム
@@ -152,6 +152,11 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
   Offset _photoStartOffset = Offset.zero;
   double _photoStartScale = 1.0;
   Offset _photoStartFocalPoint = Offset.zero;
+
+  // 2 指交差時の ±π 反転を補正する共通トラッカー
+  final TwoFingerRotationTracker _rotationTracker = TwoFingerRotationTracker();
+  // スナップロック発動時の累積回転
+  double _snapStartFingerRotation = 0.0;
 
   // 現在のユーザー情報
   String? _currentUniversity;
@@ -462,8 +467,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
 
   // ---- ジェスチャー共通 ----
 
-  /// 歌詞カードの外側（写真ゾーン）かどうかを判定
-  /// trueなら写真パン・ズームゾーン、falseなら歌詞カードゾーン
+  /// 歌詞カードの外側（写真ゾーン）かどうかを判定。
+  /// true なら写真パン・ズームゾーン、false なら歌詞カードゾーン。
   bool _isInPhotoZone(Offset localPoint) {
     const photoW = 363.0;
     const photoH = 645.0;
@@ -508,6 +513,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     _isPhotoGestureMode = false;
     _startScale = _editState.cardScale;
     _startRotation = _editState.cardRotation;
+    // ラップ補正用の累積回転をリセット
+    _rotationTracker.reset();
     _isTwoFingerAccepted = false;
     _rotationLocked = true;
     _horizontalSnapLockActive = false;
@@ -544,6 +551,10 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
     double newScale = _editState.cardScale;
     double newRotation = _editState.cardRotation;
 
+    // 2 指の上下/左右入れ替わりによる ±π ジャンプを補正してから累積
+    _rotationTracker.ingest(details.rotation);
+    final accumRotation = _rotationTracker.accumulated;
+
     if (details.pointerCount >= 2) {
       if (!_isTwoFingerAccepted &&
           _isInCardHitArea(details.localFocalPoint)) {
@@ -558,19 +569,20 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         const rotationThreshold = 10.0 * pi / 180.0;
 
         // ── 回転計算 ────────────────────────────────────────────────
-        // ① ジェスチャー開始ロック（最初の10度は回転しない）
+        // `accumRotation` = `_rotationTracker.accumulated`（ラップ補正済み）。
+        // ① ジェスチャー開始ロック（最初の 10° は回転しない）
         double intendedRotation;
-        if (_rotationLocked && details.rotation.abs() < rotationThreshold) {
+        if (_rotationLocked && accumRotation.abs() < rotationThreshold) {
           intendedRotation = _startRotation;
         } else {
           _rotationLocked = false;
-          intendedRotation = _startRotation + details.rotation * 0.6;
+          intendedRotation = _startRotation + accumRotation * 0.6;
         }
 
         // ② 水平スナップロック（平行になった瞬間も再ロック）
         if (_horizontalSnapLockActive) {
           final cardDelta =
-              (details.rotation - _snapStartGestureRotation) * 0.6;
+              (accumRotation - _snapStartFingerRotation) * 0.6;
           if (cardDelta.abs() < rotationThreshold) {
             // ロック範囲内 → スナップ角に固定
             newRotation = _snapLockedAngle;
@@ -611,7 +623,8 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
           if (isHoriz && !_isHorizontalSnap) {
             // 平行になった瞬間：振動 + ロック発動
             HapticFeedback.lightImpact();
-            _snapStartGestureRotation = details.rotation;
+            // ラップ補正済み累積回転を基準保存
+            _snapStartFingerRotation = accumRotation;
             _snapLockedAngle = _nearestHorizontalRad(newRotation);
             _horizontalSnapLockActive = true;
             newRotation = _snapLockedAngle;
@@ -1011,6 +1024,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                                                 audioService: _audioService,
                                                 showFrontOnly: true,
                                                 hideReactionCounts: true,
+                                                hideAudienceBadge: true,
                                                 onCardTap: _flipCard,
                                                 preExtractedGradientStart: _extractedGradientStart,
                                                 preExtractedGradientEnd: _extractedGradientEnd,

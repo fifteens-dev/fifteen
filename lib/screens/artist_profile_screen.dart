@@ -52,6 +52,10 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen>
   String _firestoreArtistId = '';
   String? _playingTrackId;
   String? _artistImageUrl;
+  // Spotify artistId 経由で取得できた画像だけを「確実に本人」と判定する。
+  // 名前検索(getArtistImageUrl)や iTunes アルバムアートは同名別人や関連
+  // アーティストにヒットする可能性があるので Firestore には保存しない。
+  bool _isImageAuthoritative = false;
 
   @override
   void initState() {
@@ -129,17 +133,34 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen>
       final isFollowing =
           uid != null && (artistModel?.isFollowedBy(uid) ?? false);
 
-      // Spotify画像が取れなければiTunesのアルバムアートで代替
+      // 画像取得の確度判定:
+      //   - Spotify artistId 経由(getArtistImageUrlById)で成功 → 本人と断定
+      //   - 名前検索(getArtistImageUrl) → 関連アーティストのヒットあり得るので不確実
+      //   - iTunes フォールバック → 楽曲のアルバムアート、確実に本人画像ではない
+      final usedIdPath =
+          widget.spotifyArtistId != null && widget.spotifyArtistId!.isNotEmpty;
       final imageUrl = (spotifyImageUrl?.isNotEmpty == true)
           ? spotifyImageUrl
           : (tracks.isNotEmpty ? tracks.first.albumImageUrl : null);
+      final authoritative =
+          usedIdPath && (spotifyImageUrl?.isNotEmpty == true);
+
+      // 既に Firestore に保存されている画像がある場合はそちらを優先(過去
+      // 誰かが ID 経由で保存済み)。ただし authoritative 判定は現在の取得元。
+      final storedImageUrl = (artistModel?.imageUrl as String?);
+      final effectiveImageUrl = (storedImageUrl != null &&
+              storedImageUrl.isNotEmpty)
+          ? storedImageUrl
+          : imageUrl;
 
       if (!mounted) return;
       setState(() {
         _tracks = tracks;
         _followerCount = artistModel?.followerCount ?? 0;
         _isFollowing = isFollowing;
-        _artistImageUrl = imageUrl;
+        _artistImageUrl = effectiveImageUrl;
+        _isImageAuthoritative = authoritative ||
+            (storedImageUrl != null && storedImageUrl.isNotEmpty);
         _isLoading = false;
       });
     } catch (_) {
@@ -173,6 +194,9 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen>
           userId: uid,
           artistId: _firestoreArtistId,
           artistName: widget.artistName,
+          // 本人と断定できる画像だけ保存。名前検索やアルバムアートは保存しない
+          //（Saved > Artists 側で都度取得する）。
+          imageUrl: _isImageAuthoritative ? _artistImageUrl : null,
         );
       } else {
         await _artistService.unfollowArtist(

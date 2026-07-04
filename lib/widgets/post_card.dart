@@ -53,6 +53,7 @@ class PostCard extends StatefulWidget {
   final VoidCallback? onCardTap; // showFrontOnly時の外部タップハンドラ
   final bool isSaved; // 保存済みかどうか
   final bool hideReactionCounts; // trueの場合、リアクション数を非表示（プレビュー用）
+  final bool hideAudienceBadge; // trueの場合、公開範囲バッジ（globe/lock）を非表示（投稿フロー中）
   final Color? preExtractedGradientStart; // 事前抽出されたグラデーション開始色
   final Color? preExtractedGradientEnd; // 事前抽出されたグラデーション終了色
   final bool autoFlipAfterDelay; // trueの場合、0.5秒後に自動で裏返す
@@ -80,6 +81,7 @@ class PostCard extends StatefulWidget {
     this.onCardTap, // 外部タップハンドラ（オプション）
     this.isSaved = false, // デフォルトは未保存
     this.hideReactionCounts = false, // デフォルトはカウント表示
+    this.hideAudienceBadge = false, // デフォルトはバッジ表示（投稿完了後の通常カード）
     this.preExtractedGradientStart, // 事前抽出された色（オプション）
     this.preExtractedGradientEnd, // 事前抽出された色（オプション）
     this.autoFlipAfterDelay = false, // デフォルトは自動反転なし
@@ -406,11 +408,14 @@ class PostCardState extends State<PostCard>
               ),
 
               // 公開範囲バッジ（アルバム右下、グラデーション上の高さに配置）
-              Positioned(
-                top: albumSize - 30 - 10,
-                right: 10,
-                child: _buildAudienceBadge(),
-              ),
+              // 投稿フロー中（最終プレビュー・posting オーバーレイ）は非表示。
+              // 投稿完了後ホーム/プロフィール等で表示するカードでのみ出す。
+              if (!widget.hideAudienceBadge)
+                Positioned(
+                  top: albumSize - 30 - 10,
+                  right: 10,
+                  child: _buildAudienceBadge(),
+                ),
 
               // グラデーションオーバーレイ（下部3/7）
               Positioned(

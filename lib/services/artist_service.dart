@@ -61,6 +61,7 @@ class ArtistService {
     required String userId,
     required String artistId,
     required String artistName,
+    String? imageUrl,
   }) async {
     final ref = _firestore.collection(_col).doc(artistId);
     final doc = await ref.get();
@@ -68,11 +69,38 @@ class ArtistService {
       await ref.set({
         'artistId': artistId,
         'artistName': artistName,
+        if (imageUrl != null && imageUrl.isNotEmpty) 'imageUrl': imageUrl,
         'followerIds': [userId],
         'createdAt': FieldValue.serverTimestamp(),
       });
     } else {
-      await ref.update({'followerIds': FieldValue.arrayUnion([userId])});
+      final updates = <String, dynamic>{
+        'followerIds': FieldValue.arrayUnion([userId]),
+      };
+      // imageUrl が未保存なら合わせて埋める（既存値は上書きしない）
+      final existing = doc.data();
+      final hasImage = existing != null &&
+          (existing['imageUrl'] as String? ?? '').isNotEmpty;
+      if (!hasImage && imageUrl != null && imageUrl.isNotEmpty) {
+        updates['imageUrl'] = imageUrl;
+      }
+      await ref.update(updates);
+    }
+  }
+
+  /// このユーザーがフォロー中のアーティスト一覧。フォロー日時降順は保証されない
+  /// （必要なら followedAt を別コレクションで管理する構造に拡張）。
+  Future<List<ArtistModel>> getFollowedArtists(String userId) async {
+    if (userId.isEmpty) return const [];
+    try {
+      final snap = await _firestore
+          .collection(_col)
+          .where('followerIds', arrayContains: userId)
+          .get();
+      return snap.docs.map(ArtistModel.fromFirestore).toList();
+    } catch (e) {
+      if (kDebugMode) print('ArtistService.getFollowedArtists error: $e');
+      return const [];
     }
   }
 

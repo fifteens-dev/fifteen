@@ -38,11 +38,18 @@ class VibeStoryPreviewScreen extends StatefulWidget {
   final String? authorIconUrl;
   final ValueChanged<String>? onAudienceSelected; // 'public' / 'followers'
 
+  /// 「今の気分」投稿モード。true のとき:
+  ///   - Vibe お題を読み込まず、isVibe: false で強制投稿
+  ///   - 写真を選んだ瞬間に自動で投稿(公開範囲は public 固定)
+  ///   - 下部の audience 選択ボタンを非表示
+  final bool isMoodPost;
+
   const VibeStoryPreviewScreen({
     super.key,
     required this.track,
     this.authorIconUrl,
     this.onAudienceSelected,
+    this.isMoodPost = false,
   });
 
   @override
@@ -54,6 +61,7 @@ class VibeStoryPreviewScreen extends StatefulWidget {
     required TrackModel track,
     String? authorIconUrl,
     ValueChanged<String>? onAudienceSelected,
+    bool isMoodPost = false,
   }) {
     return Navigator.of(context).push<T>(
       PageRouteBuilder<T>(
@@ -64,6 +72,7 @@ class VibeStoryPreviewScreen extends StatefulWidget {
           track: track,
           authorIconUrl: authorIconUrl,
           onAudienceSelected: onAudienceSelected,
+          isMoodPost: isMoodPost,
         ),
         transitionsBuilder: (_, anim, __, child) {
           final curved = CurvedAnimation(
@@ -195,6 +204,11 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
             _imageOffset = Offset.zero;
             _imageScale = 1.0;
           });
+          // 「今の気分」モードは写真選択がそのまま投稿トリガー。
+          // 公開範囲は public 固定。
+          if (widget.isMoodPost) {
+            _submitPost(PostAudience.public);
+          }
         }
       },
     );
@@ -219,12 +233,16 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
 
     try {
       // Phase 1: 写真圧縮 / ユーザー / お題 / 班判定を並列実行
+      // 「今の気分」モードは Vibe お題を使わないので topic 取得をスキップ。
       final results = await Future.wait<dynamic>([
         PhotoHelper.compressForUpload(_selectedPhoto!),
         _userService.getUser(currentUser.uid),
-        AdlService()
-            .isCurrentUserAdlParticipant()
-            .then((forAdl) => _vibeTopicService.getTodaysTopic(forAdl: forAdl)),
+        widget.isMoodPost
+            ? Future.value(null)
+            : AdlService()
+                .isCurrentUserAdlParticipant()
+                .then((forAdl) =>
+                    _vibeTopicService.getTodaysTopic(forAdl: forAdl)),
       ]);
       final compressed = results[0] as (Uint8List, int, int);
       final me = results[1] as dynamic;
@@ -294,9 +312,12 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
         cardPositionY: savedCardPositionY,
         cardScale: savedCardScale,
         cardRotation: _cardRotation,
-        isVibe: topic != null,
-        vibeTopicId: (topic as dynamic)?.topicId as String?,
-        vibeTopicTitle: (topic as dynamic)?.title as String?,
+        // 「今の気分」モードは Vibe 投稿ではない
+        isVibe: !widget.isMoodPost && topic != null,
+        vibeTopicId:
+            widget.isMoodPost ? null : (topic as dynamic)?.topicId as String?,
+        vibeTopicTitle:
+            widget.isMoodPost ? null : (topic as dynamic)?.title as String?,
         adlTeamId: adlTeamId,
         audience: audience,
         audioStartMs: 0,
@@ -315,9 +336,11 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
       if (!mounted) return;
       AppToast.show(
         context,
-        audience == PostAudience.followers
-            ? 'フォロワー限定で投稿しました'
-            : '全体に投稿しました',
+        widget.isMoodPost
+            ? '投稿しました'
+            : audience == PostAudience.followers
+                ? 'フォロワー限定で投稿しました'
+                : '全体に投稿しました',
       );
       Navigator.of(context).pop();
       widget.onAudienceSelected?.call(audience);
@@ -523,20 +546,23 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
                   ),
                 ),
                 // 5. 下部ボタン群: 全体に公開 / フォロワーのみ
-                Positioned(
-                  left: 16 * scale,
-                  top: 724 * scale, // 715 (カード下端) + 9 ≒ Figma top=787 相当
-                  width: 180 * scale,
-                  height: 45 * scale,
-                  child: _buildPublicButton(context, scale),
-                ),
-                Positioned(
-                  left: 212 * scale,
-                  top: 724 * scale,
-                  width: 180 * scale,
-                  height: 45 * scale,
-                  child: _buildFollowersButton(context, scale),
-                ),
+                //  → 「今の気分」モードは写真選択が投稿トリガーなので非表示
+                if (!widget.isMoodPost)
+                  Positioned(
+                    left: 16 * scale,
+                    top: 724 * scale, // 715 (カード下端) + 9 ≒ Figma top=787 相当
+                    width: 180 * scale,
+                    height: 45 * scale,
+                    child: _buildPublicButton(context, scale),
+                  ),
+                if (!widget.isMoodPost)
+                  Positioned(
+                    left: 212 * scale,
+                    top: 724 * scale,
+                    width: 180 * scale,
+                    height: 45 * scale,
+                    child: _buildFollowersButton(context, scale),
+                  ),
               ],
             );
           },

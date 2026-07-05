@@ -8,6 +8,7 @@ import '../services/itunes_search_service.dart';
 import '../services/lyrics_service.dart';
 import '../utils/color_extractor.dart';
 import 'post_card_edit_screen.dart';
+import 'post_flow/mood_post_final_preview_screen.dart';
 
 /// 投稿フローの写真選択画面（通常フロー専用）
 ///
@@ -22,6 +23,9 @@ class PostPhotoSelectionScreen extends StatefulWidget {
   final String? vibeTopicId;
   final String? vibeTopicTitle;
   final bool fromVibePlaylist;
+  /// 気分投稿フロー (Music Memory 起点) では PostCardEditScreen / 歌詞カード選択を
+  /// 経由せず、写真確定でそのまま [MoodPostFinalPreviewScreen] へ飛ばす。
+  final bool isMoodPost;
 
   const PostPhotoSelectionScreen({
     super.key,
@@ -32,6 +36,7 @@ class PostPhotoSelectionScreen extends StatefulWidget {
     this.vibeTopicId,
     this.vibeTopicTitle,
     this.fromVibePlaylist = false,
+    this.isMoodPost = false,
   });
 
   @override
@@ -292,6 +297,34 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   }
 
   void _navigateToEdit(XFile photo) {
+    if (widget.isMoodPost) {
+      // 気分投稿: 歌詞カード編集をスキップ、カメラ/モーダルまでスタックを畳んで
+      // ホーム route の上に **透明 route** として MoodPostFinalPreviewScreen を載せる。
+      // これで背景にホームが透けて見える。
+      Navigator.of(context).pushAndRemoveUntil(
+        PageRouteBuilder(
+          opaque: false,
+          barrierDismissible: false,
+          transitionDuration: const Duration(milliseconds: 400),
+          pageBuilder: (_, __, ___) => MoodPostFinalPreviewScreen(
+            track: widget.track,
+            selectedImage: photo,
+          ),
+          transitionsBuilder: (_, animation, __, child) => FadeTransition(
+            opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+            child: child,
+          ),
+        ),
+        // ホーム画面は AuthGate が pushReplacement で載せた「名前なし」route。
+        // Navigator.pushReplacementNamed('/home') で載っているわけではないので
+        // ModalRoute.withName('/home') は誰にもマッチせず、指定するとスタック
+        // が完全に空になり pop 先が無くなる。stack 最下部 (= HomeScreen) を
+        // 保持するために isFirst で predicate する。
+        (route) => route.isFirst,
+      );
+      return;
+    }
+
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
@@ -349,6 +382,33 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
 
     await _cameraController?.pausePreview();
     if (!mounted) return;
+
+    if (widget.isMoodPost) {
+      // 気分投稿: グリッド → 拡大アニメーションを省略し、
+      // ホーム route まで畳んで透明 route として MoodPostFinalPreviewScreen を載せる。
+      Navigator.of(context).pushAndRemoveUntil(
+        PageRouteBuilder(
+          opaque: false,
+          barrierDismissible: false,
+          transitionDuration: const Duration(milliseconds: 400),
+          pageBuilder: (_, __, ___) => MoodPostFinalPreviewScreen(
+            track: widget.track,
+            selectedImage: XFile(file.path),
+          ),
+          transitionsBuilder: (_, animation, __, child) => FadeTransition(
+            opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+            child: child,
+          ),
+        ),
+        // ホーム画面は AuthGate が pushReplacement で載せた「名前なし」route。
+        // Navigator.pushReplacementNamed('/home') で載っているわけではないので
+        // ModalRoute.withName('/home') は誰にもマッチせず、指定するとスタック
+        // が完全に空になり pop 先が無くなる。stack 最下部 (= HomeScreen) を
+        // 保持するために isFirst で predicate する。
+        (route) => route.isFirst,
+      );
+      return;
+    }
 
     await Navigator.push(
       context,
@@ -583,7 +643,11 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
                   color: Colors.black.withValues(alpha: 0.5),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.close, color: Colors.white, size: 20),
+                child: const Icon(
+                  Icons.chevron_left,
+                  color: Colors.white,
+                  size: 26,
+                ),
               ),
             ),
           ),
@@ -636,7 +700,11 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
                   color: Color(0xFF363B3F),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.close, color: Colors.white, size: 20),
+                child: const Icon(
+                  Icons.chevron_left,
+                  color: Colors.white,
+                  size: 26,
+                ),
               ),
             ),
           ),

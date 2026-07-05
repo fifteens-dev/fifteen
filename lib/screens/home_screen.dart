@@ -32,6 +32,7 @@ import 'comment_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'music_selection_screen.dart';
+import 'post_flow/music_memory_modal.dart';
 import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
 import 'vibe_playlist/vibe_playlist_screen.dart';
@@ -837,19 +838,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _onItemTapped(int index) async {
     if (index == 2) {
-      // 楽曲選択画面へ遷移（投稿フローの起点）
+      // 投稿フローの起点: 「今日のMusic Memory」カード束モーダル(Component 123)。
+      // 内部で MusicServiceManager から最近再生履歴を取得して表示。
       _homeAudioService.stop();
-      final targetIndex = await Navigator.push<int>(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => const MusicSelectionScreen(),
-          transitionDuration: Duration.zero,
-          reverseTransitionDuration: Duration.zero,
-        ),
-      );
-      if (targetIndex != null && mounted) {
-        setState(() => _selectedIndex = targetIndex);
-      }
+      await MusicMemoryModal.open(context);
       return;
     }
 

@@ -195,6 +195,9 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
         cardScale: 0, // 0 にしてカード自体を実質非表示に
         cardRotation: 0,
         isVibe: false,
+        // 気分投稿マーカー。ストーリーバー等の集約先ではこのフラグを見て
+        // 明示的にスキップする。
+        isMoodPost: true,
         adlTeamId: adlTeamId,
         audience: 'public',
         audioStartMs: 0,
@@ -395,17 +398,20 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
           borderRadius: BorderRadius.circular(18),
           child: Stack(
             children: [
-              // 写真フルブリード (歌詞カードなし)
+              // 写真 (横幅フィット + 縦中央、上下の余白は真っ黒 #000000)
               Positioned.fill(
-                child: kIsWeb
-                    ? Image.network(
-                        widget.selectedImage.path,
-                        fit: BoxFit.cover,
-                      )
-                    : Image.file(
-                        File(widget.selectedImage.path),
-                        fit: BoxFit.cover,
-                      ),
+                child: ColoredBox(
+                  color: const Color(0xFF000000),
+                  child: kIsWeb
+                      ? Image.network(
+                          widget.selectedImage.path,
+                          fit: BoxFit.fitWidth,
+                        )
+                      : Image.file(
+                          File(widget.selectedImage.path),
+                          fit: BoxFit.fitWidth,
+                        ),
+                ),
               ),
               // 楽曲情報 (下部)
               Positioned(

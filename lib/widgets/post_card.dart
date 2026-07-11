@@ -580,6 +580,21 @@ class PostCardState extends State<PostCard>
 
   /// 裏面カード本文（トランスフォームなし）- キャプチャ・表示共用
   Widget _buildBackCardBody(double cardWidth, double cardHeight, PostTheme theme) {
+    // hideBackOverlays: 写真自体にプレビュー全体 (歌詞カード / ユーザー badge / 楽曲情報) が
+    // 焼き込まれているケース (Vibe ストーリー写真なし投稿)。二重描画を避けるため、
+    // ユーザー情報・歌詞カード・楽曲情報等の overlay を一切乗せず、写真だけ全面表示。
+    if (widget.post.hideBackOverlays) {
+      return Container(
+        width: cardWidth,
+        height: cardHeight,
+        color: const Color(0xFF121212),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
+          child: _buildPhotoArea(cardWidth, cardHeight),
+        ),
+      );
+    }
+
     final isLiked = _isLikedOptimistic ??
         (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!));
 
@@ -877,6 +892,15 @@ class PostCardState extends State<PostCard>
 
   /// 写真エリア（画像のオフセット・スケール・元サイズを考慮）
   Widget _buildPhotoArea(double cardWidth, double frameHeight) {
+    // 「気分で投稿」は編集画面を経ないため、カードサイズに合わせた自動レイアウトのみ。
+    // 横幅フィット + 縦中央、上下の余白は真っ黒 (#000000) で埋める。
+    if (widget.post.isMoodPost) {
+      return ColoredBox(
+        color: const Color(0xFF000000),
+        child: _buildPhotoImage(BoxFit.fitWidth),
+      );
+    }
+
     final imgScale = widget.post.imageScale != 0 ? widget.post.imageScale : 1.0;
     final natW = widget.post.imageNaturalWidth;
     final natH = widget.post.imageNaturalHeight;

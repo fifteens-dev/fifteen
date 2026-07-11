@@ -1,16 +1,25 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../models/post_model.dart';
 import '../models/track_model.dart';
 import '../services/adl_service.dart';
+import '../services/audio_player_service.dart';
+import '../services/itunes_search_service.dart';
+import '../services/lyrics_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../services/user_service.dart';
@@ -18,6 +27,8 @@ import '../services/vibe_topic_service.dart';
 import '../utils/photo_helper.dart';
 import '../utils/two_finger_rotation_tracker.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
+import 'music_trim_screen.dart';
+import 'vibe_story_edit_result.dart';
 import '../widgets/common/app_toast.dart';
 import 'vibe_story_photo_grid_overlay.dart';
 
@@ -108,6 +119,22 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
   final UserService _userService = UserService();
   bool _isPosting = false;
 
+  // ── プレビュー音楽再生 ──
+  // トリム画面で編集した [_audioStartMs] / [_audioDurationSec] の区間を
+  // プレビュー画面でもループ再生する。
+  final AudioPlayerService _audioService = AudioPlayerService();
+  final ITunesSearchService _itunesService = ITunesSearchService();
+  String? _previewUrl;
+
+  /// 「淡くしたアルバムアート」だけをキャプチャする用 (card overlay を含まない)。
+  /// 初回ロード時に自動で撮って [_selectedPhoto] に流し込み、
+  /// ユーザーが差し替えるまでの初期画像として扱う。
+  final GlobalKey _bgCaptureKey = GlobalKey();
+
+  /// 初期背景の自動キャプチャがまだ試行されていないか。
+  /// [didChangeDependencies] で 1 度だけ動かすためのガード。
+  bool _didAutoCaptureBg = false;
+
   // ── カード（アルバム + 楽曲名 + アーティスト名 を 1 つのグループとして扱う） ──
   //
   // 投稿フロー [post_final_preview_screen] と同じ仕様:
@@ -120,18 +147,49 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
   // 初期表示では「ストーリー Figma の 236×286 相当」になるよう cardScale を約 2.25 倍に。
   // → 保存値 (cardPositionX/Y/Scale/Rotation/selectedLayoutIndex=1) はそのまま
   //    PostCard 裏面の歌詞カード描画で再現される。
-  static const double _cardW = 105.0;
-  static const double _cardH = 147.0;
   static const double _frameW = 402.0;
   static const double _frameH = 715.0;
-  // largeAlbumArt の初期表示サイズ: 236 / 105 ≈ 2.248
-  static const double _initialCardScale = 236.0 / 105.0;
+
+  // 表示ターゲット幅 (Figma で largeAlbumArt が 236px 幅で置かれているのを基準に、
+  // 他のレイアウトも同じ横幅で自然に見えるようスケーリングする)
+  static const double _targetCardWidth = 236.0;
   // Figma の初期中心: アルバム top=203, height=236 → 中央 y=321; 加えてテキスト分を含めた中心 y=346
   static const Offset _defaultCardCenter = Offset(201.0, 346.0);
 
+  /// 選択中レイアウトのベースサイズ (LyricsCardLayout / PostCardBackView と一致)。
+  Size _cardBaseSizeFor(int layoutIdx) {
+    switch (layoutIdx) {
+      case 0: return const Size(196, 126);
+      case 1: return const Size(105, 147);
+      case 2: return const Size(172, 42);
+      case 3: return const Size(140, 152);
+      case 4: return const Size(130, 61);
+      default: return const Size(105, 147);
+    }
+  }
+
+  /// 現在選択中レイアウトのベースサイズ。
+  Size get _cardBaseSize => _cardBaseSizeFor(_selectedLayoutIndex);
+
+  /// 選択レイアウトのベース幅を [_targetCardWidth] に揃える初期スケール。
+  double _initialCardScaleFor(int layoutIdx) =>
+      _targetCardWidth / _cardBaseSizeFor(layoutIdx).width;
+
   Offset _cardCenter = _defaultCardCenter;
-  double _cardScale = _initialCardScale;
+  double _cardScale = _targetCardWidth / 105.0; // largeAlbumArt (=105) 用の初期値
   double _cardRotation = 0.0;
+
+  // ── 旧投稿フロー編集チェーン (MusicTrim → LyricsCardSelection) から
+  //     戻ってきた値を保持する state ──
+  // プレビューの card overlay 描画と _submitPost の createPost 引数に使う。
+  int _selectedLayoutIndex = 1; // largeAlbumArt (投稿フロー既定と同じ)
+  int _audioStartMs = 0;
+  int _audioDurationSec = 15;
+  /// 音楽トリムを 1 度でも編集したか。false のうちは MusicTrimScreen 側で
+  /// サビ推定の初期値を使わせる (前回値の 0ms を強制しない)。
+  bool _didEditAudio = false;
+  double _albumArtOpacity = 1.0;
+  LyricsData? _lyricsData;
 
   // 背景写真の pan/scale
   Offset _imageOffset = Offset.zero;
@@ -159,6 +217,56 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
   void initState() {
     super.initState();
     _loadLatestGalleryThumb();
+    _loadPreviewUrlAndPlay();
+  }
+
+  @override
+  void dispose() {
+    _audioService.stopIfOwner(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // ここでしか context 経由の precacheImage が呼べないので、
+    // 1 度だけ「初期背景 → _selectedPhoto 自動セット」を仕掛ける。
+    _autoCaptureBackgroundIfNeeded();
+  }
+
+  /// プレビュー URL を取得し、現在の `_audioStartMs / _audioDurationSec` で再生。
+  Future<void> _loadPreviewUrlAndPlay() async {
+    String? url = widget.track.previewUrl;
+    if (url == null || url.isEmpty) {
+      try {
+        url = await _itunesService.getPreviewUrl(
+          trackName: widget.track.trackName,
+          artistName: widget.track.artistName,
+        );
+      } catch (_) {}
+    }
+    if (!mounted || url == null || url.isEmpty) return;
+    setState(() => _previewUrl = url);
+    _playPreviewClip();
+  }
+
+  /// 現在の [_audioStartMs] / [_audioDurationSec] でプレビュー音源を再生。
+  /// 既存の再生は AudioPlayerService 側で自動停止するので stop 呼び出し不要。
+  ///
+  /// `owner: this` を渡すことで、編集チェーン (MusicTrim / LyricsCardSelection) の
+  /// dispose 時に呼ばれる `stopIfOwner(this)` の巻き添えで停止させられないようにする。
+  /// これがないと編集画面からの pop 完了直後にレースで音が止まる。
+  Future<void> _playPreviewClip() async {
+    final url = _previewUrl;
+    if (url == null || url.isEmpty) return;
+    try {
+      await _audioService.playPreview(
+        url,
+        startFrom: Duration(milliseconds: _audioStartMs),
+        durationSeconds: _audioDurationSec,
+        owner: this,
+      );
+    } catch (_) {}
   }
 
   /// 端末フォトライブラリの最新写真サムネを取得。
@@ -222,8 +330,185 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
   /// - ユーザー情報 / お題 / アップロードを **Future.wait で並列実行**
   /// - getDownloadURL と Firestore createPost も並列
   /// - createPost には photoUrl=null で先に書き、URL 取得後に updatePostPhotoUrl
+  /// [_cardCaptureKey] が指す RepaintBoundary を PNG バイトとして取り出す。
+  /// pixelRatio 2.5 で撮り、後段の [PhotoHelper.compressForUpload] で JPEG に
+  /// 再圧縮される (通常写真と全く同じパス)。
+  /// カード全面の背景 (アルバムアート淡色 + gradient)。
+  /// _selectedPhoto が空 (＝初期状態 or 差し替えで戻した状態) のとき描画。
+  /// _selectedPhoto がある場合はその画像を BoxFit.cover + pan/scale で表示。
+  Widget _buildPreviewBackground() {
+    final art = track.albumImageUrl;
+    if (_selectedPhoto != null) {
+      return ClipRect(
+        child: Transform.translate(
+          offset: _imageOffset,
+          child: Transform.scale(
+            scale: _imageScale,
+            alignment: Alignment.center,
+            child: Image.memory(
+              _selectedPhoto!,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+            ),
+          ),
+        ),
+      );
+    }
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: art.isEmpty
+              ? Container(color: const Color(0xFF1F1F1F))
+              : CachedNetworkImage(
+                  imageUrl: art,
+                  fit: BoxFit.cover,
+                  color: Colors.white.withValues(alpha: 0.75),
+                  colorBlendMode: BlendMode.modulate,
+                  placeholder: (_, __) =>
+                      Container(color: const Color(0xFF1F1F1F)),
+                  errorWidget: (_, __, ___) =>
+                      Container(color: const Color(0xFF1F1F1F)),
+                ),
+        ),
+        Positioned.fill(
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.white.withValues(alpha: 0.55),
+                  Colors.white.withValues(alpha: 0.25),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// アルバムアート淡色 + gradient だけの描画を PNG として取り出す。
+  /// 初期状態で 1 度だけ実行し、[_selectedPhoto] にセットして
+  /// 「プレビュー背景 = 初期画像」として扱う。
+  Future<Uint8List?> _captureBackgroundBytes() async {
+    try {
+      final ctx = _bgCaptureKey.currentContext;
+      if (ctx == null) return null;
+      final boundary = ctx.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return null;
+      final img = await boundary.toImage(pixelRatio: 2.5);
+      final bd = await img.toByteData(format: ui.ImageByteFormat.png);
+      return bd?.buffer.asUint8List();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// アルバムアートを precache してから背景キャプチャ → [_selectedPhoto] へ流し込む。
+  /// 1 度成功したら再実行しない ([_didAutoCaptureBg] ガード)。
+  /// ユーザーが既に別画像を選んでいる場合はスキップ。
+  Future<void> _autoCaptureBackgroundIfNeeded() async {
+    if (_didAutoCaptureBg) return;
+    _didAutoCaptureBg = true;
+    final art = track.albumImageUrl;
+    if (art.isEmpty) return;
+    try {
+      await precacheImage(CachedNetworkImageProvider(art), context);
+      // 次フレームで背景層が描画完了しているタイミングでキャプチャ
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || _selectedPhoto != null) return;
+      final bytes = await _captureBackgroundBytes();
+      if (!mounted || bytes == null || _selectedPhoto != null) return;
+      setState(() {
+        _selectedPhoto = bytes;
+      });
+    } catch (_) {
+      // 失敗しても静かに諦める。ユーザーが自分で画像を選び直せる。
+    }
+  }
+
+  /// ジャケット / 右上ラウンドアイコン タップから、旧投稿フローの
+  /// [MusicTrimScreen] → [LyricsCardSelectionScreen] の 2 段編集チェーンを開く。
+  /// 完了で [VibeStoryEditResult] を持ち帰り、プレビュー状態に反映する。
+  ///
+  /// このとき [_selectedPhoto] を temp ファイル → XFile 化して渡し、
+  /// トリム画面のプレビューにも同じ「淡いアルバムアート or ユーザー写真」を映す。
+  Future<void> _openTrimEdit() async {
+    // トリム画面は同じ AudioPlayerService を使うので、こちら側の再生を止めておく。
+    // (playPreview は上書きするので厳密には不要だが、遷移中の無音を明示的に作る)
+    await _audioService.stop();
+
+    XFile? asXFile;
+    Size? natSize;
+    final bytes = _selectedPhoto;
+    if (bytes != null) {
+      try {
+        final dir = await getTemporaryDirectory();
+        final path = '${dir.path}/vibe_preview_bg_'
+            '${DateTime.now().microsecondsSinceEpoch}.png';
+        final file = await File(path).writeAsBytes(bytes, flush: true);
+        asXFile = XFile(file.path);
+        // 自然サイズを取得 (MusicTrim の Transform 計算に必要)。
+        final codec = await ui.instantiateImageCodec(bytes);
+        final frame = await codec.getNextFrame();
+        natSize = Size(
+          frame.image.width.toDouble(),
+          frame.image.height.toDouble(),
+        );
+        frame.image.dispose();
+      } catch (_) {
+        // temp ファイル書き込み失敗時は画像なしで進む。
+      }
+    }
+
+    if (!mounted) return;
+    final result = await Navigator.of(context).push<VibeStoryEditResult?>(
+      MaterialPageRoute(
+        builder: (_) => MusicTrimScreen(
+          track: widget.track,
+          lyricsData: _lyricsData,
+          selectedImage: asXFile,
+          imageNaturalSize: natSize,
+          isVibe: !widget.isMoodPost,
+          returnAsResult: true,
+          initialSelectedLayoutIndex: _selectedLayoutIndex,
+          initialAlbumArtOpacity: _albumArtOpacity,
+          // 一度でも編集済みなら前回値を初期値として渡す。
+          // 未編集ならサビ推定にフォールバックさせる (null 渡し)。
+          initialAudioStartMs: _didEditAudio ? _audioStartMs : null,
+          initialAudioDurationSec: _didEditAudio ? _audioDurationSec : null,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (result == null) {
+      // 途中で戻ってきたケースでも、プレビュー再生は再開する。
+      _playPreviewClip();
+      return;
+    }
+    setState(() {
+      _audioStartMs = result.audioStartMs;
+      _audioDurationSec = result.audioDurationSec;
+      _didEditAudio = true;
+      _albumArtOpacity = result.albumArtOpacity;
+      _lyricsData = result.lyricsData;
+      // レイアウトが変わったらベースサイズが変わるので、cardScale を新レイアウト
+      // の「Figma ターゲット幅 236」相当に再計算し、cardCenter を初期位置に戻す。
+      // (前レイアウトの scale/位置を残すと視覚的に極端な大小になる)
+      if (_selectedLayoutIndex != result.selectedLayoutIndex) {
+        _selectedLayoutIndex = result.selectedLayoutIndex;
+        _cardScale = _initialCardScaleFor(_selectedLayoutIndex);
+        _cardCenter = _defaultCardCenter;
+        _cardRotation = 0.0;
+      }
+    });
+    // 編集で確定した開始位置 + 再生時間で再生し直す。
+    _playPreviewClip();
+  }
+
   Future<void> _submitPost(String audience) async {
-    if (_selectedPhoto == null || _isPosting) return;
+    if (_isPosting) return;
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
       AppToast.show(context, 'ログインが必要です');
@@ -232,10 +517,19 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
     setState(() => _isPosting = true);
 
     try {
-      // Phase 1: 写真圧縮 / ユーザー / お題 / 班判定を並列実行
+      // _selectedPhoto は didChangeDependencies で「プレビュー背景」を
+      // 自動キャプチャして必ずセットされている前提。差し替え後はユーザー写真。
+      // 自動キャプチャに失敗しているケースだけ photoUrl=null で
+      // アルバムアートフォールバックに落ちる。
+      final Uint8List? imageBytes = _selectedPhoto;
+      final bool hasPhoto = imageBytes != null;
+
+      // Phase 1: 圧縮 / ユーザー / お題 / 班判定を並列実行。
       // 「今の気分」モードは Vibe お題を使わないので topic 取得をスキップ。
       final results = await Future.wait<dynamic>([
-        PhotoHelper.compressForUpload(_selectedPhoto!),
+        hasPhoto
+            ? PhotoHelper.compressForUpload(imageBytes)
+            : Future.value(null),
         _userService.getUser(currentUser.uid),
         widget.isMoodPost
             ? Future.value(null)
@@ -244,37 +538,41 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
                 .then((forAdl) =>
                     _vibeTopicService.getTodaysTopic(forAdl: forAdl)),
       ]);
-      final compressed = results[0] as (Uint8List, int, int);
+      final compressed = results[0] as (Uint8List, int, int)?;
       final me = results[1] as dynamic;
       final topic = results[2];
 
       final username = (me?.username as String?) ?? '';
       final iconUrl = me?.profileImageUrl as String?;
       final adlTeamId = me?.adlTeamId as String?;
-      // photoWidth/Height は使わない（natW/H=0 で旧方式パスを使うため）
-      final (processedBytes, _, __) = compressed;
 
-      // Phase 2: 圧縮済みバイトを Storage にアップロード（Reference のみ取得）
-      final uploadResult = await PhotoHelper.uploadCompressedSplit(
-        imageBytes: processedBytes,
-        userId: currentUser.uid,
-        storageService: _storageService,
-      );
+      // Phase 2: 写真バイトを Storage にアップロード。
+      final uploadResult = hasPhoto
+          ? await PhotoHelper.uploadCompressedSplit(
+              imageBytes: compressed!.$1,
+              userId: currentUser.uid,
+              storageService: _storageService,
+            )
+          : null;
 
-      // Phase 3: URL 取得と posts への書き込みを並列
-      final urlFuture = uploadResult.storageRef!
-          .getDownloadURL()
-          .then<String?>((url) => url)
-          .catchError((_) => null);
+      // Phase 3: URL 取得と posts への書き込みを並列。
+      final Future<String?> urlFuture = uploadResult != null
+          ? uploadResult.storageRef!
+              .getDownloadURL()
+              .then<String?>((url) => url)
+              .catchError((_) => null)
+          : Future.value(null);
       // ── 写真とカードの編集状態を PostCard 裏面 (363×645) 座標系に変換 ──
       // フレーム 402×715 → カード 363×645、縮尺は約 0.903（横）/ 0.902（縦）。
       const sx = 363.0 / 402.0;
       const sy = 645.0 / 715.0;
 
-      // 写真: PostCard 裏面の旧方式パス（BoxFit.cover + translate + scale）に渡す
-      final savedImageOffsetX = _imageOffset.dx * sx;
-      final savedImageOffsetY = _imageOffset.dy * sy;
-      final savedImageScale = _imageScale;
+      // 写真: PostCard 裏面の旧方式パス（BoxFit.cover + translate + scale）に渡す。
+      // 写真がある (初期背景 or ユーザー差し替え) 場合は _imageOffset/_imageScale を保存。
+      // キャプチャ失敗のフォールバック時のみ 0/0/1。
+      final savedImageOffsetX = hasPhoto ? _imageOffset.dx * sx : 0.0;
+      final savedImageOffsetY = hasPhoto ? _imageOffset.dy * sy : 0.0;
+      final savedImageScale = hasPhoto ? _imageScale : 1.0;
 
       // カード（アルバム + 楽曲名 + アーティスト名）:
       // PostCard 裏面の歌詞カード描画は
@@ -283,8 +581,8 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
       //   + Transform.rotate(cardRotation, center)
       // で配置される。ストーリープレビューでは中心 (_cardCenter) で表示しているので
       // 左上座標を計算する。
-      final displayedW = _cardW * _cardScale * sx;
-      final displayedH = _cardH * _cardScale * sy;
+      final displayedW = _cardBaseSize.width * _cardScale * sx;
+      final displayedH = _cardBaseSize.height * _cardScale * sy;
       final savedCardCenterX = _cardCenter.dx * sx;
       final savedCardCenterY = _cardCenter.dy * sy;
       final savedCardPositionX = savedCardCenterX - displayedW / 2;
@@ -306,12 +604,15 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
         imageScale: savedImageScale,
         imageNaturalWidth: 0,
         imageNaturalHeight: 0,
-        // 歌詞カード: 投稿フロー裏面と同じ LyricsCardLayout.largeAlbumArt (index=1)
-        selectedLayoutIndex: 1,
+        // 歌詞カード: MusicTrim → LyricsCardSelection で編集した結果を反映。
+        // 未編集なら初期値 (largeAlbumArt = 1) のまま。
+        selectedLayoutIndex: _selectedLayoutIndex,
         cardPositionX: savedCardPositionX,
         cardPositionY: savedCardPositionY,
         cardScale: savedCardScale,
         cardRotation: _cardRotation,
+        // 写真は「プレビュー背景そのもの」or「ユーザー差し替え画像」を素で保存し、
+        // PostCard 裏面は通常通り overlay を重ねる (歌詞カード / 曲情報 / ユーザー badge)。
         // 「今の気分」モードは Vibe 投稿ではない
         isVibe: !widget.isMoodPost && topic != null,
         vibeTopicId:
@@ -320,8 +621,14 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
             widget.isMoodPost ? null : (topic as dynamic)?.title as String?,
         adlTeamId: adlTeamId,
         audience: audience,
-        audioStartMs: 0,
-        audioDurationSec: 15,
+        audioStartMs: _audioStartMs,
+        audioDurationSec: _audioDurationSec,
+        lyricsText: _lyricsData == null
+            ? null
+            : LyricsService().truncateLyrics(
+                _lyricsData!.plainLyrics,
+                maxLines: 4,
+              ),
       );
 
       final phaseResults = await Future.wait<dynamic>([urlFuture, postIdFuture]);
@@ -362,8 +669,8 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
     if (localPoint.dx < 0 || localPoint.dx > _frameW * scale) return false;
 
     // カードグループの矩形（中心 + scale + rotation）に対して当たり判定
-    final halfW = _cardW * _cardScale / 2;
-    final halfH = _cardH * _cardScale / 2;
+    final halfW = _cardBaseSize.width * _cardScale / 2;
+    final halfH = _cardBaseSize.height * _cardScale / 2;
     final cx = _cardCenter.dx * scale;
     final cy = _cardCenter.dy * scale;
     final dx = localPoint.dx - cx;
@@ -525,12 +832,17 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
                   ),
                 ),
                 // 3. 右上: 楽曲アイコン円（内側にアルバム小）
+                //    タップで [MusicTrimScreen] 経由の再生位置編集 + 歌詞カード選択へ。
                 Positioned(
                   right: 13 * scale,
                   top: 11 * scale,
                   width: 44 * scale,
                   height: 44 * scale,
-                  child: _buildTrackBadge(scale),
+                  child: GestureDetector(
+                    onTap: _openTrimEdit,
+                    behavior: HitTestBehavior.opaque,
+                    child: _buildTrackBadge(scale),
+                  ),
                 ),
                 // 4. 左下: 写真選択ボタン（投稿者アイコンが入った枠）
                 //   → タップで写真グリッドオーバーレイを下からフェードイン
@@ -576,59 +888,19 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
   // ────────────────────────────────────────────────────────────
 
   Widget _buildPreviewCard(double scale) {
-    final art = track.albumImageUrl;
     return ClipRRect(
       borderRadius: BorderRadius.circular(23 * scale),
       child: Stack(
         children: [
-          // 1. カード全面の背景
-          //    - 写真選択済み: 選択写真を cover で全画面 + ユーザーの pan/scale を反映
-          //    - 未選択: アルバムアートを淡くぼかして表示
+          // 1+2. 背景層 (アルバムアート淡色 + gradient) を独立した RepaintBoundary で包む。
+          //      _bgCaptureKey で PNG バイトとして取り出し、_selectedPhoto の
+          //      初期値 (＝プレビュー背景) として自動セットする。
           Positioned.fill(
-            child: _selectedPhoto != null
-                ? ClipRect(
-                    child: Transform.translate(
-                      offset: _imageOffset,
-                      child: Transform.scale(
-                        scale: _imageScale,
-                        alignment: Alignment.center,
-                        child: Image.memory(
-                          _selectedPhoto!,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                        ),
-                      ),
-                    ),
-                  )
-                : (art.isEmpty
-                    ? Container(color: const Color(0xFF1F1F1F))
-                    : CachedNetworkImage(
-                        imageUrl: art,
-                        fit: BoxFit.cover,
-                        color: Colors.white.withValues(alpha: 0.75),
-                        colorBlendMode: BlendMode.modulate,
-                        placeholder: (_, __) =>
-                            Container(color: const Color(0xFF1F1F1F)),
-                        errorWidget: (_, __, ___) =>
-                            Container(color: const Color(0xFF1F1F1F)),
-                      )),
-          ),
-          // 2. ぼかしオーバーレイ（未選択時のみ：背景アルバムの柔らかさ用）
-          if (_selectedPhoto == null)
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.white.withValues(alpha: 0.55),
-                      Colors.white.withValues(alpha: 0.25),
-                    ],
-                  ),
-                ),
-              ),
+            child: RepaintBoundary(
+              key: _bgCaptureKey,
+              child: _buildPreviewBackground(),
             ),
+          ),
           // 3. カードグループ: `LyricsCardLayout.largeAlbumArt` (105×147 ベース) を
           //    使う。投稿フロー裏面と完全に同じレイアウトなので、保存値をそのまま
           //    PostCard 裏面で再現できる。
@@ -637,10 +909,10 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
           //    - Positioned の width/height は基準サイズ × 画面scale（_cardScale は含めない）
           //      _cardScale は内側 Transform.scale で適用する。
           Positioned(
-            left: _cardCenter.dx * scale - _cardW * scale / 2,
-            top: _cardCenter.dy * scale - _cardH * scale / 2,
-            width: _cardW * scale,
-            height: _cardH * scale,
+            left: _cardCenter.dx * scale - _cardBaseSize.width * scale / 2,
+            top: _cardCenter.dy * scale - _cardBaseSize.height * scale / 2,
+            width: _cardBaseSize.width * scale,
+            height: _cardBaseSize.height * scale,
             child: Transform.scale(
               scale: _cardScale,
               alignment: Alignment.center,
@@ -660,15 +932,29 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
   /// を使う。ベースサイズの 105×147 を画面 scale で拡大しただけのウィジェット。
   /// 外側で _cardScale × _cardRotation を Transform で適用する。
   Widget _buildCardGroup(double scale) {
-    return SizedBox(
-      width: _cardW * scale,
-      height: _cardH * scale,
-      child: Transform.scale(
-        scale: scale,
-        alignment: Alignment.topLeft,
-        child: LyricsCardLayout(
-          layoutType: LyricsCardLayoutType.largeAlbumArt,
-          track: track,
+    final layoutType = LyricsCardLayout.getLayoutType(_selectedLayoutIndex);
+    String? lyricsText;
+    if (_lyricsData != null) {
+      lyricsText = LyricsService().truncateLyrics(
+        _lyricsData!.plainLyrics,
+        maxLines: 4,
+      );
+    }
+    return GestureDetector(
+      onTap: _openTrimEdit,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: _cardBaseSize.width * scale,
+        height: _cardBaseSize.height * scale,
+        child: Transform.scale(
+          scale: scale,
+          alignment: Alignment.topLeft,
+          child: LyricsCardLayout(
+            layoutType: layoutType,
+            track: track,
+            lyricsText: lyricsText,
+            albumArtOpacity: _albumArtOpacity,
+          ),
         ),
       ),
     );
@@ -735,8 +1021,9 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
     );
   }
 
-  /// ボタンの有効/無効判定。写真未選択 or 投稿中はタップ不可。
-  bool get _canSubmit => _selectedPhoto != null && !_isPosting;
+  /// ボタンの有効/無効判定。投稿中のみタップ不可。
+  /// 写真未選択でも「プレビューのまま (アルバムアート背景)」で投稿可能。
+  bool get _canSubmit => !_isPosting;
 
   Widget _buildPublicButton(BuildContext context, double scale) {
     return Opacity(

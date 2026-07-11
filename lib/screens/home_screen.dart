@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../main.dart' show routeObserver;
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -67,7 +68,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with AutomaticKeepAliveClientMixin
+    with AutomaticKeepAliveClientMixin, WidgetsBindingObserver
     implements RouteAware {
   int _selectedIndex = 0;
   final PostService _postService = PostService();
@@ -110,6 +111,15 @@ class _HomeScreenState extends State<HomeScreen>
   // Vibe ストーリーバー用: 24h 以内に投稿したユーザーごとの可視投稿群（新しい順）。
   // タイムラインフェッチと同じタイミングで一度だけ取得する。
   List<VibeStoryItem> _storyItems = const [];
+  /// 自分の 24h 投稿を「Vibe」円タップで表示するためのキャッシュ。
+  /// 投稿が無い場合は null。
+  VibeStoryItem? _ownStoryItem;
+
+  /// ストーリーバーをアクティブに更新するための周期タイマー。
+  /// 30 秒間隔で [_refreshStoriesOnly] を呼び、投稿反映のタイムラインズレを縮める。
+  /// dispose とバックグラウンド時に停止し、レジューム時に再開する。
+  Timer? _storyRefreshTimer;
+  static const Duration _kStoryRefreshInterval = Duration(seconds: 30);
 
   /// Vibe ストーリーで一度開いた postId のセット（SharedPreferences 永続化）。
   /// インスタ風: ユーザーの全直近投稿がこのセットに含まれていれば、
@@ -145,6 +155,8 @@ class _HomeScreenState extends State<HomeScreen>
     _updateLastActive();
     _processPendingFollowNotification();
     PostingState.instance.addListener(_onPostingStateChanged);
+    WidgetsBinding.instance.addObserver(this);
+    _startStoryRefreshTimer();
     if (widget.initialPosts != null) {
       // バックグラウンドで事前取得済みのデータをそのまま表示（追加フェッチ不要）
       _cachedPosts = widget.initialPosts;
@@ -454,13 +466,30 @@ class _HomeScreenState extends State<HomeScreen>
       // Vibe ストーリーバー用のユーザー別 24h 投稿も同時取得して state に流す。
       // タイムラインフェッチと別タイミングにすると、ストーリーだけ古いままで残るため
       // ここでまとめてやる（追加の往復は1回）。
+      //
+      // 自分自身の分もまとめて取り、フォロー中ユーザーの並びからは除外して
+      // 「Vibe」円 (先頭) タップ用に別枠 (_ownStoryItem) に保持する。
       try {
-        final storyItems = await _fetchStoryItems(
+        final allStories = await _fetchStoryItems(
           viewer: userModel,
           targetUserIds: allTargetIds,
         );
+        final ownUid = currentUser?.uid;
+        VibeStoryItem? own;
+        final followingStories = <VibeStoryItem>[];
+        for (final s in allStories) {
+          if (ownUid != null && s.userId == ownUid) {
+            own = s;
+          } else {
+            followingStories.add(s);
+          }
+        }
         if (mounted) {
-          setState(() => _storyItems = storyItems);
+          setState(() {
+            _storyItems = followingStories;
+            _ownStoryItem =
+                (own != null && own.posts.isNotEmpty) ? own : null;
+          });
         }
       } catch (e) {
         print('⚠️ ストーリーアイテム取得エラー: $e');
@@ -641,12 +670,87 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     PostingState.instance.removeListener(_onPostingStateChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    _storyRefreshTimer?.cancel();
     routeObserver.unsubscribe(this);
     _scrollController.dispose();
     _bellOpacity.dispose();
     _postCardKeys.clear();
     _previewUrlCache.clear();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // フォアグラウンド復帰時: 即再取得 + タイマー再開 (即時 fire は
+      // _startStoryRefreshTimer 内で行われるので個別呼び出し不要)。
+      _startStoryRefreshTimer();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // バックグラウンドでは無駄なポーリングを止める
+      _storyRefreshTimer?.cancel();
+      _storyRefreshTimer = null;
+    }
+  }
+
+  /// ストーリーバー用の周期タイマーを (再) 開始する。
+  /// 即時に 1 回 fire (fire-and-forget) してから 30 秒間隔でポーリング。
+  ///
+  /// アプリ起動時: initState から呼ばれ、prefetch データで initialPosts が
+  /// 埋まっているケースでも即時にストーリーを更新する (prefetch はストーリーを
+  /// 含まないため、これが無いと最初の 30 秒間ストーリーが空になる)。
+  /// フォアグラウンド復帰時: didChangeAppLifecycleState から呼ばれ、停止した
+  /// タイマーを再開しつつ即時同期する。
+  void _startStoryRefreshTimer() {
+    _storyRefreshTimer?.cancel();
+    // ignore: discarded_futures
+    _refreshStoriesOnly();
+    _storyRefreshTimer =
+        Timer.periodic(_kStoryRefreshInterval, (_) => _refreshStoriesOnly());
+  }
+
+  /// ストーリーバー用のデータだけを再取得 (タイムライン等のフェッチはしない)。
+  /// [_loadPosts] に比べて Firestore 読み込みは 1 バッチのみで軽量。
+  Future<void> _refreshStoriesOnly() async {
+    if (!mounted) return;
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+    try {
+      // 対象 UID: フォロー中 + 自分。CurrentUserProvider には following が
+      // 無いので Firestore から取り直す。バッチ 1 回 + createdAt 24h 制約なので軽量。
+      UserModel? viewer;
+      List<String> followingIds = const [];
+      try {
+        viewer = await _userService.getUser(currentUser.uid);
+        followingIds = viewer?.following ?? const [];
+      } catch (_) {}
+      final targetIds = [...followingIds, currentUser.uid];
+      final allStories = await _fetchStoryItems(
+        viewer: viewer,
+        targetUserIds: targetIds,
+      );
+      if (!mounted) return;
+      VibeStoryItem? own;
+      final followingStories = <VibeStoryItem>[];
+      for (final s in allStories) {
+        if (s.userId == currentUser.uid) {
+          own = s;
+        } else {
+          followingStories.add(s);
+        }
+      }
+      setState(() {
+        _storyItems = followingStories;
+        _ownStoryItem = (own != null && own.posts.isNotEmpty) ? own : null;
+      });
+    } catch (e) {
+      // 静かに失敗させる。次回ティックで再試行。
+      if (kDebugMode) {
+        print('⚠️ ストーリー自動更新エラー: $e');
+      }
+    }
   }
 
   /// 投稿アップロード完了時にタイムライン＋Vibeを自動リロード
@@ -961,20 +1065,47 @@ class _HomeScreenState extends State<HomeScreen>
                                   context,
                                   topic: topic,
                                 ),
+                                hasOwnStory: _ownStoryItem != null,
+                                ownStoryUnread:
+                                    _ownStoryItem?.unread ?? true,
+                                onOwnStoryTap: _ownStoryItem == null
+                                    ? null
+                                    : () {
+                                        final own = _ownStoryItem!;
+                                        _markStoryPostsViewed(
+                                            own.posts.map((p) => p.postId));
+                                        // 自分のストーリーは単独遷移 (フォロー中との横スクロールに混ぜない)
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => VibeUserStoryScreen(
+                                              stories: [own],
+                                              currentUserId:
+                                                  _auth.currentUser?.uid ?? '',
+                                              hasPostedToday: _hasPostedToday,
+                                            ),
+                                          ),
+                                        );
+                                      },
                                 onPlaylistTap: _navigateToVibePost,
                                 onStoryTap: (story) {
                                   // タップした瞬間にそのストーリーの全 postId を
                                   // 既読セットに追加 → リングが即グレーに変わる。
                                   _markStoryPostsViewed(
                                       story.posts.map((p) => p.postId));
+                                  // 表示中のストーリー配列 (stories) は上の
+                                  // FutureBuilder builder スコープで作られている。
+                                  // 現在の順序どおりで cross-user 横スクロールを可能に。
+                                  final startIdx = stories.indexOf(story);
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
                                       builder: (_) => VibeUserStoryScreen(
-                                        posts: story.posts,
+                                        stories: stories,
+                                        initialUserIndex:
+                                            startIdx < 0 ? 0 : startIdx,
                                         currentUserId:
                                             _auth.currentUser?.uid ?? '',
-                                        displayUsername: story.username,
                                         hasPostedToday: _hasPostedToday,
                                       ),
                                     ),

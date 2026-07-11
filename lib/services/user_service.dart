@@ -226,36 +226,54 @@ class UserService {
         return [];
       }
 
-      final searchTerm = query.toLowerCase().trim();
-      final endTerm = '$searchTerm\uf8ff'; // Unicode最大文字（前方一致用）
+      final trimmed = query.trim();
+      final searchTerm = trimmed.toLowerCase();
+
+      // Firestore の文字列比較はバイト単位で大文字小文字を区別する。
+      // 小文字化した searchTerm だけで range 検索すると "Suga.xxx" のような
+      // 大文字始まりの username がヒットしない。ケース variant 4 種で
+      // それぞれ範囲検索し、結果を uid でマージ&dedup することで対応する。
+      final variants = <String>{
+        trimmed,
+        searchTerm,
+        _capitalizeFirst(searchTerm),
+        trimmed.toUpperCase(),
+      }..removeWhere((v) => v.isEmpty);
 
       if (kDebugMode) {
-        print('🔍 Searching users with query: "$searchTerm"');
+        print('🔍 Searching users with variants: $variants');
       }
 
-      // usernameフィールドで前方一致検索
-      final snapshot = await _firestore
-          .collection(_usersCollection)
-          .where('username', isGreaterThanOrEqualTo: searchTerm)
-          .where('username', isLessThanOrEqualTo: endTerm)
-          .limit(limit * 2) // クライアント側フィルタ前に多めに取得
-          .get();
+      final merged = <String, UserModel>{};
+      for (final v in variants) {
+        final endTerm = '$v\uf8ff';
+        try {
+          final snap = await _firestore
+              .collection(_usersCollection)
+              .where('username', isGreaterThanOrEqualTo: v)
+              .where('username', isLessThanOrEqualTo: endTerm)
+              .limit(limit * 2)
+              .get();
+          for (final doc in snap.docs) {
+            merged.putIfAbsent(doc.id, () => UserModel.fromFirestore(doc));
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('⚠️ variant "$v" query failed: $e');
+          }
+        }
+      }
 
       if (kDebugMode) {
-        print('📥 Fetched ${snapshot.docs.length} users from Firestore');
+        print('📥 Merged ${merged.length} unique users across variants');
       }
 
-      // UserModelに変換してクライアント側でフィルタリング
-      final users = snapshot.docs
-          .map((doc) => UserModel.fromFirestore(doc))
-          .where((user) {
+      // クライアント側の case-insensitive contains フィルタで再確認
+      final users = merged.values.where((user) {
         final username = (user.username ?? '').toLowerCase();
         final name = (user.name ?? '').toLowerCase();
-
-        // usernameまたはnameに検索語が含まれているか
         return username.contains(searchTerm) || name.contains(searchTerm);
-      }).take(limit) // 最終的にlimit件に制限
-          .toList();
+      }).take(limit).toList();
 
       if (kDebugMode) {
         print('✅ Filtered to ${users.length} matching users');
@@ -268,6 +286,13 @@ class UserService {
       }
       return [];
     }
+  }
+
+  /// 先頭 1 文字だけを大文字にする ("suga.xxx" → "Suga.xxx")。
+  /// 検索でのケース variant 生成に使う。
+  String _capitalizeFirst(String s) {
+    if (s.isEmpty) return s;
+    return s[0].toUpperCase() + s.substring(1);
   }
 
   // ユーザーデータのストリームを取得

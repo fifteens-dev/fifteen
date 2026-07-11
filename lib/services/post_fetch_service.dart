@@ -197,6 +197,8 @@ class PostFetchService {
         for (final doc in snapshot.docs) {
           final data = doc.data();
           if (data['isDummyPost'] == true) continue;
+          // 「気分で投稿」フラグが立った投稿はストーリーには載せない。
+          if (data['isMoodPost'] == true) continue;
           final post = PostModel.fromFirestore(doc);
           // audience=followers なら閲覧権限を確認（自分の投稿は常に可視）
           if (post.audience == PostAudience.followers &&

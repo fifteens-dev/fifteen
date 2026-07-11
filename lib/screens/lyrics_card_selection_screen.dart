@@ -16,6 +16,7 @@ import '../widgets/shared/team_handle_label.dart';
 import '../widgets/shared/user_info_badge.dart';
 import 'package:image_picker/image_picker.dart';
 import 'post_final_preview_screen.dart';
+import 'vibe_story_edit_result.dart';
 
 /// 歌詞カード選択画面
 class LyricsCardSelectionScreen extends StatefulWidget {
@@ -30,6 +31,14 @@ class LyricsCardSelectionScreen extends StatefulWidget {
   final String? vibeTopicTitle;
   final int audioStartMs;
   final int audioDurationSec;
+  /// Vibe ストーリー編集フローから呼ばれた場合 true。
+  /// 完了ボタンが PostFinalPreviewScreen に遷移せず、
+  /// [VibeStoryEditResult] を Navigator.pop で返す。
+  final bool returnAsResult;
+  /// [returnAsResult] が true のときの選択レイアウトの初期値。
+  final int initialSelectedLayoutIndex;
+  /// [returnAsResult] が true のときの初期アルバムアート透明度。
+  final double initialAlbumArtOpacity;
 
   const LyricsCardSelectionScreen({
     super.key,
@@ -44,6 +53,9 @@ class LyricsCardSelectionScreen extends StatefulWidget {
     this.vibeTopicTitle,
     this.audioStartMs = 0,
     this.audioDurationSec = 15,
+    this.returnAsResult = false,
+    this.initialSelectedLayoutIndex = 1,
+    this.initialAlbumArtOpacity = 1.0,
   });
 
   @override
@@ -57,11 +69,11 @@ class _LyricsCardSelectionScreenState
   String? get _currentUserIconUrl =>
       context.read<CurrentUserProvider>().iconUrl;
 
-  int _selectedLayoutIndex = 1; // 選択されたレイアウト (1-4、0=歌詞カードは非表示)
+  late int _selectedLayoutIndex; // 選択されたレイアウト (1-4、0=歌詞カードは非表示)
   Offset _cardCenter = const Offset(180, 200); // カード中央座標（固定）
   double _cardScale = 1.0; // 拡大率（固定）
   double _cardRotation = 0.0; // 回転角度（固定）
-  double _albumArtOpacity = 1.0; // アルバムアートの透明度
+  late double _albumArtOpacity; // アルバムアートの透明度
   // タップ検出用
   Offset? _tapStartFocalPoint;
 
@@ -87,6 +99,8 @@ class _LyricsCardSelectionScreenState
   @override
   void initState() {
     super.initState();
+    _selectedLayoutIndex = widget.initialSelectedLayoutIndex;
+    _albumArtOpacity = widget.initialAlbumArtOpacity;
     _lyricsData = widget.lyricsData;
     _loadHasPostedToday();
 
@@ -961,6 +975,17 @@ class _LyricsCardSelectionScreenState
         // 確認ボタン
         GestureDetector(
           onTap: () {
+            // Vibe ストーリー編集フローから来た場合はプレビューへ返す
+            if (widget.returnAsResult) {
+              Navigator.of(context).pop(VibeStoryEditResult(
+                audioStartMs: widget.audioStartMs,
+                audioDurationSec: widget.audioDurationSec,
+                selectedLayoutIndex: _selectedLayoutIndex,
+                albumArtOpacity: _albumArtOpacity,
+                lyricsData: _lyricsData,
+              ));
+              return;
+            }
             // カード中央座標 → プレビュー画面用の左上座標に変換
             // プレビュー画面は Transform.scale(alignment: topLeft) を使用
             final cardSize = _getCardSize();

@@ -44,6 +44,14 @@ class PostModel {
   final double cardScale; // 歌詞カードのスケール
   final double cardRotation; // 歌詞カードの回転角度（ラジアン）
   final bool isVibe; // Vibe投稿かどうか
+  /// ナビバー投稿ボタン → Music Memory モーダル経由で作成された
+  /// 「気分で投稿」フラグ。true の投稿はストーリーバーに載せない。
+  final bool isMoodPost;
+  /// true のとき、PostCard 裏面はユーザー情報バッジ・歌詞カード・楽曲情報バー
+  /// などの overlay を一切描画せず、photoUrl を BoxFit.cover で全面表示する。
+  /// Vibe ストーリーで「写真なし = プレビューをキャプチャして photo として上げる」
+  /// フローで使う。
+  final bool hideBackOverlays;
   final String? vibeTopicId; // 参加しているお題のID
   final String? vibeTopicTitle; // Vibeお題のタイトル（例: "ドライブで聴きたい曲"）
   final DateTime? vibeDate; // Vibe投稿の日付（集計用）
@@ -90,6 +98,8 @@ class PostModel {
     this.cardScale = 1.0,
     this.cardRotation = 0.0,
     this.isVibe = false,
+    this.isMoodPost = false,
+    this.hideBackOverlays = false,
     this.vibeTopicId,
     this.vibeTopicTitle,
     this.vibeDate,
@@ -157,6 +167,8 @@ class PostModel {
       cardScale: (data['cardScale'] as num?)?.toDouble() ?? 1.0,
       cardRotation: (data['cardRotation'] as num?)?.toDouble() ?? 0.0,
       isVibe: data['isVibe'] == true,
+      isMoodPost: data['isMoodPost'] == true,
+      hideBackOverlays: data['hideBackOverlays'] == true,
       vibeTopicId: data['vibeTopicId']?.toString(),
       vibeTopicTitle: data['vibeTopicTitle']?.toString(),
       vibeDate: safeTimestampOrNull('vibeDate'),
@@ -204,6 +216,8 @@ class PostModel {
       'cardScale': cardScale,
       'cardRotation': cardRotation,
       'isVibe': isVibe,
+      'isMoodPost': isMoodPost,
+      'hideBackOverlays': hideBackOverlays,
       'vibeTopicId': vibeTopicId,
       'vibeTopicTitle': vibeTopicTitle,
       'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate!) : null,
@@ -246,6 +260,8 @@ class PostModel {
     double? cardScale,
     double? cardRotation,
     bool? isVibe,
+    bool? isMoodPost,
+    bool? hideBackOverlays,
     String? vibeTopicId,
     String? vibeTopicTitle,
     DateTime? vibeDate,
@@ -285,6 +301,8 @@ class PostModel {
       cardScale: cardScale ?? this.cardScale,
       cardRotation: cardRotation ?? this.cardRotation,
       isVibe: isVibe ?? this.isVibe,
+      isMoodPost: isMoodPost ?? this.isMoodPost,
+      hideBackOverlays: hideBackOverlays ?? this.hideBackOverlays,
       vibeTopicId: vibeTopicId ?? this.vibeTopicId,
       vibeTopicTitle: vibeTopicTitle ?? this.vibeTopicTitle,
       vibeDate: vibeDate ?? this.vibeDate,

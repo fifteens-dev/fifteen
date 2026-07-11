@@ -47,8 +47,22 @@ class VibeStoryBarSection extends StatelessWidget {
   /// フォロー中ユーザーの Vibe ストーリー（並び替え済み想定）
   final List<VibeStoryItem> stories;
 
-  /// 「Vibe」円タップ — ストーリー投稿フローへ
+  /// 「Vibe」円の右下「+」バッジタップ — Vibe ストーリー投稿フローへ
   final VoidCallback? onAddVibeTap;
+
+  /// 「Vibe」円の中央の自分アバタータップ — 自分のストーリー閲覧へ。
+  /// posts が無い場合は null を渡して非活性にする。
+  final VoidCallback? onOwnStoryTap;
+
+  /// 24h 以内に自分の投稿があるか。
+  /// - false: 「Vibe」円は全体タップで投稿シートへ (虹色リング)
+  /// - true : 円全体 → 自分のストーリー閲覧、「+」バッジのみ投稿シート
+  final bool hasOwnStory;
+
+  /// 自分のストーリーが未閲覧か (hasOwnStory=true の時のみ意味を持つ)。
+  /// - true : 虹色リング (未読)
+  /// - false: 灰色リング (既読)
+  final bool ownStoryUnread;
 
   /// 「プレイリスト」円タップ — 今日の Vibe プレイリストへ
   final VoidCallback? onPlaylistTap;
@@ -62,6 +76,9 @@ class VibeStoryBarSection extends StatelessWidget {
     this.myIconUrl,
     this.stories = const [],
     this.onAddVibeTap,
+    this.onOwnStoryTap,
+    this.hasOwnStory = false,
+    this.ownStoryUnread = true,
     this.onPlaylistTap,
     this.onStoryTap,
   });
@@ -157,17 +174,38 @@ class VibeStoryBarSection extends StatelessWidget {
     );
   }
 
-  /// 1番目「Vibe」: アクティブ枠 + 自分のアバター + 右下に「+」バッジ。
+  /// 1番目「Vibe」円: 3 状態 UI。
+  ///
+  /// - **状態 1** (`hasOwnStory=false`): 24h 投稿無し
+  ///   - リング: 虹色 (アクティブ)
+  ///   - タップ: 円全体で投稿シート (アバターも「+」も同じ)
+  /// - **状態 2** (`hasOwnStory=true` かつ `ownStoryUnread=true`): 未閲覧
+  ///   - リング: 虹色 (アクティブ)
+  ///   - タップ: アバター → 自分のストーリー閲覧、「+」→ 投稿シート
+  /// - **状態 3** (`hasOwnStory=true` かつ `ownStoryUnread=false`): 閲覧済み
+  ///   - リング: 灰色 (ノンアクティブ)
+  ///   - タップ: 状態 2 と同じ分割
+  ///
+  /// 「+」バッジ側の GestureDetector を **HitTestBehavior.opaque** で内側に
+  /// ネスト配置しているため、Flutter の hit-test 解決順で子(バッジ)が先に
+  /// タップを吸収する → アバター領域と重ならない。
   Widget _buildAddVibeCircle() {
+    // 状態 1: リング無し, 状態 2: 虹色, 状態 3: 灰色
+    final String? ringAsset = !hasOwnStory
+        ? null
+        : (ownStoryUnread
+            ? 'assets/icons/vibe_story_ring_active.png'
+            : 'assets/icons/vibe_story_ring_inactive.png');
+    final outerOnTap = hasOwnStory ? onOwnStoryTap : onAddVibeTap;
     return _StoryCircle(
       label: 'Vibe',
-      onTap: onAddVibeTap,
+      onTap: outerOnTap,
       child: Stack(
         clipBehavior: Clip.none,
         alignment: Alignment.center,
         children: [
           _RingedAvatar(
-            ringAsset: 'assets/icons/vibe_story_ring_active.png',
+            ringAsset: ringAsset,
             inner: ClipOval(
               child: SizedBox(
                 width: 79,
@@ -182,25 +220,42 @@ class VibeStoryBarSection extends StatelessWidget {
               ),
             ),
           ),
-          // 右下の「+」バッジ
+          // 右下の「+」バッジ (投稿シート起動、独立タップ領域)
+          //
+          // 見た目は 26×26 のまま。左上に透明パディングを 18px 足して
+          // タップ判定を 44×44 相当まで拡張 (Positioned は right:0/bottom:0 に
+          // 変更し、Padding の中で画像を右下寄せ)。opaque hit test で
+          // padding の透明領域もタップを吸収する。
           Positioned(
-            right: 4,
-            bottom: 4,
-            child: Image.asset(
-              'assets/icons/vibe_story_add_badge.png',
-              width: 26,
-              height: 26,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF1F1F1F),
-                  border: Border.all(color: AppColors.background, width: 2),
+            right: 0,
+            bottom: 0,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onAddVibeTap,
+              child: Padding(
+                padding: const EdgeInsets.only(
+                  left: 18,
+                  top: 18,
+                  right: 4,
+                  bottom: 4,
                 ),
-                alignment: Alignment.center,
-                child: const Icon(Icons.add, color: Colors.white, size: 14),
+                child: Image.asset(
+                  'assets/icons/vibe_story_add_badge.png',
+                  width: 26,
+                  height: 26,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF1F1F1F),
+                      border: Border.all(color: AppColors.background, width: 2),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.add, color: Colors.white, size: 14),
+                  ),
+                ),
               ),
             ),
           ),
@@ -325,8 +380,11 @@ class _StoryCircle extends StatelessWidget {
 
 /// 枠アセット（93×93）の上に中央寄せで小さい inner widget を重ねるレイアウト。
 /// 枠と inner（79×79）の間に 7px の隙間が出るが、その隙間を #121212 で塗る。
+///
+/// [ringAsset] を null にするとリングを描かず、inner だけを 79×79 で中央配置する
+/// (状態 1: 24h 投稿無しの「Vibe」円で使用)。
 class _RingedAvatar extends StatelessWidget {
-  final String ringAsset;
+  final String? ringAsset;
   final Widget inner;
 
   const _RingedAvatar({required this.ringAsset, required this.inner});
@@ -346,20 +404,21 @@ class _RingedAvatar extends StatelessWidget {
             color: Color(0xFF121212),
           ),
         ),
-        Image.asset(
-          ringAsset,
-          width: 93,
-          height: 93,
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => Container(
+        if (ringAsset != null)
+          Image.asset(
+            ringAsset!,
             width: 93,
             height: 93,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Color(0xFF3A3A3A),
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Container(
+              width: 93,
+              height: 93,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFF3A3A3A),
+              ),
             ),
           ),
-        ),
         inner,
       ],
     );

@@ -10,6 +10,7 @@ import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/lyrics_service.dart';
 import 'lyrics_card_selection_screen.dart';
+import 'vibe_story_edit_result.dart';
 
 /// 音楽カット編集画面
 /// 再生開始位置と再生時間(15/30秒)を編集する
@@ -24,6 +25,17 @@ class MusicTrimScreen extends StatefulWidget {
   final bool isVibe;
   final String? vibeTopicId;
   final String? vibeTopicTitle;
+  /// Vibe ストーリー編集フローから呼ばれた場合 true。
+  /// 完了時に LyricsCardSelectionScreen も同モードで push し、
+  /// その pop 結果を Navigator.pop でさらに 1 段返す。
+  final bool returnAsResult;
+  final int initialSelectedLayoutIndex;
+  final double initialAlbumArtOpacity;
+  /// 一度編集した後で再度開いた場合の初期再生位置 (ms)。null なら
+  /// サビ検出で自動決定 (従来動作)。
+  final int? initialAudioStartMs;
+  /// 一度編集した後で再度開いた場合の初期再生時間 (秒)。null なら 15 秒。
+  final int? initialAudioDurationSec;
 
   const MusicTrimScreen({
     super.key,
@@ -37,6 +49,11 @@ class MusicTrimScreen extends StatefulWidget {
     this.isVibe = false,
     this.vibeTopicId,
     this.vibeTopicTitle,
+    this.returnAsResult = false,
+    this.initialSelectedLayoutIndex = 1,
+    this.initialAlbumArtOpacity = 1.0,
+    this.initialAudioStartMs,
+    this.initialAudioDurationSec,
   });
 
   @override
@@ -86,17 +103,28 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
     final random = Random(widget.track.trackName.hashCode);
     _waveformData = List.generate(60, (_) => 0.15 + random.nextDouble() * 0.85);
 
-    // デフォルト開始位置をサビ（波形最大値）に設定
-    int peakIndex = 0;
-    double peakValue = 0.0;
-    for (int i = 0; i < _waveformData.length; i++) {
-      if (_waveformData[i] > peakValue) {
-        peakValue = _waveformData[i];
-        peakIndex = i;
-      }
+    // 前回編集済みの値があればそれを初期値とする (再オープン時に前回位置を保持)。
+    // 未指定 (null) の場合は従来通り「波形最大値 = サビ推定」を初期位置にする。
+    if (widget.initialAudioDurationSec != null) {
+      _durationSeconds = widget.initialAudioDurationSec!;
     }
-    final maxStart = 1.0 - _durationSeconds / _totalDuration.inSeconds;
-    _startPosition = (peakIndex / _waveformData.length).clamp(0.0, maxStart);
+    if (widget.initialAudioStartMs != null) {
+      final maxStart = 1.0 - _durationSeconds / _totalDuration.inSeconds;
+      _startPosition = (widget.initialAudioStartMs! /
+              _totalDuration.inMilliseconds)
+          .clamp(0.0, maxStart);
+    } else {
+      int peakIndex = 0;
+      double peakValue = 0.0;
+      for (int i = 0; i < _waveformData.length; i++) {
+        if (_waveformData[i] > peakValue) {
+          peakValue = _waveformData[i];
+          peakIndex = i;
+        }
+      }
+      final maxStart = 1.0 - _durationSeconds / _totalDuration.inSeconds;
+      _startPosition = (peakIndex / _waveformData.length).clamp(0.0, maxStart);
+    }
 
     // 再生位置の監視
     _positionSubscription = _audioService.positionStream.listen((position) {
@@ -213,6 +241,37 @@ class _MusicTrimScreenState extends State<MusicTrimScreen> {
     _audioService.stop();
 
     final audioStartMs = (_startPosition * _totalDuration.inMilliseconds).round();
+
+    if (widget.returnAsResult) {
+      // Vibe ストーリー編集フロー: 歌詞カード画面の pop 結果を
+      // そのままプレビューまで返す。null (歌詞画面で戻る) の場合はここで終わり、
+      // 呼び出し元の VibeStoryPreview は状態変更しない。
+      final result = await Navigator.push<VibeStoryEditResult?>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LyricsCardSelectionScreen(
+            track: widget.track,
+            lyricsData: _lyricsData,
+            selectedImage: widget.selectedImage,
+            imageOffset: widget.imageOffset,
+            imageScale: widget.imageScale,
+            imageNaturalSize: widget.imageNaturalSize,
+            isVibe: widget.isVibe,
+            vibeTopicId: widget.vibeTopicId,
+            vibeTopicTitle: widget.vibeTopicTitle,
+            audioStartMs: audioStartMs,
+            audioDurationSec: _durationSeconds,
+            returnAsResult: true,
+            initialSelectedLayoutIndex: widget.initialSelectedLayoutIndex,
+            initialAlbumArtOpacity: widget.initialAlbumArtOpacity,
+          ),
+        ),
+      );
+      if (mounted && result != null) {
+        Navigator.of(context).pop(result);
+      }
+      return;
+    }
 
     await Navigator.push(
       context,

@@ -4,6 +4,7 @@ import '../models/post_theme.dart';
 import '../models/notification_model.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
+import 'music_memory_cycle_service.dart';
 
 /// 投稿データの書き込み（作成・更新・削除）を担当するサービス
 class PostWriteService {
@@ -52,6 +53,12 @@ class PostWriteService {
           ? DateTime(now.year, now.month, now.day)
           : null;
 
+      // Music Memory 投稿のサイクル情報。作成時点の通知時刻を cycleStart に、
+      // 締切（翌1:00）超過なら isLate=true を付与する。通知未発火(null)なら通常扱い。
+      final mmCycle = MusicMemoryCycleService();
+      final DateTime? cycleStart = isMoodPost ? mmCycle.notifiedAt : null;
+      final bool isLate = isMoodPost ? mmCycle.isLate(now) : false;
+
       final postData = {
         'userId': userId,
         'username': username,
@@ -82,6 +89,8 @@ class PostWriteService {
         'vibeTopicId': vibeTopicId,
         'vibeTopicTitle': vibeTopicTitle,
         'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
+        'cycleStart': cycleStart != null ? Timestamp.fromDate(cycleStart) : null,
+        'isLate': isLate,
         'emotionTag': emotionTag,
         'theme': theme != null ? theme.toMap() : null,
         'lyricsText': lyricsText,

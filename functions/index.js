@@ -2,13 +2,251 @@ const { onDocumentCreated, onDocumentDeleted, onDocumentWritten } = require('fir
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
+const crypto = require('crypto');
 
 admin.initializeApp();
+
+/**
+ * Apple Music Developer Token を .p8 秘密鍵からその場で署名生成する（ES256/JWT）。
+ * これによりトークンは常に新鮮になり、6か月ごとの手動再発行・アプリ更新が不要になる。
+ * 必要な環境変数（functions/.env）:
+ *   APPLE_MUSIC_TEAM_ID, APPLE_MUSIC_KEY_ID, APPLE_MUSIC_PRIVATE_KEY(PEM, \n エスケープ可)
+ * 生成不可（鍵未設定等）の場合は静的な APPLE_MUSIC_DEVELOPER_TOKEN にフォールバック。
+ */
+function generateAppleMusicDeveloperToken() {
+  const teamId = process.env.APPLE_MUSIC_TEAM_ID;
+  const keyId = process.env.APPLE_MUSIC_KEY_ID;
+  let pem = process.env.APPLE_MUSIC_PRIVATE_KEY;
+  if (!teamId || !keyId || !pem) {
+    throw new Error('Apple Music 署名用の環境変数が未設定です');
+  }
+  pem = pem.replace(/\\n/g, '\n');
+
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + 15552000; // 180日（Apple の上限は約6か月）
+  const b64url = (obj) =>
+    Buffer.from(JSON.stringify(obj)).toString('base64url');
+  const signingInput =
+    `${b64url({ alg: 'ES256', kid: keyId, typ: 'JWT' })}.` +
+    `${b64url({ iss: teamId, iat: now, exp })}`;
+  const signature = crypto
+    .sign('sha256', Buffer.from(signingInput), {
+      key: pem,
+      dsaEncoding: 'ieee-p1363', // JOSE 形式（r||s, 64byte）
+    })
+    .toString('base64url');
+  return `${signingInput}.${signature}`;
+}
+
+/**
+ * クライアントに Apple Music Developer Token を配信する callable。
+ * クライアントはこれを取得・キャッシュして API 呼び出しに使う。
+ * トークン失効時はこの関数の再デプロイ（or 鍵差し替え）だけで直り、アプリ更新は不要。
+ */
+exports.getAppleMusicDeveloperToken = onCall(async (request) => {
+  try {
+    return { token: generateAppleMusicDeveloperToken() };
+  } catch (e) {
+    const fallback = process.env.APPLE_MUSIC_DEVELOPER_TOKEN;
+    if (fallback) {
+      console.warn('署名生成に失敗、静的トークンにフォールバック:', e.message);
+      return { token: fallback };
+    }
+    console.error('Apple Music トークン発行に失敗:', e);
+    throw new HttpsError('internal', 'developer token unavailable');
+  }
+});
 
 /** 投稿通知のタイトルをランダムに選ぶ */
 function randomPostTitle() {
   return Math.random() < 0.5 ? 'もう見た？' : '気になる？';
 }
+
+/**
+ * 指定ユーザー群へ FCM プッシュ通知を一斉送信する共通ヘルパー。
+ * user_fcm_tokens からトークンを集め、500件ずつ送信し、無効トークンを掃除する。
+ */
+async function broadcastPush(db, userIds, { title, body, data }) {
+  if (!userIds || userIds.length === 0) return { success: 0, failure: 0 };
+
+  // トークン収集（10件ずつ逐次で Firestore 負荷分散）
+  const tokenChunkSize = 10;
+  const allTokenEntries = []; // { uid, token }
+  for (let i = 0; i < userIds.length; i += tokenChunkSize) {
+    const chunk = userIds.slice(i, i + tokenChunkSize);
+    const tokenDocs = await Promise.all(
+      chunk.map((uid) => db.collection('user_fcm_tokens').doc(uid).get())
+    );
+    tokenDocs.forEach((tokenDoc, j) => {
+      if (tokenDoc.exists && tokenDoc.data().tokens) {
+        for (const t of tokenDoc.data().tokens) {
+          if (t && t.token) allTokenEntries.push({ uid: chunk[j], token: t.token });
+        }
+      }
+    });
+  }
+
+  const allTokens = allTokenEntries.map((e) => e.token);
+  const fcmChunkSize = 500;
+  let success = 0;
+  let failure = 0;
+
+  for (let i = 0; i < allTokens.length; i += fcmChunkSize) {
+    const chunk = allTokens.slice(i, i + fcmChunkSize);
+    const chunkEntries = allTokenEntries.slice(i, i + fcmChunkSize);
+    const response = await admin.messaging().sendEachForMulticast({
+      tokens: chunk,
+      notification: { title, body },
+      data: data || {},
+      apns: { payload: { aps: { sound: 'default' } } },
+      android: { notification: { sound: 'default' } },
+    });
+    success += response.successCount;
+    failure += response.failureCount;
+
+    if (response.failureCount > 0) {
+      const invalidByUid = {};
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          if (
+            resp.error?.code === 'messaging/invalid-registration-token' ||
+            resp.error?.code === 'messaging/registration-token-not-registered'
+          ) {
+            const uid = chunkEntries[idx].uid;
+            (invalidByUid[uid] = invalidByUid[uid] || []).push(chunk[idx]);
+          }
+        }
+      });
+      for (const [uid, invalidTokens] of Object.entries(invalidByUid)) {
+        const ref = db.collection('user_fcm_tokens').doc(uid);
+        const doc = await ref.get();
+        if (doc.exists) {
+          await ref.update({
+            tokens: doc.data().tokens.filter((t) => !invalidTokens.includes(t.token)),
+          });
+        }
+      }
+    }
+  }
+  return { success, failure };
+}
+
+/**
+ * Music Memory 投稿通知。
+ *
+ * - 毎日 19:00〜23:30 JST の「ランダムな 5 分刻みの時刻」に 1 回だけ全ユーザーへ送る。
+ * - 実際に発火した時刻を `music_memory_state/current.notifiedAt` に記録し、
+ *   これがクライアントの「投稿サイクル境界（＝この時刻以降がその日の投稿）」になる。
+ * - 5分間隔で走り、(1) 当日の発火時刻を未決なら決定、(2) 到来していれば発火。
+ *   at-least-once の重複起動に備え、状態ドキュメントのトランザクションで発火を排他。
+ *
+ * 文言は Apple Music / Spotify 共通の統一版。
+ */
+const MM_STATE_REF_PATH = 'music_memory_state/current';
+const MM_WINDOW_START_MIN = 19 * 60;      // 19:00
+const MM_WINDOW_END_MIN = 23 * 60 + 30;   // 23:30
+const MM_NOTIF_TITLE = '🎵 Music Memoryの時間です。';
+const MM_NOTIF_BODY = '25:00までに投稿すると、友達の今日が見られます。';
+
+exports.musicMemoryDailyNotification = onSchedule(
+  { schedule: '*/5 * * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 300 },
+  async () => {
+    const db = admin.firestore();
+    const now = new Date();
+    const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const dateKey = `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, '0')}-${String(jst.getUTCDate()).padStart(2, '0')}`;
+    const jstMinutes = jst.getUTCHours() * 60 + jst.getUTCMinutes();
+    const jstDayStartUtc = jstDayStartFor(now); // JST 00:00 に対応する UTC Date
+    const stateRef = db.doc(MM_STATE_REF_PATH);
+
+    try {
+      // 発火を排他的に「予約→確定」する。副作用(FCM送信)はトランザクション外で行う。
+      const shouldFire = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(stateRef);
+        const s = snap.exists ? snap.data() : {};
+        const updates = {};
+
+        // (1) 当日の発火時刻が未決なら、19:00〜23:30 の 5 分刻みからランダムに決定。
+        //     過去スロットは避けるため現在時刻以降のスロットから選ぶ。
+        let scheduledForTs = s.scheduleDate === dateKey ? s.scheduledFor : null;
+        if (!scheduledForTs && jstMinutes <= MM_WINDOW_END_MIN) {
+          const startSlot = Math.max(MM_WINDOW_START_MIN, Math.ceil(jstMinutes / 5) * 5);
+          if (startSlot <= MM_WINDOW_END_MIN) {
+            const nSlots = Math.floor((MM_WINDOW_END_MIN - startSlot) / 5) + 1;
+            const pickMin = startSlot + 5 * Math.floor(Math.random() * nSlots);
+            const fireDate = new Date(jstDayStartUtc.getTime() + pickMin * 60 * 1000);
+            scheduledForTs = admin.firestore.Timestamp.fromDate(fireDate);
+            updates.scheduleDate = dateKey;
+            updates.scheduledFor = scheduledForTs;
+          }
+        }
+
+        // (2) 予約時刻を過ぎており、当日未送信なら発火を確定。
+        let fire = false;
+        if (
+          scheduledForTs &&
+          now >= scheduledForTs.toDate() &&
+          s.lastNotifiedDate !== dateKey
+        ) {
+          fire = true;
+          updates.lastNotifiedDate = dateKey;
+          updates.notifiedAt = admin.firestore.FieldValue.serverTimestamp();
+        }
+
+        if (Object.keys(updates).length > 0) {
+          tx.set(stateRef, updates, { merge: true });
+        }
+        return fire;
+      });
+
+      if (!shouldFire) return;
+
+      // 通知有効ユーザー（notifVibeEnabled !== false）を対象に送信。
+      const usersSnapshot = await db.collection('users').get();
+      const targetUserIds = usersSnapshot.docs
+        .filter((d) => d.data().notifVibeEnabled !== false)
+        .map((d) => d.id);
+
+      // アプリ内通知（一覧表示用）をバッチ作成。
+      const batchSize = 500;
+      let batch = db.batch();
+      let ops = 0;
+      const batches = [];
+      for (const uid of targetUserIds) {
+        const ref = db.collection('notifications').doc();
+        batch.set(ref, {
+          type: 'music_memory',
+          recipientId: uid,
+          senderId: 'system',
+          senderUsername: '15s',
+          title: MM_NOTIF_TITLE,
+          body: MM_NOTIF_BODY,
+          isRead: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          readAt: null,
+        });
+        if (++ops >= batchSize) {
+          batches.push(batch.commit());
+          batch = db.batch();
+          ops = 0;
+        }
+      }
+      if (ops > 0) batches.push(batch.commit());
+      await Promise.all(batches);
+
+      const res = await broadcastPush(db, targetUserIds, {
+        title: MM_NOTIF_TITLE,
+        body: MM_NOTIF_BODY,
+        data: { notificationType: 'music_memory', click_action: 'FLUTTER_NOTIFICATION_CLICK' },
+      });
+      console.log(
+        `musicMemoryDailyNotification fired for ${dateKey}: users=${targetUserIds.length}, fcm success=${res.success}, failure=${res.failure}`
+      );
+    } catch (error) {
+      console.error('musicMemoryDailyNotification error:', error);
+    }
+  }
+);
 
 /**
  * プッシュ通知送信Cloud Function
@@ -786,218 +1024,8 @@ exports.dailyVibeTopicRotation = onSchedule(
   }
 );
 
-/**
- * 毎日20:00(JST)にVibe通知を全ユーザーに送信
- *
- * 処理:
- * 1. 今日のactiveなお題を取得
- * 2. 全ユーザーに通知を作成（バッチ処理）
- * 3. FCMトピック「all_users」にプッシュ通知を送信
- *
- * 通知文面:
- * - タイトル:「今日のVibe、もう決めた？」
- * - 本文: お題を疑問形に変換（例:「夜に聴きたい曲は？」）
- */
-exports.dailyVibeNotification = onSchedule(
-  { schedule: '0 20 * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 300 },
-  async () => {
-    const db = admin.firestore();
-
-    try {
-      // 今日のactiveなお題を取得（JST基準）
-      // jstDayStartFor() で正しい JST 00:00 UTC モーメントを得る。
-      // 旧コードは new Date(y,m,d) を使い UTC TZ で解釈されて 9h ずれていた。
-      const now = new Date();
-      const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-      const todayStart = jstDayStartFor(now);
-
-      // ── 冪等チェック ────────────────────────────────────────────────
-      // Cloud Scheduler は at-least-once 保証のため同じジョブが2回起動される場合がある。
-      // Firestore の createIfNotExists (create) をアトミックに行い、
-      // すでに当日実行済みなら即リターン。
-      const dateKey = `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2,'0')}-${String(jst.getUTCDate()).padStart(2,'0')}`;
-      const jobRef = db.doc(`daily_job_locks/vibeNotification_${dateKey}`);
-      try {
-        await jobRef.create({
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        // create() が成功 = 初回実行 → 処理を続行
-      } catch (err) {
-        if (err.code === 6 /* ALREADY_EXISTS */) {
-          console.log(`dailyVibeNotification: already ran for ${dateKey}, skipping duplicate`);
-          return;
-        }
-        throw err; // 予期しないエラーは再スロー
-      }
-      // ── 冪等チェックここまで ─────────────────────────────────────
-      const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
-
-      // statusのみでクエリし、コード側で日付フィルタ（複合インデックス不要）
-      const activeTopics = await db
-        .collection('vibe_topics')
-        .where('status', '==', 'active')
-        .get();
-
-      const todayTopicDocs = activeTopics.docs.filter(doc => {
-        const topicDate = doc.data().date?.toDate();
-        return topicDate && topicDate >= todayStart && topicDate < todayEnd;
-      });
-
-      if (todayTopicDocs.length === 0) {
-        console.log('dailyVibeNotification: no active topic for today, skipping');
-        return;
-      }
-
-      const topicDoc = todayTopicDocs[0];
-      const topicData = topicDoc.data();
-      const topicTitle = topicData.title; // 例: "夜中に1人で聴きたい曲"
-      const topicEmoji = topicData.emoji || '🎵';
-      const topicId = topicDoc.id;
-
-      const notificationTitle = 'タップして今日の15sを投稿しよう。';
-      const notificationBody = `${topicEmoji}${topicTitle}は？？`;
-
-      // 今日のVibeにすでに投稿済みのユーザーIDを取得
-      const alreadyPostedSnapshot = await db.collection('posts')
-        .where('vibeTopicId', '==', topicId)
-        .get();
-      const alreadyPostedUserIds = new Set(
-        alreadyPostedSnapshot.docs.map(d => d.data().userId).filter(Boolean)
-      );
-      console.log(`dailyVibeNotification: ${alreadyPostedUserIds.size} users already posted today`);
-
-      // 全ユーザーに通知を作成（バッチ処理、500件ずつ）
-      // notifVibeEnabled が false のユーザーはスキップ
-      // すでに今日投稿済みのユーザーもスキップ
-      const usersSnapshot = await db.collection('users').get();
-
-      const batchSize = 500;
-      let currentBatch = db.batch();
-      let operationCount = 0;
-      const batches = [];
-      const enabledUserIds = [];
-
-      for (const userDoc of usersSnapshot.docs) {
-        const userData = userDoc.data();
-        // フィールドが未設定の場合はデフォルトで通知あり（true）
-        if (userData.notifVibeEnabled === false) continue;
-        // 今日すでにVibe投稿済みのユーザーはスキップ
-        if (alreadyPostedUserIds.has(userDoc.id)) continue;
-
-        enabledUserIds.push(userDoc.id);
-
-        const notificationRef = db.collection('notifications').doc();
-        currentBatch.set(notificationRef, {
-          type: 'vibe',
-          recipientId: userDoc.id,
-          senderId: 'system',
-          senderUsername: '15s',
-          title: notificationTitle,
-          body: notificationBody,
-          isRead: false,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          readAt: null,
-        });
-
-        operationCount++;
-
-        if (operationCount >= batchSize) {
-          batches.push(currentBatch.commit());
-          currentBatch = db.batch();
-          operationCount = 0;
-        }
-      }
-
-      if (operationCount > 0) {
-        batches.push(currentBatch.commit());
-      }
-
-      await Promise.all(batches);
-      console.log(`Created vibe notifications for ${enabledUserIds.length} / ${usersSnapshot.size} users`);
-
-      // FCMプッシュ通知を通知有効ユーザーにのみ個別送信
-      if (enabledUserIds.length > 0) {
-        // トークン取得を10件ずつ逐次処理してFirestoreの負荷を分散
-        const tokenChunkSize = 10;
-        const allTokenEntries = []; // { uid, token } の配列
-        for (let i = 0; i < enabledUserIds.length; i += tokenChunkSize) {
-          const chunk = enabledUserIds.slice(i, i + tokenChunkSize);
-          const tokenDocs = await Promise.all(
-            chunk.map(uid => db.collection('user_fcm_tokens').doc(uid).get())
-          );
-          for (let j = 0; j < tokenDocs.length; j++) {
-            const tokenDoc = tokenDocs[j];
-            if (tokenDoc.exists && tokenDoc.data().tokens) {
-              for (const t of tokenDoc.data().tokens) {
-                allTokenEntries.push({ uid: chunk[j], token: t.token });
-              }
-            }
-          }
-        }
-
-        const allTokens = allTokenEntries.map(e => e.token);
-        const fcmChunkSize = 500;
-        let totalSuccess = 0;
-        let totalFailure = 0;
-
-        for (let i = 0; i < allTokens.length; i += fcmChunkSize) {
-          const chunk = allTokens.slice(i, i + fcmChunkSize);
-          const chunkEntries = allTokenEntries.slice(i, i + fcmChunkSize);
-          const response = await admin.messaging().sendEachForMulticast({
-            tokens: chunk,
-            notification: { title: notificationTitle, body: notificationBody },
-            data: { notificationType: 'vibe', click_action: 'FLUTTER_NOTIFICATION_CLICK' },
-            apns: {
-              payload: { aps: { sound: 'default' } },
-            },
-            android: {
-              notification: { sound: 'default' },
-            },
-          });
-
-          totalSuccess += response.successCount;
-          totalFailure += response.failureCount;
-
-          // 無効なトークンを削除
-          if (response.failureCount > 0) {
-            const invalidByUid = {};
-            response.responses.forEach((resp, idx) => {
-              if (!resp.success) {
-                console.error(`Vibe FCM error for token ${chunk[idx]}:`, resp.error?.code);
-                if (
-                  resp.error?.code === 'messaging/invalid-registration-token' ||
-                  resp.error?.code === 'messaging/registration-token-not-registered'
-                ) {
-                  const uid = chunkEntries[idx].uid;
-                  if (!invalidByUid[uid]) invalidByUid[uid] = [];
-                  invalidByUid[uid].push(chunk[idx]);
-                }
-              }
-            });
-
-            for (const [uid, invalidTokens] of Object.entries(invalidByUid)) {
-              const tokenDocRef = db.collection('user_fcm_tokens').doc(uid);
-              const tokenDoc = await tokenDocRef.get();
-              if (tokenDoc.exists) {
-                const updatedTokens = tokenDoc.data().tokens.filter(
-                  t => !invalidTokens.includes(t.token)
-                );
-                await tokenDocRef.update({ tokens: updatedTokens });
-                console.log(`Removed ${invalidTokens.length} invalid tokens for user ${uid}`);
-              }
-            }
-          }
-        }
-
-        console.log(`Vibe FCM sent: success=${totalSuccess}, failure=${totalFailure}, total=${allTokens.length} tokens`);
-      }
-
-      console.log('dailyVibeNotification: completed');
-    } catch (error) {
-      console.error('dailyVibeNotification error:', error);
-    }
-  }
-);
+// 旧 dailyVibeNotification(20:00固定) は削除。
+// Music Memory 投稿通知は musicMemoryDailyNotification（19:00-23:30 ランダム）に統合。
 
 /**
  * FCMトークン重複除去の共通ロジック

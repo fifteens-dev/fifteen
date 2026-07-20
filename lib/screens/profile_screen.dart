@@ -19,6 +19,9 @@ import '../widgets/profile_widgets.dart';
 import 'settings_screen.dart';
 import 'follow_list_screen.dart';
 import 'music_memory_month_screen.dart';
+import 'vibe_user_story_screen.dart';
+import 'home/vibe_story_bar_section.dart';
+import 'profile_posts_list_screen.dart';
 import '../widgets/common/app_toast.dart';
 import '../constants/profile_fonts.dart';
 
@@ -283,21 +286,6 @@ class ProfileScreenState extends State<ProfileScreen>
   }
 
   /// 投稿を削除
-  Future<void> _deletePost(PostModel post) async {
-    try {
-      await _postService.deletePost(post.postId);
-      if (mounted) {
-        setState(() {
-          _otherPosts.removeWhere((p) => p.postId == post.postId);
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        AppToast.show(context, '削除に失敗しました');
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -316,27 +304,28 @@ class ProfileScreenState extends State<ProfileScreen>
           children: [
             _buildHeader(),
             Expanded(
-              child: RefreshIndicator(
-                onRefresh: _refresh,
-                color: Colors.white,
-                backgroundColor: const Color(0xFF1E1E1E),
-                child: SingleChildScrollView(
-                  controller: _scrollController,
-                  physics: const AlwaysScrollableScrollPhysics(
-                    parent: BouncingScrollPhysics(),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildProfileInfo(),
-                      _buildStatsRow(),
-                      const SizedBox(height: 20),
-                      _buildTabSelector(),
-                      ..._buildActiveTabContent(),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
+              // リロード UI はホーム画面と同じ iOS 風（CupertinoSliverRefreshControl）。
+              child: CustomScrollView(
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
                 ),
+                slivers: [
+                  CupertinoSliverRefreshControl(onRefresh: _refresh),
+                  SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildProfileInfo(),
+                        _buildStatsRow(),
+                        const SizedBox(height: 20),
+                        _buildTabSelector(),
+                        ..._buildActiveTabContent(),
+                        const SizedBox(height: 32),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -362,6 +351,7 @@ class ProfileScreenState extends State<ProfileScreen>
                 color: Colors.white,
                 fontSize: 20,
                 fontWeight: FontWeight.w800,
+                fontFamily: kSfProRounded,
               ),
             ),
           ),
@@ -401,7 +391,9 @@ class ProfileScreenState extends State<ProfileScreen>
     return Padding(
       padding: const EdgeInsets.fromLTRB(27, 24, 27, 0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        // Figma 4690:9232: テキスト塊(名前/@handle/bio)は 85px アバターに対し
+        // 上下中央（テキストは y6〜78 でアバター 0〜85 の中央）。
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // 左: 85×85 アバター
           GestureDetector(
@@ -435,6 +427,7 @@ class ProfileScreenState extends State<ProfileScreen>
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
                       height: 1.35,
+                      fontFamily: kSfProRounded,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -444,11 +437,12 @@ class ProfileScreenState extends State<ProfileScreen>
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
                       handle.startsWith('@') ? handle : '@$handle',
+                      // Figma 4690:9233: SF Pro Rounded Regular 15px 白
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 13,
+                        fontSize: 15,
                         fontFamily: kSfProRounded,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.w400,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -456,13 +450,13 @@ class ProfileScreenState extends State<ProfileScreen>
                   ),
                 if (bio != null && bio.isNotEmpty)
                   Padding(
-                    padding: const EdgeInsets.only(top: 2),
+                    padding: const EdgeInsets.only(top: 4),
                     child: Text(
                       bio,
-                      // 自己紹介欄は英数字でも SF Pro Rounded
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: 12,
+                      // Figma 4690:9234: SF Pro Rounded Regular 14px #8A8A8A
+                      style: const TextStyle(
+                        color: Color(0xFF8A8A8A),
+                        fontSize: 14,
                         fontFamily: kSfProRounded,
                         height: 1.35,
                       ),
@@ -481,8 +475,10 @@ class ProfileScreenState extends State<ProfileScreen>
   /// 統計行（Tracks / Followers / Following）— 数字は SF Pro Rounded。
   /// Figma 4687:8330 に沿い、行幅 286 内で 3等分。
   Widget _buildStatsRow() {
+    // アイコン→フォロー数までの距離を、Tracks→memories バーまでの距離
+    // (bottom 4 + SizedBox 20 = 24) と一致させるため、上余白を 24 にする。
     return Padding(
-      padding: const EdgeInsets.fromLTRB(27, 20, 27, 4),
+      padding: const EdgeInsets.fromLTRB(27, 24, 27, 4),
       child: Row(
         children: [
           Expanded(child: _statItem(_tracksCount, 'Tracks')),
@@ -517,7 +513,7 @@ class ProfileScreenState extends State<ProfileScreen>
           style: const TextStyle(
             color: Colors.white,
             fontFamily: kSfProRounded,
-            fontSize: 20,
+            fontSize: 17.4, // 20 の 0.87 倍（13% 縮小）
             fontWeight: FontWeight.w700,
             height: 1.0,
           ),
@@ -527,7 +523,7 @@ class ProfileScreenState extends State<ProfileScreen>
           label,
           style: const TextStyle(
             color: Color(0xFF919191),
-            fontFamily: 'SF Pro',
+            fontFamily: kSfProRounded,
             fontSize: 11,
             height: 1.256,
           ),
@@ -1033,38 +1029,79 @@ class ProfileScreenState extends State<ProfileScreen>
   }
 
   Future<void> _openMusicMemoryMonth() async {
-    // 投稿を月キー(YYYY-MM)でグルーピング
-    final grouped = <String, List<PostModel>>{};
-    for (final p in _otherPosts) {
-      final key =
-          '${p.createdAt.year}-${p.createdAt.month.toString().padLeft(2, '0')}';
-      (grouped[key] ??= []).add(p);
-    }
-    await MusicMemoryMonthScreen.push(context, postsByMonth: grouped);
+    // 投稿は Month 画面側で 3ヶ月区切りに遅延ロードするため、ここでは
+    // userId と総投稿数・作成日だけ渡す。
+    await MusicMemoryMonthScreen.push(
+      context,
+      userId: FirebaseAuth.instance.currentUser?.uid,
+      totalPostCount: _totalPostCount,
+      accountCreatedAt: _userData?.createdAt ??
+          FirebaseAuth.instance.currentUser?.metadata.creationTime,
+    );
   }
 
   void _openPostCardBack(PostModel post) {
-    // 投稿カード裏面表示: 既存の詳細画面へルーティング（allPosts の中でこの投稿の
-    // index を先頭にして渡すことで対象を開く）。
+    // ストーリー（Vibe 投稿）は Vibe プレイリスト形式のフルスクリーンビューアで開く。
+    // 気分投稿は、その日の投稿をまとめて投稿カード縦スクロール一覧で開く。
+    if (post.isVibe) {
+      _openVibeStory(post);
+      return;
+    }
+    _openMoodPostCards(post);
+  }
+
+  /// 気分投稿を投稿カード形式（縦スクロール一覧）で開く。
+  /// タップした投稿と同じ日の気分投稿だけをまとめて渡し、タップした投稿から表示。
+  Future<void> _openMoodPostCards(PostModel post) async {
+    bool sameDay(DateTime a, DateTime b) =>
+        a.year == b.year && a.month == b.month && a.day == b.day;
+    final dayPosts = _otherPosts
+        .where((p) => !p.isVibe && sameDay(p.createdAt, post.createdAt))
+        .toList();
+    final posts = dayPosts.isEmpty ? [post] : dayPosts;
+    final idx = posts.indexWhere((p) => p.postId == post.postId).clamp(0, posts.length - 1);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfilePostsListScreen(
+          posts: posts,
+          initialIndex: idx,
+          showBackFirst: true,
+        ),
+      ),
+    );
+    // 一覧画面内での削除などを反映するため再読み込み。
+    if (mounted) {
+      _loadUserPosts();
+      _loadPostCount();
+    }
+  }
+
+  /// ストーリー（Vibe 投稿）を Vibe プレイリスト形式のストーリービューアで開く。
+  /// タップした投稿と同じ日の Vibe 投稿だけをまとめて 1 つのストーリーとして渡し、
+  /// タップした投稿から再生開始。
+  void _openVibeStory(PostModel post) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    bool sameDay(DateTime a, DateTime b) =>
+        a.year == b.year && a.month == b.month && a.day == b.day;
+    final vibePosts = _otherPosts
+        .where((p) => p.isVibe && sameDay(p.createdAt, post.createdAt))
+        .toList();
+    final idx = vibePosts.indexWhere((p) => p.postId == post.postId);
+    final storyItem = VibeStoryItem(
+      userId: uid,
+      username: _userData?.username ?? _userData?.name,
+      iconUrl: _userData?.profileImageUrl,
+      unread: false,
+      posts: vibePosts.isEmpty ? [post] : vibePosts,
+    );
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => Scaffold(
-          backgroundColor: const Color(0xFF121212),
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            iconTheme: const IconThemeData(color: Colors.white),
-          ),
-          body: Center(
-            child: ProfilePostGridItem(
-              post: post,
-              allPosts: _otherPosts,
-              initialIndex: _otherPosts.indexOf(post).clamp(0, _otherPosts.length - 1),
-              onDelete: () => _deletePost(post),
-              disableInteractions: false,
-            ),
-          ),
+        builder: (_) => VibeUserStoryScreen(
+          stories: [storyItem],
+          currentUserId: uid,
+          initialPostIndex: idx < 0 ? 0 : idx,
         ),
       ),
     );
@@ -1082,9 +1119,10 @@ class ProfileScreenState extends State<ProfileScreen>
   /// - 名前 10px SF Pro Medium 白 / "23曲" 9px SF Pro Regular #9E9FA1
   /// - 「新しいプレイリスト」9px SF Pro Medium #8C8986
   Widget _buildMyPlaylistSection() {
-    // 表示するプレイリスト。実データが揃うまでは占位で 4 個表示。
+    // 表示するプレイリスト。実データが揃うまでは 0 個（＝作成用スロットのみ）。
+    // グレーの占位枠はプレイリストが作成されるまで非表示にする。
     // TODO: PlaylistModel から実データを流し込む
-    const existingCount = 4;
+    const existingCount = 0;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 26, 14, 0),
       child: Column(
@@ -1102,9 +1140,9 @@ class ProfileScreenState extends State<ProfileScreen>
               ),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 9),
           SizedBox(
-            height: 116,
+            height: 118, // 枠 79 + gap + テキスト2行
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: EdgeInsets.zero,
@@ -1126,76 +1164,78 @@ class ProfileScreenState extends State<ProfileScreen>
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => AppToast.show(context, 'プレイリストを作成'),
-      child: SizedBox(
-        width: 57,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/profile/playlist_new.png',
-              width: 57,
-              height: 81,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => Container(
-                width: 57,
-                height: 81,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF36C5F4), Color(0xFFF857C1), Color(0xFF6D5BFF)],
-                  ),
+      // 枠(68)より「新しいプレイリスト」の方が広いので、外側を固定幅にせず
+      // Column をラベル幅に合わせて広げる（横 ListView 内なので主軸は無制限）。
+      // サムネイルは中央寄せで配置し、ラベルは省略せず全文表示する。
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Image.asset(
+            'assets/profile/playlist_new.png',
+            width: 68,
+            height: 79, // asset(278×324)の比率に合わせ余白を消す (68×324/278)
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Container(
+              width: 68,
+              height: 79,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF36C5F4), Color(0xFFF857C1), Color(0xFF6D5BFF)],
                 ),
-                alignment: Alignment.center,
-                child: const Icon(Icons.add, color: Colors.white, size: 24),
               ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.add, color: Colors.white, size: 24),
             ),
-            const SizedBox(height: 6),
-            const Text(
-              '新しいプレイリスト',
-              style: TextStyle(
-                color: Color(0xFF8C8986),
-                fontSize: 9,
-                fontFamily: 'SF Pro',
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 9),
+          // Figma 4690:9311: 枠幅より広い 1 行テキスト。省略せず全文表示。
+          const Text(
+            '新しいプレイリスト',
+            style: TextStyle(
+              color: Color(0xFF8C8986),
+              fontSize: 9,
+              fontFamily: kSfProRounded,
+              fontWeight: FontWeight.w500,
             ),
-          ],
-        ),
+            maxLines: 1,
+            softWrap: false,
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
 
   Widget _playlistExistingSlot({required String name, required int trackCount}) {
     return SizedBox(
-      width: 57,
+      width: 68, // 57 の約 1.2 倍
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Image.asset(
             'assets/profile/playlist_existing.png',
-            width: 57,
-            height: 81,
+            width: 68,
+            height: 79, // asset(278×324)の比率に合わせ余白を消す (68×324/278)
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => Container(
-              width: 57,
-              height: 81,
+              width: 68,
+              height: 79,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
                 color: const Color(0xFF424242),
               ),
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 2), // 既存スロットはサムネイル→名前を 2px (Figma 4690:9281)
           Text(
             name,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 10,
-              fontFamily: 'SF Pro',
+              fontFamily: kSfProRounded,
               fontWeight: FontWeight.w500,
               height: 1.2,
             ),
@@ -1207,7 +1247,7 @@ class ProfileScreenState extends State<ProfileScreen>
             style: const TextStyle(
               color: Color(0xFF9E9FA1),
               fontSize: 9,
-              fontFamily: 'SF Pro',
+              fontFamily: kSfProRounded,
               height: 1.44,
             ),
             maxLines: 1,
@@ -1240,7 +1280,7 @@ class ProfileScreenState extends State<ProfileScreen>
   Widget _buildRecentlySavedSection() {
     final entries = _sortedSavedEntries();
     if (entries.isEmpty) return const SizedBox.shrink();
-    final recent = entries.take(8).toList();
+    final recent = entries.take(5).toList();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 13),
       child: Column(
@@ -1333,6 +1373,7 @@ class ProfileScreenState extends State<ProfileScreen>
                 color: Color(0xFF9B9B9B),
                 fontSize: 10,
                 height: 1.5,
+                fontFamily: kSfProRounded,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -1443,7 +1484,8 @@ class ProfileScreenState extends State<ProfileScreen>
         child: Center(
           child: Text(
             'フォロー中のアーティストがいません',
-            style: TextStyle(color: Colors.white54, fontSize: 13),
+            style: TextStyle(
+                color: Colors.white54, fontSize: 13, fontFamily: kSfProRounded),
           ),
         ),
       );
@@ -1486,6 +1528,7 @@ class ProfileScreenState extends State<ProfileScreen>
                       color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
+                      fontFamily: kSfProRounded,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -1494,6 +1537,7 @@ class ProfileScreenState extends State<ProfileScreen>
                     style: TextStyle(
                       color: Color(0xFF9A9A9A),
                       fontSize: 12,
+                      fontFamily: kSfProRounded,
                     ),
                   ),
                 ],
@@ -1512,7 +1556,8 @@ class ProfileScreenState extends State<ProfileScreen>
       child: Center(
         child: Text(
           '保存済みのプレイリストがありません',
-          style: TextStyle(color: Colors.white54, fontSize: 13),
+          style: TextStyle(
+              color: Colors.white54, fontSize: 13, fontFamily: kSfProRounded),
         ),
       ),
     );
@@ -1567,7 +1612,8 @@ class ProfileScreenState extends State<ProfileScreen>
       return const Center(
         child: Text(
           '保存済みの楽曲がありません',
-          style: TextStyle(color: Colors.white54, fontSize: 14),
+          style: TextStyle(
+              color: Colors.white54, fontSize: 14, fontFamily: kSfProRounded),
         ),
       );
     }
@@ -1687,6 +1733,7 @@ class _SavedTrackItem extends StatelessWidget {
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
                       height: 1.198,
+                      fontFamily: kSfProRounded,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1698,6 +1745,7 @@ class _SavedTrackItem extends StatelessWidget {
                       color: Color(0xFF9B9B9B),
                       fontSize: 10,
                       height: 1.5,
+                      fontFamily: kSfProRounded,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,

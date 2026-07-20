@@ -10,6 +10,14 @@ class TrackModel {
   final double? tempo; // テンポ（BPM）
   final String? spotifyArtistId; // SpotifyアーティストID（アイコン・フォロワー数の正確な取得用）
 
+  /// 最後に再生された時刻（端末の音楽ライブラリ由来・非永続）。
+  /// 投稿フローの「○時間前」表示に使う。取得できない場合は null。
+  final DateTime? playedAt;
+
+  /// 現在再生中の曲か（端末の再生状態由来・非永続）。
+  /// 投稿フローの「Now Playing」表示に使う。
+  final bool isNowPlaying;
+
   TrackModel({
     required this.trackId,
     required this.trackName,
@@ -20,6 +28,8 @@ class TrackModel {
     this.lyrics,
     this.tempo,
     this.spotifyArtistId,
+    this.playedAt,
+    this.isNowPlaying = false,
   });
 
   // Mapから作成
@@ -63,6 +73,8 @@ class TrackModel {
     String? lyrics,
     double? tempo,
     String? spotifyArtistId,
+    DateTime? playedAt,
+    bool? isNowPlaying,
   }) {
     return TrackModel(
       trackId: trackId ?? this.trackId,
@@ -74,6 +86,8 @@ class TrackModel {
       lyrics: lyrics ?? this.lyrics,
       tempo: tempo ?? this.tempo,
       spotifyArtistId: spotifyArtistId ?? this.spotifyArtistId,
+      playedAt: playedAt ?? this.playedAt,
+      isNowPlaying: isNowPlaying ?? this.isNowPlaying,
     );
   }
 }

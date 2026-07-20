@@ -1,9 +1,16 @@
+import 'dart:ui' as ui;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_shaders/flutter_shaders.dart';
 
 import '../models/post_model.dart';
+import '../services/post_service.dart';
 import '../constants/profile_fonts.dart';
+import 'vibe_user_story_screen.dart';
+import 'home/vibe_story_bar_section.dart';
+import 'profile_posts_list_screen.dart';
 
 /// Music Memory - Month 画面。
 ///
@@ -20,19 +27,42 @@ class MusicMemoryMonthScreen extends StatefulWidget {
   /// 表示する月ごとの投稿。key = "YYYY-MM"、value = その月に投稿された投稿一覧。
   final Map<String, List<PostModel>> postsByMonth;
 
+  /// アカウント作成日時。指定されている場合、その月から現在の月までを
+  /// （投稿の有無に関わらず）連続して表示する。
+  final DateTime? accountCreatedAt;
+
+  /// 表示対象ユーザーの uid。指定されている場合は投稿を一気に読み込まず、
+  /// 3ヶ月区切りで（新しい月から）スクロールに応じて遅延ロードする。
+  final String? userId;
+
+  /// 記録カードに表示する総投稿数。遅延ロード中はロード済み分しか集計できないため、
+  /// 呼び出し側が把握している総数があればここで上書きする。
+  final int? totalPostCount;
+
   const MusicMemoryMonthScreen({
     super.key,
     this.postsByMonth = const {},
+    this.accountCreatedAt,
+    this.userId,
+    this.totalPostCount,
   });
 
   static Future<void> push(
     BuildContext context, {
     Map<String, List<PostModel>> postsByMonth = const {},
+    DateTime? accountCreatedAt,
+    String? userId,
+    int? totalPostCount,
   }) {
     return Navigator.of(context).push(
       CupertinoPageRoute(
         fullscreenDialog: false,
-        builder: (_) => MusicMemoryMonthScreen(postsByMonth: postsByMonth),
+        builder: (_) => MusicMemoryMonthScreen(
+          postsByMonth: postsByMonth,
+          accountCreatedAt: accountCreatedAt,
+          userId: userId,
+          totalPostCount: totalPostCount,
+        ),
       ),
     );
   }
@@ -44,13 +74,40 @@ class MusicMemoryMonthScreen extends StatefulWidget {
 
 class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
   final ScrollController _scrollController = ScrollController();
+  final PostService _postService = PostService();
 
-  int get _totalCount =>
-      widget.postsByMonth.values.fold(0, (a, b) => a + b.length);
+  /// 1 チャンク = 3ヶ月。スクロールでこの単位ずつ過去へ読み込む。
+  static const int _chunkMonths = 3;
+
+  /// 新しい→古い順の全月キー ("YYYY-MM")。表示範囲の骨格。
+  late final List<String> _monthsNewToOld;
+
+  /// 月キー → その月の投稿。ロード済みチャンク分だけ埋まる。
+  final Map<String, List<PostModel>> _postsByMonth = {};
+
+  /// 新しい方から数えたロード済みチャンク数。
+  int _loadedChunks = 0;
+  bool _isLoading = false;
+
+  /// userId 指定時のみ遅延ロード。無ければ渡された postsByMonth を静的表示。
+  late final bool _lazy;
+
+  /// 上部プログレッシブブラー用シェーダー。ロード完了までは非適用。
+  ui.FragmentProgram? _blurProgram;
+
+  int get _monthCount => _monthsNewToOld.length;
+  int get _loadedMonthCount =>
+      (_loadedChunks * _chunkMonths).clamp(0, _monthCount);
+  bool get _hasMore => _loadedMonthCount < _monthCount;
+
+  int get _loadedTotalCount =>
+      _postsByMonth.values.fold(0, (a, b) => a + b.length);
+
+  int get _totalCount => widget.totalPostCount ?? _loadedTotalCount;
 
   int get _streak {
     final days = <DateTime>{};
-    for (final posts in widget.postsByMonth.values) {
+    for (final posts in _postsByMonth.values) {
       for (final p in posts) {
         final d = p.createdAt;
         days.add(DateTime(d.year, d.month, d.day));
@@ -69,74 +126,284 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
   @override
   void initState() {
     super.initState();
-    // 初期表示は「最下部 = 現在月＋記録カード」が見える状態。
-    // 上に pull すると過去月が現れる(Figma のスクロール位置に準拠)。
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-    });
+    _monthsNewToOld = _buildMonthsNewToOld();
+    _lazy = widget.userId != null && widget.userId!.isNotEmpty;
+    if (_lazy) {
+      _loadNextChunk(); // 最新 3ヶ月を先行ロード
+    } else {
+      // 静的表示: 渡された分を全ロード済み扱いにする。
+      _postsByMonth.addAll(widget.postsByMonth);
+      _loadedChunks = (_monthCount / _chunkMonths).ceil();
+    }
+    _scrollController.addListener(_onScroll);
+    _loadBlurShader();
+  }
+
+  Future<void> _loadBlurShader() async {
+    try {
+      final program =
+          await ui.FragmentProgram.fromAsset('shaders/progressive_blur.frag');
+      if (mounted) setState(() => _blurProgram = program);
+    } catch (_) {
+      // 読み込み失敗時はぼかし無し（内容はそのまま表示）で続行。
+    }
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
   }
 
+  /// 表示する月の骨格を「新しい→古い」順で構築する。
+  List<String> _buildMonthsNewToOld() {
+    final now = DateTime.now();
+    final created = widget.accountCreatedAt;
+    if (created != null) {
+      final result = <String>[];
+      var y = now.year;
+      var m = now.month;
+      while (y > created.year || (y == created.year && m >= created.month)) {
+        result.add('$y-${m.toString().padLeft(2, '0')}');
+        m--;
+        if (m < 1) {
+          m = 12;
+          y--;
+        }
+      }
+      return result;
+    }
+    final keys = widget.postsByMonth.keys.toList()..sort(); // 古い→新しい
+    if (keys.isNotEmpty) return keys.reversed.toList();
+    return List.generate(3, (i) {
+      final d = DateTime(now.year, now.month - i);
+      return '${d.year}-${d.month.toString().padLeft(2, '0')}';
+    });
+  }
+
+  /// reverse:true のリストでは、上（過去）方向へスクロールすると pixels が
+  /// maxScrollExtent に近づく。手前で次チャンクを先読みする。
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 400) {
+      _loadNextChunk();
+    }
+  }
+
+  Future<void> _loadNextChunk() async {
+    if (!_lazy || _isLoading || !_hasMore) return;
+    setState(() => _isLoading = true);
+
+    final chunk = _loadedChunks; // 0-based
+    final newestIdx = chunk * _chunkMonths;
+    final oldestIdx =
+        ((chunk + 1) * _chunkMonths - 1).clamp(0, _monthCount - 1);
+    final rangeStart = _firstDayOfMonthKey(_monthsNewToOld[oldestIdx]);
+    final rangeEnd = _firstDayOfNextMonth(_monthsNewToOld[newestIdx]);
+
+    final posts = await _postService.getUserPostsInRange(
+      widget.userId!,
+      rangeStart,
+      rangeEnd,
+    );
+    if (!mounted) return;
+
+    for (final p in posts) {
+      final key =
+          '${p.createdAt.year}-${p.createdAt.month.toString().padLeft(2, '0')}';
+      (_postsByMonth[key] ??= []).add(p);
+    }
+    setState(() {
+      _loadedChunks++;
+      _isLoading = false;
+    });
+  }
+
+  DateTime _firstDayOfMonthKey(String key) {
+    final parts = key.split('-');
+    return DateTime(int.parse(parts[0]), int.parse(parts[1]), 1);
+  }
+
+  DateTime _firstDayOfNextMonth(String key) {
+    final parts = key.split('-');
+    return DateTime(int.parse(parts[0]), int.parse(parts[1]) + 1, 1);
+  }
+
+  /// ロード済みの全投稿を新しい順で平坦化。
+  List<PostModel> _allLoadedPosts() {
+    final list = <PostModel>[];
+    for (final v in _postsByMonth.values) {
+      list.addAll(v);
+    }
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
+  }
+
+  /// カレンダー上のアルバムアートタップ。
+  /// ストーリー（Vibe 投稿）は Vibe プレイリスト形式、気分投稿は投稿カード形式で開く。
+  void _openPost(PostModel post) {
+    if (post.isVibe) {
+      _openVibeStory(post);
+    } else {
+      _openPostCard(post);
+    }
+  }
+
+  void _openVibeStory(PostModel post) {
+    final uid = widget.userId ?? '';
+    bool sameDay(DateTime a, DateTime b) =>
+        a.year == b.year && a.month == b.month && a.day == b.day;
+    final vibePosts = _allLoadedPosts()
+        .where((p) => p.isVibe && sameDay(p.createdAt, post.createdAt))
+        .toList();
+    final idx = vibePosts.indexWhere((p) => p.postId == post.postId);
+    final storyItem = VibeStoryItem(
+      userId: uid,
+      unread: false,
+      posts: vibePosts.isEmpty ? [post] : vibePosts,
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VibeUserStoryScreen(
+          stories: [storyItem],
+          currentUserId: uid,
+          initialPostIndex: idx < 0 ? 0 : idx,
+        ),
+      ),
+    );
+  }
+
+  /// 気分投稿を投稿カード形式（縦スクロール一覧）で開く。
+  /// タップした投稿と同じ日の気分投稿だけをまとめて渡し、タップした投稿から表示。
+  void _openPostCard(PostModel post) {
+    bool sameDay(DateTime a, DateTime b) =>
+        a.year == b.year && a.month == b.month && a.day == b.day;
+    final dayPosts = _allLoadedPosts()
+        .where((p) => !p.isVibe && sameDay(p.createdAt, post.createdAt))
+        .toList();
+    final posts = dayPosts.isEmpty ? [post] : dayPosts;
+    final idx =
+        posts.indexWhere((p) => p.postId == post.postId).clamp(0, posts.length - 1);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfilePostsListScreen(
+          posts: posts,
+          initialIndex: idx,
+          showBackFirst: true,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 昇順ソート(古い→新しい)。データが無ければ直近3か月を空リストで表示。
-    final now = DateTime.now();
-    final keys = widget.postsByMonth.keys.toList()..sort();
-    final months = keys.isNotEmpty
-        ? keys
-        : List.generate(3, (i) {
-            final d = DateTime(now.year, now.month - (2 - i));
-            return '${d.year}-${d.month.toString().padLeft(2, '0')}';
-          });
+    // reverse:true の ListView で「最下部 = 現在月＋記録カード」を初期表示。
+    // children は下→上の順で並べる（index 0 が最下部）。
+    // 画面上部の黒い空白をなくすため SafeArea(top) を無効化し、
+    // ステータスバー下まで内容とぼかしを敷く。その分の余白は topInset で確保。
+    final topInset = MediaQuery.of(context).padding.top;
+    // すりガラスは画面上部およそ 30% の帯に収め、そこから下へフェードさせる。
+    final fadeH = MediaQuery.of(context).size.height * 0.3;
+    final loadedCount = _loadedMonthCount;
+    final children = <Widget>[
+      const SizedBox(height: 40), // 最下部余白
+      // 記録カード(Figma: (83, 1214), 236×47) — 中央 83px マージン
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 83),
+        child: _RecordCard(
+          musicCount: _totalCount,
+          streak: _streak,
+        ),
+      ),
+      const SizedBox(height: 55),
+      for (int i = 0; i < loadedCount; i++) ...[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _MonthBlock(
+            monthKey: _monthsNewToOld[i],
+            posts: _postsByMonth[_monthsNewToOld[i]] ?? const [],
+            onPostTap: _openPost,
+          ),
+        ),
+        const SizedBox(height: 55),
+      ],
+      if (_isLoading)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 16),
+          child: Center(
+            child: SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white54,
+              ),
+            ),
+          ),
+        ),
+      SizedBox(height: 60 + 24 + topInset), // 最上部ヘッダー＋ステータスバー分の余白
+    ];
+
+    final list = ListView(
+      controller: _scrollController,
+      reverse: true,
+      physics: const BouncingScrollPhysics(),
+      children: children,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 60), // ヘッダー分の余白
-                    const SizedBox(height: 24),
-                    for (int i = 0; i < months.length; i++) ...[
-                      if (i > 0) const SizedBox(height: 55),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: _MonthBlock(
-                          monthKey: months[i],
-                          posts: widget.postsByMonth[months[i]] ?? const [],
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 55),
-                    // 記録カード(Figma: (83, 1214), 236×47) — 中央 83px マージン
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 83),
-                      child: _RecordCard(
-                        musicCount: _totalCount,
-                        streak: _streak,
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                  ],
+      // 上下の黒い空白をなくすため SafeArea を使わず、画面端まで内容を敷く。
+      body: Stack(
+        children: [
+          // プログレッシブブラー: 一覧を丸ごとシェーダーに通し、上端(y=0)ほど強く
+          // 下端(fadeH)でぼかし無しへ連続的に変化させる。段差(横線)が出ない。
+          // シェーダー未ロード時は素の一覧を表示。
+          Positioned.fill(
+            child: _blurProgram == null
+                ? list
+                : AnimatedSampler(
+                    (ui.Image image, Size size, Canvas canvas) {
+                      final shader = _blurProgram!.fragmentShader();
+                      shader.setFloat(0, size.width); // uSize.x
+                      shader.setFloat(1, size.height); // uSize.y
+                      shader.setFloat(2, fadeH); // uFadeStart
+                      shader.setFloat(3, 40.0); // uMaxRadius
+                      shader.setImageSampler(0, image); // uTexture
+                      canvas.drawRect(
+                        Offset.zero & size,
+                        Paint()..shader = shader,
+                      );
+                    },
+                    child: list,
+                  ),
+          ),
+          // 黒へのグラデーション: 上端を締めつつ下端で透明にして馴染ませる。
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: fadeH,
+            child: const IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x99121212), Color(0x00121212)],
+                    stops: [0.0, 1.0],
+                  ),
                 ),
               ),
             ),
-            // ヘッダー(Figma 4773:10371) — 位置固定
-            const _Header(),
-          ],
-        ),
+          ),
+          // ヘッダー(Figma 4773:10371) — ステータスバー分下げて固定表示。
+          _Header(topInset: topInset),
+        ],
       ),
     );
   }
@@ -148,17 +415,21 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
 ///   - タイトル 20px SF Pro Rounded Bold @ (113, 10)
 ///   - 戻るボタン 44×44 @ (0, 0)
 class _Header extends StatelessWidget {
-  const _Header();
+  const _Header({this.topInset = 0});
+
+  /// ステータスバー高。SafeArea(top:false) 下でヘッダーを実画面上端から下げる分。
+  final double topInset;
 
   @override
   Widget build(BuildContext context) {
     return Positioned(
       left: 0,
       right: 0,
-      top: 0,
+      top: topInset,
       height: 60,
-      child: Container(
-        color: const Color(0xFF121212),
+      // 背景は上部フェード(グラデーション)側が描くので、ヘッダー自体は透明。
+      child: DecoratedBox(
+        decoration: const BoxDecoration(color: Colors.transparent),
         child: Stack(
           alignment: Alignment.center,
           children: [
@@ -207,8 +478,13 @@ class _Header extends StatelessWidget {
 class _MonthBlock extends StatelessWidget {
   final String monthKey; // "YYYY-MM"
   final List<PostModel> posts;
+  final ValueChanged<PostModel>? onPostTap;
 
-  const _MonthBlock({required this.monthKey, required this.posts});
+  const _MonthBlock({
+    required this.monthKey,
+    required this.posts,
+    this.onPostTap,
+  });
 
   int get _year => int.parse(monthKey.split('-').first);
   int get _month => int.parse(monthKey.split('-').last);
@@ -275,6 +551,7 @@ class _MonthBlock extends StatelessWidget {
               firstDayCol: firstDayCol,
               daysInMonth: daysInMonth,
               byDay: byDay,
+              onPostTap: onPostTap,
             ),
           ),
         ],
@@ -291,11 +568,13 @@ class _MonthDotGrid extends StatelessWidget {
   final int firstDayCol;
   final int daysInMonth;
   final Map<int, PostModel> byDay;
+  final ValueChanged<PostModel>? onPostTap;
 
   const _MonthDotGrid({
     required this.firstDayCol,
     required this.daysInMonth,
     required this.byDay,
+    this.onPostTap,
   });
 
   @override
@@ -344,15 +623,21 @@ class _MonthDotGrid extends StatelessWidget {
               top: gridTop + row * cellSize + (dotSize - artSize) / 2,
               width: artSize,
               height: artSize,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: entry.value.track.albumImageUrl.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: entry.value.track.albumImageUrl,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => _placeholder(),
-                      )
-                    : _placeholder(),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onPostTap == null
+                    ? null
+                    : () => onPostTap!(entry.value),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: entry.value.track.albumImageUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: entry.value.track.albumImageUrl,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => _placeholder(),
+                        )
+                      : _placeholder(),
+                ),
               ),
             );
           }(),

@@ -37,6 +37,7 @@ import 'services/font_service.dart';
 import 'services/user_service.dart';
 import 'services/vibe_topic_service.dart';
 import 'services/adl_service.dart';
+import 'services/music_memory_cycle_service.dart';
 import 'models/post_model.dart';
 
 /// バックグラウンドFCMハンドラー（top-level 必須・runApp前に登録する）
@@ -103,6 +104,9 @@ void main() async {
 
   // チュートリアル状態のロードは無効化（表示しないため）
   // await TutorialController.instance.ensureInitialized();
+
+  // Music Memory 投稿サイクル状態の購読を開始（notifiedAt を保持）。
+  MusicMemoryCycleService().start();
 
   // runApp を先に呼んで「15s」をすぐ表示し、FCM初期化はバックグラウンドで実行
   runApp(const FifteenApp());

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -20,21 +21,72 @@ class AppleMusicService {
   String? _developerToken;
   String? _userToken;
 
-  /// Developer Tokenを取得（.envまたはバックエンドから）
+  /// バンドルされた .env の Developer Token（オフライン時の最終フォールバック用）。
+  /// ※ .env はビルド時に焼き込まれ 6か月で失効するため、通常はバックエンド発行を優先。
   String get _envDeveloperToken => dotenv.env['APPLE_MUSIC_DEVELOPER_TOKEN'] ?? '';
 
-  /// Developer Tokenを確実にロードする
-  Future<void> _ensureDeveloperToken() async {
-    if (_developerToken != null && _developerToken!.isNotEmpty) return;
+  /// JWT の exp をデコードし、まだ十分（7日以上）有効かを判定する。
+  bool _isTokenUsable(String? token) {
+    if (token == null || token.isEmpty) return false;
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return false;
+      final payload = json.decode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      ) as Map<String, dynamic>;
+      final exp = payload['exp'];
+      if (exp is! int) return false;
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      return exp - now > 7 * 24 * 60 * 60; // 残り7日以上なら有効とみなす
+    } catch (_) {
+      return false;
+    }
+  }
 
-    // .envから読み込み
-    if (_envDeveloperToken.isNotEmpty) {
-      _developerToken = _envDeveloperToken;
+  /// バックエンド（Cloud Functions callable）から Developer Token を取得する。
+  /// サーバが .p8 からその場で署名するため、常に新鮮なトークンが得られる。
+  Future<String?> _fetchRemoteDeveloperToken() async {
+    try {
+      final res = await FirebaseFunctions.instance
+          .httpsCallable('getAppleMusicDeveloperToken')
+          .call();
+      final data = res.data;
+      final token = (data is Map) ? data['token'] as String? : null;
+      if (token != null && token.isNotEmpty) return token;
+    } catch (e) {
+      print('⚠️ Developer Token のバックエンド取得に失敗: $e');
+    }
+    return null;
+  }
+
+  /// Developer Tokenを確実にロードする。
+  /// 優先順位: メモリ(有効) → ストレージキャッシュ(有効) → バックエンド発行 →
+  ///           ストレージ(期限切れでも) → バンドル .env(最終手段/オフライン)。
+  /// これによりトークン失効時は Functions 側の対応だけで直り、アプリ更新は不要。
+  Future<void> _ensureDeveloperToken() async {
+    if (_isTokenUsable(_developerToken)) return;
+
+    final cached = await _storage.read(key: _developerTokenKey);
+    if (_isTokenUsable(cached)) {
+      _developerToken = cached;
       return;
     }
 
-    // ストレージから読み込み
-    _developerToken = await _storage.read(key: _developerTokenKey);
+    final remote = await _fetchRemoteDeveloperToken();
+    if (remote != null && remote.isNotEmpty) {
+      _developerToken = remote;
+      await _storage.write(key: _developerTokenKey, value: remote);
+      return;
+    }
+
+    // オフライン等でバックエンド取得不可のときのフォールバック。
+    if (cached != null && cached.isNotEmpty) {
+      _developerToken = cached;
+      return;
+    }
+    if (_envDeveloperToken.isNotEmpty) {
+      _developerToken = _envDeveloperToken;
+    }
   }
 
   /// Developer Tokenが利用可能かチェック（検索・カタログAPI用）
@@ -91,12 +143,8 @@ class AppleMusicService {
         // Android/WebではDeveloper Tokenのみで動作
         print('🌐 Android/Web環境: Developer Tokenのみで動作します');
 
-        // Developer Tokenの確認
-        if (_developerToken == null) {
-          _developerToken = _envDeveloperToken.isNotEmpty
-              ? _envDeveloperToken
-              : await _storage.read(key: _developerTokenKey);
-        }
+        // Developer Tokenの確認（バックエンド発行を優先）
+        await _ensureDeveloperToken();
 
         if (_developerToken != null && _developerToken!.isNotEmpty) {
           print('✅ Apple Music Developer Token確認成功');
@@ -480,11 +528,7 @@ class AppleMusicService {
       print('❌ User Token not found for recently played.');
       return [];
     }
-    if (_developerToken == null) {
-      _developerToken = _envDeveloperToken.isNotEmpty
-          ? _envDeveloperToken
-          : await _storage.read(key: _developerTokenKey);
-    }
+    await _ensureDeveloperToken();
     if (_developerToken == null || _developerToken!.isEmpty) {
       print('❌ Developer Token not found for recently played.');
       return [];
@@ -550,12 +594,8 @@ class AppleMusicService {
       return [];
     }
 
-    // Developer Tokenも必要
-    if (_developerToken == null) {
-      _developerToken = _envDeveloperToken.isNotEmpty
-          ? _envDeveloperToken
-          : await _storage.read(key: _developerTokenKey);
-    }
+    // Developer Tokenも必要（バックエンド発行を優先）
+    await _ensureDeveloperToken();
 
     if (_developerToken == null || _developerToken!.isEmpty) {
       print('❌ Developer Token not found.');

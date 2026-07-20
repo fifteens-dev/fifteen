@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.5.6+42
+version: 1.5.6+44
 
 environment:
   sdk: ^3.5.4
@@ -55,6 +55,7 @@ dependencies:
   flutter_web_auth_2: ^4.0.0
   flutter_secure_storage: ^9.0.0
   google_fonts: ^8.0.1
+  flutter_shaders: ^0.1.3
   cached_network_image: ^3.4.1
   photo_manager: ^3.8.3
   audio_session: ^0.1.25
@@ -165,11 +166,23 @@ flutter:
     - assets/profile_images/mina.png
     - assets/profile_images/momo.png
 
+  # フラグメントシェーダー（Music Memory 上部のプログレッシブブラー）
+  shaders:
+    - shaders/progressive_blur.frag
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
+
+  # 英数字用フォント。SF Pro Rounded（可変フォント: 全ウェイト内包）を同梱し、
+  # コードの fontFamily: 'SF Pro Rounded'(kSfProRounded) をこれに解決させる。
+  # ※名前指定だけでは iOS のシステム丸ゴに確実に解決されないため同梱が必要。
+  fonts:
+    - family: SF Pro Rounded
+      fonts:
+        - asset: assets/fonts/SFProRounded.ttf
 
   # To add custom fonts to your application, add a fonts section here,
   # in this "flutter" section. Each entry in this list should have a

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/post_model.dart';
+import 'music_memory_cycle_service.dart';
 
 /// 投稿データの取得を担当するサービス
 class PostFetchService {
@@ -125,11 +126,14 @@ class PostFetchService {
 
   /// フォロー中のユーザーの投稿を取得（Firestore whereIn のバッチ処理）
   /// ダミーユーザー投稿・Vibe 投稿（ストーリー）はタイムラインには出さない。
+  ///
+  /// 表示範囲は Music Memory の投稿サイクル制。直近の通知時刻（notifiedAt）以降の
+  /// 投稿のみを出し、次の通知が来ると前サイクル分は自然に外れる。
   Future<List<PostModel>> getPostsForFollowing(List<String> userIds, {int limit = 50}) async {
     if (userIds.isEmpty) return [];
 
     try {
-      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+      final cutoff = MusicMemoryCycleService().currentCycleStart;
       final allPosts = <PostModel>[];
       final seenIds = <String>{};
 
@@ -256,6 +260,34 @@ class PostFetchService {
     } catch (e) {
       if (kDebugMode) {
         print('Error getting posts by userId: $e');
+      }
+      return [];
+    }
+  }
+
+  /// ユーザーの投稿を [start]（含む）〜[end]（含まない）の createdAt 範囲で取得。
+  /// Music Memory の月表示を 3ヶ月区切りで遅延ロードするために使う。
+  Future<List<PostModel>> getUserPostsInRange(
+    String userId,
+    DateTime start,
+    DateTime end,
+  ) async {
+    try {
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('createdAt', isLessThan: Timestamp.fromDate(end))
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      final posts = snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+      return await applyLatestUserInfo(posts);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting user posts in range: $e');
       }
       return [];
     }

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/post_model.dart';
 import '../utils/campus_vibe_utils.dart';
 import 'post_fetch_service.dart';
+import 'music_memory_cycle_service.dart';
 
 /// 投稿の存在チェックと日付フィルタリングを担当するサービス
 class PostCheckService {
@@ -73,6 +74,52 @@ class PostCheckService {
     } catch (e) {
       if (kDebugMode) {
         print('Error checking if user posted today: $e');
+      }
+      return false;
+    }
+  }
+
+  /// 現在の Music Memory サイクルで「期限内（Late でない）投稿」をしているか。
+  /// これが true のユーザーだけが、他人の投稿の裏側閲覧＋リアクションを許可される。
+  /// （Late 投稿者・未投稿者は表面のみ = false）
+  Future<bool> hasOnTimePostInCurrentCycle(String userId) async {
+    try {
+      final cutoff = MusicMemoryCycleService().currentCycleStart;
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(cutoff))
+          .orderBy('createdAt', descending: true)
+          .limit(10)
+          .get();
+      return snapshot.docs.any((d) {
+        final m = d.data();
+        return m['isMoodPost'] == true && m['isLate'] != true;
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error checking on-time post in cycle: $e');
+      }
+      return false;
+    }
+  }
+
+  /// 現在の Music Memory サイクルで既に（Late 含む）投稿しているか。
+  /// 投稿フローの「初回 / 次回以降」出し分けに使う（未投稿=初回）。
+  Future<bool> hasAnyPostInCurrentCycle(String userId) async {
+    try {
+      final cutoff = MusicMemoryCycleService().currentCycleStart;
+      final snapshot = await _firestore
+          .collection(_postsCollection)
+          .where('userId', isEqualTo: userId)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(cutoff))
+          .orderBy('createdAt', descending: true)
+          .limit(10)
+          .get();
+      return snapshot.docs.any((d) => d.data()['isMoodPost'] == true);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error checking any post in cycle: $e');
       }
       return false;
     }

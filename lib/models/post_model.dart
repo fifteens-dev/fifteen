@@ -55,6 +55,11 @@ class PostModel {
   final String? vibeTopicId; // 参加しているお題のID
   final String? vibeTopicTitle; // Vibeお題のタイトル（例: "ドライブで聴きたい曲"）
   final DateTime? vibeDate; // Vibe投稿の日付（集計用）
+  /// Music Memory 投稿サイクルの開始時刻（作成時点の通知時刻 notifiedAt）。
+  /// タイムライン表示・Late 判定の基準。Music Memory 投稿以外は null。
+  final DateTime? cycleStart;
+  /// このサイクルの締切（翌1:00）を過ぎて投稿された「Late 投稿」か。
+  final bool isLate;
   final String? emotionTag; // 感情タグ（例: "嬉しい", "悲しい", "楽しい"）
   final String? lyricsText; // 歌詞テキスト（歌詞カード表示用）
   final int audioStartMs; // 音楽再生開始位置（ミリ秒）
@@ -103,6 +108,8 @@ class PostModel {
     this.vibeTopicId,
     this.vibeTopicTitle,
     this.vibeDate,
+    this.cycleStart,
+    this.isLate = false,
     this.emotionTag,
     this.lyricsText,
     this.audioStartMs = 0,
@@ -172,6 +179,8 @@ class PostModel {
       vibeTopicId: data['vibeTopicId']?.toString(),
       vibeTopicTitle: data['vibeTopicTitle']?.toString(),
       vibeDate: safeTimestampOrNull('vibeDate'),
+      cycleStart: safeTimestampOrNull('cycleStart'),
+      isLate: data['isLate'] == true,
       emotionTag: data['emotionTag']?.toString(),
       lyricsText: data['lyricsText']?.toString(),
       audioStartMs: (data['audioStartMs'] as num?)?.toInt() ?? 0,
@@ -221,6 +230,8 @@ class PostModel {
       'vibeTopicId': vibeTopicId,
       'vibeTopicTitle': vibeTopicTitle,
       'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate!) : null,
+      'cycleStart': cycleStart != null ? Timestamp.fromDate(cycleStart!) : null,
+      'isLate': isLate,
       'emotionTag': emotionTag,
       'lyricsText': lyricsText,
       'audioStartMs': audioStartMs,
@@ -265,6 +276,8 @@ class PostModel {
     String? vibeTopicId,
     String? vibeTopicTitle,
     DateTime? vibeDate,
+    DateTime? cycleStart,
+    bool? isLate,
     String? emotionTag,
     String? lyricsText,
     int? audioStartMs,
@@ -306,6 +319,8 @@ class PostModel {
       vibeTopicId: vibeTopicId ?? this.vibeTopicId,
       vibeTopicTitle: vibeTopicTitle ?? this.vibeTopicTitle,
       vibeDate: vibeDate ?? this.vibeDate,
+      cycleStart: cycleStart ?? this.cycleStart,
+      isLate: isLate ?? this.isLate,
       emotionTag: emotionTag ?? this.emotionTag,
       lyricsText: lyricsText ?? this.lyricsText,
       audioStartMs: audioStartMs ?? this.audioStartMs,

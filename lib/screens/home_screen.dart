@@ -20,6 +20,8 @@ import '../widgets/dialogs/delete_post_dialog.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
+import '../services/music_service_manager.dart';
+import '../models/music_service_type.dart';
 import '../services/itunes_search_service.dart';
 import '../services/user_service.dart';
 import '../services/notification_service.dart';
@@ -72,6 +74,7 @@ class _HomeScreenState extends State<HomeScreen>
     implements RouteAware {
   int _selectedIndex = 0;
   final PostService _postService = PostService();
+  final MusicServiceManager _musicServiceManager = MusicServiceManager();
   final UserService _userService = UserService();
   final VibeTopicService _vibeTopicService = VibeTopicService();
   final SpotifyService _spotifyService = SpotifyService();
@@ -131,6 +134,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   // 現在のユーザーが今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
+
+  // 現サイクルで「期限内（Late でない）投稿」済みか。
+  // true のときだけ他人の投稿の裏側閲覧＋リアクションを許可する。
+  // Late 投稿者・未投稿者は false（表面のみ）。
+  bool _postedOnTimeThisCycle = false;
 
   // 一度裏面を見た投稿IDのセット（永続化済み）
   Set<String> _revealedPostIds = {};
@@ -354,6 +362,7 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _cachedPosts = postsResult.posts;
         _hasPostedToday = postsResult.hasPostedToday;
+        _postedOnTimeThisCycle = postsResult.postedOnTimeThisCycle;
         _previewUrlCache.clear(); // リフレッシュ時はキャッシュをリセット
         // 完了済みFutureに差し替えればFutureBuilderはwaitingにならず暗転しない
         _vibeDataFuture = Future.value(vibeData);
@@ -428,14 +437,18 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
 /// 投稿データをFirestoreから取得して返す（setState なし・_loadPosts/_onRefresh 共用）
-  Future<({List<PostModel> posts, bool hasPostedToday, UserModel? user})> _fetchPostsData() async {
+  Future<({List<PostModel> posts, bool hasPostedToday, bool postedOnTimeThisCycle, UserModel? user})> _fetchPostsData() async {
     try {
       final currentUser = _auth.currentUser;
 
       // 今日投稿済みかチェック
       bool hasPostedToday = false;
+      // 現サイクルで期限内投稿済みか（裏側ゲーティング用）
+      bool postedOnTimeThisCycle = false;
       if (currentUser != null) {
         hasPostedToday = await _postService.hasUserPostedToday(currentUser.uid);
+        postedOnTimeThisCycle =
+            await _postService.hasOnTimePostInCurrentCycle(currentUser.uid);
       }
 
       // フォロー中のユーザーIDと保存済み情報を取得
@@ -531,10 +544,10 @@ class _HomeScreenState extends State<HomeScreen>
         }
       }
 
-      return (posts: updatedPosts, hasPostedToday: hasPostedToday, user: userModel);
+      return (posts: updatedPosts, hasPostedToday: hasPostedToday, postedOnTimeThisCycle: postedOnTimeThisCycle, user: userModel);
     } catch (e) {
       print('❌ 投稿読み込みエラー: $e');
-      return (posts: <PostModel>[], hasPostedToday: false, user: null);
+      return (posts: <PostModel>[], hasPostedToday: false, postedOnTimeThisCycle: false, user: null);
     }
   }
 
@@ -551,6 +564,7 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _cachedPosts = result.posts;
         _hasPostedToday = result.hasPostedToday;
+        _postedOnTimeThisCycle = result.postedOnTimeThisCycle;
       });
       print('🔄 setState()完了');
       final uid = _auth.currentUser?.uid ?? '';
@@ -942,10 +956,32 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _onItemTapped(int index) async {
     if (index == 2) {
-      // 投稿フローの起点: 「今日のMusic Memory」カード束モーダル(Component 123)。
-      // 内部で MusicServiceManager から最近再生履歴を取得して表示。
+      // 投稿フローの起点。
+      // - Apple Music: 「今日のMusic Memory」カルーセル(MusicMemoryModal)。
+      // - Spotify: ログが取れないため Vibe 楽曲選択シート（お題非表示）→ 曲決定で
+      //   Apple と同じ写真フロー(PostPhotoSelectionScreen)へ。
       _homeAudioService.stop();
-      await MusicMemoryModal.open(context);
+      final service = await _musicServiceManager.getSelectedService();
+      if (!mounted) return;
+      if (service == MusicServiceType.spotify) {
+        VibeStoryPostSheet.show(
+          context,
+          moodPostMode: true,
+          onTrackChosen: (track) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                fullscreenDialog: true,
+                builder: (_) => PostPhotoSelectionScreen(
+                  track: track,
+                  isMoodPost: true,
+                ),
+              ),
+            );
+          },
+        );
+      } else {
+        await MusicMemoryModal.open(context);
+      }
       return;
     }
 
@@ -1310,6 +1346,14 @@ class _HomeScreenState extends State<HomeScreen>
             _postCardKeys.putIfAbsent(post.postId, () => GlobalKey<PostCardState>());
             final cardKey = _postCardKeys[post.postId]!;
 
+            // 裏側ゲーティング: 自分の投稿は常に可。他人の裏側は「現サイクルで期限内
+            // 投稿済み」のときのみ可。Late 投稿者・未投稿者は表面のみ（裏返し・
+            // いいね・コメント不可）。既に裏を見た投稿は引き続き閲覧可。
+            final isOwnPost = post.userId == currentUserId;
+            final canViewBack = isOwnPost ||
+                _postedOnTimeThisCycle ||
+                _revealedPostIds.contains(post.postId);
+
             return Padding(
               padding: const EdgeInsets.only(bottom: 24),
               child: RepaintBoundary(
@@ -1325,7 +1369,8 @@ class _HomeScreenState extends State<HomeScreen>
                   onAdd: () => _handleAdd(post),
                   onDelete: post.userId == currentUserId ? () => _handleDelete(post) : null,
                   isSaved: savedItems.isPostOrTrackSaved(post),
-                  backSideEnabled: _hasPostedToday || _revealedPostIds.contains(post.postId),
+                  backSideEnabled: canViewBack,
+                  disableInteractions: !canViewBack,
                   onFlipToBack: () => _markPostRevealed(post.postId),
                   onPlayStarted: () {
                     _playingPostId = post.postId;

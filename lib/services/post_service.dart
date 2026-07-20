@@ -55,6 +55,13 @@ class PostService {
     DocumentSnapshot? startAfter,
   }) => _fetchService.getPostsWithPagination(userId, limit: limit, startAfter: startAfter);
 
+  /// ユーザーの投稿を createdAt 範囲 [start, end) で取得（Music Memory 遅延ロード用）
+  Future<List<PostModel>> getUserPostsInRange(
+    String userId,
+    DateTime start,
+    DateTime end,
+  ) => _fetchService.getUserPostsInRange(userId, start, end);
+
   /// 指定 trackId の投稿をカーソルページネーション付きで取得
   Future<({List<PostModel> posts, DocumentSnapshot? lastDoc, bool hasMore})>
       getPostsByTrackIdPaged(
@@ -201,6 +208,14 @@ class PostService {
   /// 特定ユーザーが今日投稿しているかチェック
   Future<bool> hasUserPostedToday(String userId) =>
       _checkService.hasUserPostedToday(userId);
+
+  /// 現サイクルで期限内投稿済みか（他人の裏側閲覧＋リアクション許可の判定）
+  Future<bool> hasOnTimePostInCurrentCycle(String userId) =>
+      _checkService.hasOnTimePostInCurrentCycle(userId);
+
+  /// 現サイクルで既に投稿しているか（投稿フローの初回/次回以降 判定）
+  Future<bool> hasAnyPostInCurrentCycle(String userId) =>
+      _checkService.hasAnyPostInCurrentCycle(userId);
 
   /// 特定ユーザーが今週末（金〜日）に投稿しているかチェック（Campus Vibe用）
   Future<bool> hasUserPostedInCurrentWeekend(String userId) =>

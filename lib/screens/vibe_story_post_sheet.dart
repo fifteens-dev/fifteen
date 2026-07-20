@@ -35,10 +35,16 @@ class VibeStoryPostSheet extends StatefulWidget {
   /// 楽曲を選んでシートを次フローへ閉じる時のコールバック（未指定なら閉じない）
   final ValueChanged<TrackModel>? onTrackChosen;
 
+  /// Music Memory 投稿（主に Spotify ユーザー）向けモード。
+  /// - お題ヘッダー（Vibe【#…】）を非表示
+  /// - 楽曲決定時は Vibe プレビューを挟まず onTrackChosen で親に返す（親が写真フローへ）
+  final bool moodPostMode;
+
   const VibeStoryPostSheet({
     super.key,
     this.topic,
     this.onTrackChosen,
+    this.moodPostMode = false,
   });
 
   /// 下から showModalBottomSheet で開く便利メソッド。
@@ -48,6 +54,7 @@ class VibeStoryPostSheet extends StatefulWidget {
     BuildContext context, {
     VibeTopicModel? topic,
     ValueChanged<TrackModel>? onTrackChosen,
+    bool moodPostMode = false,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -61,6 +68,7 @@ class VibeStoryPostSheet extends StatefulWidget {
       builder: (ctx) => VibeStoryPostSheet(
         topic: topic,
         onTrackChosen: onTrackChosen,
+        moodPostMode: moodPostMode,
       ),
     );
   }
@@ -365,6 +373,13 @@ class _VibeStoryPostSheetState extends State<VibeStoryPostSheet> {
   /// 「次へ」矢印タップで開く公開範囲選択プレビュー画面。
   /// Figma 4546:9255。下からスライドインで全画面表示。
   Future<void> _openPreview(TrackModel track) async {
+    // Music Memory モード（Spotify）: Vibe プレビューを挟まず、選択トラックを
+    // 親に返して Apple Music と同じ写真フロー（PostPhotoSelectionScreen）へ。
+    if (widget.moodPostMode) {
+      widget.onTrackChosen?.call(_selectedTrack ?? track);
+      if (mounted) Navigator.of(context).maybePop();
+      return;
+    }
     // プレビュー画面でも再生継続したいので audio はそのまま
     final currentUser = FirebaseAuth.instance.currentUser;
     String? iconUrl;
@@ -626,29 +641,32 @@ class _VibeStoryPostSheetState extends State<VibeStoryPostSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-          RichText(
-            text: TextSpan(
-              children: [
-                const TextSpan(
-                  text: 'Vibe',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
+          // Music Memory モード（Spotify）ではお題ヘッダー（Vibe【#…】）を非表示。
+          if (!widget.moodPostMode) ...[
+            RichText(
+              text: TextSpan(
+                children: [
+                  const TextSpan(
+                    text: 'Vibe',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                TextSpan(
-                  text: '【#$title】',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
+                  TextSpan(
+                    text: '【#$title】',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
+            const SizedBox(height: 4),
+          ],
           const Row(
             mainAxisSize: MainAxisSize.min,
             children: [

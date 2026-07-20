@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import MusicKit
+import MediaPlayer
 import StoreKit
 import ObjectiveC.runtime
 
@@ -10,6 +11,7 @@ import ObjectiveC.runtime
   private let fontsChannel = "com.fifteen.fonts"
   private let instagramChannel = "com.fifteen.instagram"
   private let deepLinkChannel = "com.fifteen.deeplink"
+  private let musicMemoryChannel = "com.fifteen.musicmemory"
   private var nativeMenuChannel: AnyObject?
   private var deepLinkFlutterChannel: FlutterMethodChannel?
   // コールドスタート時に Flutter が準備できる前に届いた postId を保持
@@ -68,6 +70,7 @@ import ObjectiveC.runtime
       setupFontsChannel(controller: controller)
       setupInstagramChannel(controller: controller)
       setupDeepLinkChannel(controller: controller)
+      setupMusicMemoryChannel(controller: controller)
       if #available(iOS 14.0, *) {
         let menuChannel = NativeMenuChannel()
         menuChannel.setup(controller: controller)
@@ -139,6 +142,72 @@ import ObjectiveC.runtime
     var items: [String: Any] = ["com.instagram.sharedSticker.stickerImage": imageData]
     if let url = contentURL { items["com.instagram.sharedSticker.contentURL"] = url }
     UIPasteboard.general.setItems([items], options: [.expirationDate: Date().addingTimeInterval(300)])
+  }
+
+  // MARK: - Music Memory 再生情報チャンネル
+  //
+  // 端末の音楽ライブラリ / 再生状態から「今聞いている曲」「最後に再生した曲＋時刻」を
+  // 取得して Flutter に返す。投稿フローの Now Playing / ○時間前 表示に使う。
+  // 要 NSAppleMusicUsageDescription（Info.plist）。
+
+  private func setupMusicMemoryChannel(controller: FlutterViewController) {
+    let channel = FlutterMethodChannel(
+      name: musicMemoryChannel,
+      binaryMessenger: controller.binaryMessenger
+    )
+    channel.setMethodCallHandler { [weak self] (call, result) in
+      switch call.method {
+      case "getNowPlaying":
+        self?.ensureMediaAuth { authorized in
+          guard authorized else { result(nil); return }
+          let player = MPMusicPlayerController.systemMusicPlayer
+          if let item = player.nowPlayingItem {
+            result([
+              "title": item.title ?? "",
+              "artist": item.artist ?? "",
+              "isPlaying": player.playbackState == .playing,
+            ])
+          } else {
+            result(nil)
+          }
+        }
+      case "getRecentlyPlayed":
+        let limit = (call.arguments as? [String: Any])?["limit"] as? Int ?? 20
+        self?.ensureMediaAuth { authorized in
+          guard authorized else { result([]); return }
+          let items = (MPMediaQuery.songs().items ?? [])
+            .filter { $0.lastPlayedDate != nil }
+            .sorted {
+              ($0.lastPlayedDate ?? .distantPast) > ($1.lastPlayedDate ?? .distantPast)
+            }
+            .prefix(limit)
+          let mapped: [[String: Any]] = items.map { item in
+            [
+              "title": item.title ?? "",
+              "artist": item.artist ?? "",
+              "playedAtMs": Int((item.lastPlayedDate?.timeIntervalSince1970 ?? 0) * 1000),
+            ]
+          }
+          result(mapped)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  /// メディアライブラリ権限を確認し、必要なら要求してから completion(認可可否) を返す。
+  private func ensureMediaAuth(_ completion: @escaping (Bool) -> Void) {
+    switch MPMediaLibrary.authorizationStatus() {
+    case .authorized:
+      completion(true)
+    case .notDetermined:
+      MPMediaLibrary.requestAuthorization { status in
+        DispatchQueue.main.async { completion(status == .authorized) }
+      }
+    default:
+      completion(false)
+    }
   }
 
   // MARK: - SF Pro フォントチャンネル

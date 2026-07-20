@@ -71,6 +71,15 @@ import ObjectiveC.runtime
       setupInstagramChannel(controller: controller)
       setupDeepLinkChannel(controller: controller)
       setupMusicMemoryChannel(controller: controller)
+
+      // PlatformView: 上部連続ぼかし（UIVisualEffectView + グラデマスク）
+      if let registrar = self.registrar(forPlugin: "VariableBlurPlugin") {
+        registrar.register(
+          VariableBlurFactory(messenger: registrar.messenger()),
+          withId: "com.fifteen/variable_blur"
+        )
+      }
+
       if #available(iOS 14.0, *) {
         let menuChannel = NativeMenuChannel()
         menuChannel.setup(controller: controller)
@@ -465,6 +474,97 @@ import ObjectiveC.runtime
   ) -> Bool {
     if handleDeepLinkURL(url) { return true }
     return super.application(app, open: url, options: options)
+  }
+}
+
+// MARK: - 上部連続ぼかし PlatformView（UIVisualEffectView + グラデマスク）
+//
+// iOS 標準の UIVisualEffectView（GPU 合成・軽量）を CAGradientLayer マスクで
+// 上端=フル / 下端=透明にフェードさせ、"連続的にぼける" 見た目を作る。
+// 全て公開 API のため App Store 安全。タッチは常に背後（Flutter 側）へ通す。
+
+class VariableBlurPlatformView: NSObject, FlutterPlatformView {
+  private let container: PassthroughBlurContainer
+
+  init(frame: CGRect, viewId: Int64, args: Any?) {
+    var fullUntil: CGFloat = 0.4
+    var fadeEnd: CGFloat = 1.0
+    var passes = 1
+    if let dict = args as? [String: Any] {
+      if let v = dict["fullUntil"] as? Double { fullUntil = CGFloat(v) }
+      if let v = dict["fadeEnd"] as? Double { fadeEnd = CGFloat(v) }
+      if let v = dict["passes"] as? Int { passes = max(1, min(3, v)) }
+    }
+    container = PassthroughBlurContainer(
+      frame: frame, fullUntil: fullUntil, fadeEnd: fadeEnd, passes: passes)
+    super.init()
+  }
+
+  func view() -> UIView { return container }
+}
+
+/// ぼかし本体＋グラデーションマスクを保持し、レイアウト時にサイズ追従させるコンテナ。
+/// hitTest で常に nil を返すため、タッチは背後の Flutter コンテンツへ通り抜ける。
+final class PassthroughBlurContainer: UIView {
+  private var blurViews: [UIVisualEffectView] = []
+  private let gradientMask = CAGradientLayer()
+
+  init(frame: CGRect, fullUntil: CGFloat, fadeEnd: CGFloat, passes: Int) {
+    super.init(frame: frame)
+
+    isUserInteractionEnabled = false
+    backgroundColor = .clear
+
+    // UIVisualEffectView を複数枚重ねると「ぼけた結果をさらにぼかす」ため
+    // 全体のぼかしが強くなる（公開 API・GPU 合成のまま）。
+    for _ in 0..<max(1, passes) {
+      let bv = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+      bv.isUserInteractionEnabled = false
+      addSubview(bv)
+      blurViews.append(bv)
+    }
+
+    // グラデーションマスクはコンテナ全体に掛け、重ねたぼかしをまとめてフェード。
+    gradientMask.colors = [
+      UIColor.white.cgColor,
+      UIColor.white.cgColor,
+      UIColor.clear.cgColor,
+    ]
+    gradientMask.locations = [0.0, NSNumber(value: Double(fullUntil)), NSNumber(value: Double(fadeEnd))]
+    gradientMask.startPoint = CGPoint(x: 0.5, y: 0.0)
+    gradientMask.endPoint = CGPoint(x: 0.5, y: 1.0)
+    layer.mask = gradientMask
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    for bv in blurViews { bv.frame = bounds }
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    gradientMask.frame = bounds
+    CATransaction.commit()
+  }
+
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { return nil }
+}
+
+/// PlatformView ファクトリ。
+class VariableBlurFactory: NSObject, FlutterPlatformViewFactory {
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    return FlutterStandardMessageCodec.sharedInstance()
+  }
+
+  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+    return VariableBlurPlatformView(frame: frame, viewId: viewId, args: args)
   }
 }
 

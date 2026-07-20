@@ -958,12 +958,14 @@ class _HomeScreenState extends State<HomeScreen>
     if (index == 2) {
       // 投稿フローの起点。
       // - Apple Music: 「今日のMusic Memory」カルーセル(MusicMemoryModal)。
-      // - Spotify: ログが取れないため Vibe 楽曲選択シート（お題非表示）→ 曲決定で
-      //   Apple と同じ写真フロー(PostPhotoSelectionScreen)へ。
+      // - Spotify / 未連携: ログが取れないため Vibe 楽曲選択シート（お題非表示）→
+      //   曲決定で Apple と同じ写真フロー(PostPhotoSelectionScreen)へ。
       _homeAudioService.stop();
       final service = await _musicServiceManager.getSelectedService();
       if (!mounted) return;
-      if (service == MusicServiceType.spotify) {
+      if (service == MusicServiceType.appleMusic) {
+        await MusicMemoryModal.open(context);
+      } else {
         VibeStoryPostSheet.show(
           context,
           moodPostMode: true,
@@ -979,8 +981,6 @@ class _HomeScreenState extends State<HomeScreen>
             );
           },
         );
-      } else {
-        await MusicMemoryModal.open(context);
       }
       return;
     }

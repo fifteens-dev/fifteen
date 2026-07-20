@@ -21,7 +21,7 @@ import 'follow_list_screen.dart';
 import 'music_memory_month_screen.dart';
 import 'vibe_user_story_screen.dart';
 import 'home/vibe_story_bar_section.dart';
-import 'profile_posts_list_screen.dart';
+import 'music_memory_detail_screen.dart';
 import '../widgets/common/app_toast.dart';
 import '../constants/profile_fonts.dart';
 
@@ -1050,31 +1050,59 @@ class ProfileScreenState extends State<ProfileScreen>
     _openMoodPostCards(post);
   }
 
-  /// 気分投稿を投稿カード形式（縦スクロール一覧）で開く。
-  /// タップした投稿と同じ日の気分投稿だけをまとめて渡し、タップした投稿から表示。
+  /// 気分投稿を Music Memory 詳細（日カルーセル）で開く。
+  /// カレンダー(月)からの遷移と同じ画面。各日の代表（最新1件）を新→古で並べ、
+  /// 端まで来たら 3ヶ月前を追加ロードできるよう userId・月骨格も渡す。
   Future<void> _openMoodPostCards(PostModel post) async {
     bool sameDay(DateTime a, DateTime b) =>
         a.year == b.year && a.month == b.month && a.day == b.day;
-    final dayPosts = _otherPosts
-        .where((p) => !p.isVibe && sameDay(p.createdAt, post.createdAt))
-        .toList();
-    final posts = dayPosts.isEmpty ? [post] : dayPosts;
-    final idx = posts.indexWhere((p) => p.postId == post.postId).clamp(0, posts.length - 1);
-    await Navigator.push(
+
+    final repByDay = <String, PostModel>{};
+    for (final p in _otherPosts.where((p) => !p.isVibe)) {
+      final key = '${p.createdAt.year}-${p.createdAt.month}-${p.createdAt.day}';
+      final ex = repByDay[key];
+      if (ex == null || p.createdAt.isAfter(ex.createdAt)) repByDay[key] = p;
+    }
+    final days = repByDay.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    if (days.isEmpty) days.add(post);
+    final idx = days.indexWhere((p) => sameDay(p.createdAt, post.createdAt));
+
+    final created = _userData?.createdAt ??
+        FirebaseAuth.instance.currentUser?.metadata.creationTime;
+
+    await MusicMemoryDetailScreen.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ProfilePostsListScreen(
-          posts: posts,
-          initialIndex: idx,
-          showBackFirst: true,
-        ),
-      ),
+      posts: days,
+      initialIndex: idx < 0 ? 0 : idx,
+      userId: FirebaseAuth.instance.currentUser?.uid,
+      monthsNewToOld: _buildMonthsNewToOld(created),
+      loadedChunks: 0,
     );
-    // 一覧画面内での削除などを反映するため再読み込み。
+    // 詳細画面内での削除などを反映するため再読み込み。
     if (mounted) {
       _loadUserPosts();
       _loadPostCount();
     }
+  }
+
+  /// アカウント作成月〜今月を「新しい→古い」順の "YYYY-MM" で返す（詳細画面の
+  /// 遅延ロード骨格）。作成日が無ければ空（＝追加ロードなし）。
+  List<String> _buildMonthsNewToOld(DateTime? created) {
+    if (created == null) return const [];
+    final now = DateTime.now();
+    final result = <String>[];
+    var y = now.year;
+    var m = now.month;
+    while (y > created.year || (y == created.year && m >= created.month)) {
+      result.add('$y-${m.toString().padLeft(2, '0')}');
+      m--;
+      if (m < 1) {
+        m = 12;
+        y--;
+      }
+    }
+    return result;
   }
 
   /// ストーリー（Vibe 投稿）を Vibe プレイリスト形式のストーリービューアで開く。

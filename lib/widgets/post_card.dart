@@ -54,6 +54,12 @@ class PostCard extends StatefulWidget {
   final bool isSaved; // 保存済みかどうか
   final bool hideReactionCounts; // trueの場合、リアクション数を非表示（プレビュー用）
   final bool hideAudienceBadge; // trueの場合、公開範囲バッジ（globe/lock）を非表示（投稿フロー中）
+  // trueの場合、表裏ともコメント入力バーを非表示にし、その分の空きに合わせて
+  // 表面=内容を中央寄りに再配置 / 裏面=文字を下へスライド（Music Memory・共有プレビュー用）。
+  final bool hideCommentBar;
+  // trueの場合、カード上の共有ボタン（表裏とも）を非表示（Music Memory 詳細画面用。
+  // 共有はヘッダー側のボタンから行う）。
+  final bool hideShareButton;
   final Color? preExtractedGradientStart; // 事前抽出されたグラデーション開始色
   final Color? preExtractedGradientEnd; // 事前抽出されたグラデーション終了色
   final bool autoFlipAfterDelay; // trueの場合、0.5秒後に自動で裏返す
@@ -82,6 +88,8 @@ class PostCard extends StatefulWidget {
     this.isSaved = false, // デフォルトは未保存
     this.hideReactionCounts = false, // デフォルトはカウント表示
     this.hideAudienceBadge = false, // デフォルトはバッジ表示（投稿完了後の通常カード）
+    this.hideCommentBar = false, // デフォルトはコメントバー表示
+    this.hideShareButton = false, // デフォルトはカード上の共有ボタン表示
     this.preExtractedGradientStart, // 事前抽出された色（オプション）
     this.preExtractedGradientEnd, // 事前抽出された色（オプション）
     this.autoFlipAfterDelay = false, // デフォルトは自動反転なし
@@ -407,15 +415,7 @@ class PostCardState extends State<PostCard>
                 ),
               ),
 
-              // 公開範囲バッジ（アルバム右下、グラデーション上の高さに配置）
-              // 投稿フロー中（最終プレビュー・posting オーバーレイ）は非表示。
-              // 投稿完了後ホーム/プロフィール等で表示するカードでのみ出す。
-              if (!widget.hideAudienceBadge)
-                Positioned(
-                  top: albumSize - 30 - 10,
-                  right: 10,
-                  child: _buildAudienceBadge(),
-                ),
+              // 公開範囲バッジ（地球儀/鍵）は廃止。投稿は自動でフォロワー限定判定のため不要。
 
               // グラデーションオーバーレイ（下部3/7）
               Positioned(
@@ -460,9 +460,10 @@ class PostCardState extends State<PostCard>
 
                     // 曲名とアーティスト名 - ボタン有無で right を動的調整
                     // menu(32) + rightMargin(11) = 43px
+                    // hideCommentBar 時はコメントバー分を詰めて中央寄りに(Figma 4947:10749)。
                     Positioned(
                       left: cardWidth * (11 / 363),
-                      top: contentHeight * (63 / 294),
+                      top: contentHeight * ((widget.hideCommentBar ? 79 : 63) / 294),
                       right: _showMoreButton
                           ? cardWidth * (43 / 363)
                           : cardWidth * (12 / 363),
@@ -470,7 +471,7 @@ class PostCardState extends State<PostCard>
                     ),
 
                     // 共有ボタン（3点メニューのすぐ左・自分の投稿のみ）
-                    if (_isOwner)
+                    if (_isOwner && !widget.hideShareButton)
                       Positioned(
                         right: cardWidth * (47 / 363),
                         top: contentHeight * (63 / 294),
@@ -515,24 +516,26 @@ class PostCardState extends State<PostCard>
                     Positioned(
                       left: cardWidth * (12 / 363),
                       right: cardWidth * (12 / 363),
-                      top: contentHeight * (128 / 294),
+                      top: contentHeight * ((widget.hideCommentBar ? 156 : 128) / 294),
                       child: _buildReactions(theme),
                     ),
 
                     // 音楽波形 - Figma: bottom: 96px → top: 198px (294-96), left: 4px, right: 5px
                     Positioned(
                       left: cardWidth * (12 / 363),
-                      top: contentHeight * (166 / 294),
+                      top: contentHeight * ((widget.hideCommentBar ? 205 : 166) / 294),
                       child: _buildWaveform(theme),
                     ),
 
                     // コメント入力欄 - Figma: bottom: 40px → top: 254px (294-40), left: 12px, right: 12px
-                    Positioned(
-                      left: cardWidth * (12 / 363),
-                      right: cardWidth * (12 / 363),
-                      top: contentHeight * (211 / 294),
-                      child: _buildCommentButton(theme),
-                    ),
+                    // hideCommentBar 時は非表示。
+                    if (!widget.hideCommentBar)
+                      Positioned(
+                        left: cardWidth * (12 / 363),
+                        right: cardWidth * (12 / 363),
+                        top: contentHeight * (211 / 294),
+                        child: _buildCommentButton(theme),
+                      ),
 
                     // "Provided courtesy of Apple Music" - Figma: bottom: 12px → top: 282px (294-12), left: 17px
                     Positioned(
@@ -650,12 +653,13 @@ class PostCardState extends State<PostCard>
             ),
 
             // 曲名とアーティスト名
+            // hideCommentBar 時はコメントバー分だけ下へスライド(Figma 4947:10833)。
             Positioned(
               left: cardWidth * (11 / 363),
               right: _isOwner
                   ? cardWidth * (84 / 363)
                   : cardWidth * (12 / 363),
-              bottom: cardHeight * (110 / 645),
+              bottom: cardHeight * ((widget.hideCommentBar ? 72 : 110) / 645),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -701,7 +705,7 @@ class PostCardState extends State<PostCard>
             // リアクション
             Positioned(
               left: cardWidth * (12 / 363),
-              bottom: cardHeight * (80 / 645),
+              bottom: cardHeight * ((widget.hideCommentBar ? 42 : 80) / 645),
               child: Row(
                 children: [
                   _buildReactionButton(
@@ -728,17 +732,18 @@ class PostCardState extends State<PostCard>
             if (!widget.hideReactionCounts)
               Positioned(
                 right: cardWidth * (12 / 363),
-                bottom: cardHeight * (80 / 645),
+                bottom: cardHeight * ((widget.hideCommentBar ? 42 : 80) / 645),
                 child: _buildLikedUsersIconsFront(cardWidth, cardHeight),
               ),
 
-            // コメントボタン（半透明黒背景）
-            Positioned(
-              left: cardWidth * (12 / 363),
-              right: cardWidth * (12 / 363),
-              bottom: cardHeight * (28 / 645),
-              child: _buildCommentButtonBack(),
-            ),
+            // コメントボタン（半透明黒背景）— hideCommentBar 時は非表示。
+            if (!widget.hideCommentBar)
+              Positioned(
+                left: cardWidth * (12 / 363),
+                right: cardWidth * (12 / 363),
+                bottom: cardHeight * (28 / 645),
+                child: _buildCommentButtonBack(),
+              ),
 
             // "Provided courtesy of Apple Music"
             Positioned(
@@ -751,7 +756,7 @@ class PostCardState extends State<PostCard>
             ),
 
             // 共有ボタン（自分の投稿のみ）
-            if (_isOwner)
+            if (_isOwner && !widget.hideShareButton)
               Positioned(
                 right: cardWidth * (47 / 363),
                 bottom: cardHeight * (110 / 645),
@@ -849,28 +854,6 @@ class PostCardState extends State<PostCard>
             ),
             const SizedBox(width: 12),
           ],
-        ),
-      ),
-    );
-  }
-
-  /// 公開範囲バッジ（アルバム右下の円形アイコン）
-  Widget _buildAudienceBadge() {
-    final isFollowers = widget.post.audience == PostAudience.followers;
-    return Container(
-      width: 30,
-      height: 30,
-      decoration: const BoxDecoration(
-        color: Color(0xCC1F1F1F),
-        shape: BoxShape.circle,
-      ),
-      child: Center(
-        child: Image.asset(
-          isFollowers
-              ? 'assets/icons/audience_badge_lock.png'
-              : 'assets/icons/audience_badge_globe.png',
-          width: 16,
-          height: 16,
         ),
       ),
     );

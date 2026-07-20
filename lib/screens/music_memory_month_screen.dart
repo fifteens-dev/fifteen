@@ -1,16 +1,14 @@
-import 'dart:ui' as ui;
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_shaders/flutter_shaders.dart';
 
 import '../models/post_model.dart';
 import '../services/post_service.dart';
 import '../constants/profile_fonts.dart';
+import '../widgets/variable_blur.dart';
 import 'vibe_user_story_screen.dart';
 import 'home/vibe_story_bar_section.dart';
-import 'profile_posts_list_screen.dart';
+import 'music_memory_detail_screen.dart';
 
 /// Music Memory - Month 画面。
 ///
@@ -92,9 +90,6 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
   /// userId 指定時のみ遅延ロード。無ければ渡された postsByMonth を静的表示。
   late final bool _lazy;
 
-  /// 上部プログレッシブブラー用シェーダー。ロード完了までは非適用。
-  ui.FragmentProgram? _blurProgram;
-
   int get _monthCount => _monthsNewToOld.length;
   int get _loadedMonthCount =>
       (_loadedChunks * _chunkMonths).clamp(0, _monthCount);
@@ -136,17 +131,6 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
       _loadedChunks = (_monthCount / _chunkMonths).ceil();
     }
     _scrollController.addListener(_onScroll);
-    _loadBlurShader();
-  }
-
-  Future<void> _loadBlurShader() async {
-    try {
-      final program =
-          await ui.FragmentProgram.fromAsset('shaders/progressive_blur.frag');
-      if (mounted) setState(() => _blurProgram = program);
-    } catch (_) {
-      // 読み込み失敗時はぼかし無し（内容はそのまま表示）で続行。
-    }
   }
 
   @override
@@ -276,26 +260,33 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
     );
   }
 
-  /// 気分投稿を投稿カード形式（縦スクロール一覧）で開く。
-  /// タップした投稿と同じ日の気分投稿だけをまとめて渡し、タップした投稿から表示。
+  /// 気分投稿を Music Memory 詳細（日カルーセル）で開く。
+  /// 各日の代表（最新1件）を新しい→古い順に並べ、タップした日を初期表示にする。
   void _openPostCard(PostModel post) {
     bool sameDay(DateTime a, DateTime b) =>
         a.year == b.year && a.month == b.month && a.day == b.day;
-    final dayPosts = _allLoadedPosts()
-        .where((p) => !p.isVibe && sameDay(p.createdAt, post.createdAt))
-        .toList();
-    final posts = dayPosts.isEmpty ? [post] : dayPosts;
-    final idx =
-        posts.indexWhere((p) => p.postId == post.postId).clamp(0, posts.length - 1);
-    Navigator.push(
+
+    // ロード済みの気分投稿を日ごとにグルーピングし、各日の最新を代表にする。
+    final repByDay = <String, PostModel>{};
+    for (final p in _allLoadedPosts().where((p) => !p.isVibe)) {
+      final key = '${p.createdAt.year}-${p.createdAt.month}-${p.createdAt.day}';
+      final ex = repByDay[key];
+      if (ex == null || p.createdAt.isAfter(ex.createdAt)) repByDay[key] = p;
+    }
+    final days = repByDay.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt)); // 新しい→古い
+    if (days.isEmpty) days.add(post);
+    final idx = days.indexWhere((p) => sameDay(p.createdAt, post.createdAt));
+
+    // 詳細画面でも端まで来たら 3ヶ月前を追加ロードできるよう、遅延ロードの
+    // 骨格（月一覧・ロード済みチャンク数・userId）を渡す。
+    MusicMemoryDetailScreen.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ProfilePostsListScreen(
-          posts: posts,
-          initialIndex: idx,
-          showBackFirst: true,
-        ),
-      ),
+      posts: days,
+      initialIndex: idx < 0 ? 0 : idx,
+      userId: widget.userId,
+      monthsNewToOld: _monthsNewToOld,
+      loadedChunks: _loadedChunks,
     );
   }
 
@@ -360,29 +351,16 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
       // 上下の黒い空白をなくすため SafeArea を使わず、画面端まで内容を敷く。
       body: Stack(
         children: [
-          // プログレッシブブラー: 一覧を丸ごとシェーダーに通し、上端(y=0)ほど強く
-          // 下端(fadeH)でぼかし無しへ連続的に変化させる。段差(横線)が出ない。
-          // シェーダー未ロード時は素の一覧を表示。
-          Positioned.fill(
-            child: _blurProgram == null
-                ? list
-                : AnimatedSampler(
-                    (ui.Image image, Size size, Canvas canvas) {
-                      final shader = _blurProgram!.fragmentShader();
-                      shader.setFloat(0, size.width); // uSize.x
-                      shader.setFloat(1, size.height); // uSize.y
-                      shader.setFloat(2, fadeH); // uFadeStart
-                      shader.setFloat(3, 40.0); // uMaxRadius
-                      shader.setImageSampler(0, image); // uTexture
-                      canvas.drawRect(
-                        Offset.zero & size,
-                        Paint()..shader = shader,
-                      );
-                    },
-                    child: list,
-                  ),
+          Positioned.fill(child: list),
+          // 上部の連続ぼかし: iOS ネイティブ(UIVisualEffectView + グラデマスク)。
+          // ビューは画面全体に広げ、マスクを上端(フル)→画面の約28%地点で 0 に
+          // フェードする。ぼかしが見える範囲は上部だけだが、ビューの矩形下端は
+          // 画面下(＝ぼかし0の領域)にあるため、境目が一切見えない。
+          const Positioned.fill(
+            child: VariableBlur(fullUntil: 0.0, fadeEnd: 0.28, passes: 2),
           ),
-          // 黒へのグラデーション: 上端を締めつつ下端で透明にして馴染ませる。
+          // 黒グラデーション: ぼかしと同じ帯に上→下で重ね、ぼかしの薄れと同時に
+          // 内容が背景色へ溶けるようにして境目を目立たなくする。
           Positioned(
             top: 0,
             left: 0,
@@ -394,7 +372,7 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Color(0x99121212), Color(0x00121212)],
+                    colors: [Color(0xA6121212), Color(0x00121212)],
                     stops: [0.0, 1.0],
                   ),
                 ),

@@ -161,6 +161,8 @@ class _CardShareSheetState extends State<_CardShareSheet> {
                     audioService: _audioService,
                     isSaved: widget.isSaved,
                     hideReactionCounts: true,
+                    // 共有プレビュー・出力はどの状態からでもコメントバー非表示。
+                    hideCommentBar: true,
                     backSideEnabled: true,
                     startFromBack: true,
                   ),

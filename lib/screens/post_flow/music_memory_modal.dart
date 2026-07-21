@@ -11,6 +11,7 @@ import '../../models/post_model.dart';
 import '../../models/track_model.dart';
 import '../../models/user_model.dart';
 import '../../services/audio_player_service.dart';
+import '../../services/itunes_search_service.dart';
 import '../../services/music_service_manager.dart';
 import '../../services/now_playing_service.dart';
 import '../../services/post_service.dart';
@@ -209,6 +210,8 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
   /// カメラ画面左上のくの字ボタンで曲選択に戻れるよう、モーダル自体は
   /// pop せずスタックに残しておく (カメラは fullscreenDialog で上に被さる)。
   void _confirmAndProceed(TrackModel track) {
+    // 写真フローへ進む前にプレビュー再生を停止（モーダルはスタックに残るため）。
+    _audioService.stop();
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -444,6 +447,10 @@ class _CardCarouselState extends State<_CardCarousel>
   late final AnimationController _wobbleCtrl;
   int _lastCenter = 0;
 
+  final ITunesSearchService _itunes = ITunesSearchService();
+  final Map<String, String> _previewCache = {}; // trackId -> previewUrl
+  int _playGen = 0;
+
   // 仮 PostModel の createdAt をフレーム間で安定にするための固定値。
   static final DateTime _stableTs = DateTime(2026);
 
@@ -457,6 +464,28 @@ class _CardCarouselState extends State<_CardCarousel>
       duration: const Duration(milliseconds: 1500),
     );
     if (widget.wobble) _wobbleCtrl.repeat();
+    // 初期表示（先頭）の曲を再生。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _playCentered());
+  }
+
+  /// 中央に来ている曲のプレビュー音源を再生する（settle 時・初期表示で呼ぶ）。
+  Future<void> _playCentered() async {
+    final gen = ++_playGen;
+    if (widget.tracks.isEmpty) return;
+    final track = widget.tracks[_lastCenter.clamp(0, widget.tracks.length - 1)];
+
+    String? url = track.previewUrl;
+    if (url == null || url.isEmpty) url = _previewCache[track.trackId];
+    if (url == null || url.isEmpty) {
+      final r = await _itunes.getPreviewUrlWithArt(
+        trackName: track.trackName,
+        artistName: track.artistName,
+      );
+      url = r?['previewUrl'];
+      if (url != null && url.isNotEmpty) _previewCache[track.trackId] = url;
+    }
+    if (!mounted || gen != _playGen || url == null || url.isEmpty) return;
+    await widget.audioService.playPreview(url, durationSeconds: 15, owner: this);
   }
 
   @override
@@ -487,6 +516,7 @@ class _CardCarouselState extends State<_CardCarousel>
     _controller.removeListener(_onScroll);
     _controller.dispose();
     _wobbleCtrl.dispose();
+    widget.audioService.stopIfOwner(this);
     super.dispose();
   }
 
@@ -494,7 +524,13 @@ class _CardCarouselState extends State<_CardCarousel>
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, c) {
-        return PageView.builder(
+        return NotificationListener<ScrollNotification>(
+          onNotification: (n) {
+            // スクロールが止まった＝中央にカードが収まったら再生。
+            if (n is ScrollEndNotification) _playCentered();
+            return false;
+          },
+          child: PageView.builder(
           controller: _controller,
           physics: const BouncingScrollPhysics(),
           itemCount: widget.tracks.length,
@@ -531,6 +567,7 @@ class _CardCarouselState extends State<_CardCarousel>
             }
             return Center(child: card);
           },
+          ),
         );
       },
     );

@@ -168,8 +168,13 @@ import ObjectiveC.runtime
       switch call.method {
       case "getNowPlaying":
         self?.ensureMediaAuth { authorized in
-          guard authorized else { result(nil); return }
+          guard authorized else {
+            NSLog("[MM native] getNowPlaying: NOT authorized")
+            result(nil)
+            return
+          }
           let player = MPMusicPlayerController.systemMusicPlayer
+          NSLog("[MM native] getNowPlaying: playbackState=\(player.playbackState.rawValue) item=\(String(describing: player.nowPlayingItem?.title))")
           if let item = player.nowPlayingItem {
             result([
               "title": item.title ?? "",

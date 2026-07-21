@@ -152,6 +152,15 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
     }
 
+    // ── music_memory_state コレクション ──────────────────────
+    // Cloud Function が通知発火時刻(notifiedAt)を書き込む「投稿サイクルの境界」状態。
+    // クライアントはタイムライン表示範囲の判定に使うため読み取りのみ許可。
+    // 書き込みは Cloud Functions(admin) のみ（ルールでは常に拒否）。
+    match /music_memory_state/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
     // ── push_notification_requests コレクション ──────────────
     // Cloud Function が処理するキュー。
     // senderId が自分のUIDと一致する場合のみ作成可（なりすまし防止）

@@ -39,9 +39,9 @@ class MusicMemoryCycleService {
   /// 直近に発火した通知時刻（サイクル開始）。未取得/未発火なら null。
   DateTime? get notifiedAt => _notifiedAt;
 
-  /// タイムライン表示の下限（現サイクル開始）。
-  /// 状態未取得・未発火のときは従来どおり now-24h をフォールバックにして
-  /// タイムラインが空にならないようにする。
+  /// ホームタイムライン表示の下限（現サイクル開始＝直近 notifiedAt）。
+  /// 投稿は24時間を超えても、次の通知が来るまで表示し続ける（次の通知で前サイクル分が外れる）。
+  /// 状態未取得・未発火のときは now-24h をフォールバックにして空表示を防ぐ。
   DateTime get currentCycleStart =>
       _notifiedAt ?? DateTime.now().subtract(const Duration(hours: 24));
 

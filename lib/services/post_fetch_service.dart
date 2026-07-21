@@ -127,8 +127,8 @@ class PostFetchService {
   /// フォロー中のユーザーの投稿を取得（Firestore whereIn のバッチ処理）
   /// ダミーユーザー投稿・Vibe 投稿（ストーリー）はタイムラインには出さない。
   ///
-  /// 表示範囲は Music Memory の投稿サイクル制。直近の通知時刻（notifiedAt）以降の
-  /// 投稿のみを出し、次の通知が来ると前サイクル分は自然に外れる。
+  /// 表示範囲:「投稿は24時間を超えても、次の通知が来るまで表示し続ける」。
+  /// = createdAt >= 現サイクル開始（直近 notifiedAt）。次の通知が来た時点で前サイクル分が外れる。
   Future<List<PostModel>> getPostsForFollowing(List<String> userIds, {int limit = 50}) async {
     if (userIds.isEmpty) return [];
 

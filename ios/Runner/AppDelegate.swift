@@ -167,6 +167,9 @@ import ObjectiveC.runtime
     channel.setMethodCallHandler { [weak self] (call, result) in
       switch call.method {
       case "getNowPlaying":
+        // includeArtwork=false のとき埋め込みアートを付けない（履歴ポーリング用の軽量版）。
+        let includeArtwork =
+          (call.arguments as? [String: Any])?["includeArtwork"] as? Bool ?? true
         self?.ensureMediaAuth { authorized in
           guard authorized else {
             NSLog("[MM native] getNowPlaying: NOT authorized")
@@ -174,13 +177,26 @@ import ObjectiveC.runtime
             return
           }
           let player = MPMusicPlayerController.systemMusicPlayer
-          NSLog("[MM native] getNowPlaying: playbackState=\(player.playbackState.rawValue) item=\(String(describing: player.nowPlayingItem?.title))")
           if let item = player.nowPlayingItem {
-            result([
+            // playbackStoreID = Apple Music カタログID（非ストア曲は "0"）。
+            // これがあれば曲名検索に頼らず、同一バージョン・同一アートで解決できる。
+            let storeId = item.playbackStoreID
+            var payload: [String: Any] = [
               "title": item.title ?? "",
               "artist": item.artist ?? "",
               "isPlaying": player.playbackState == .playing,
-            ])
+              "storeId": storeId,
+            ]
+            // 埋め込みアートワーク（ローカル/取り込み曲でカタログ解決できない時の
+            // 完璧一致用）。data URI で返し、Flutter 側でそのまま表示できるようにする。
+            if includeArtwork,
+               let artwork = item.artwork,
+               let img = artwork.image(at: CGSize(width: 300, height: 300)),
+               let data = img.jpegData(compressionQuality: 0.8) {
+              payload["artworkDataUri"] =
+                "data:image/jpeg;base64," + data.base64EncodedString()
+            }
+            result(payload)
           } else {
             result(nil)
           }
@@ -203,6 +219,47 @@ import ObjectiveC.runtime
             ]
           }
           result(mapped)
+        }
+      case "getLibraryRecentlyPlayed":
+        // 【実験】MusicKit（iOS16+）の Song.lastPlayedDate でライブラリの再生履歴を取得。
+        // MediaPlayer の lastPlayedDate が付かない Apple Music クラウド曲でも
+        // こちらなら時刻が取れるか検証する目的。取得不可時は空配列。
+        let mkLimit = (call.arguments as? [String: Any])?["limit"] as? Int ?? 30
+        if #available(iOS 16.0, *) {
+          Task {
+            guard MusicAuthorization.currentStatus == .authorized else {
+              NSLog("[MM native] getLibraryRecentlyPlayed(MusicKit): NOT authorized")
+              DispatchQueue.main.async { result([]) }
+              return
+            }
+            do {
+              var request = MusicLibraryRequest<Song>()
+              request.limit = mkLimit
+              request.sort(by: \.lastPlayedDate, ascending: false)
+              let response = try await request.response()
+              let mapped: [[String: Any]] = response.items.compactMap { song in
+                guard let d = song.lastPlayedDate else { return nil }
+                var m: [String: Any] = [
+                  "title": song.title,
+                  "artist": song.artistName,
+                  "playedAtMs": Int(d.timeIntervalSince1970 * 1000),
+                  "id": song.id.rawValue,
+                ]
+                // アートワーク URL（表示用）。無ければ Dart 側でプレビュー取得時に補完。
+                if let artURL = song.artwork?.url(width: 640, height: 640) {
+                  m["artworkUrl"] = artURL.absoluteString
+                }
+                return m
+              }
+              NSLog("[MM native] getLibraryRecentlyPlayed(MusicKit): \(mapped.count)/\(response.items.count) items have lastPlayedDate")
+              DispatchQueue.main.async { result(mapped) }
+            } catch {
+              NSLog("[MM native] getLibraryRecentlyPlayed(MusicKit) error: \(error)")
+              DispatchQueue.main.async { result([]) }
+            }
+          }
+        } else {
+          result([])
         }
       default:
         result(FlutterMethodNotImplemented)
@@ -405,30 +462,9 @@ import ObjectiveC.runtime
         return
       }
 
-      // Use SKCloudServiceController to request actual Music User Token
-      let controller = SKCloudServiceController()
-      controller.requestUserToken(forDeveloperToken: devToken) { (userToken, error) in
-        DispatchQueue.main.async {
-          if let error = error {
-            let nsError = error as NSError
-            print("🔍 Token error - code: \(nsError.code), domain: \(nsError.domain)")
-            // 認証済み(authorized)後にトークン取得が失敗する主な原因はサブスクリプション未加入
-            result(FlutterError(
-              code: "NO_SUBSCRIPTION",
-              message: "Apple Musicのサブスクリプションが必要です",
-              details: "\(nsError.code)"
-            ))
-          } else if let userToken = userToken, !userToken.isEmpty {
-            result(userToken)
-          } else {
-            result(FlutterError(
-              code: "TOKEN_ERROR",
-              message: "User token was empty",
-              details: nil
-            ))
-          }
-        }
-      }
+      // 一時的な失敗（ネットワーク瞬断・StoreKit 権限の伝播遅延）はリトライで吸収する。
+      // エラーは種類ごとに分類して返し、従来のように全失敗を NO_SUBSCRIPTION に潰さない。
+      requestUserTokenWithRetry(developerToken: devToken, attemptsLeft: 3, result: result)
     } else {
       result(FlutterError(
         code: "UNAVAILABLE",
@@ -436,6 +472,90 @@ import ObjectiveC.runtime
         details: nil
       ))
     }
+  }
+
+  /// SKCloudServiceController.requestUserToken を、指数バックオフでリトライしつつ実行する。
+  /// - 一時的なエラー（ネットワーク瞬断・unknown）はリトライ。
+  /// - 尽きたら、原因をコード分類して Flutter に返す（サブスク未加入と断定しない）。
+  private func requestUserTokenWithRetry(developerToken: String,
+                                         attemptsLeft: Int,
+                                         result: @escaping FlutterResult) {
+    let controller = SKCloudServiceController()
+    controller.requestUserToken(forDeveloperToken: developerToken) { [weak self] (userToken, error) in
+      if let error = error {
+        let nsError = error as NSError
+        print("🔍 requestUserToken error - code: \(nsError.code), domain: \(nsError.domain), attemptsLeft: \(attemptsLeft)")
+
+        if AppDelegate.isTransientTokenError(nsError) && attemptsLeft > 1 {
+          let delayMs = (4 - attemptsLeft) * 400 // 400ms, 800ms
+          DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delayMs)) {
+            self?.requestUserTokenWithRetry(developerToken: developerToken,
+                                            attemptsLeft: attemptsLeft - 1,
+                                            result: result)
+          }
+          return
+        }
+
+        let (code, message) = AppDelegate.classifyTokenError(nsError)
+        DispatchQueue.main.async {
+          result(FlutterError(
+            code: code,
+            message: message,
+            details: "domain=\(nsError.domain) code=\(nsError.code)"
+          ))
+        }
+      } else if let userToken = userToken, !userToken.isEmpty {
+        DispatchQueue.main.async { result(userToken) }
+      } else if attemptsLeft > 1 {
+        // 空トークンは一時的なことがあるためリトライ
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(400)) {
+          self?.requestUserTokenWithRetry(developerToken: developerToken,
+                                          attemptsLeft: attemptsLeft - 1,
+                                          result: result)
+        }
+      } else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "TOKEN_ERROR", message: "User token was empty", details: nil))
+        }
+      }
+    }
+  }
+
+  /// ネットワーク瞬断など、リトライで回復し得る一時エラーか。
+  private static func isTransientTokenError(_ nsError: NSError) -> Bool {
+    if nsError.domain == SKErrorDomain, let skCode = SKError.Code(rawValue: nsError.code) {
+      switch skCode {
+      case .cloudServiceNetworkConnectionFailed, .unknown:
+        return true
+      default:
+        return false
+      }
+    }
+    if nsError.domain == NSURLErrorDomain { return true }
+    return false
+  }
+
+  /// requestUserToken のエラーを Flutter 向けコード/メッセージに分類する。
+  /// 「サブスク未加入」とは断定しない（真の判定は API 側の 403 で行う）。
+  private static func classifyTokenError(_ nsError: NSError) -> (String, String) {
+    if nsError.domain == SKErrorDomain, let skCode = SKError.Code(rawValue: nsError.code) {
+      switch skCode {
+      case .cloudServicePermissionDenied, .cloudServiceRevoked:
+        return ("NOT_AUTHORIZED", "Apple Music へのアクセスが許可されていません。設定から許可してください。")
+      case .privacyAcknowledgementRequired:
+        return ("PRIVACY_ACK_REQUIRED", "Apple Music の利用規約への同意が必要です。ミュージック App を一度開いてください。")
+      case .cloudServiceNetworkConnectionFailed:
+        return ("NETWORK_ERROR", "通信エラーが発生しました。電波の良い場所で再度お試しください。")
+      case .unsupportedPlatform:
+        return ("UNAVAILABLE", "この端末では Apple Music を利用できません。")
+      default:
+        return ("TOKEN_ERROR", "Apple Music トークンの取得に失敗しました。時間をおいて再度お試しください。")
+      }
+    }
+    if nsError.domain == NSURLErrorDomain {
+      return ("NETWORK_ERROR", "通信エラーが発生しました。電波の良い場所で再度お試しください。")
+    }
+    return ("TOKEN_ERROR", "Apple Music トークンの取得に失敗しました。時間をおいて再度お試しください。")
   }
 
   // MARK: - ディープリンクチャンネル（fifteenapp://post/{postId}）

@@ -237,7 +237,9 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
   }
 
   void _goTo(int i) {
-    if (i < 0 || i >= widget.posts.length) return;
+    // 範囲チェックは実データ(_days)で行う。追加ロード後も正しく移動できるように
+    // widget.posts（初期分のみ）ではなく _days.length を使う。
+    if (i < 0 || i >= _days.length) return;
     _controller.animateToPage(
       i,
       duration: const Duration(milliseconds: 320),
@@ -277,6 +279,9 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
                     },
                     child: PageView.builder(
                     controller: _controller,
+                    // _days は新しい→古い順（index 0 が最新）。reverse:true で
+                    // 高インデックス（古い投稿）を画面左に配置する。
+                    reverse: true,
                     itemCount: posts.length,
                     itemBuilder: (context, i) {
                       final scale = (1 -
@@ -459,10 +464,10 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
             child: Stack(
               clipBehavior: Clip.hardEdge,
               children: [
-                // 左（前の日）
-                jacket(_index - 1, left: 20, top: 8, w: 43, h: 42),
-                // 右（次の日）
-                jacket(_index + 1, left: 147, top: 8, w: 43, h: 42),
+                // 本編を reverse 表示（古いほど左）にしたので、下部バーも合わせる。
+                // 左＝古い日（_index+1）、右＝新しい日（_index-1）。
+                jacket(_index + 1, left: 20, top: 8, w: 43, h: 42),
+                jacket(_index - 1, left: 147, top: 8, w: 43, h: 42),
                 // 中央の白枠（3px・角丸16・58×58）
                 const Positioned(
                   left: 76,

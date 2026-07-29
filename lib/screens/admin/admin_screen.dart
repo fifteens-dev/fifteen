@@ -6,8 +6,9 @@ import '../../constants/app_colors.dart';
 import '../../constants/app_constants.dart';
 import '../../services/admin_service.dart';
 import 'broadcast_notification_tab.dart';
-import 'vibe_topic_management_tab.dart';
-import 'vibe_posts_viewer_tab.dart';
+// Vibe 機能は一時的に全面非表示（将来再利用のため温存）。
+// import 'vibe_topic_management_tab.dart';
+// import 'vibe_posts_viewer_tab.dart';
 import 'dev_tools_tab.dart';
 import 'invitation_stats_tab.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -35,7 +36,8 @@ class _AdminScreenState extends State<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 9, vsync: this);
+    // Vibe 機能の全面非表示に伴い、Vibeお題・Vibe投稿タブを除外（9→7）。
+    _tabController = TabController(length: 7, vsync: this);
     _checkAdminStatus();
   }
 
@@ -112,14 +114,9 @@ class _AdminScreenState extends State<AdminScreen>
               icon: Icon(Icons.notifications),
               text: '一斉通知',
             ),
-            Tab(
-              icon: Icon(Icons.topic),
-              text: 'Vibeお題',
-            ),
-            Tab(
-              icon: Icon(Icons.list_alt),
-              text: 'Vibe投稿',
-            ),
+            // Vibe 機能は一時的に全面非表示（将来再利用のため温存）。
+            // Tab(icon: Icon(Icons.topic), text: 'Vibeお題'),
+            // Tab(icon: Icon(Icons.list_alt), text: 'Vibe投稿'),
             Tab(
               icon: Icon(Icons.developer_mode),
               text: '開発ツール',
@@ -148,8 +145,9 @@ class _AdminScreenState extends State<AdminScreen>
         children: const [
           AnalyticsTab(),
           BroadcastNotificationTab(),
-          VibeTopicManagementTab(),
-          VibePostsViewerTab(),
+          // Vibe 機能は一時的に全面非表示（将来再利用のため温存）。
+          // VibeTopicManagementTab(),
+          // VibePostsViewerTab(),
           DevToolsTab(),
           InvitationStatsTab(),
           ReportsTab(),

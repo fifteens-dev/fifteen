@@ -228,11 +228,9 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
   /// カレンダー上のアルバムアートタップ。
   /// ストーリー（Vibe 投稿）は Vibe プレイリスト形式、気分投稿は投稿カード形式で開く。
   void _openPost(PostModel post) {
-    if (post.isVibe) {
-      _openVibeStory(post);
-    } else {
-      _openPostCard(post);
-    }
+    // Vibe 機能は一時的に全面非表示。過去の Vibe 投稿も含め、
+    // すべて投稿カード（Music Memory 詳細）形式で表示する（表示時変換・可逆）。
+    _openPostCard(post);
   }
 
   void _openVibeStory(PostModel post) {
@@ -268,7 +266,8 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
 
     // ロード済みの気分投稿を日ごとにグルーピングし、各日の最新を代表にする。
     final repByDay = <String, PostModel>{};
-    for (final p in _allLoadedPosts().where((p) => !p.isVibe)) {
+    // Vibe 投稿も含めた全投稿を対象にする（過去 Vibe を投稿カードとして表示）。
+    for (final p in _allLoadedPosts()) {
       final key = '${p.createdAt.year}-${p.createdAt.month}-${p.createdAt.day}';
       final ex = repByDay[key];
       if (ex == null || p.createdAt.isAfter(ex.createdAt)) repByDay[key] = p;

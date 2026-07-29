@@ -28,40 +28,53 @@ class NowPlayingService {
   ///   - タイムスタンプが取れない曲（＝最近のストリーミングとみなす）は Web API 順の
   ///     まま上位に残す（実際の最新はこちらであることが多い）。
   ///   - 安定ソートで同条件の相対順は維持する。
+  /// 今 Apple Music（システムミュージックプレイヤー）で再生中の曲情報を返す。
+  /// iOS 以外・取得不可・曲情報が無い場合は null。
+  /// [includeArtwork] false で埋め込みアートを付けない（履歴ポーリング用の軽量版）。
+  Future<NowPlayingInfo?> getNowPlaying({bool includeArtwork = true}) async {
+    if (!Platform.isIOS) return null;
+    try {
+      final np = await _channel.invokeMethod<Map>(
+          'getNowPlaying', {'includeArtwork': includeArtwork});
+      if (includeArtwork) {
+        // 【診断ログ】ネイティブから返った now playing の中身（ポーリング時は抑制）。
+        print('[MM nowPlaying] raw=$np');
+      }
+      if (np == null) return null;
+      final title = (np['title'] as String?)?.trim() ?? '';
+      final artist = (np['artist'] as String?)?.trim() ?? '';
+      if (title.isEmpty) return null;
+      // "0"/空 は非ストア曲＝カタログID無しとして扱う。
+      final rawStore = (np['storeId'] as String?)?.trim() ?? '';
+      final storeId = (rawStore.isEmpty || rawStore == '0') ? null : rawStore;
+      final art = (np['artworkDataUri'] as String?);
+      return NowPlayingInfo(
+        title: title,
+        artist: artist,
+        isPlaying: np['isPlaying'] == true,
+        storeId: storeId,
+        artworkDataUri: (art != null && art.isNotEmpty) ? art : null,
+      );
+    } catch (e) {
+      print('[MM nowPlaying] error=$e');
+      return null;
+    }
+  }
+
   Future<List<TrackModel>> enrich(List<TrackModel> tracks) async {
     if (!Platform.isIOS || tracks.isEmpty) return tracks;
 
     // 今聞いている曲
     String? npKey;
     bool npPlaying = false;
-    try {
-      final np = await _channel.invokeMethod<Map>('getNowPlaying');
-      // 【診断ログ】ネイティブから返った now playing の中身。
-      print('[MM nowPlaying] raw=$np');
-      if (np != null && (np['isPlaying'] == true)) {
-        npKey = _key(np['title'] as String?, np['artist'] as String?);
-        npPlaying = true;
-      }
-    } catch (e) {
-      print('[MM nowPlaying] error=$e');
+    final np = await getNowPlaying();
+    if (np != null && np.isPlaying) {
+      npKey = _key(np.title, np.artist);
+      npPlaying = true;
     }
 
     // 最後に再生した時刻（曲キー → DateTime）
-    final Map<String, DateTime> playedAt = {};
-    try {
-      final list =
-          await _channel.invokeMethod<List>('getRecentlyPlayed', {'limit': 30});
-      if (list != null) {
-        for (final e in list) {
-          final m = e as Map;
-          final ms = (m['playedAtMs'] as num?)?.toInt();
-          if (ms != null && ms > 0) {
-            playedAt[_key(m['title'] as String?, m['artist'] as String?)] =
-                DateTime.fromMillisecondsSinceEpoch(ms);
-          }
-        }
-      }
-    } catch (_) {}
+    final playedAt = await _fetchPlayedAtMap();
 
     if (npKey == null && playedAt.isEmpty) return tracks;
 
@@ -71,6 +84,57 @@ class NowPlayingService {
       npPlaying: npPlaying,
       playedAt: playedAt,
     );
+  }
+
+  /// 端末ライブラリの「最近再生した曲」を新しい順で取得する（title/artist/playedAt）。
+  ///
+  /// `lastPlayedDate` は端末側で**ほぼリアルタイム**に更新されるため、
+  /// Web API（サーバ反映が遅い）がまだ返さない直近の再生曲を拾うのに使う。
+  /// ※ライブラリに追加済みの曲のみが対象（純ストリーミングは含まれない）。
+  Future<List<({String title, String artist, DateTime playedAt})>>
+      getDeviceRecentlyPlayed({int limit = 30}) =>
+          _fetchDeviceRecentEntries(limit: limit);
+
+  /// MediaPlayer と MusicKit(iOS16+) 両方から再生履歴を取得してマージする。
+  /// 同じ曲は「より新しい方の時刻」を採用。どちらか一方でしか lastPlayedDate が
+  /// 付かないケース（Apple Music クラウド曲など）を両取りで拾うのが狙い。
+  Future<List<({String title, String artist, DateTime playedAt})>>
+      _fetchDeviceRecentEntries({int limit = 30}) async {
+    if (!Platform.isIOS) return const [];
+    final byKey = <String, ({String title, String artist, DateTime playedAt})>{};
+
+    Future<void> pull(String method) async {
+      try {
+        final list = await _channel.invokeMethod<List>(method, {'limit': limit});
+        if (list == null) return;
+        for (final e in list) {
+          final m = e as Map;
+          final ms = (m['playedAtMs'] as num?)?.toInt();
+          final title = (m['title'] as String?)?.trim() ?? '';
+          if (ms == null || ms <= 0 || title.isEmpty) continue;
+          final artist = (m['artist'] as String?)?.trim() ?? '';
+          final at = DateTime.fromMillisecondsSinceEpoch(ms);
+          final k = _key(title, artist);
+          final ex = byKey[k];
+          if (ex == null || at.isAfter(ex.playedAt)) {
+            byKey[k] = (title: title, artist: artist, playedAt: at);
+          }
+        }
+      } catch (_) {}
+    }
+
+    await pull('getRecentlyPlayed'); // MediaPlayer（MPMediaItem.lastPlayedDate）
+    await pull('getLibraryRecentlyPlayed'); // MusicKit（Song.lastPlayedDate, iOS16+）
+
+    final out = byKey.values.toList()
+      ..sort((a, b) => b.playedAt.compareTo(a.playedAt)); // 新しい順
+    return out;
+  }
+
+  /// 端末ライブラリの lastPlayedDate を「曲キー → 時刻」で取得する（両ソースをマージ）。
+  Future<Map<String, DateTime>> _fetchPlayedAtMap() async {
+    final entries = await _fetchDeviceRecentEntries();
+    return {for (final e in entries) _key(e.title, e.artist): e.playedAt};
   }
 
   /// 並べ替え本体（純粋関数・テスト可能）。
@@ -109,4 +173,26 @@ class NowPlayingService {
   /// テスト用に正規化キーを公開。
   @visibleForTesting
   static String keyForTest(String? title, String? artist) => _key(title, artist);
+}
+
+/// 「今再生中の曲」情報。
+class NowPlayingInfo {
+  final String title;
+  final String artist;
+  final bool isPlaying;
+
+  /// Apple Music カタログID（playbackStoreID）。非ストア曲や取得不可のときは null。
+  final String? storeId;
+
+  /// 端末の曲データに埋め込まれたアートワーク（data URI）。カタログ解決できない
+  /// ローカル/取り込み曲を完璧一致で表示するためのフォールバック。無ければ null。
+  final String? artworkDataUri;
+
+  const NowPlayingInfo({
+    required this.title,
+    required this.artist,
+    required this.isPlaying,
+    this.storeId,
+    this.artworkDataUri,
+  });
 }

@@ -469,8 +469,12 @@ class _VibeStoryPostSheetState extends State<VibeStoryPostSheet> {
               child: IgnorePointer(
                 // 非表示中（SizedBox.shrink）のときも Positioned はクリックを奪うため、
                 // bar が無い時はタップを下層に通す。
-                ignoring:
-                    _selectedTrack == null || _selectedTrackTheme == null,
+                //
+                // 「次へ」矢印はこのバー内にある。曲が選ばれていれば必ず押せるよう、
+                // 有効化は _selectedTrack のみで判定する（色抽出 _selectedTrackTheme には
+                // 依存させない）。アート欠落・抽出失敗・低速回線でもバーは
+                // フォールバック色で即表示され、矢印が無反応にならない。
+                ignoring: _selectedTrack == null,
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 220),
                   switchInCurve: Curves.easeOutCubic,
@@ -485,8 +489,7 @@ class _VibeStoryPostSheetState extends State<VibeStoryPostSheet> {
                       child: child,
                     ),
                   ),
-                  child: (_selectedTrack == null ||
-                          _selectedTrackTheme == null)
+                  child: (_selectedTrack == null)
                       ? const SizedBox.shrink(key: ValueKey('__bar_empty__'))
                       : KeyedSubtree(
                           key: ValueKey(_selectedTrack!.trackId),
@@ -564,12 +567,15 @@ class _VibeStoryPostSheetState extends State<VibeStoryPostSheet> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          _buildTabChip(
-            label: '最近聞いた曲',
-            tab: _SourceTab.recentlyPlayed,
-            width: 73,
-          ),
-          const SizedBox(width: 10),
+          // Spotify / 未連携（moodPostMode）はログが取れないため「最近聞いた曲」を非表示。
+          if (!widget.moodPostMode) ...[
+            _buildTabChip(
+              label: '最近聞いた曲',
+              tab: _SourceTab.recentlyPlayed,
+              width: 73,
+            ),
+            const SizedBox(width: 10),
+          ],
           _buildTabChip(
             label: 'おすすめ',
             tab: _SourceTab.recommended,

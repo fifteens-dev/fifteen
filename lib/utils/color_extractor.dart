@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:palette_generator/palette_generator.dart';
 import '../models/post_theme.dart';
+import 'album_image.dart';
 
 /// アルバムアート画像から色を抽出するユーティリティクラス
 class ColorExtractor {
@@ -17,7 +18,7 @@ class ColorExtractor {
       // NetworkImageからPaletteGeneratorを生成
       final PaletteGenerator paletteGenerator =
           await PaletteGenerator.fromImageProvider(
-        NetworkImage(imageUrl),
+        albumImageProvider(imageUrl),
         size: const Size(200, 200), // サンプリングサイズ
         maximumColorCount: 20, // 抽出する色の最大数
       );
@@ -42,7 +43,7 @@ class ColorExtractor {
 
       final PaletteGenerator paletteGenerator =
           await PaletteGenerator.fromImageProvider(
-        NetworkImage(imageUrl),
+        albumImageProvider(imageUrl),
         size: const Size(200, 200),
         maximumColorCount: 20,
       );
@@ -93,7 +94,7 @@ class ColorExtractor {
 
       final PaletteGenerator paletteGenerator =
           await PaletteGenerator.fromImageProvider(
-        NetworkImage(imageUrl),
+        albumImageProvider(imageUrl),
         size: const Size(200, 200),
         maximumColorCount: 20,
       );
@@ -135,7 +136,7 @@ class ColorExtractor {
 
       final PaletteGenerator paletteGenerator =
           await PaletteGenerator.fromImageProvider(
-        NetworkImage(imageUrl),
+        albumImageProvider(imageUrl),
         size: const Size(200, 200),
         maximumColorCount: 20,
       );

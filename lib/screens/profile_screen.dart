@@ -1041,12 +1041,8 @@ class ProfileScreenState extends State<ProfileScreen>
   }
 
   void _openPostCardBack(PostModel post) {
-    // ストーリー（Vibe 投稿）は Vibe プレイリスト形式のフルスクリーンビューアで開く。
-    // 気分投稿は、その日の投稿をまとめて投稿カード縦スクロール一覧で開く。
-    if (post.isVibe) {
-      _openVibeStory(post);
-      return;
-    }
+    // Vibe 機能は一時的に全面非表示。過去の Vibe 投稿も含め、
+    // すべての投稿を投稿カード（Music Memory 詳細）形式で表示する（表示時変換・可逆）。
     _openMoodPostCards(post);
   }
 
@@ -1058,7 +1054,8 @@ class ProfileScreenState extends State<ProfileScreen>
         a.year == b.year && a.month == b.month && a.day == b.day;
 
     final repByDay = <String, PostModel>{};
-    for (final p in _otherPosts.where((p) => !p.isVibe)) {
+    // Vibe 投稿も含めた全投稿を対象にする（過去 Vibe を投稿カードとして表示）。
+    for (final p in _otherPosts) {
       final key = '${p.createdAt.year}-${p.createdAt.month}-${p.createdAt.day}';
       final ex = repByDay[key];
       if (ex == null || p.createdAt.isAfter(ex.createdAt)) repByDay[key] = p;

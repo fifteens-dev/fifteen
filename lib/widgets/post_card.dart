@@ -22,6 +22,7 @@ import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/lyrics_service.dart';
 import '../services/post_service.dart';
+import '../utils/album_image.dart';
 import '../utils/color_extractor.dart';
 import '../utils/photo_helper.dart';
 import 'profile_widgets.dart';
@@ -404,12 +405,10 @@ class PostCardState extends State<PostCard>
                     borderRadius: BorderRadius.circular(3),
                   ),
                   child: _displayAlbumArtUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: _displayAlbumArtUrl,
+                      ? _buildAlbumArt(
+                          _displayAlbumArtUrl,
                           fit: BoxFit.cover,
-                          errorWidget: (context, url, error) {
-                            return _buildAlbumPlaceholder();
-                          },
+                          errorWidget: _buildAlbumPlaceholder(),
                         )
                       : _buildAlbumPlaceholder(),
                 ),
@@ -859,6 +858,25 @@ class PostCardState extends State<PostCard>
     );
   }
 
+  /// アルバムアート表示。ネットワークURLは従来通り [CachedNetworkImage]、
+  /// data URI / ローカルファイル（今再生中のローカル/取り込み曲の埋め込みアート）は
+  /// [Image] で描画する。
+  Widget _buildAlbumArt(String url,
+      {required BoxFit fit, required Widget errorWidget}) {
+    if (isLocalAlbumArt(url)) {
+      return Image(
+        image: albumImageProvider(url),
+        fit: fit,
+        errorBuilder: (_, __, ___) => errorWidget,
+      );
+    }
+    return CachedNetworkImage(
+      imageUrl: url,
+      fit: fit,
+      errorWidget: (_, __, ___) => errorWidget,
+    );
+  }
+
   /// アルバムプレースホルダー
   Widget _buildAlbumPlaceholder() {
     return Container(
@@ -957,10 +975,10 @@ class PostCardState extends State<PostCard>
                     print('❌ Failed to decode Base64 photo: $error');
                   }
                   return _displayAlbumArtUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: _displayAlbumArtUrl,
+                      ? _buildAlbumArt(
+                          _displayAlbumArtUrl,
                           fit: fit,
-                          errorWidget: (context, url, error) => _buildPhotoPlaceholder(),
+                          errorWidget: _buildPhotoPlaceholder(),
                         )
                       : _buildPhotoPlaceholder();
                 },
@@ -1007,10 +1025,10 @@ class PostCardState extends State<PostCard>
               print('   URL: ${PhotoHelper.formatPhotoUrlForLog(widget.post.photoUrl)}');
             }
             return _displayAlbumArtUrl.isNotEmpty
-                ? CachedNetworkImage(
-                    imageUrl: _displayAlbumArtUrl,
+                ? _buildAlbumArt(
+                    _displayAlbumArtUrl,
                     fit: fit,
-                    errorWidget: (context, url, error) => _buildPhotoPlaceholder(),
+                    errorWidget: _buildPhotoPlaceholder(),
                   )
                 : _buildPhotoPlaceholder();
           },
@@ -1021,10 +1039,10 @@ class PostCardState extends State<PostCard>
           fit: fit,
           errorBuilder: (context, error, stackTrace) {
             return _displayAlbumArtUrl.isNotEmpty
-                ? CachedNetworkImage(
-                    imageUrl: _displayAlbumArtUrl,
+                ? _buildAlbumArt(
+                    _displayAlbumArtUrl,
                     fit: fit,
-                    errorWidget: (context, url, error) => _buildPhotoPlaceholder(),
+                    errorWidget: _buildPhotoPlaceholder(),
                   )
                 : _buildPhotoPlaceholder();
           },
@@ -1032,10 +1050,10 @@ class PostCardState extends State<PostCard>
       }
     } else {
       return _displayAlbumArtUrl.isNotEmpty
-          ? CachedNetworkImage(
-              imageUrl: _displayAlbumArtUrl,
+          ? _buildAlbumArt(
+              _displayAlbumArtUrl,
               fit: fit,
-              errorWidget: (context, url, error) => _buildPhotoPlaceholder(),
+              errorWidget: _buildPhotoPlaceholder(),
             )
           : _buildPhotoPlaceholder();
     }

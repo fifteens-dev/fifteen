@@ -21,6 +21,11 @@ class AppleMusicService {
   String? _developerToken;
   String? _userToken;
 
+  /// 直近の連携失敗の原因（UI のメッセージ出し分け用）。成功時は null にクリア。
+  /// code: NOT_AUTHORIZED / PRIVACY_ACK_REQUIRED / NETWORK_ERROR / TOKEN_ERROR / UNKNOWN
+  String? lastLinkErrorCode;
+  String? lastLinkErrorMessage;
+
   /// バンドルされた .env の Developer Token（オフライン時の最終フォールバック用）。
   /// ※ .env はビルド時に焼き込まれ 6か月で失効するため、通常はバックエンド発行を優先。
   String get _envDeveloperToken => dotenv.env['APPLE_MUSIC_DEVELOPER_TOKEN'] ?? '';
@@ -107,6 +112,8 @@ class AppleMusicService {
   /// iOS: User Token認証を試みる
   /// Android/Web: Developer Tokenのみで動作（User Token認証はスキップ）
   Future<bool> login() async {
+    lastLinkErrorCode = null;
+    lastLinkErrorMessage = null;
     try {
       // iOSでのみUser Token認証を試みる
       if (_musicKit.isSupported) {
@@ -119,24 +126,58 @@ class AppleMusicService {
           await _ensureDeveloperToken();
           if (_developerToken == null || _developerToken!.isEmpty) {
             print('❌ Developer Tokenが設定されていないため、User Token取得不可');
+            lastLinkErrorCode = 'TOKEN_ERROR';
+            lastLinkErrorMessage =
+                'Apple Music の設定情報を取得できませんでした。時間をおいて再度お試しください。';
             return false;
           }
 
-          // User Tokenを取得（失敗した場合はサブスクリプション未加入として扱う）
-          final userToken = await _musicKit.getUserToken(developerToken: _developerToken);
-
-          if (userToken != null) {
-            _userToken = userToken;
-            await _storage.write(key: _userTokenKey, value: userToken);
-            print('✅ Apple Music User Token取得成功');
-            return true;
-          } else {
-            // authorized後のトークン失敗 = サブスクリプション未加入
-            print('❌ User Token取得失敗（サブスクリプション未加入の可能性）');
-            throw AppleMusicNoSubscriptionException('Apple Musicのサブスクリプションが必要です');
+          // User Token を取得。トークン失敗は原因コード付きで扱い、
+          // 「サブスク未加入」に丸めない（真の判定は checkSubscriptionAccess の 403）。
+          try {
+            final userToken =
+                await _musicKit.getUserToken(developerToken: _developerToken);
+            if (userToken != null && userToken.isNotEmpty) {
+              _userToken = userToken;
+              await _storage.write(key: _userTokenKey, value: userToken);
+              print('✅ Apple Music User Token取得成功');
+              return true;
+            }
+            lastLinkErrorCode = 'TOKEN_ERROR';
+            lastLinkErrorMessage =
+                'Apple Music トークンの取得に失敗しました。時間をおいて再度お試しください。';
+            return false;
+          } on AppleMusicTokenException catch (e) {
+            // Developer Token 劣化（署名不正・Key 設定変更など）の可能性がある失敗は、
+            // キャッシュを破棄してバックエンドから再取得し、1 回だけ再試行する。
+            if ((e.code == 'TOKEN_ERROR' || e.code == 'UNKNOWN') &&
+                await _forceRefreshDeveloperToken()) {
+              print('🔁 Developer Token を再取得して User Token 取得を再試行 (${e.code})');
+              try {
+                final retry = await _musicKit.getUserToken(
+                    developerToken: _developerToken);
+                if (retry != null && retry.isNotEmpty) {
+                  _userToken = retry;
+                  await _storage.write(key: _userTokenKey, value: retry);
+                  print('✅ 再試行で Apple Music User Token取得成功');
+                  return true;
+                }
+              } on AppleMusicTokenException catch (e2) {
+                lastLinkErrorCode = e2.code;
+                lastLinkErrorMessage = e2.message;
+                return false;
+              }
+            }
+            lastLinkErrorCode = e.code;
+            lastLinkErrorMessage = e.message;
+            print('❌ User Token取得失敗: ${e.code} ${e.message}');
+            return false;
           }
         } else {
           print('❌ MusicKit認証が拒否されました: $status');
+          lastLinkErrorCode = 'NOT_AUTHORIZED';
+          lastLinkErrorMessage =
+              'Apple Music へのアクセスが許可されていません。設定から許可してください。';
           return false;
         }
       } else {
@@ -166,6 +207,71 @@ class AppleMusicService {
   Future<void> logout() async {
     _userToken = null;
     await _storage.delete(key: _userTokenKey);
+  }
+
+  /// キャッシュ済み Developer Token を破棄し、バックエンドから新しく取得し直す。
+  /// exp は残っていても中身が無効（Key 設定変更・署名不正など）なトークンを
+  /// 掴み続ける不具合の自己修復に使う。取得できたら true。
+  Future<bool> _forceRefreshDeveloperToken() async {
+    _developerToken = null;
+    await _storage.delete(key: _developerTokenKey);
+    final remote = await _fetchRemoteDeveloperToken();
+    if (remote != null && remote.isNotEmpty) {
+      _developerToken = remote;
+      await _storage.write(key: _developerTokenKey, value: remote);
+      return true;
+    }
+    return false;
+  }
+
+  /// カタログID（playbackStoreID 等）から楽曲を1件、完全一致で取得する。
+  /// Developer Token のみで叩けるため User Token 不要（連携状態に依存しない）。
+  /// 曲名検索と違い、**同一バージョン・同一アートワーク**が確実に取れる。
+  Future<TrackModel?> getCatalogSongById(String id,
+      {String storefront = 'jp'}) async {
+    if (id.isEmpty || id == '0') return null;
+    if (!await _checkDeveloperToken()) return null;
+
+    try {
+      final response = await http.get(
+        Uri.parse(
+            'https://api.music.apple.com/v1/catalog/$storefront/songs/$id?l=ja-JP'),
+        headers: {'Authorization': 'Bearer $_developerToken'},
+      );
+      if (response.statusCode != 200) {
+        print('getCatalogSongById error: ${response.statusCode}');
+        return null;
+      }
+      final data = json.decode(response.body);
+      final list = data['data'] as List?;
+      if (list == null || list.isEmpty) return null;
+      final song = list[0];
+      final attributes = song['attributes'];
+      if (attributes == null) return null;
+
+      String albumImageUrl = '';
+      if (attributes['artwork'] != null) {
+        final artworkUrl = attributes['artwork']['url'] as String;
+        albumImageUrl =
+            artworkUrl.replaceAll('{w}', '640').replaceAll('{h}', '640');
+      }
+      String previewUrl = '';
+      if (attributes['previews'] != null &&
+          (attributes['previews'] as List).isNotEmpty) {
+        previewUrl = attributes['previews'][0]['url'] ?? '';
+      }
+
+      return TrackModel(
+        trackId: song['id'] as String? ?? id,
+        trackName: attributes['name'] ?? '',
+        artistName: attributes['artistName'] ?? '',
+        albumImageUrl: albumImageUrl,
+        previewUrl: previewUrl,
+      );
+    } catch (e) {
+      print('Error getCatalogSongById: $e');
+      return null;
+    }
   }
 
   /// Apple Music有料サブスクリプションの利用可能状態を確認

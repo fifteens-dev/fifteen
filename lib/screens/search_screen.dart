@@ -320,7 +320,8 @@ class _SearchScreenState extends State<SearchScreen> {
                           },
                         ),
                         SliverToBoxAdapter(child: _buildInviteCodeCard()),
-                        if (_vibeTopics.isNotEmpty)
+                        // Vibe 機能は一時的に全面非表示（将来再利用のため温存）。
+                        if (false && _vibeTopics.isNotEmpty)
                           SliverToBoxAdapter(child: _buildVibeSection()),
                         const SliverFillRemaining(
                           hasScrollBody: false,
@@ -783,8 +784,8 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           ..._userResults.map(_buildUserListItem),
         ],
-        // Vibeお題結果
-        if (_topicResults.isNotEmpty) ...[
+        // Vibeお題結果（Vibe 機能は一時的に全面非表示・将来再利用のため温存）
+        if (false && _topicResults.isNotEmpty) ...[
           Padding(
             padding: EdgeInsets.only(top: _userResults.isNotEmpty ? 16 : 4, bottom: 8),
             child: const Text(

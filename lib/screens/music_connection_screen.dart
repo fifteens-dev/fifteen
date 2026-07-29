@@ -308,14 +308,18 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen>
 
         _goToHome();
       } else {
-        // 認証拒否またはその他のエラー: リセットして画面に留まる
+        // 認証拒否またはその他のエラー: リセットして画面に留まる。
+        // 失敗理由が判っていれば具体的に表示する（従来は一律「連携に失敗」だった）。
         await musicServiceManager.setSelectedService(MusicServiceType.none);
         await settingsService.saveAllLinkedServicesSettings(
           spotifyConnected: false,
           appleMusicConnected: false,
         );
         if (mounted) {
-          AppToast.show(context, 'Apple Musicの連携に失敗しました');
+          AppToast.show(
+            context,
+            appleMusicService.lastLinkErrorMessage ?? 'Apple Musicの連携に失敗しました',
+          );
         }
       }
     } finally {

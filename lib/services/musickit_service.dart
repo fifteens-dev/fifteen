@@ -110,20 +110,16 @@ class MusicKitService {
       print('✅ Got user token (length: ${token.length})');
       return token;
     } on PlatformException catch (e) {
-      if (e.code == 'NO_SUBSCRIPTION') {
-        throw AppleMusicNoSubscriptionException(e.message ?? 'Apple Musicのサブスクリプションが必要です');
-      } else if (e.code == 'UNAVAILABLE') {
-        print('❌ ${e.message ?? "MusicKit requires iOS 15.0 or later"}');
-      } else if (e.code == 'TOKEN_ERROR') {
-        print('❌ Failed to get user token: ${e.message}');
-        print('💡 Hint: Make sure you have called requestAuthorization() first');
-      } else {
-        print('❌ Failed to get user token: ${e.message}');
-      }
-      return null;
+      // ネイティブが分類したコード（NOT_AUTHORIZED / PRIVACY_ACK_REQUIRED /
+      // NETWORK_ERROR / TOKEN_ERROR / UNAVAILABLE）をそのまま型付き例外で伝播する。
+      // 旧実装は失敗を一律 NO_SUBSCRIPTION に丸めており、加入済みでも「サブスク必要」と
+      // 誤表示していた。真のサブスク判定は API 側の 403 で行う。
+      print('❌ getUserToken failed: ${e.code} ${e.message}');
+      throw AppleMusicTokenException(
+          e.code, e.message ?? 'Apple Music トークンの取得に失敗しました');
     } catch (e) {
       print('❌ Unexpected error getting user token: $e');
-      return null;
+      throw AppleMusicTokenException('UNKNOWN', 'Apple Music トークンの取得に失敗しました');
     }
   }
 
@@ -151,4 +147,16 @@ class AppleMusicNoSubscriptionException implements Exception {
   const AppleMusicNoSubscriptionException(this.message);
   @override
   String toString() => message;
+}
+
+/// User Token 取得に失敗したことを、原因コード付きで示す例外。
+/// code: NOT_AUTHORIZED / PRIVACY_ACK_REQUIRED / NETWORK_ERROR /
+///       TOKEN_ERROR / UNAVAILABLE / UNKNOWN
+/// ※「サブスク未加入」とは区別する（それは API 側 403 で判定）。
+class AppleMusicTokenException implements Exception {
+  final String code;
+  final String message;
+  const AppleMusicTokenException(this.code, this.message);
+  @override
+  String toString() => 'AppleMusicTokenException($code): $message';
 }

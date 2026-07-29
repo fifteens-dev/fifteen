@@ -16,6 +16,7 @@ import '../models/vibe_ranking_item.dart';
 import '../models/vibe_topic_model.dart';
 import '../widgets/post_card.dart';
 import '../widgets/notification_badge.dart';
+import '../widgets/variable_blur.dart';
 import '../widgets/dialogs/delete_post_dialog.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
@@ -833,6 +834,59 @@ class _HomeScreenState extends State<HomeScreen>
     _bellOpacity.value = (1.0 - (offset / 80.0)).clamp(0.0, 1.0);
   }
 
+  /// ホーム上部の固定ヘッダー（"15s" タイトル + 通知ベル）。
+  /// 上部ぼかしの「上」に重ねて常に鮮明に見せる（プロフィール Music Memory と同構造）。
+  Widget _buildHomeHeader(double headerHeight, double topPadding) {
+    return SizedBox(
+      height: headerHeight,
+      child: Container(
+        color: Colors.transparent,
+        padding: EdgeInsets.only(left: 16, right: 16, top: topPadding),
+        child: Stack(
+          children: [
+            const Center(
+              child: Text(
+                '15s',
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  fontFamily: 'SFPro',
+                ),
+              ),
+            ),
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: ValueListenableBuilder<double>(
+                valueListenable: _bellOpacity,
+                builder: (_, opacity, child) => Opacity(
+                  opacity: opacity,
+                  child: IgnorePointer(ignoring: opacity < 0.1, child: child),
+                ),
+                child: NotificationBadge(
+                  child: IconButton(
+                    icon: const Icon(Icons.notifications_outlined,
+                        color: Colors.white),
+                    onPressed: () {
+                      _homeAudioService.stop();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const NotificationListScreen()),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   // ボトムナビゲーションのタップ処理
   /// VibeバーのVibeアイコン円タップでVibeプレイリスト画面へ遷移
@@ -1017,6 +1071,8 @@ class _HomeScreenState extends State<HomeScreen>
     final currentUserIconUrl = context.watch<CurrentUserProvider>().iconUrl;
     final topPadding = MediaQuery.of(context).padding.top;
     final headerHeight = 48.0 + topPadding;
+    // 上部ぼかしのフェード帯の高さ（プロフィール Music Memory と同じく画面の 30%）。
+    final fadeH = MediaQuery.of(context).size.height * 0.3;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -1027,7 +1083,9 @@ class _HomeScreenState extends State<HomeScreen>
               index: _selectedIndex <= 1 ? _selectedIndex : (_selectedIndex == 3 ? 2 : 0),
               children: [
                 // index 0: ホーム
-                NotificationListener<ScrollNotification>(
+                Stack(
+                  children: [
+                    NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
                     if (notification is ScrollUpdateNotification) {
                       final now = DateTime.now();
@@ -1046,27 +1104,8 @@ class _HomeScreenState extends State<HomeScreen>
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     slivers: [
-                      // 透明ヘッダー（ピン留め）
-                      SliverPersistentHeader(
-                        pinned: true,
-                        delegate: _HomeHeaderDelegate(
-                          height: headerHeight,
-                          topPadding: topPadding,
-                          bellOpacity: _bellOpacity,
-                          bellButton: NotificationBadge(
-                            child: IconButton(
-                              icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                              onPressed: () {
-                                _homeAudioService.stop();
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const NotificationListScreen()),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
+                      // ヘッダー分のスペーサー（実ヘッダーはぼかしの上にオーバーレイ表示）。
+                      SliverToBoxAdapter(child: SizedBox(height: headerHeight)),
                       // リフレッシュコントロール（ヘッダーの下に表示される）
                       CupertinoSliverRefreshControl(
                         onRefresh: _onRefresh,
@@ -1083,6 +1122,8 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                       ] else ...[
                         // 新 Vibe ストーリーバー（インスタ風、ユーザー単位）
+                        // Vibe 機能は一時的に全面非表示（将来再利用のため if(false) で温存）。
+                        if (false)
                         SliverToBoxAdapter(
                           child: FutureBuilder<Map<String, dynamic>>(
                             future: _vibeDataFuture!,
@@ -1179,6 +1220,39 @@ class _HomeScreenState extends State<HomeScreen>
                       ],
                     ],
                   ),
+                ),
+                    // 上部の連続ぼかし（プロフィール Music Memory と同じ iOS ネイティブ）。
+                    // ビューは画面全体、マスクを上端(フル)→画面の約28%で 0 にフェード。
+                    const Positioned.fill(
+                      child: VariableBlur(fullUntil: 0.0, fadeEnd: 0.28, passes: 2),
+                    ),
+                    // 黒グラデーションでぼかしの薄れと同時に背景色へ溶かし、境目を消す。
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: fadeH,
+                      child: const IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Color(0xA6121212), Color(0x00121212)],
+                              stops: [0.0, 1.0],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // ヘッダー（15s + ベル）をぼかしの上に固定表示。
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: _buildHomeHeader(headerHeight, topPadding),
+                    ),
+                  ],
                 ),
                 // index 1: 検索
                 const SearchScreen(),
@@ -1485,65 +1559,4 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-}
-
-/// ホーム画面の透明ピン留めヘッダー用デリゲート
-class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
-  final double height;
-  final double topPadding;
-  final ValueNotifier<double> bellOpacity;
-  final Widget bellButton;
-
-  _HomeHeaderDelegate({
-    required this.height,
-    required this.topPadding,
-    required this.bellOpacity,
-    required this.bellButton,
-  });
-
-  @override
-  double get minExtent => height;
-
-  @override
-  double get maxExtent => height;
-
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return Container(
-      color: Colors.transparent,
-      padding: EdgeInsets.only(left: 16, right: 16, top: topPadding),
-      child: Stack(
-        children: [
-          const Center(
-            child: Text(
-              '15s',
-              style: TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-                fontFamily: 'SFPro',
-              ),
-            ),
-          ),
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            child: ValueListenableBuilder<double>(
-              valueListenable: bellOpacity,
-              builder: (_, opacity, child) => Opacity(
-                opacity: opacity,
-                child: IgnorePointer(ignoring: opacity < 0.1, child: child),
-              ),
-              child: bellButton,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  bool shouldRebuild(_HomeHeaderDelegate old) =>
-      old.height != height || old.topPadding != topPadding;
 }

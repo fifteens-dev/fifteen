@@ -577,33 +577,41 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // ギャラリーボタン（左下）
-                      GestureDetector(
-                        onTap: _scrollToGallery,
-                        child: Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2B2B2B),
-                            borderRadius: BorderRadius.circular(8),
-                            border:
-                                Border.all(color: Colors.white38, width: 1.5),
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(6.5),
-                            child: _latestThumbData != null
-                                ? Image.memory(
-                                    _latestThumbData!,
-                                    fit: BoxFit.cover,
-                                    width: double.infinity,
-                                    height: double.infinity,
-                                    gaplessPlayback: true,
-                                  )
-                                : const Icon(
-                                    Icons.photo_library_outlined,
-                                    color: Colors.white,
-                                    size: 22,
-                                  ),
+                      // ギャラリーボタン（左下・カメラロールへの入口）は非表示。
+                      // カメラ反転ボタンを右端に保つためサイズは維持する。
+                      // 将来再表示する場合は Visibility を外すだけでよい。
+                      Visibility(
+                        visible: false,
+                        maintainSize: true,
+                        maintainAnimation: true,
+                        maintainState: true,
+                        child: GestureDetector(
+                          onTap: _scrollToGallery,
+                          child: Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2B2B2B),
+                              borderRadius: BorderRadius.circular(8),
+                              border:
+                                  Border.all(color: Colors.white38, width: 1.5),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(6.5),
+                              child: _latestThumbData != null
+                                  ? Image.memory(
+                                      _latestThumbData!,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                      gaplessPlayback: true,
+                                    )
+                                  : const Icon(
+                                      Icons.photo_library_outlined,
+                                      color: Colors.white,
+                                      size: 22,
+                                    ),
+                            ),
                           ),
                         ),
                       ),

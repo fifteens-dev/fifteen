@@ -38,6 +38,7 @@ import 'services/user_service.dart';
 import 'services/vibe_topic_service.dart';
 import 'services/adl_service.dart';
 import 'services/music_memory_cycle_service.dart';
+import 'services/playback_history_service.dart';
 import 'models/post_model.dart';
 
 /// バックグラウンドFCMハンドラー（top-level 必須・runApp前に登録する）
@@ -107,6 +108,9 @@ void main() async {
 
   // Music Memory 投稿サイクル状態の購読を開始（notifiedAt を保持）。
   MusicMemoryCycleService().start();
+
+  // 起動時から再生履歴の手動記録を開始（投稿フロー 2 枚目以降の元データ）。
+  PlaybackHistoryService().start();
 
   // runApp を先に呼んで「15s」をすぐ表示し、FCM初期化はバックグラウンドで実行
   runApp(const FifteenApp());

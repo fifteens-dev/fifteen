@@ -388,7 +388,9 @@ class _LinkedServicesScreenState extends State<LinkedServicesScreen> {
 
           String errorMessage = '${service.displayName}の連携に失敗しました';
           if (service == MusicServiceType.appleMusic) {
-            errorMessage = 'Apple Musicの連携に失敗しました。Apple Musicのサブスクリプションが有効か確認してください。';
+            // 失敗理由が判っていれば具体的に表示（通信エラー/権限など）。
+            errorMessage = AppleMusicService().lastLinkErrorMessage ??
+                'Apple Musicの連携に失敗しました。Apple Musicのサブスクリプションが有効か確認してください。';
           }
 
           AppToast.show(context, errorMessage);

@@ -67,7 +67,11 @@ class _MusicServiceSelectionScreenState
             AppToast.show(context, '${service.displayName}に連携しました');
           }
         } else {
-          AppToast.show(context, '${service.displayName}の連携に失敗しました');
+          final reason = service == MusicServiceType.appleMusic
+              ? AppleMusicService().lastLinkErrorMessage
+              : null;
+          AppToast.show(
+              context, reason ?? '${service.displayName}の連携に失敗しました');
         }
       }
     }

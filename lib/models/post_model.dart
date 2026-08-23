@@ -16,6 +16,27 @@ class PostAudience {
   }
 }
 
+/// 1件の絵文字リアクション（1ユーザー＝1つ）。
+class PostReaction {
+  final String userId;
+  final String emoji;
+  final String iconUrl;
+  final int ts; // 付与時刻（ミリ秒）。新しい順の並べ替え用。
+
+  const PostReaction({
+    required this.userId,
+    required this.emoji,
+    this.iconUrl = '',
+    this.ts = 0,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'emoji': emoji,
+        'iconUrl': iconUrl,
+        'ts': ts,
+      };
+}
+
 /// 投稿情報を表すモデル
 class PostModel {
   final String postId;
@@ -27,6 +48,8 @@ class PostModel {
   final int commentCount;
   final List<String> likedUserIds; // いいねしたユーザーのIDリスト
   final List<String> likedByUserIconUrls; // いいねしたユーザーのアイコンURLリスト
+  /// 絵文字リアクション（1ユーザー＝1つ）。新しい順（ts 降順）で保持。
+  final List<PostReaction> reactions;
   final List<String> savedByUserIds; // 保存したユーザーのIDリスト
   final List<String> savedByUserIconUrls; // 保存したユーザーのアイコンURLリスト
   final DateTime createdAt;
@@ -86,6 +109,7 @@ class PostModel {
     this.commentCount = 0,
     this.likedUserIds = const [],
     this.likedByUserIconUrls = const [],
+    this.reactions = const [],
     this.savedByUserIds = const [],
     this.savedByUserIconUrls = const [],
     required this.createdAt,
@@ -123,6 +147,27 @@ class PostModel {
   });
 
   // Firestoreドキュメントから作成
+  /// Firestore の `reactions` マップ（{ userId: {emoji, iconUrl, ts} }）を
+  /// 新しい順（ts 降順）の [PostReaction] リストに変換する。
+  static List<PostReaction> _parseReactions(dynamic raw) {
+    if (raw is! Map) return const [];
+    final list = <PostReaction>[];
+    raw.forEach((key, value) {
+      if (value is Map) {
+        final emoji = value['emoji']?.toString() ?? '';
+        if (emoji.isEmpty) return;
+        list.add(PostReaction(
+          userId: key.toString(),
+          emoji: emoji,
+          iconUrl: value['iconUrl']?.toString() ?? '',
+          ts: (value['ts'] as num?)?.toInt() ?? 0,
+        ));
+      }
+    });
+    list.sort((a, b) => b.ts.compareTo(a.ts)); // 新しい順
+    return list;
+  }
+
   factory PostModel.fromFirestore(DocumentSnapshot doc) {
     final data = (doc.data() as Map<String, dynamic>?) ?? {};
 
@@ -154,6 +199,7 @@ class PostModel {
       commentCount: (data['commentCount'] as num?)?.toInt() ?? 0,
       likedUserIds: safeStringList('likedUserIds'),
       likedByUserIconUrls: safeStringList('likedByUserIconUrls'),
+      reactions: _parseReactions(data['reactions']),
       savedByUserIds: safeStringList('savedByUserIds'),
       savedByUserIconUrls: safeStringList('savedByUserIconUrls'),
       createdAt: safeTimestamp('createdAt'),
@@ -208,6 +254,7 @@ class PostModel {
       'commentCount': commentCount,
       'likedUserIds': likedUserIds,
       'likedByUserIconUrls': likedByUserIconUrls,
+      'reactions': {for (final r in reactions) r.userId: r.toMap()},
       'savedByUserIds': savedByUserIds,
       'savedByUserIconUrls': savedByUserIconUrls,
       'createdAt': Timestamp.fromDate(createdAt),
@@ -254,6 +301,7 @@ class PostModel {
     int? commentCount,
     List<String>? likedUserIds,
     List<String>? likedByUserIconUrls,
+    List<PostReaction>? reactions,
     List<String>? savedByUserIds,
     List<String>? savedByUserIconUrls,
     DateTime? createdAt,
@@ -297,6 +345,7 @@ class PostModel {
       commentCount: commentCount ?? this.commentCount,
       likedUserIds: likedUserIds ?? this.likedUserIds,
       likedByUserIconUrls: likedByUserIconUrls ?? this.likedByUserIconUrls,
+      reactions: reactions ?? this.reactions,
       savedByUserIds: savedByUserIds ?? this.savedByUserIds,
       savedByUserIconUrls: savedByUserIconUrls ?? this.savedByUserIconUrls,
       createdAt: createdAt ?? this.createdAt,
@@ -357,4 +406,16 @@ class PostModel {
   bool isLikedBy(String userId) {
     return likedUserIds.contains(userId);
   }
+
+  /// 指定ユーザーが付けている絵文字リアクション（無ければ null）。
+  String? reactionOf(String? userId) {
+    if (userId == null) return null;
+    for (final r in reactions) {
+      if (r.userId == userId) return r.emoji;
+    }
+    return null;
+  }
+
+  /// リアクション総数（＝リアクションしたユーザー数）。
+  int get reactionCount => reactions.length;
 }

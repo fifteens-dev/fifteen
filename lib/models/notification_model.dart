@@ -145,7 +145,9 @@ class NotificationModel {
   String getMessage() {
     switch (type) {
       case NotificationType.like:
-        return 'あなたの投稿にいいねしました';
+        // リアクション（絵文字）通知でも like 種別を再利用する。body があれば
+        // 「「😍」でリアクションしました」等をそのまま表示、無ければ従来のいいね文言。
+        return body ?? 'あなたの投稿にいいねしました';
       case NotificationType.comment:
         return 'あなたの投稿にコメントしました';
       case NotificationType.follow:

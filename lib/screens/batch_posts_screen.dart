@@ -188,6 +188,12 @@ class _BatchPostsScreenState extends State<BatchPostsScreen> {
                             userId: widget.currentUserId,
                             postService: _postService,
                           ),
+                          onReaction: (emoji) => PostUIState.handleReaction(
+                            postId: basePost.postId,
+                            emoji: emoji,
+                            userId: widget.currentUserId,
+                            postService: _postService,
+                          ),
                           onComment: () {},
                           onAdd: () {},
                           onShare: () => showCardShareSheet(

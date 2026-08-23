@@ -26,7 +26,7 @@ class PlaybackHistoryService {
   static const String _prefsKey = 'playback_history_v1';
   static const Duration _pollInterval = Duration(seconds: 12);
   static const int _maxEntries = 40;
-  static const Duration _maxAge = Duration(hours: 36);
+  static const Duration _maxAge = Duration(hours: 24);
 
   Timer? _timer;
   final List<_HistoryEntry> _entries = []; // 新しい順（先頭が最新）

@@ -23,6 +23,7 @@ import 'adl_team_playlist_screen.dart';
 import 'artist_profile_screen.dart';
 import 'follow_list_screen.dart';
 import 'music_memory_month_screen.dart';
+import 'music_memory_detail_screen.dart';
 
 /// 他人プロフィールのタブ
 enum _OtherProfileTab { memories, saved }
@@ -84,8 +85,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
   int get _followersCount =>
       _followerCountOverride ?? _userData?.followersCount ?? 0;
   int get _followingCount => _userData?.followingCount ?? 0;
-
-  int get _tracksCount => _otherPosts.length;
 
   @override
   void initState() {
@@ -509,26 +508,25 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
     );
   }
 
-  /// 統計行（Tracks / Followers / Following）— スタック format。
+  /// 統計行（Followers / Following）— スタック format。
+  /// Tracks は非表示にし、Followers / Following を中央に寄せて並べる（自分の
+  /// プロフィールと同様）。
   Widget _buildStatsRow() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(27, 20, 27, 4),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Expanded(child: _statItem(_tracksCount, 'Tracks')),
-          Expanded(
-            child: _statItem(
-              _followersCount,
-              'Followers',
-              onTap: () => _openFollowList(true),
-            ),
+          _statItem(
+            _followersCount,
+            'Followers',
+            onTap: () => _openFollowList(true),
           ),
-          Expanded(
-            child: _statItem(
-              _followingCount,
-              'Following',
-              onTap: () => _openFollowList(false),
-            ),
+          const SizedBox(width: 56),
+          _statItem(
+            _followingCount,
+            'Following',
+            onTap: () => _openFollowList(false),
           ),
         ],
       ),
@@ -1031,28 +1029,28 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
     await MusicMemoryMonthScreen.push(context, postsByMonth: grouped);
   }
 
-  void _openPostCardBack(PostModel post) {
-    Navigator.push(
+  /// アルバムアートタップ → Music Memory 詳細（日カルーセル）。
+  /// カレンダー(月)から辿り着く画面と同じ。各日の代表（最新1件）を新→古で並べ、
+  /// タップした投稿の日を初期表示にする。
+  Future<void> _openPostCardBack(PostModel post) async {
+    bool sameDay(DateTime a, DateTime b) =>
+        a.year == b.year && a.month == b.month && a.day == b.day;
+
+    final repByDay = <String, PostModel>{};
+    for (final p in _otherPosts) {
+      final key = '${p.createdAt.year}-${p.createdAt.month}-${p.createdAt.day}';
+      final ex = repByDay[key];
+      if (ex == null || p.createdAt.isAfter(ex.createdAt)) repByDay[key] = p;
+    }
+    final days = repByDay.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    if (days.isEmpty) days.add(post);
+    final idx = days.indexWhere((p) => sameDay(p.createdAt, post.createdAt));
+
+    await MusicMemoryDetailScreen.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          backgroundColor: const Color(0xFF121212),
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            iconTheme: const IconThemeData(color: Colors.white),
-          ),
-          body: Center(
-            child: ProfilePostGridItem(
-              post: post,
-              allPosts: _otherPosts,
-              initialIndex:
-                  _otherPosts.indexOf(post).clamp(0, _otherPosts.length - 1),
-              disableInteractions: false,
-            ),
-          ),
-        ),
-      ),
+      posts: days,
+      initialIndex: idx < 0 ? 0 : idx,
     );
   }
 

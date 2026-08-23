@@ -63,6 +63,20 @@ function randomPostTitle() {
 }
 
 /**
+ * 友達の投稿通知を A/B/C の3パターンからランダムに選ぶ。
+ * タイトルと本文は必ず同じパターンのペアで返す。本文の 〇〇 は投稿者名。
+ */
+function randomPostNotification(username) {
+  const name = username || '友達';
+  const patterns = [
+    { title: '👀チェックしてみる？', body: `${name}が今日の1曲を投稿したよ。` },
+    { title: '🎧今日は何聴いてる？？', body: `${name}の今日の1曲をチェック。` },
+    { title: '👀見てみる？', body: `${name}の今日の1曲が届いたよ。` },
+  ];
+  return patterns[Math.floor(Math.random() * patterns.length)];
+}
+
+/**
  * 指定ユーザー群へ FCM プッシュ通知を一斉送信する共通ヘルパー。
  * user_fcm_tokens からトークンを集め、500件ずつ送信し、無効トークンを掃除する。
  */
@@ -299,7 +313,9 @@ exports.sendPushNotification = onDocumentCreated(
       let notifTitle;
       let notifBody = message;
       if (notificationType === 'post') {
-        notifTitle = randomPostTitle();
+        const p = randomPostNotification(senderUsername);
+        notifTitle = p.title;
+        notifBody = p.body;
       } else if (notificationType === 'follow') {
         notifTitle = 'フォロー通知';
         notifBody = `${senderUsername}があなたをフォローしました`;
@@ -532,7 +548,7 @@ function getJstDateString() {
  * 通知ドキュメントを作成してFCMプッシュを送信するヘルパー
  * notifDocId を固定化することで冪等性を保証
  */
-async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername, senderIconUrl, message, notifDocId, postId, albumArtUrl, postIds) {
+async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername, senderIconUrl, message, notifDocId, postId, albumArtUrl, postIds, pushTitle) {
   // 重複チェック
   const notifRef = db.collection('notifications').doc(notifDocId);
   const existing = await notifRef.get();
@@ -564,7 +580,7 @@ async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername
   if (tokens.length === 0) return;
 
   const payload = {
-    notification: { title: randomPostTitle(), body: message },
+    notification: { title: pushTitle || randomPostTitle(), body: message },
     data: {
       notificationType: 'post',
       senderId: senderId || '',
@@ -608,12 +624,14 @@ async function sendPostNotificationDoc(db, recipientId, senderId, senderUsername
  *    → ①と②は独立して動作する
  */
 async function processPostNotificationForRecipient(db, recipientId, senderId, senderUsername, senderIconUrl, postId, albumArtUrl) {
-  // ① 即時通知（常に送信）
+  // ① 即時通知（常に送信）。タイトル・本文は A/B/C の3パターンからランダムに
+  //    ペアで選ぶ（本文の 〇〇 は投稿者名）。
   const notifDocId = `post_${postId}_${recipientId}`;
-  const notifMessage = `${senderUsername}が投稿しました。`;
+  const { title: pushTitle, body: notifMessage } =
+    randomPostNotification(senderUsername);
   await sendPostNotificationDoc(
     db, recipientId, senderId, senderUsername, senderIconUrl,
-    notifMessage, notifDocId, postId, albumArtUrl
+    notifMessage, notifDocId, postId, albumArtUrl, null, pushTitle
   );
 
   // ② バッチトラッキング（3時間後まとめ通知用・即時通知とは独立）

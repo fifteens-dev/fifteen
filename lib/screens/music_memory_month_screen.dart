@@ -37,12 +37,16 @@ class MusicMemoryMonthScreen extends StatefulWidget {
   /// 呼び出し側が把握している総数があればここで上書きする。
   final int? totalPostCount;
 
+  /// ルートタブとして埋め込む場合 true。戻るボタンを非表示にする。
+  final bool embedded;
+
   const MusicMemoryMonthScreen({
     super.key,
     this.postsByMonth = const {},
     this.accountCreatedAt,
     this.userId,
     this.totalPostCount,
+    this.embedded = false,
   });
 
   static Future<void> push(
@@ -300,7 +304,9 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
     final fadeH = MediaQuery.of(context).size.height * 0.3;
     final loadedCount = _loadedMonthCount;
     final children = <Widget>[
-      const SizedBox(height: 40), // 最下部余白
+      // 最下部余白。ルートタブ埋め込み時(embedded)はボトムナビ(画面下から約94px)と
+      // 重ならないよう、Figma 5189:11310 準拠で記録カード下端を画面下から約160pxに上げる。
+      SizedBox(height: widget.embedded ? 160 : 40),
       // 記録カード(Figma: (83, 1214), 236×47) — 中央 83px マージン
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 83),
@@ -379,7 +385,7 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
             ),
           ),
           // ヘッダー(Figma 4773:10371) — ステータスバー分下げて固定表示。
-          _Header(topInset: topInset),
+          _Header(topInset: topInset, showBack: !widget.embedded),
         ],
       ),
     );
@@ -392,10 +398,13 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
 ///   - タイトル 20px SF Pro Rounded Bold @ (113, 10)
 ///   - 戻るボタン 44×44 @ (0, 0)
 class _Header extends StatelessWidget {
-  const _Header({this.topInset = 0});
+  const _Header({this.topInset = 0, this.showBack = true});
 
   /// ステータスバー高。SafeArea(top:false) 下でヘッダーを実画面上端から下げる分。
   final double topInset;
+
+  /// 戻るボタンを表示するか（ルートタブ埋め込み時は false）。
+  final bool showBack;
 
   @override
   Widget build(BuildContext context) {
@@ -419,28 +428,29 @@ class _Header extends StatelessWidget {
                 fontFamily: kSfProRounded,
               ),
             ),
-            Positioned(
-              left: 20,
-              top: (60 - 44) / 2,
-              width: 44,
-              height: 44,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => Navigator.of(context).maybePop(),
-                child: Container(
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0xFF1E1E1E),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    CupertinoIcons.chevron_left,
-                    color: Colors.white,
-                    size: 20,
+            if (showBack)
+              Positioned(
+                left: 20,
+                top: (60 - 44) / 2,
+                width: 44,
+                height: 44,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => Navigator.of(context).maybePop(),
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF1E1E1E),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      CupertinoIcons.chevron_left,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),

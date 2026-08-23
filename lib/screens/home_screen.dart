@@ -16,7 +16,6 @@ import '../models/vibe_ranking_item.dart';
 import '../models/vibe_topic_model.dart';
 import '../widgets/post_card.dart';
 import '../widgets/notification_badge.dart';
-import '../widgets/variable_blur.dart';
 import '../widgets/dialogs/delete_post_dialog.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
@@ -33,9 +32,9 @@ import '../utils/campus_vibe_utils.dart';
 import '../widgets/campus_vibe_card.dart';
 import '../providers/current_user_provider.dart';
 import 'comment_screen.dart';
-import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'music_selection_screen.dart';
+import 'music_memory_month_screen.dart';
 import 'post_flow/music_memory_modal.dart';
 import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
@@ -73,7 +72,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver
     implements RouteAware {
-  int _selectedIndex = 0;
+  // ナビゲーション: 0=Music Memory(カレンダー) / 1=ホーム / 2=プロフィール。
+  // 起動時はホーム(中央)を表示。
+  int _selectedIndex = 1;
+  // ホームのタイムライン表示: false=1列(既定) / true=2列グリッド。
+  bool _isGridView = false;
   final PostService _postService = PostService();
   final MusicServiceManager _musicServiceManager = MusicServiceManager();
   final UserService _userService = UserService();
@@ -137,9 +140,13 @@ class _HomeScreenState extends State<HomeScreen>
   bool _hasPostedToday = false;
 
   // 現サイクルで「期限内（Late でない）投稿」済みか。
-  // true のときだけ他人の投稿の裏側閲覧＋リアクションを許可する。
-  // Late 投稿者・未投稿者は false（表面のみ）。
+  // true のときだけ他人の投稿への**リアクション**を許可する（Late 投稿者は不可）。
   bool _postedOnTimeThisCycle = false;
+
+  // 現サイクルで（Late 含む）投稿済みか。
+  // true のとき他人の投稿の**裏面（写真）閲覧**を許可する。
+  // 未投稿者は false（表面のみ）。Late 投稿者も投稿した時点で裏面は見られる。
+  bool _postedAnyThisCycle = false;
 
   // 一度裏面を見た投稿IDのセット（永続化済み）
   Set<String> _revealedPostIds = {};
@@ -364,6 +371,7 @@ class _HomeScreenState extends State<HomeScreen>
         _cachedPosts = postsResult.posts;
         _hasPostedToday = postsResult.hasPostedToday;
         _postedOnTimeThisCycle = postsResult.postedOnTimeThisCycle;
+        _postedAnyThisCycle = postsResult.postedAnyThisCycle;
         _previewUrlCache.clear(); // リフレッシュ時はキャッシュをリセット
         // 完了済みFutureに差し替えればFutureBuilderはwaitingにならず暗転しない
         _vibeDataFuture = Future.value(vibeData);
@@ -438,18 +446,22 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
 /// 投稿データをFirestoreから取得して返す（setState なし・_loadPosts/_onRefresh 共用）
-  Future<({List<PostModel> posts, bool hasPostedToday, bool postedOnTimeThisCycle, UserModel? user})> _fetchPostsData() async {
+  Future<({List<PostModel> posts, bool hasPostedToday, bool postedOnTimeThisCycle, bool postedAnyThisCycle, UserModel? user})> _fetchPostsData() async {
     try {
       final currentUser = _auth.currentUser;
 
       // 今日投稿済みかチェック
       bool hasPostedToday = false;
-      // 現サイクルで期限内投稿済みか（裏側ゲーティング用）
+      // 現サイクルで期限内投稿済みか（リアクション可否のゲーティング用）
       bool postedOnTimeThisCycle = false;
+      // 現サイクルで（Late 含む）投稿済みか（裏面閲覧のゲーティング用）
+      bool postedAnyThisCycle = false;
       if (currentUser != null) {
         hasPostedToday = await _postService.hasUserPostedToday(currentUser.uid);
         postedOnTimeThisCycle =
             await _postService.hasOnTimePostInCurrentCycle(currentUser.uid);
+        postedAnyThisCycle =
+            await _postService.hasAnyPostInCurrentCycle(currentUser.uid);
       }
 
       // フォロー中のユーザーIDと保存済み情報を取得
@@ -477,37 +489,11 @@ class _HomeScreenState extends State<HomeScreen>
         print('⚠️ Firestore取得エラー（権限エラーの可能性）: $e');
       }
 
-      // Vibe ストーリーバー用のユーザー別 24h 投稿も同時取得して state に流す。
-      // タイムラインフェッチと別タイミングにすると、ストーリーだけ古いままで残るため
-      // ここでまとめてやる（追加の往復は1回）。
-      //
-      // 自分自身の分もまとめて取り、フォロー中ユーザーの並びからは除外して
-      // 「Vibe」円 (先頭) タップ用に別枠 (_ownStoryItem) に保持する。
-      try {
-        final allStories = await _fetchStoryItems(
-          viewer: userModel,
-          targetUserIds: allTargetIds,
-        );
-        final ownUid = currentUser?.uid;
-        VibeStoryItem? own;
-        final followingStories = <VibeStoryItem>[];
-        for (final s in allStories) {
-          if (ownUid != null && s.userId == ownUid) {
-            own = s;
-          } else {
-            followingStories.add(s);
-          }
-        }
-        if (mounted) {
-          setState(() {
-            _storyItems = followingStories;
-            _ownStoryItem =
-                (own != null && own.posts.isNotEmpty) ? own : null;
-          });
-        }
-      } catch (e) {
-        print('⚠️ ストーリーアイテム取得エラー: $e');
-      }
+      // 【重要】Vibe ストーリーバーは現在非表示のため、その取得（_fetchStoryItems=
+      // getRecentPostsGroupedByUser: limit なしで24h全投稿＋全ユーザー情報を逐次取得）は
+      // 行わない。これを await で挟むと、重い/遅い場合にタイムライン表示が丸ごと
+      // ブロックされ、_cachedPosts がセットされずスピナーのまま固まる不具合になる。
+      // ストーリーバー復活時は、タイムライン表示をブロックしない別 Future で取得すること。
 
       final postsToUse = firestorePosts;
       print('📊 表示する投稿数: ${postsToUse.length} (Firestore)');
@@ -545,10 +531,10 @@ class _HomeScreenState extends State<HomeScreen>
         }
       }
 
-      return (posts: updatedPosts, hasPostedToday: hasPostedToday, postedOnTimeThisCycle: postedOnTimeThisCycle, user: userModel);
+      return (posts: updatedPosts, hasPostedToday: hasPostedToday, postedOnTimeThisCycle: postedOnTimeThisCycle, postedAnyThisCycle: postedAnyThisCycle, user: userModel);
     } catch (e) {
       print('❌ 投稿読み込みエラー: $e');
-      return (posts: <PostModel>[], hasPostedToday: false, postedOnTimeThisCycle: false, user: null);
+      return (posts: <PostModel>[], hasPostedToday: false, postedOnTimeThisCycle: false, postedAnyThisCycle: false, user: null);
     }
   }
 
@@ -566,6 +552,7 @@ class _HomeScreenState extends State<HomeScreen>
         _cachedPosts = result.posts;
         _hasPostedToday = result.hasPostedToday;
         _postedOnTimeThisCycle = result.postedOnTimeThisCycle;
+        _postedAnyThisCycle = result.postedAnyThisCycle;
       });
       print('🔄 setState()完了');
       final uid = _auth.currentUser?.uid ?? '';
@@ -834,51 +821,100 @@ class _HomeScreenState extends State<HomeScreen>
     _bellOpacity.value = (1.0 - (offset / 80.0)).clamp(0.0, 1.0);
   }
 
-  /// ホーム上部の固定ヘッダー（"15s" タイトル + 通知ベル）。
-  /// 上部ぼかしの「上」に重ねて常に鮮明に見せる（プロフィール Music Memory と同構造）。
-  Widget _buildHomeHeader(double headerHeight, double topPadding) {
+  /// グラデーション幕の上に浮かせるヘッダー（"15s" + 通知ベル）。
+  /// 背景色を持たず（＝タッチを吸わない）、タイトルは IgnorePointer、ベルのみ操作可能。
+  /// これによりヘッダー領域でもスクロール/プル更新のジェスチャーが背後のリストへ通る。
+  Widget _homeHeaderOverlay(double headerHeight, double topPadding) {
     return SizedBox(
       height: headerHeight,
-      child: Container(
-        color: Colors.transparent,
+      child: Padding(
         padding: EdgeInsets.only(left: 16, right: 16, top: topPadding),
         child: Stack(
           children: [
             const Center(
-              child: Text(
-                '15s',
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  fontFamily: 'SFPro',
+              child: IgnorePointer(
+                child: Text(
+                  '15s',
+                  style: TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                    fontFamily: 'SFPro',
+                  ),
                 ),
               ),
             ),
+            // 左上: 友達追加ボタン（遷移先UIは作成中のため現状はトースト表示）。
+            // Figma 5189:11175: グリフ箱 42×29 @x=23。素材は4x書き出しのタイト画像
+            // (155×102) なので実寸 38.75×25.5。ヘッダー左padding16を差し引き left=8。
+            Positioned(
+              left: 8,
+              top: 0,
+              bottom: 0,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _showMessage('友達追加は準備中です'),
+                child: Center(
+                  child: Image.asset(
+                    'assets/icons/friend_add.png',
+                    width: 38.75,
+                    height: 25.5,
+                    fit: BoxFit.fill,
+                    color: Colors.white,
+                    colorBlendMode: BlendMode.srcIn,
+                  ),
+                ),
+              ),
+            ),
+            // 右上: グリッド切替 + 通知ベル。
             Positioned(
               right: 0,
               top: 0,
               bottom: 0,
-              child: ValueListenableBuilder<double>(
-                valueListenable: _bellOpacity,
-                builder: (_, opacity, child) => Opacity(
-                  opacity: opacity,
-                  child: IgnorePointer(ignoring: opacity < 0.1, child: child),
-                ),
-                child: NotificationBadge(
-                  child: IconButton(
-                    icon: const Icon(Icons.notifications_outlined,
-                        color: Colors.white),
-                    onPressed: () {
-                      _homeAudioService.stop();
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const NotificationListScreen()),
-                      );
-                    },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // グリッド切替（1列 ⇔ 2列）。表示中の列数に応じてアイコンを切替。
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => setState(() => _isGridView = !_isGridView),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 8),
+                      child: Image.asset(
+                        _isGridView
+                            ? 'assets/icons/grid_1col.png'
+                            : 'assets/icons/grid_2col.png',
+                        width: 24,
+                        height: 24,
+                        color: Colors.white,
+                        colorBlendMode: BlendMode.srcIn,
+                      ),
+                    ),
                   ),
-                ),
+                  ValueListenableBuilder<double>(
+                    valueListenable: _bellOpacity,
+                    builder: (_, opacity, child) => Opacity(
+                      opacity: opacity,
+                      child:
+                          IgnorePointer(ignoring: opacity < 0.1, child: child),
+                    ),
+                    child: NotificationBadge(
+                      child: IconButton(
+                        icon: const Icon(Icons.notifications_outlined,
+                            color: Colors.white),
+                        onPressed: () {
+                          _homeAudioService.stop();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const NotificationListScreen()),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1008,49 +1044,63 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  Future<void> _onItemTapped(int index) async {
-    if (index == 2) {
-      // 投稿フローの起点。
-      // - Apple Music: 「今日のMusic Memory」カルーセル(MusicMemoryModal)。
-      // - Spotify / 未連携: ログが取れないため Vibe 楽曲選択シート（お題非表示）→
-      //   曲決定で Apple と同じ写真フロー(PostPhotoSelectionScreen)へ。
-      _homeAudioService.stop();
-      final service = await _musicServiceManager.getSelectedService();
-      if (!mounted) return;
-      if (service == MusicServiceType.appleMusic) {
-        await MusicMemoryModal.open(context);
-      } else {
-        VibeStoryPostSheet.show(
-          context,
-          moodPostMode: true,
-          onTrackChosen: (track) {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                fullscreenDialog: true,
-                builder: (_) => PostPhotoSelectionScreen(
-                  track: track,
-                  isMoodPost: true,
-                ),
+  /// 投稿フローの起点（ホームの FAB から呼ぶ）。
+  /// - Apple Music: 「今日のMusic Memory」カルーセル(MusicMemoryModal)。
+  /// - Spotify / 未連携: ログが取れないため Vibe 楽曲選択シート（お題非表示）→
+  ///   曲決定で Apple と同じ写真フロー(PostPhotoSelectionScreen)へ。
+  Future<void> _openPostFlow() async {
+    _homeAudioService.stop();
+    final service = await _musicServiceManager.getSelectedService();
+    if (!mounted) return;
+    if (service == MusicServiceType.appleMusic) {
+      await MusicMemoryModal.open(context);
+    } else {
+      VibeStoryPostSheet.show(
+        context,
+        moodPostMode: true,
+        onTrackChosen: (track) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              fullscreenDialog: true,
+              builder: (_) => PostPhotoSelectionScreen(
+                track: track,
+                isMoodPost: true,
               ),
-            );
-          },
-        );
-      }
-      return;
-    }
-
-    // ホームタブを既に表示中にもう一度タップ
-    // → 先頭へスムーズに戻ってからリフレッシュを実行
-    if (index == 0 && _selectedIndex == 0) {
-      if (!_scrollController.hasClients) return;
-      // 現在位置から直接リフレッシュトリガー位置まで一気にスクロール
-      final distance = _scrollController.offset - (-100);
-      final duration = (distance.abs() / 2000 * 1000).clamp(300, 600).toInt();
-      await _scrollController.animateTo(
-        -100,
-        duration: Duration(milliseconds: duration),
-        curve: Curves.easeOut,
+            ),
+          );
+        },
       );
+    }
+  }
+
+  /// Music Memory タブ（カレンダー）。プロフィールから開く月画面を
+  /// ルートタブとして埋め込む（戻るボタンは非表示）。
+  Widget _buildMusicMemoryTab() {
+    final user = _auth.currentUser;
+    return MusicMemoryMonthScreen(
+      key: const ValueKey('music_memory_tab'),
+      embedded: true,
+      userId: user?.uid,
+      accountCreatedAt: user?.metadata.creationTime,
+    );
+  }
+
+  Future<void> _onItemTapped(int index) async {
+    // ホームタブ(1)を既に表示中にもう一度タップ
+    // → 先頭へスムーズに戻ってからリフレッシュを実行
+    if (index == 1 && _selectedIndex == 1) {
+      // 先頭へスムーズに戻す。寸法未確定のときの animateTo クラッシュを防ぐため
+      // try/catch で保護し、続けて最新データを再読込（プル更新の代替導線）。
+      if (_scrollController.hasClients) {
+        try {
+          await _scrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOut,
+          );
+        } catch (_) {}
+      }
+      _loadPosts();
       return;
     }
 
@@ -1071,8 +1121,8 @@ class _HomeScreenState extends State<HomeScreen>
     final currentUserIconUrl = context.watch<CurrentUserProvider>().iconUrl;
     final topPadding = MediaQuery.of(context).padding.top;
     final headerHeight = 48.0 + topPadding;
-    // 上部ぼかしのフェード帯の高さ（プロフィール Music Memory と同じく画面の 30%）。
-    final fadeH = MediaQuery.of(context).size.height * 0.3;
+    // 上部ぼかしのフェード帯の高さ。投稿カードに掛からない程度に抑える（画面の約4%）。
+    final fadeH = MediaQuery.of(context).size.height * 0.04;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -1080,12 +1130,12 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             // タブコンテンツ
             IndexedStack(
-              index: _selectedIndex <= 1 ? _selectedIndex : (_selectedIndex == 3 ? 2 : 0),
+              index: _selectedIndex,
               children: [
-                // index 0: ホーム
-                Stack(
-                  children: [
-                    NotificationListener<ScrollNotification>(
+                // index 0: Music Memory（カレンダー）
+                _buildMusicMemoryTab(),
+                // index 1: ホーム
+                NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
                     if (notification is ScrollUpdateNotification) {
                       final now = DateTime.now();
@@ -1104,8 +1154,29 @@ class _HomeScreenState extends State<HomeScreen>
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     slivers: [
-                      // ヘッダー分のスペーサー（実ヘッダーはぼかしの上にオーバーレイ表示）。
-                      SliverToBoxAdapter(child: SizedBox(height: headerHeight)),
+                      SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _HomeHeaderDelegate(
+                          height: headerHeight,
+                          topPadding: topPadding,
+                          bellOpacity: _bellOpacity,
+                          bellButton: NotificationBadge(
+                            child: IconButton(
+                              icon: const Icon(Icons.notifications_outlined,
+                                  color: Colors.white),
+                              onPressed: () {
+                                _homeAudioService.stop();
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const NotificationListScreen()),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
                       // リフレッシュコントロール（ヘッダーの下に表示される）
                       CupertinoSliverRefreshControl(
                         onRefresh: _onRefresh,
@@ -1221,46 +1292,75 @@ class _HomeScreenState extends State<HomeScreen>
                     ],
                   ),
                 ),
-                    // 上部の連続ぼかし（プロフィール Music Memory と同じ iOS ネイティブ）。
-                    // ビューは画面全体、マスクを上端(フル)→画面の約28%で 0 にフェード。
-                    const Positioned.fill(
-                      child: VariableBlur(fullUntil: 0.0, fadeEnd: 0.28, passes: 2),
-                    ),
-                    // 黒グラデーションでぼかしの薄れと同時に背景色へ溶かし、境目を消す。
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: fadeH,
-                      child: const IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Color(0xA6121212), Color(0x00121212)],
-                              stops: [0.0, 1.0],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // ヘッダー（15s + ベル）をぼかしの上に固定表示。
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      child: _buildHomeHeader(headerHeight, topPadding),
-                    ),
-                  ],
-                ),
-                // index 1: 検索
-                const SearchScreen(),
                 // index 2: プロフィール
                 const ProfileScreen(),
               ],
             ),
 
+            // 上部の静的グラデーション幕（ホームタブのみ）。画面最上部(top:0)から
+            // 背景色へ溶ける純粋なグラデーション（＝画像貼り付け相当・ネイティブ非使用）。
+            // スクロール構造・ピン留めヘッダーには一切触れず、外側 Stack に IgnorePointer の
+            // Positioned オーバーレイとして重ねるだけなのでホーム機能を壊さない。
+            if (_selectedIndex == 1) ...[
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: headerHeight + fadeH,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          AppColors.background,
+                          AppColors.background.withValues(alpha: 0.0),
+                        ],
+                        stops: const [0.0, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              // 幕の上にヘッダー（15s + ベル）を鮮明に浮かせる。背景色は持たせず、
+              // ベルのみ操作可能なので、ヘッダー領域でもスクロール/プル更新は透過する。
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: _homeHeaderOverlay(headerHeight, topPadding),
+              ),
+            ],
+
+            // 投稿フローの起点 FAB（ホームタブのみ・キーボード非表示時）。
+            // ナビ中央の投稿ボタンを廃止したため、ここから投稿フローへ入る。
+            if (_selectedIndex == 1 &&
+                MediaQuery.of(context).viewInsets.bottom == 0)
+              Positioned(
+                right: 20,
+                bottom: 110,
+                child: GestureDetector(
+                  onTap: _openPostFlow,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.add, color: Colors.black, size: 30),
+                  ),
+                ),
+              ),
 
             // フローティングボトムナビゲーション（キーボード表示中は非表示）
             if (MediaQuery.of(context).viewInsets.bottom == 0)
@@ -1279,7 +1379,7 @@ class _HomeScreenState extends State<HomeScreen>
               listenable: TutorialController.instance,
               builder: (context, _) {
                 final step = TutorialController.instance.step;
-                if (_selectedIndex != 0) return const SizedBox.shrink();
+                if (_selectedIndex != 1) return const SizedBox.shrink();
 
                 if (step == TutorialStep.showHomeHint) {
                   return Positioned.fill(
@@ -1401,9 +1501,128 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// タイムライン（投稿カードリスト）- Sliver版
+  /// 1件分の PostCard を構築（1列・2列グリッド共用）。
+  PostCard _buildPostCardFor({
+    required PostModel post,
+    required int index,
+    required PostUIState postUIState,
+    required SavedItemsProvider savedItems,
+    required String? currentUserIconUrl,
+    required GlobalKey<PostCardState> cardKey,
+    bool externalFlipControl = false,
+    VoidCallback? onCardTap,
+    // 共有/コメント/削除など別シート・ダイアログを開く直前に呼ぶ。
+    // 2列グリッドの拡大オーバーレイを閉じ、シートの上に残らないようにする。
+    VoidCallback? onBeforeSheet,
+  }) {
+    final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
+    final displayPost = postUIState.getDisplayPost(
+      post,
+      currentUserId: currentUserId,
+      currentUserIconUrl: currentUserIconUrl,
+    );
+
+    // ゲーティング（裏面閲覧とリアクションを分離）:
+    //  - 裏面（写真）閲覧: 自分の投稿 or 現サイクルで投稿済み（Late 含む）
+    //    or 既に裏を見た投稿。未投稿者は表面のみ。
+    //  - リアクション（いいね・コメント）: 自分の投稿 or 現サイクルで
+    //    「期限内（25:00 まで）」投稿済みのときのみ。Late 投稿者は不可。
+    final isOwnPost = post.userId == currentUserId;
+    final canViewBack = isOwnPost ||
+        _postedAnyThisCycle ||
+        _revealedPostIds.contains(post.postId);
+    final canReact = isOwnPost || _postedOnTimeThisCycle;
+
+    return PostCard(
+      key: cardKey,
+      post: displayPost,
+      currentUserId: currentUserId,
+      currentUserIconUrl: currentUserIconUrl,
+      audioService: _homeAudioService,
+      externalPreviewUrl: _previewUrlCache[post.postId],
+      externalFlipControl: externalFlipControl,
+      onCardTap: onCardTap,
+      onLike: () => _handleLike(post),
+      onComment: () {
+        onBeforeSheet?.call();
+        _handleComment(post);
+      },
+      onReaction: (emoji) => _handleReaction(post, emoji),
+      onAdd: () => _handleAdd(post),
+      onDelete: post.userId == currentUserId
+          ? () {
+              onBeforeSheet?.call();
+              _handleDelete(post);
+            }
+          : null,
+      isSaved: savedItems.isPostOrTrackSaved(post),
+      backSideEnabled: canViewBack,
+      disableInteractions: !canReact,
+      onFlipToBack: () => _markPostRevealed(post.postId),
+      onPlayStarted: () {
+        _playingPostId = post.postId;
+        _preloadNeighborAudio(index);
+      },
+      onShare: () {
+        onBeforeSheet?.call();
+        showCardShareSheet(
+          context,
+          post: post,
+          currentUserId: currentUserId,
+          currentUserIconUrl: currentUserIconUrl,
+          isSaved: savedItems.isPostOrTrackSaved(post),
+        );
+      },
+    );
+  }
+
   Widget _buildTimelineSliver(PostUIState postUIState, SavedItemsProvider savedItems, String? currentUserIconUrl) {
     final posts = _cachedPosts!;
-    final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
+
+    if (_isGridView) {
+      // 2列グリッド。タップで「その場拡大 → 0.2秒後に自動反転」。
+      return SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 15),
+        sliver: SliverGrid(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 11,
+            mainAxisSpacing: 16,
+            // PostCard 前面の縦横比 363:645 に合わせる。
+            childAspectRatio: 363 / 645,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, index) {
+              final post = posts[index];
+              final cardKey = _postCardKeys.putIfAbsent(
+                  post.postId, () => GlobalKey<PostCardState>());
+              final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
+              final isOwnPost = post.userId == currentUserId;
+              final canViewBack = isOwnPost ||
+                  _postedAnyThisCycle ||
+                  _revealedPostIds.contains(post.postId);
+              return _GridPostCell(
+                key: ValueKey('grid_${post.postId}'),
+                cardKey: cardKey,
+                canViewBack: canViewBack,
+                builder: (onTap, requestClose) => _buildPostCardFor(
+                  post: post,
+                  index: index,
+                  postUIState: postUIState,
+                  savedItems: savedItems,
+                  currentUserIconUrl: currentUserIconUrl,
+                  cardKey: cardKey,
+                  externalFlipControl: true,
+                  onCardTap: onTap,
+                  onBeforeSheet: requestClose,
+                ),
+              );
+            },
+            childCount: posts.length,
+          ),
+        ),
+      );
+    }
 
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 15),
@@ -1411,52 +1630,19 @@ class _HomeScreenState extends State<HomeScreen>
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final post = posts[index];
-            final displayPost = postUIState.getDisplayPost(
-              post,
-              currentUserId: currentUserId,
-              currentUserIconUrl: currentUserIconUrl,
-            );
-
-            _postCardKeys.putIfAbsent(post.postId, () => GlobalKey<PostCardState>());
-            final cardKey = _postCardKeys[post.postId]!;
-
-            // 裏側ゲーティング: 自分の投稿は常に可。他人の裏側は「現サイクルで期限内
-            // 投稿済み」のときのみ可。Late 投稿者・未投稿者は表面のみ（裏返し・
-            // いいね・コメント不可）。既に裏を見た投稿は引き続き閲覧可。
-            final isOwnPost = post.userId == currentUserId;
-            final canViewBack = isOwnPost ||
-                _postedOnTimeThisCycle ||
-                _revealedPostIds.contains(post.postId);
+            final cardKey = _postCardKeys.putIfAbsent(
+                post.postId, () => GlobalKey<PostCardState>());
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 24),
               child: RepaintBoundary(
-                child: PostCard(
-                  key: cardKey,
-                  post: displayPost,
-                  currentUserId: currentUserId,
+                child: _buildPostCardFor(
+                  post: post,
+                  index: index,
+                  postUIState: postUIState,
+                  savedItems: savedItems,
                   currentUserIconUrl: currentUserIconUrl,
-                  audioService: _homeAudioService,
-                  externalPreviewUrl: _previewUrlCache[post.postId],
-                  onLike: () => _handleLike(post),
-                  onComment: () => _handleComment(post),
-                  onAdd: () => _handleAdd(post),
-                  onDelete: post.userId == currentUserId ? () => _handleDelete(post) : null,
-                  isSaved: savedItems.isPostOrTrackSaved(post),
-                  backSideEnabled: canViewBack,
-                  disableInteractions: !canViewBack,
-                  onFlipToBack: () => _markPostRevealed(post.postId),
-                  onPlayStarted: () {
-                    _playingPostId = post.postId;
-                    _preloadNeighborAudio(index);
-                  },
-                  onShare: () => showCardShareSheet(
-                    context,
-                    post: post,
-                    currentUserId: currentUserId,
-                    currentUserIconUrl: currentUserIconUrl,
-                    isSaved: savedItems.isPostOrTrackSaved(post),
-                  ),
+                  cardKey: cardKey,
                 ),
               ),
             );
@@ -1494,6 +1680,22 @@ class _HomeScreenState extends State<HomeScreen>
         );
       }
       _showMessage('いいねに失敗しました');
+    }
+  }
+
+  /// 絵文字リアクションが選ばれたときの処理（1ユーザー＝1つ・変更/取消可）。
+  /// カード側で楽観的UI・アニメを済ませているので、ここでは Firestore 書き込みのみ。
+  Future<void> _handleReaction(PostModel post, String emoji) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+    try {
+      await _postService.setReaction(
+        postId: post.postId,
+        emoji: emoji,
+        userId: userId,
+      );
+    } catch (e) {
+      _showMessage('リアクションに失敗しました');
     }
   }
 
@@ -1559,4 +1761,221 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+}
+
+/// ホーム画面の透明ピン留めヘッダー用デリゲート（15s タイトル + 通知ベル）。
+class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double height;
+  final double topPadding;
+  final ValueNotifier<double> bellOpacity;
+  final Widget bellButton;
+
+  _HomeHeaderDelegate({
+    required this.height,
+    required this.topPadding,
+    required this.bellOpacity,
+    required this.bellButton,
+  });
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: Colors.transparent,
+      padding: EdgeInsets.only(left: 16, right: 16, top: topPadding),
+      child: Stack(
+        children: [
+          const Center(
+            child: Text(
+              '15s',
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                fontFamily: 'SFPro',
+              ),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: ValueListenableBuilder<double>(
+              valueListenable: bellOpacity,
+              builder: (_, opacity, child) => Opacity(
+                opacity: opacity,
+                child: IgnorePointer(ignoring: opacity < 0.1, child: child),
+              ),
+              child: bellButton,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_HomeHeaderDelegate old) =>
+      old.height != height || old.topPadding != topPadding;
+}
+
+/// ホーム2列グリッドの1セル。
+/// タップすると、その投稿カードが元の位置から**拡大**し（オーバーレイで前面に浮かせる）、
+/// 0.2秒後に自動で裏面へ反転する。もう一度タップ（またはカード外タップ）で表面へ戻し縮小。
+/// 反転は PostCard を外部制御（externalFlipControl）して行う。
+///
+/// 拡大中はカード（GlobalKey 付き）をセルからオーバーレイへ移動させるため、
+/// カードの状態（音楽・反転）は保持される。セル側は同サイズのプレースホルダを表示。
+class _GridPostCell extends StatefulWidget {
+  final GlobalKey<PostCardState> cardKey;
+  final bool canViewBack;
+  /// builder(onTap, requestClose): onTap=カードタップ処理、requestClose=拡大を即キャンセル。
+  final Widget Function(VoidCallback onTap, VoidCallback requestClose) builder;
+
+  const _GridPostCell({
+    super.key,
+    required this.cardKey,
+    required this.canViewBack,
+    required this.builder,
+  });
+
+  @override
+  State<_GridPostCell> createState() => _GridPostCellState();
+}
+
+class _GridPostCellState extends State<_GridPostCell>
+    with SingleTickerProviderStateMixin {
+  final GlobalKey _cellKey = GlobalKey();
+  late final AnimationController _anim; // 0=セル内, 1=拡大
+  OverlayEntry? _entry;
+  Rect _startRect = Rect.zero;
+  bool _active = false;
+
+  // 拡大倍率。縦横2倍＝面積4倍で、2列カードをほぼ画面いっぱいまで拡大する。
+  static const double _enlargeScale = 2.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    )..addListener(() => _entry?.markNeedsBuild());
+  }
+
+  @override
+  void dispose() {
+    _removeEntry();
+    _anim.dispose();
+    super.dispose();
+  }
+
+  void _onTap() {
+    if (!_active) {
+      _open();
+    } else {
+      _close();
+    }
+  }
+
+  void _open() {
+    final box = _cellKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    _startRect = box.localToGlobal(Offset.zero) & box.size;
+    _active = true;
+    setState(() {}); // セル → プレースホルダ（カードはオーバーレイへ移動）
+    _entry = OverlayEntry(builder: _buildOverlay);
+    Overlay.of(context, rootOverlay: true).insert(_entry!);
+    _anim.forward(from: 0);
+    // 拡大後 0.2秒で自動反転＋音楽再生（裏面閲覧可能な場合のみ）。
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (_active && widget.canViewBack) {
+        widget.cardKey.currentState?.flipToBack(playAudio: true);
+      }
+    });
+  }
+
+  Future<void> _close() async {
+    widget.cardKey.currentState?.flipToFront();
+    try {
+      await _anim.reverse();
+    } catch (_) {}
+    _removeEntry();
+    if (mounted) setState(() {}); // カードをセルへ戻す
+  }
+
+  /// アニメーションなしで即座に拡大をキャンセルする。
+  /// 共有/コメント/削除など別シートを開く直前に呼び、シートの上に残らないようにする。
+  void _closeNow() {
+    if (!_active) return;
+    _anim.stop();
+    widget.cardKey.currentState?.flipToFront();
+    _removeEntry();
+    if (mounted) setState(() {});
+  }
+
+  void _removeEntry() {
+    _entry?.remove();
+    _entry = null;
+    _active = false;
+  }
+
+  Widget _buildOverlay(BuildContext ctx) {
+    final media = MediaQuery.of(ctx).size;
+    final t = Curves.easeOut.transform(_anim.value);
+    final scale = 1 + (_enlargeScale - 1) * t;
+    final w = _startRect.width * scale;
+    final h = _startRect.height * scale;
+    final center = _startRect.center;
+    // 元の位置の中心から拡大しつつ、画面内(上下左右12/60マージン)に収める。
+    double left = (center.dx - w / 2).clamp(12.0, (media.width - w - 12).clamp(12.0, double.infinity));
+    double top = (center.dy - h / 2).clamp(60.0, (media.height - h - 60).clamp(60.0, double.infinity));
+    return Stack(
+      children: [
+        // 透明バリア（暗転なし）。カード外タップで閉じる。スクロールも遮る。
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _close,
+            child: const SizedBox.expand(),
+          ),
+        ),
+        Positioned(
+          left: left,
+          top: top,
+          width: w,
+          height: h,
+          // Material の祖先を与えないと Text に黄色い二重下線が出るため透明 Material で包む。
+          child: Material(
+            type: MaterialType.transparency,
+            child: FittedBox(
+              fit: BoxFit.contain,
+              child: widget.builder(_onTap, _closeNow),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.expand(
+      key: _cellKey,
+      child: _active
+          ? const SizedBox.expand() // 拡大中はカードをオーバーレイへ退避
+          : RepaintBoundary(
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: widget.builder(_onTap, _closeNow),
+              ),
+            ),
+    );
+  }
 }

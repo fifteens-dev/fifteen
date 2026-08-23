@@ -101,31 +101,28 @@ class PostCardBackInfo extends StatelessWidget {
             ),
           ),
 
-          // リアクション（いいね、コメント、追加）
+          // リアクション（スマイル ＋ 追加）。コメントは接続を切っている（削除）。
+          // 投稿後のカードと同じく、コメントバー無しレイアウト（bottom 42）。
           Positioned(
             left: cardWidth * (12 / 363),
-            bottom: cardHeight * (80 / 645),
+            bottom: cardHeight * (42 / 645),
             child: Row(
               children: [
-                _buildReactionButton(
-                  icon: isLiked ? Icons.favorite : Icons.favorite_border,
-                  color: isLiked ? Colors.red : Colors.white,
-                  count: showCounts ? likeCount : null,
-                  onTap: onLike,
-                  textColor: isLiked ? Colors.red : Colors.white,
-                ),
-                SizedBox(width: cardWidth * (15 / 363)),
-                _buildCommentReaction(
-                  count: showCounts ? commentCount : null,
-                  onTap: onComment,
-                ),
-                SizedBox(width: cardWidth * (15 / 363)),
-                _buildReactionButton(
-                  icon: Icons.add_circle_outline,
+                Image.asset(
+                  'assets/icons/reaction_smile.png',
+                  width: cardWidth * (32 / 363),
+                  height: cardWidth * (32 / 363),
                   color: Colors.white,
-                  count: null,
+                  colorBlendMode: BlendMode.srcIn,
+                ),
+                SizedBox(width: cardWidth * (38 / 363)),
+                GestureDetector(
                   onTap: onAdd,
-                  textColor: Colors.white,
+                  child: Icon(
+                    Icons.add_circle_outline,
+                    size: cardWidth * (32 / 363),
+                    color: Colors.white,
+                  ),
                 ),
               ],
             ),
@@ -135,7 +132,7 @@ class PostCardBackInfo extends StatelessWidget {
           if (showCounts)
             Positioned(
               right: cardWidth * (12 / 363),
-              bottom: cardHeight * (80 / 645),
+              bottom: cardHeight * (42 / 645),
               child: Row(
                 children: [
                   _buildAvatar(),
@@ -146,14 +143,6 @@ class PostCardBackInfo extends StatelessWidget {
                 ],
               ),
             ),
-
-          // コメントボタン
-          Positioned(
-            left: cardWidth * (12 / 363),
-            right: cardWidth * (12 / 363),
-            bottom: cardHeight * (28 / 645),
-            child: _buildCommentButton(),
-          ),
 
           // "Provided courtesy of Apple Music"
           Positioned(

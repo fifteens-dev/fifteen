@@ -244,6 +244,89 @@ class PostWriteService {
     }
   }
 
+  /// 絵文字リアクションを設定/変更/解除する（1ユーザー＝1つ）。
+  /// - 同じ絵文字を再指定 → 解除（トグルオフ）
+  /// - 別の絵文字を指定 → 変更
+  /// - 未リアクション → 追加
+  /// 追加・変更時のみ、投稿者へ通知する（自分の投稿は除く）。
+  Future<void> setReaction({
+    required String postId,
+    required String emoji,
+    required String userId,
+  }) async {
+    try {
+      final postRef = _firestore.collection(_postsCollection).doc(postId);
+
+      String? postOwnerId;
+      String? albumArtUrl;
+      String? trackName;
+      bool shouldNotify = false; // 追加/変更のときだけ true
+
+      final currentUser = await _userService.getUser(userId);
+      final userIconUrl = currentUser?.profileImageUrl ?? '';
+
+      await _firestore.runTransaction((transaction) async {
+        final postDoc = await transaction.get(postRef);
+        if (!postDoc.exists) {
+          throw Exception('Post not found');
+        }
+        final data = postDoc.data()!;
+        final reactions = <String, dynamic>{
+          ...((data['reactions'] as Map?)?.cast<String, dynamic>() ?? {}),
+        };
+
+        final existing = reactions[userId];
+        final existingEmoji =
+            existing is Map ? existing['emoji']?.toString() : null;
+
+        if (existingEmoji == emoji) {
+          // 同じ絵文字 → 解除
+          reactions.remove(userId);
+        } else {
+          // 追加 or 変更
+          reactions[userId] = {
+            'emoji': emoji,
+            'iconUrl': userIconUrl,
+            'ts': DateTime.now().millisecondsSinceEpoch,
+          };
+          shouldNotify = true;
+          postOwnerId = data['userId']?.toString();
+          final trackData = data['track'] as Map<String, dynamic>?;
+          albumArtUrl = trackData?['albumImageUrl']?.toString();
+          trackName = trackData?['trackName']?.toString();
+        }
+
+        transaction.update(postRef, {
+          'reactions': reactions,
+          'reactionCount': reactions.length,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      });
+
+      if (shouldNotify && postOwnerId != null && postOwnerId != userId) {
+        await _notificationService.createNotification(
+          type: NotificationType.like, // リアクションは like 種別を再利用
+          recipientId: postOwnerId!,
+          senderId: userId,
+          senderUsername: currentUser?.username ?? 'Unknown',
+          senderIconUrl: currentUser?.profileImageUrl,
+          postId: postId,
+          albumArtUrl: albumArtUrl,
+          trackName: trackName,
+          body: '「$emoji」でリアクションしました',
+        );
+        if (kDebugMode) {
+          print('✅ リアクション通知作成: postId=$postId, emoji=$emoji, recipient=$postOwnerId');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error setting reaction: $e');
+      }
+      rethrow;
+    }
+  }
+
   /// コメント数を更新
   Future<void> updateCommentCount(String postId, int commentCount) async {
     try {

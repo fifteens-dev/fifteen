@@ -283,6 +283,14 @@ class _ProfilePostsListScreenState extends State<ProfilePostsListScreen> {
                         onPlayStarted: () => setState(() { _playingIndex = index; }),
                         isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
                         onLike: () => _handleLike(basePost),
+                        onReaction: _currentUserId == null
+                            ? null
+                            : (emoji) => PostUIState.handleReaction(
+                                  postId: basePost.postId,
+                                  emoji: emoji,
+                                  userId: _currentUserId!,
+                                  postService: _postService,
+                                ),
                         onAdd: () => _handleSave(basePost),
                         onDelete: (_currentUserId != null && post.userId == _currentUserId)
                             ? () => _handleDelete(basePost)

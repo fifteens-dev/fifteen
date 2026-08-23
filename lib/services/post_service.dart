@@ -191,6 +191,13 @@ class PostService {
     required String userId,
   }) => _writeService.toggleLike(postId: postId, userId: userId);
 
+  /// 絵文字リアクションを設定/変更/解除（1ユーザー＝1つ）
+  Future<void> setReaction({
+    required String postId,
+    required String emoji,
+    required String userId,
+  }) => _writeService.setReaction(postId: postId, emoji: emoji, userId: userId);
+
   /// コメント数を更新
   Future<void> updateCommentCount(String postId, int commentCount) =>
       _writeService.updateCommentCount(postId, commentCount);

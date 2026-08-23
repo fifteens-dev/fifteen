@@ -376,8 +376,14 @@ class _VibeStoryPostSheetState extends State<VibeStoryPostSheet> {
     // Music Memory モード（Spotify）: Vibe プレビューを挟まず、選択トラックを
     // 親に返して Apple Music と同じ写真フロー（PostPhotoSelectionScreen）へ。
     if (widget.moodPostMode) {
-      widget.onTrackChosen?.call(_selectedTrack ?? track);
-      if (mounted) Navigator.of(context).maybePop();
+      final chosen = _selectedTrack ?? track;
+      await _audioService.stop(); // プレビュー停止
+      // ★順序が重要: 先にこのシートを閉じてから写真フローを push する。
+      //   push→pop の順だと maybePop が「直前に積んだ写真画面」を閉じてしまい
+      //   次に進めない（onTrackChosen は home の context で push するため、
+      //   シートを閉じた後でも安全に呼べる）。
+      if (mounted) Navigator.of(context).pop();
+      widget.onTrackChosen?.call(chosen);
       return;
     }
     // プレビュー画面でも再生継続したいので audio はそのまま

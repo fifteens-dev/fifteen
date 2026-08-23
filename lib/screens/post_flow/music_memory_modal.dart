@@ -166,50 +166,89 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
 
   /// 表示リストを構築して反映する。並びは:
   ///  1. 今 Apple Music で「再生中」の曲（先頭固定・完璧一致）。
-  ///  2. アプリ起動時からの**手動再生履歴**（新しい順・埋め込みアート付き）。
-  ///     購入曲以外・ローカル曲も拾え、正しいジャケットで表示できる。
-  ///  3. Web API の最近再生のうち、1・2 と被らないもの（新しい順）。
+  ///  2枚目以降は、手動再生履歴と Web API を**合流（マージ）**して作る:
+  ///   - 手動履歴を先頭から 1 曲ずつカードに出しつつ、毎回 **Web API の先頭**と比べる。
+  ///   - 手動履歴の曲が Web API 先頭と一致した時点で、以降は **Web API を先頭から**並べる
+  ///     （合流点。手動履歴の残りは Web 側に含まれるので捨てる）。
+  ///   - 一致しないまま手動履歴が尽きたら、その後に Web API を並べる。
+  ///
+  /// 例) 手動 a,b,c,d,e / Web b,c,d,f のとき、a を出し→手動の b が Web 先頭 b と一致
+  ///     →以降 Web(b,c,d,f) で a,b,c,d,f となる。
   Future<void> _applyTracks(List<TrackModel> tracks) async {
     final npTrack = await _resolveNowPlayingFront(tracks);
 
-    // 2) 手動履歴（新しい順）。再生中の曲は先頭に出すのでここでは除外。
-    final history = PlaybackHistoryService().recentTracks();
-    final historyFiltered = <TrackModel>[
-      for (final h in history)
-        if (npTrack == null ||
-            !(_exactTitle(h.trackName, npTrack.trackName) &&
-                _exactTitle(h.artistName, npTrack.artistName)))
-          h,
-    ];
+    bool isNp(String title, String artist) =>
+        npTrack != null &&
+        _exactTitle(title, npTrack.trackName) &&
+        _exactTitle(artist, npTrack.artistName);
 
-    // 3) Web API のうち、再生中とも手動履歴とも被らない曲だけを後ろに。
-    bool inFront(TrackModel t) {
-      if (npTrack != null &&
-          _exactTitle(t.trackName, npTrack.trackName) &&
-          _exactTitle(t.artistName, npTrack.artistName)) {
-        return true;
-      }
-      return historyFiltered
-          .any((h) => _sameSong(t.trackName, t.artistName, h.trackName, h.artistName));
-    }
+    // 再生時刻の鮮度フィルタ: タイムスタンプがある曲は「再生から24時間以内」のみ許可。
+    // 時刻不明（playedAt==null＝Web のみで手動/端末履歴に無い曲）は対象外でそのまま残す。
+    final freshCutoff = DateTime.now().subtract(const Duration(hours: 24));
+    bool fresh(TrackModel t) =>
+        t.playedAt == null || t.playedAt!.isAfter(freshCutoff);
 
-    final webRest = tracks.where((t) => !inFront(t)).toList();
-    // Web 分は端末ライブラリ履歴の時刻を照合して「○分前」ラベルを付ける。
-    final recents =
+    // 手動再生履歴（新しい順）。24h 超は [PlaybackHistoryService] 側で除外済みだが、
+    // 念のため fresh でも二重に弾く。再生中の曲は先頭固定なのでここでは除外。
+    final history = PlaybackHistoryService()
+        .recentTracks()
+        .where((h) => !isNp(h.trackName, h.artistName) && fresh(h))
+        .toList();
+
+    // --- ベースは Web API（最近再生）。再生中の曲だけ除外（先頭固定するため）。---
+    final webBase =
+        tracks.where((t) => !isNp(t.trackName, t.artistName)).toList();
+
+    // Web の各曲に「○分前」ラベルを付与。優先は手動履歴の時刻、無ければ端末履歴。
+    // どちらにも無い純 Web 曲は時刻無しのまま。
+    final deviceRecents =
         await NowPlayingService().getDeviceRecentlyPlayed(limit: 50);
-    final webAnnotated = webRest.map((t) {
-      for (final r in recents) {
+    final webAnnotated = webBase.map((t) {
+      for (final h in history) {
+        if (_sameSong(t.trackName, t.artistName, h.trackName, h.artistName)) {
+          return t.copyWith(playedAt: h.playedAt);
+        }
+      }
+      for (final r in deviceRecents) {
         if (_sameSong(t.trackName, t.artistName, r.title, r.artist)) {
           return t.copyWith(playedAt: r.playedAt);
         }
       }
       return t;
-    }).toList();
+    })
+        // 時刻が付いた曲のうち 24h より前の再生は除外（時刻無しの純 Web 曲は残す）。
+        .where(fresh)
+        .toList();
 
-    // 先頭カード: 再生中があればそれ。無ければ手動履歴の先頭を「繰り上げ」て先頭にする。
+    // --- マージ: 手動履歴を先頭から出し、Web 先頭と一致したら以降 Web を先頭から。---
+    final rest = <TrackModel>[];
+    final seen = <String>{};
+    bool add(TrackModel t) {
+      final k = '${t.trackName.toLowerCase().trim()}|'
+          '${t.artistName.toLowerCase().trim()}';
+      if (!seen.add(k)) return false; // 同一曲の二重カードを防ぐ
+      rest.add(t);
+      return true;
+    }
+
+    final webHead = webAnnotated.isNotEmpty ? webAnnotated.first : null;
+    for (final h in history) {
+      // 手動履歴の曲が Web 先頭と一致 → 合流。以降は Web を並べる。
+      if (webHead != null &&
+          _sameSong(h.trackName, h.artistName, webHead.trackName,
+              webHead.artistName)) {
+        break;
+      }
+      add(h);
+    }
+    // 合流点（または手動履歴が尽きた点）から Web を先頭から並べる。
+    for (final w in webAnnotated) {
+      add(w);
+    }
+
+    // 先頭カード: 再生中があればそれ。無ければ rest の先頭を「繰り上げ」て先頭にする。
     // 繰り上げた先頭は、再生中カードと同様にアートを確実化する（保存アートが空/劣化でも
     // storeId からカタログ解決してジャケットを復元する）。
-    final rest = <TrackModel>[...historyFiltered, ...webAnnotated];
     TrackModel? front = npTrack != null ? npTrack.copyWith(isNowPlaying: true) : null;
     if (front == null && rest.isNotEmpty) {
       front = await _ensureArt(rest.removeAt(0));
@@ -879,10 +918,14 @@ class _CardCarouselState extends State<_CardCarousel>
     }
 
     // 扇モード: ドラッグ量/速度でコミット判定。
-    // 速い（＝高|velocity|）ほど何枚も送る。ゆっくりは 1 枚。
+    // 「少しのスクロールで2枚飛ぶ」誤爆を抑えるため、複数枚送りに入る速度を大きく上げる。
+    // 目安: 今まで2枚流れていた勢いを1枚、3枚を2枚相当に（1枚増やすのに +2000px/s 必要）。
     final prog = -_dragPx / _cardStep; // + = 左に送った量（次へ）
-    int cardsFor(double vel) =>
-        vel.abs() < 900 ? 1 : (vel.abs() / 900).round().clamp(1, 8);
+    int cardsFor(double vel) {
+      final a = vel.abs();
+      if (a < 3000) return 1; // 通常〜かなり速いフリックまで必ず1枚
+      return (2 + ((a - 3000) / 2000).floor()).clamp(2, 8); // 速い分だけ +1枚
+    }
 
     if (v <= -threshold || prog > 0.32) {
       // 左スワイプ = 次へ（速いほど複数枚）。
@@ -995,9 +1038,9 @@ class _CardCarouselState extends State<_CardCarousel>
         final open = _open.value;
         final pick = _pick.value;
 
-        // 前面カード中心。single=中央、fan=やや左（扇を右に展開）。
-        final frontCx = _lerp(area.width / 2, area.width * 0.34, open) +
-            pick * _pickFrontDx * k;
+        // 前面カード中心。single も fan も画面中央（束のときも最前面カードを中心に据える）。
+        // 扇はそこから右へ展開する。
+        final frontCx = area.width / 2 + pick * _pickFrontDx * k;
         final frontCy = area.height * 0.49 + pick * _pickFrontDy * k;
 
         // 指追従ドラッグ量を連続的な先頭位置に反映（扇モードのみ）。

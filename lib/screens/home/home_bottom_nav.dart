@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
-/// ホーム画面のボトムナビゲーション
+/// ホーム画面のボトムナビゲーション（3タブ: Music Memory / ホーム / プロフィール）
+///
+/// Figma 5189:10802「ナビバー」準拠:
+///   - バー全体 200×61 / radius 30（両端フル丸）
+///   - アイコン枠 40×40 を絶対配置: calender x=16, home x=80, profile x=143（y≈10）
 class HomeBottomNavigation extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onItemTapped;
@@ -15,12 +18,12 @@ class HomeBottomNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      // Figma 5189:11199: ナビバーは画面底辺から 33px。
+      padding: const EdgeInsets.only(bottom: 33),
       child: Center(
         child: Container(
-          width: 301,
+          width: 200,
           height: 61,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           decoration: BoxDecoration(
             color: const Color(0xFF191919).withValues(alpha: 0.77),
             borderRadius: BorderRadius.circular(30),
@@ -44,33 +47,40 @@ class HomeBottomNavigation extends StatelessWidget {
               ),
             ],
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Stack(
             children: [
-              // ホームボタン
+              // Music Memory（カレンダー）枠 (16,10) / グリフ 25×23 @(7, 8.75)
               _buildNavItem(
-                icon: Icons.home_outlined,
-                selectedIcon: Icons.home,
+                frameLeft: 16,
+                frameTop: 10,
+                assetPath: 'assets/icons/nav_music_memory.png',
+                glyphLeft: 7,
+                glyphTop: 8.75,
+                glyphWidth: 25,
+                glyphHeight: 23,
                 index: 0,
               ),
-              const SizedBox(width: 28),
-              // 検索ボタン
+              // ホーム 枠 (80,9)（中央） / グリフ 30×26.25 @(5, 7)
               _buildNavItem(
-                icon: Icons.search,
+                frameLeft: 80,
+                frameTop: 9,
+                assetPath: 'assets/icons/nav_home.png',
+                glyphLeft: 5,
+                glyphTop: 7,
+                glyphWidth: 30,
+                glyphHeight: 26.25,
                 index: 1,
               ),
-              const SizedBox(width: 28),
-              // 投稿ボタン
-              _buildNavItemSvg(
-                svgPath: 'assets/icons/post_icon.svg',
-                index: 2,
-              ),
-              const SizedBox(width: 28),
-              // アカウントボタン
+              // プロフィール 枠 (143,10) / グリフ 23.5×23.5 @(7.75, 8.75)
               _buildNavItem(
-                icon: Icons.account_circle_outlined,
-                selectedIcon: Icons.account_circle,
-                index: 3,
+                frameLeft: 143,
+                frameTop: 10,
+                assetPath: 'assets/icons/nav_profile.png',
+                glyphLeft: 7.75,
+                glyphTop: 8.75,
+                glyphWidth: 23.5,
+                glyphHeight: 23.5,
+                index: 2,
               ),
             ],
           ),
@@ -79,52 +89,44 @@ class HomeBottomNavigation extends StatelessWidget {
     );
   }
 
-  /// ナビゲーションアイテム
+  /// ナビゲーションアイテム。40×40 のタップ枠内に、Figma のグリフ実寸・実位置
+  /// （素材=40枠を4xで書き出し → 中身÷4）で白グリフPNGを配置し、選択で着色する。
   Widget _buildNavItem({
-    required IconData icon,
-    IconData? selectedIcon,
+    required double frameLeft,
+    required double frameTop,
+    required String assetPath,
+    required double glyphLeft,
+    required double glyphTop,
+    required double glyphWidth,
+    required double glyphHeight,
     required int index,
   }) {
     final isSelected = selectedIndex == index;
-    return GestureDetector(
-      onTap: () => onItemTapped(index),
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 40,
-        height: 40,
-        child: Center(
-          child: Icon(
-            isSelected ? (selectedIcon ?? icon) : icon,
-            color: isSelected ? Colors.white : const Color(0xFF929292),
-            size: 28,
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// SVG版ナビゲーションアイテム
-  Widget _buildNavItemSvg({
-    required String svgPath,
-    required int index,
-  }) {
-    final isSelected = selectedIndex == index;
-    return GestureDetector(
-      onTap: () => onItemTapped(index),
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 40,
-        height: 40,
-        child: Center(
-          child: SvgPicture.asset(
-            svgPath,
-            width: 28,
-            height: 28,
-            colorFilter: ColorFilter.mode(
-              isSelected ? Colors.white : const Color(0xFF929292),
-              BlendMode.srcIn,
+    return Positioned(
+      left: frameLeft,
+      top: frameTop,
+      width: 40,
+      height: 40,
+      child: GestureDetector(
+        onTap: () => onItemTapped(index),
+        behavior: HitTestBehavior.opaque,
+        child: Stack(
+          children: [
+            Positioned(
+              left: glyphLeft,
+              top: glyphTop,
+              width: glyphWidth,
+              height: glyphHeight,
+              child: Image.asset(
+                assetPath,
+                width: glyphWidth,
+                height: glyphHeight,
+                fit: BoxFit.fill,
+                color: isSelected ? Colors.white : const Color(0xFF929292),
+                colorBlendMode: BlendMode.srcIn,
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

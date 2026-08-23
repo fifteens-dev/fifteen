@@ -185,6 +185,12 @@ class _VibePostsListScreenState extends State<VibePostsListScreen> {
                             userId: widget.currentUserId,
                             postService: _postService,
                           ),
+                          onReaction: (emoji) => PostUIState.handleReaction(
+                            postId: post.postId,
+                            emoji: emoji,
+                            userId: widget.currentUserId,
+                            postService: _postService,
+                          ),
                           onComment: () {},
                           isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(post),
                           onAdd: () => _handleSave(post),

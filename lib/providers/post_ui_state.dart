@@ -301,4 +301,25 @@ class PostUIState extends ChangeNotifier {
       postService: postService,
     );
   }
+
+  /// 絵文字リアクションの共通ハンドラ（1ユーザー＝1つ・変更/取消可）。
+  /// カード側で楽観的UI・アニメを済ませているので Firestore 書き込みのみ行う。
+  /// `onReaction: (emoji) => PostUIState.handleReaction(...)` の形で共有する。
+  static Future<void> handleReaction({
+    required String postId,
+    required String emoji,
+    required String userId,
+    required PostService postService,
+  }) async {
+    if (userId.isEmpty) return;
+    try {
+      await postService.setReaction(
+        postId: postId,
+        emoji: emoji,
+        userId: userId,
+      );
+    } catch (_) {
+      // 失敗しても致命的ではない（カードの楽観表示は次のリロードで整合）。
+    }
+  }
 }

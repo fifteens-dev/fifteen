@@ -234,6 +234,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               userId: _currentUserId,
                               postService: _postService,
                             ),
+                    onReaction: _currentUserId.isEmpty
+                        ? null
+                        : (emoji) => PostUIState.handleReaction(
+                              postId: widget.post.postId,
+                              emoji: emoji,
+                              userId: _currentUserId,
+                              postService: _postService,
+                            ),
                     onComment: _handleComment,
                     onAdd: _handleSave,
                   ),

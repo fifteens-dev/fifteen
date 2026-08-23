@@ -18,12 +18,14 @@ import 'artist_profile_screen.dart';
 import '../widgets/profile_widgets.dart';
 import 'settings_screen.dart';
 import 'follow_list_screen.dart';
-import 'music_memory_month_screen.dart';
 import 'vibe_user_story_screen.dart';
 import 'home/vibe_story_bar_section.dart';
 import 'music_memory_detail_screen.dart';
-import '../widgets/common/app_toast.dart';
 import '../constants/profile_fonts.dart';
+import '../models/playlist_model.dart';
+import '../services/playlist_service.dart';
+import '../utils/album_image.dart';
+import 'playlist/playlist_track_selection_screen.dart';
 
 /// プロフィール画面（自分）
 class ProfileScreen extends StatefulWidget {
@@ -70,7 +72,10 @@ class ProfileScreenState extends State<ProfileScreen>
   List<PostModel> _otherPosts = [];
   int _totalPostCount = 0;
 
-  int get _tracksCount => _totalPostCount;
+  // My Playlist
+  final PlaylistService _playlistService = PlaylistService();
+  List<PlaylistModel> _playlists = const [];
+
   int get _followersCount => _userData?.followersCount ?? 0;
   int get _followingCount => _userData?.followingCount ?? 0;
 
@@ -85,6 +90,15 @@ class ProfileScreenState extends State<ProfileScreen>
     _loadPostCount();
     _loadUserData();
     _loadUserPosts();
+    _loadPlaylists();
+  }
+
+  /// My Playlist を読み込む。
+  Future<void> _loadPlaylists() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final list = await _playlistService.getPlaylistsByUserId(uid);
+    if (mounted) setState(() => _playlists = list);
   }
 
   @override
@@ -413,58 +427,69 @@ class ProfileScreenState extends State<ProfileScreen>
             ),
           ),
           const SizedBox(width: 20),
-          // 右: 名前 / @handle / bio
+          // 右: 名前 / @handle / bio。Figma 5189:11208 の絶対配置に合わせ、
+          // 85px アバターと同じ高さの領域内で top=6/33/61 に配置する。
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (displayName.isNotEmpty)
-                  Text(
-                    displayName,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      height: 1.35,
-                      fontFamily: kSfProRounded,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                if (handle != null && handle.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      handle.startsWith('@') ? handle : '@$handle',
-                      // Figma 4690:9233: SF Pro Rounded Regular 15px 白
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontFamily: kSfProRounded,
-                        fontWeight: FontWeight.w400,
+            child: SizedBox(
+              height: 85,
+              child: Stack(
+                children: [
+                  if (displayName.isNotEmpty)
+                    Positioned(
+                      left: 0,
+                      top: 6,
+                      right: 0,
+                      child: Text(
+                        displayName,
+                        // Figma 5189:11212: 20px Bold 白
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: kSfProRounded,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                if (bio != null && bio.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      bio,
-                      // Figma 4690:9234: SF Pro Rounded Regular 14px #8A8A8A
-                      style: const TextStyle(
-                        color: Color(0xFF8A8A8A),
-                        fontSize: 14,
-                        fontFamily: kSfProRounded,
-                        height: 1.35,
+                  if (handle != null && handle.isNotEmpty)
+                    Positioned(
+                      left: 2,
+                      top: 33,
+                      right: 0,
+                      child: Text(
+                        handle.startsWith('@') ? handle : '@$handle',
+                        // Figma 5189:11209: SF Pro Rounded Regular 15px 白
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontFamily: kSfProRounded,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-              ],
+                  if (bio != null && bio.isNotEmpty)
+                    Positioned(
+                      left: 2,
+                      top: 61,
+                      right: 0,
+                      child: Text(
+                        bio,
+                        // Figma 5189:11210: SF Pro Rounded Regular 14px #8A8A8A
+                        style: const TextStyle(
+                          color: Color(0xFF8A8A8A),
+                          fontSize: 14,
+                          fontFamily: kSfProRounded,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ],
@@ -472,29 +497,27 @@ class ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  /// 統計行（Tracks / Followers / Following）— 数字は SF Pro Rounded。
-  /// Figma 4687:8330 に沿い、行幅 286 内で 3等分。
+  /// 統計行（Followers / Following）— 数字は SF Pro Rounded。
+  /// Tracks は非表示にし、Followers / Following を中央に寄せて並べる。
   Widget _buildStatsRow() {
-    // アイコン→フォロー数までの距離を、Tracks→memories バーまでの距離
-    // (bottom 4 + SizedBox 20 = 24) と一致させるため、上余白を 24 にする。
+    // Figma 5189:11201「Frame 689」準拠:
+    //   - カラム 58×38、カラム間の隙間 36、中央揃え
+    //   - 数字 20px SF Pro Rounded Bold 白 / ラベル 11px SF Pro Regular #919191
     return Padding(
       padding: const EdgeInsets.fromLTRB(27, 24, 27, 4),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Expanded(child: _statItem(_tracksCount, 'Tracks')),
-          Expanded(
-            child: _statItem(
-              _followersCount,
-              'Followers',
-              onTap: () => _openFollowList(true),
-            ),
+          _statItem(
+            _followersCount,
+            'Followers',
+            onTap: () => _openFollowList(true),
           ),
-          Expanded(
-            child: _statItem(
-              _followingCount,
-              'Following',
-              onTap: () => _openFollowList(false),
-            ),
+          const SizedBox(width: 36),
+          _statItem(
+            _followingCount,
+            'Following',
+            onTap: () => _openFollowList(false),
           ),
         ],
       ),
@@ -502,39 +525,42 @@ class ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _statItem(int count, String label, {VoidCallback? onTap}) {
-    // Figma 4687:8330: スタック配置。
-    // - 数字 20px SF Pro Rounded Bold 白
-    // - ラベル 11px SF Pro Regular #919191
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          '$count',
-          style: const TextStyle(
-            color: Colors.white,
-            fontFamily: kSfProRounded,
-            fontSize: 17.4, // 20 の 0.87 倍（13% 縮小）
-            fontWeight: FontWeight.w700,
-            height: 1.0,
+    // Figma 5189:11202/11206: 58×38 の枠に数字＋ラベルを上寄せ中央配置。
+    final content = SizedBox(
+      width: 58,
+      height: 38,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 1),
+          Text(
+            '$count',
+            style: const TextStyle(
+              color: Colors.white,
+              fontFamily: kSfProRounded,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              height: 1.0,
+            ),
           ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Color(0xFF919191),
-            fontFamily: kSfProRounded,
-            fontSize: 11,
-            height: 1.256,
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF919191),
+              fontFamily: kSfProRounded,
+              fontSize: 11,
+              height: 1.256,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
-    if (onTap == null) return Center(child: content);
+    if (onTap == null) return content;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: Center(child: content),
+      child: content,
     );
   }
 
@@ -596,7 +622,7 @@ class ProfileScreenState extends State<ProfileScreen>
                         activeAsset: 'assets/profile/tab_calendar_active.png',
                         inactiveAsset:
                             'assets/profile/tab_calendar_inactive.png',
-                        label: 'Memories',
+                        label: 'Playlist',
                         active: _tab == _ProfileTab.memories,
                         onTap: () => _switchTab(_ProfileTab.memories),
                       ),
@@ -685,112 +711,24 @@ class ProfileScreenState extends State<ProfileScreen>
     if (_tab == _ProfileTab.saved) {
       return [_buildSavedContent()];
     }
+    // Playlist タブ: 💜/🔥 の記録カード + My Playlist のみ。
+    // （Music Memory のカレンダーはボトムナビの Music Memory タブへ移動済み）
     return [
-      _buildMusicMemorySection(),
+      _buildPlaylistStatCard(),
       _buildMyPlaylistSection(),
     ];
   }
 
-  // ── Memories タブ: Music Memory + My Playlist ────────────────────
-
-  /// Music Memory セクション。Figma 4773:10023 準拠:
-  ///   - 「Music Memory」タイトル(y=0)、週カード(y=28)、記録カード(y=160)
-  ///   - タイトル→週カード = 9px
-  ///   - 週カード→記録カード = 18px
-  ///   - 記録カードは 236 幅で中央に配置 (Music Memory枠 370 の中央、67px マージン)
-  Widget _buildMusicMemorySection() {
+  /// Playlist タブ上部の記録カード（💜 曲数 / 🔥 連続日数）。
+  /// Figma 5189:11238「Frame 674」= 236×47 の固定幅・中央配置。
+  Widget _buildPlaylistStatCard() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 22, 14, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Music Memory',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              fontFamily: kSfProRounded,
-            ),
-          ),
-          const SizedBox(height: 9),
-          _buildWeekCard(),
-          const SizedBox(height: 18),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 67),
-            child: _buildRecordCard(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 週カード。上部ヘッダ全体タップで Month 画面へ横スライド遷移。
-  /// Figma 4687:8344:
-  ///   - コンテナ: border #272627 1px / radius 19 / 全体 114 高
-  ///   - ヘッダ: 44 高 / bg #131315
-  ///   - ドット行: 70 高 / bg #0B0B0B
-  Widget _buildWeekCard() {
-    // border は foregroundDecoration で「子より前面」に描く。
-    // decoration の border は子の背景色(#0B0B0B)に上書きされて丸角部分で
-    // 消えてしまうため、前景に置くことで丸角にも線が乗る。
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF131315),
-        borderRadius: BorderRadius.circular(19),
-      ),
-      foregroundDecoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(19),
-        border: Border.all(color: const Color(0xFF272627), width: 1),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // ヘッダ 44 高（タップで Month へ）
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _openMusicMemoryMonth,
-            child: Container(
-              height: 44,
-              color: const Color(0xFF131315),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Text(
-                    _currentWeekLabel(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: kSfProRounded,
-                    ),
-                  ),
-                  const Spacer(),
-                  Image.asset(
-                    'assets/profile/memory_arrow.png',
-                    width: 7,
-                    height: 11,
-                    errorBuilder: (_, __, ___) => const Icon(
-                      CupertinoIcons.chevron_right,
-                      color: Colors.white70,
-                      size: 14,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // 週の 6 スロット行 — 70 高 / bg #0B0B0B
-          // 中身の Stack が Positioned で絶対配置するため alignment は使わない。
-          SizedBox(
-            height: 70,
-            child: ColoredBox(
-              color: const Color(0xFF0B0B0B),
-              child: _buildWeekMemoryRow(),
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.only(top: 22),
+      child: Center(
+        child: SizedBox(
+          width: 236,
+          child: _buildRecordCard(),
+        ),
       ),
     );
   }
@@ -800,7 +738,9 @@ class ProfileScreenState extends State<ProfileScreen>
   ///   - テキスト 14px SF Pro Rounded Semibold color #5C5656
   ///   - 中央 divider Line 145 (14px 高)
   Widget _buildRecordCard() {
-    final musicCount = _otherPosts.length;
+    // 投稿総数（= Tracks 数）を正確に表示。グリッドの読み込み件数(_otherPosts)は
+    // ページング上限（初回9件など）で頭打ちになるため使わない。
+    final musicCount = _totalPostCount;
     final streak = _computePostingStreak();
     return Container(
       height: 47,
@@ -878,230 +818,6 @@ class ProfileScreenState extends State<ProfileScreen>
     return streak;
   }
 
-  String _currentWeekLabel() {
-    final now = DateTime.now();
-    final firstOfMonth = DateTime(now.year, now.month, 1);
-    final week = ((now.day + firstOfMonth.weekday - 1) / 7).ceil();
-    return '${now.month}月 Week$week';
-  }
-
-  /// 週内 7 スロットの帯（Figma 4773:10031 Frame 663 準拠、日曜〜土曜の 7 日分）
-  /// - dot 位置: Frame 671 内 x=[0,48,96,144,192,240,288]、Frame 671 は
-  ///   Frame 663 内で x=35 → 絶対 dot 左端: 35, 83, 131, 179, 227, 275, 323
-  /// - dot Y = 31（Frame 663 高 70 内）
-  /// - アルバム Y = 14（同上）42×42、dot と中心を揃える
-  /// - 投稿のあった日: アルバムアート、今日で未投稿: 新規投稿枠、それ以外: dot
-  Widget _buildWeekMemoryRow() {
-    const dotSize = 12.0;
-    const artSize = 42.0;
-    // Figma 実座標(370 幅の Frame 663 内の絶対 x)。7 スロット = 日曜〜土曜。
-    const dotLeftXs = <double>[35, 83, 131, 179, 227, 275, 323];
-    const dotY = 31.0;
-    const artY = 14.0;
-
-    final now = DateTime.now();
-    final weekday = now.weekday % 7; // Sunday=0
-    final sunday = DateTime(now.year, now.month, now.day - weekday);
-    final byDay = <int, PostModel>{};
-    for (final p in _otherPosts) {
-      if (p.createdAt.isBefore(sunday)) continue;
-      if (p.createdAt.isAfter(sunday.add(const Duration(days: 7)))) continue;
-      final idx = p.createdAt.difference(sunday).inDays;
-      if (idx < 0 || idx > 6) continue;
-      byDay.putIfAbsent(idx, () => p);
-    }
-    final todayIdx = weekday.clamp(0, 6);
-
-    return Stack(
-      fit: StackFit.expand,
-      clipBehavior: Clip.hardEdge,
-      children: [
-        for (int i = 0; i < 7; i++)
-          _weekMemorySlot(
-            i: i,
-            post: byDay[i],
-            isTodayEmpty:
-                i == todayIdx && byDay[i] == null && _isCurrentUser,
-            dotLeftX: dotLeftXs[i],
-            dotY: dotY,
-            artY: artY,
-            dotSize: dotSize,
-            artSize: artSize,
-          ),
-      ],
-    );
-  }
-
-  /// 6 スロット中の 1 個。post がある → アルバム、今日で未投稿 → 新規投稿枠、
-  /// それ以外 → dot。全て Positioned で Figma 座標に合わせて配置。
-  Widget _weekMemorySlot({
-    required int i,
-    required PostModel? post,
-    required bool isTodayEmpty,
-    required double dotLeftX,
-    required double dotY,
-    required double artY,
-    required double dotSize,
-    required double artSize,
-  }) {
-    // アルバム/新規投稿枠は dot 中心と揃える(dotLeftX - 15)
-    final artLeft = dotLeftX + (dotSize - artSize) / 2;
-
-    if (post != null) {
-      return Positioned(
-        left: artLeft,
-        top: artY,
-        width: artSize,
-        height: artSize,
-        child: GestureDetector(
-          onTap: () => _openPostCardBack(post),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: _albumArtOrPlaceholder(post.track.albumImageUrl),
-          ),
-        ),
-      );
-    }
-    if (isTodayEmpty) {
-      return Positioned(
-        left: artLeft,
-        top: artY,
-        width: artSize,
-        height: artSize,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: _openPostFlow,
-          child: Image.asset(
-            'assets/profile/memory_new_post.png',
-            width: artSize,
-            height: artSize,
-            errorBuilder: (_, __, ___) => Container(
-              width: artSize,
-              height: artSize,
-              decoration: BoxDecoration(
-                color: const Color(0xFF2A2A2A),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.add, color: Colors.white70, size: 20),
-            ),
-          ),
-        ),
-      );
-    }
-    return Positioned(
-      left: dotLeftX,
-      top: dotY,
-      width: dotSize,
-      height: dotSize,
-      child: Image.asset(
-        'assets/profile/memory_dot.png',
-        width: dotSize,
-        height: dotSize,
-        errorBuilder: (_, __, ___) => Container(
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: Color(0xFF2A2A2A),
-          ),
-        ),
-      ),
-    );
-  }
-
-  bool get _isCurrentUser => FirebaseAuth.instance.currentUser != null;
-
-  Widget _albumArtOrPlaceholder(String url) {
-    if (url.isEmpty) {
-      return Container(
-        color: const Color(0xFF3A3A3A),
-        alignment: Alignment.center,
-        child: const Icon(Icons.album, color: Colors.white38, size: 18),
-      );
-    }
-    return CachedNetworkImage(
-      imageUrl: url,
-      fit: BoxFit.cover,
-      errorWidget: (_, __, ___) => Container(
-        color: const Color(0xFF3A3A3A),
-        alignment: Alignment.center,
-        child: const Icon(Icons.album, color: Colors.white38, size: 18),
-      ),
-    );
-  }
-
-  Future<void> _openMusicMemoryMonth() async {
-    // 投稿は Month 画面側で 3ヶ月区切りに遅延ロードするため、ここでは
-    // userId と総投稿数・作成日だけ渡す。
-    await MusicMemoryMonthScreen.push(
-      context,
-      userId: FirebaseAuth.instance.currentUser?.uid,
-      totalPostCount: _totalPostCount,
-      accountCreatedAt: _userData?.createdAt ??
-          FirebaseAuth.instance.currentUser?.metadata.creationTime,
-    );
-  }
-
-  void _openPostCardBack(PostModel post) {
-    // Vibe 機能は一時的に全面非表示。過去の Vibe 投稿も含め、
-    // すべての投稿を投稿カード（Music Memory 詳細）形式で表示する（表示時変換・可逆）。
-    _openMoodPostCards(post);
-  }
-
-  /// 気分投稿を Music Memory 詳細（日カルーセル）で開く。
-  /// カレンダー(月)からの遷移と同じ画面。各日の代表（最新1件）を新→古で並べ、
-  /// 端まで来たら 3ヶ月前を追加ロードできるよう userId・月骨格も渡す。
-  Future<void> _openMoodPostCards(PostModel post) async {
-    bool sameDay(DateTime a, DateTime b) =>
-        a.year == b.year && a.month == b.month && a.day == b.day;
-
-    final repByDay = <String, PostModel>{};
-    // Vibe 投稿も含めた全投稿を対象にする（過去 Vibe を投稿カードとして表示）。
-    for (final p in _otherPosts) {
-      final key = '${p.createdAt.year}-${p.createdAt.month}-${p.createdAt.day}';
-      final ex = repByDay[key];
-      if (ex == null || p.createdAt.isAfter(ex.createdAt)) repByDay[key] = p;
-    }
-    final days = repByDay.values.toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    if (days.isEmpty) days.add(post);
-    final idx = days.indexWhere((p) => sameDay(p.createdAt, post.createdAt));
-
-    final created = _userData?.createdAt ??
-        FirebaseAuth.instance.currentUser?.metadata.creationTime;
-
-    await MusicMemoryDetailScreen.push(
-      context,
-      posts: days,
-      initialIndex: idx < 0 ? 0 : idx,
-      userId: FirebaseAuth.instance.currentUser?.uid,
-      monthsNewToOld: _buildMonthsNewToOld(created),
-      loadedChunks: 0,
-    );
-    // 詳細画面内での削除などを反映するため再読み込み。
-    if (mounted) {
-      _loadUserPosts();
-      _loadPostCount();
-    }
-  }
-
-  /// アカウント作成月〜今月を「新しい→古い」順の "YYYY-MM" で返す（詳細画面の
-  /// 遅延ロード骨格）。作成日が無ければ空（＝追加ロードなし）。
-  List<String> _buildMonthsNewToOld(DateTime? created) {
-    if (created == null) return const [];
-    final now = DateTime.now();
-    final result = <String>[];
-    var y = now.year;
-    var m = now.month;
-    while (y > created.year || (y == created.year && m >= created.month)) {
-      result.add('$y-${m.toString().padLeft(2, '0')}');
-      m--;
-      if (m < 1) {
-        m = 12;
-        y--;
-      }
-    }
-    return result;
-  }
-
   /// ストーリー（Vibe 投稿）を Vibe プレイリスト形式のストーリービューアで開く。
   /// タップした投稿と同じ日の Vibe 投稿だけをまとめて 1 つのストーリーとして渡し、
   /// タップした投稿から再生開始。
@@ -1132,22 +848,12 @@ class ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Future<void> _openPostFlow() async {
-    // Home 画面のセンター FAB 相当の投稿フローに接続する導線。
-    // ここではトースト表示のみ（本フローの呼び出しは Home / navigation で共通化）。
-    AppToast.show(context, '投稿フローを開きます');
-  }
-
   /// My Playlist セクション（Figma 4687:8402 準拠）
   /// - サムネイル 57×81、間隔 30 (87 - 57 = 30)
   /// - 新規投稿枠のみカラー
   /// - 名前 10px SF Pro Medium 白 / "23曲" 9px SF Pro Regular #9E9FA1
   /// - 「新しいプレイリスト」9px SF Pro Medium #8C8986
   Widget _buildMyPlaylistSection() {
-    // 表示するプレイリスト。実データが揃うまでは 0 個（＝作成用スロットのみ）。
-    // グレーの占位枠はプレイリストが作成されるまで非表示にする。
-    // TODO: PlaylistModel から実データを流し込む
-    const existingCount = 0;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 26, 14, 0),
       child: Column(
@@ -1173,9 +879,14 @@ class ProfileScreenState extends State<ProfileScreen>
               padding: EdgeInsets.zero,
               children: [
                 _playlistNewSlot(),
-                for (int i = 0; i < existingCount; i++) ...[
+                for (final p in _playlists) ...[
                   const SizedBox(width: 30),
-                  _playlistExistingSlot(name: 'Night', trackCount: 23),
+                  _playlistExistingSlot(
+                    name: p.name,
+                    trackCount: p.trackCount,
+                    coverImageUrl: p.coverImageUrl,
+                    onTap: () => _openPlaylist(p),
+                  ),
                 ],
               ],
             ),
@@ -1185,10 +896,35 @@ class ProfileScreenState extends State<ProfileScreen>
     );
   }
 
+  /// プレイリスト作成フローを開く（画面1 → 画面2 → 作成）。完了後に一覧を更新。
+  Future<void> _openCreatePlaylist() async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const PlaylistTrackSelectionScreen(),
+      ),
+    );
+    if (result == true && mounted) _loadPlaylists();
+  }
+
+  /// プレイリストをタップ → そのプレイリストのカードのみを、Music Memory と同じ
+  /// 横並びのカード詳細（[MusicMemoryDetailScreen]）で表示する。
+  Future<void> _openPlaylist(PlaylistModel playlist) async {
+    if (playlist.postIds.isEmpty) return;
+    final posts = await _postService.getPostsByIds(playlist.postIds);
+    if (!mounted || posts.isEmpty) return;
+    // userId / monthsNewToOld を渡さない＝遅延ロードなしで、この投稿群だけを横カルーセル表示。
+    await MusicMemoryDetailScreen.push(
+      context,
+      posts: posts,
+      initialIndex: 0,
+    );
+  }
+
   Widget _playlistNewSlot() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => AppToast.show(context, 'プレイリストを作成'),
+      onTap: _openCreatePlaylist,
       // 枠(68)より「新しいプレイリスト」の方が広いので、外側を固定幅にせず
       // Column をラベル幅に合わせて広げる（横 ListView 内なので主軸は無制限）。
       // サムネイルは中央寄せで配置し、ラベルは省略せず全文表示する。
@@ -1233,27 +969,70 @@ class ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _playlistExistingSlot({required String name, required int trackCount}) {
+  /// 既存プレイリストのサムネイル。提供された枠PNG(playlist_既存)をそのまま土台にし、
+  /// その白いカード領域にだけカバー写真を重ねる（枠のグレー・ページ・背表紙はPNGのまま）。
+  Widget _buildPlaylistThumbnail(String coverImageUrl) {
+    const double w = 68;
+    const double h = 79; // PNG 278x324 のアスペクトに合わせた表示サイズ
     return SizedBox(
-      width: 68, // 57 の約 1.2 倍
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      width: w,
+      height: h,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
+          // 枠PNG（白カード＋斜めのページ＋背表紙）を土台に表示。
           Image.asset(
             'assets/profile/playlist_existing.png',
-            width: 68,
-            height: 79, // asset(278×324)の比率に合わせ余白を消す (68×324/278)
-            fit: BoxFit.contain,
+            width: w,
+            height: h,
+            fit: BoxFit.fill,
             errorBuilder: (_, __, ___) => Container(
-              width: 68,
-              height: 79,
+              width: w,
+              height: h,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
                 color: const Color(0xFF424242),
               ),
             ),
           ),
+          // 白いカード領域にだけカバー写真を重ねる（枠の内側に合わせて配置）。
+          if (coverImageUrl.isNotEmpty)
+            Positioned(
+              left: 4,
+              top: 4,
+              width: 47,
+              height: 71,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image(
+                  image: albumImageProvider(coverImageUrl),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _playlistExistingSlot({
+    required String name,
+    required int trackCount,
+    String coverImageUrl = '',
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: 68, // 57 の約 1.2 倍
+        child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // カバー: 白枠カード＋写真＋後ろに斜めのページが覗く合成（Figma 4773:10071）。
+          _buildPlaylistThumbnail(coverImageUrl),
           const SizedBox(height: 2), // 既存スロットはサムネイル→名前を 2px (Figma 4690:9281)
           Text(
             name,
@@ -1279,6 +1058,7 @@ class ProfileScreenState extends State<ProfileScreen>
             overflow: TextOverflow.ellipsis,
           ),
         ],
+        ),
       ),
     );
   }

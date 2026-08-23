@@ -34,17 +34,21 @@ import 'dialogs/report_dialog.dart';
 import 'native_pull_down_button.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'common/app_toast.dart';
+import 'reaction_overlay.dart';
 
 part 'post_card/mixins/post_card_color_mixin.dart';
 part 'post_card/mixins/post_card_lyrics_mixin.dart';
 part 'post_card/mixins/post_card_audio_mixin.dart';
 part 'post_card/mixins/post_card_like_mixin.dart';
+part 'post_card/mixins/post_card_reaction_mixin.dart';
 
 /// 投稿カードウィジェット（表裏反転アニメーション付き）
 class PostCard extends StatefulWidget {
   final PostModel post;
   final VoidCallback? onLike;
   final VoidCallback? onComment;
+  /// 絵文字リアクションが選ばれたときのコールバック（新リアクションUI）。
+  final void Function(String emoji)? onReaction;
   final VoidCallback? onAdd;
   final VoidCallback? onDelete;
   final String? currentUserId;
@@ -73,12 +77,16 @@ class PostCard extends StatefulWidget {
   final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
   final VoidCallback? onFlipToBack; // 初めて裏面に反転したときのコールバック（閲覧済み記録用）
   final VoidCallback? onShare; // 共有ボタンタップ時のコールバック（未指定時はPNG保存）
+  // trueの場合、カードタップで内部反転せず onCardTap を呼ぶだけにする。
+  // 反転は親が flipToBack()/flipToFront() で制御する（ホーム2列グリッド用）。
+  final bool externalFlipControl;
 
   const PostCard({
     super.key,
     required this.post,
     this.onLike,
     this.onComment,
+    this.onReaction,
     this.onAdd,
     this.onDelete,
     this.currentUserId,
@@ -103,6 +111,7 @@ class PostCard extends StatefulWidget {
     this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
     this.onFlipToBack, // 裏面反転コールバック（オプション）
     this.onShare, // 共有コールバック（オプション）
+    this.externalFlipControl = false, // デフォルトは内部で反転制御
   });
 
   @override
@@ -111,6 +120,21 @@ class PostCard extends StatefulWidget {
 
 class PostCardState extends State<PostCard>
     with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  // コメント機能の表示スイッチ。false でコメントボタン/バーを非表示（接続を切る）。
+  // 復活させるときは true に戻すだけ（コード自体は残している）。
+  static const bool kCommentsEnabled = false;
+
+  // ── 絵文字リアクション用の状態 ──────────────────────────
+  OverlayEntry? _reactionPickerEntry; // ピッカー吹き出し
+  OverlayEntry? _reactionBurstEntry; // 選択直後のふわっと上がるアニメ
+  Rect? _reactionAnchorRect; // スマイルボタンのグローバル矩形（吹き出し/バースト位置）
+  String? _reactionOverride; // 楽観的リアクション（null=解除）
+  bool _hasReactionOverride = false; // 楽観的上書きが有効か
+
+  /// コメント機能を切っている間は「コメントバー無し」レイアウト（Figma 5111:10598）で
+  /// 楽曲情報エリアを配置する（コメントバーの隙間分を詰めて波形などを正位置に）。
+  bool get _effHideCommentBar => widget.hideCommentBar || !kCommentsEnabled;
+
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
   bool _showFront = true;
@@ -253,6 +277,7 @@ class PostCardState extends State<PostCard>
 
   @override
   void dispose() {
+    _clearReactionOverlays();
     _flipController.dispose();
     _rejectController.dispose();
     super.dispose();
@@ -265,15 +290,31 @@ class PostCardState extends State<PostCard>
     _flipController.reverse();
   }
 
-  /// 裏面に戻す（外部から呼び出し可能）
-  void flipToBack() {
+  /// 裏面に戻す（外部から呼び出し可能）。
+  /// [playAudio] が true の場合、裏面反転と同時に音楽を再生し、裏面閲覧記録
+  /// （onFlipToBack）も通知する（ホーム2列グリッドのタップ拡大用）。
+  /// 既存の呼び出し元（音楽を外部管理する画面）は playAudio=false のまま影響を受けない。
+  void flipToBack({bool playAudio = false}) {
     if (!mounted || !_showFront) return;
     setState(() { _showFront = false; });
     _flipController.forward();
+    if (playAudio) {
+      widget.onFlipToBack?.call();
+      if (!widget.audioManagedExternally) {
+        widget.onPlayStarted?.call();
+        _playAudioAsync();
+      }
+    }
   }
 
   /// カードをタップして裏返す
   void _flipCard() async {
+    // 外部反転制御モード: 反転せず外部ハンドラのみ呼ぶ（親が flip を制御）。
+    if (widget.externalFlipControl) {
+      widget.onCardTap?.call();
+      return;
+    }
+
     // 表面のみ表示モードの場合は外部ハンドラを呼ぶ
     if (widget.showFrontOnly) {
       widget.onCardTap?.call();
@@ -330,8 +371,11 @@ class PostCardState extends State<PostCard>
 
     if (oldWidget.post.postId != widget.post.postId) {
       _clearLikeOptimistic();
+      _clearReactionOptimistic();
+      _clearReactionOverlays();
     } else {
       _syncLikeOptimisticWithActual();
+      _syncReactionOptimistic();
     }
   }
 
@@ -462,7 +506,7 @@ class PostCardState extends State<PostCard>
                     // hideCommentBar 時はコメントバー分を詰めて中央寄りに(Figma 4947:10749)。
                     Positioned(
                       left: cardWidth * (11 / 363),
-                      top: contentHeight * ((widget.hideCommentBar ? 79 : 63) / 294),
+                      top: contentHeight * ((_effHideCommentBar ? 79 : 63) / 294),
                       right: _showMoreButton
                           ? cardWidth * (43 / 363)
                           : cardWidth * (12 / 363),
@@ -511,24 +555,24 @@ class PostCardState extends State<PostCard>
                       child: _buildMoreButton(theme),
                     ),
 
-                    // リアクション - Figma: bottom: 141px → top: 153px (294-141), left: 12px, right: 12px
+                    // リアクション行 - Figma 5111/4947: top 153px, スマイル left12 /
+                    // プラス left82、リアクションアバターは右端 x348（right 15px）。
                     Positioned(
                       left: cardWidth * (12 / 363),
-                      right: cardWidth * (12 / 363),
-                      top: contentHeight * ((widget.hideCommentBar ? 156 : 128) / 294),
+                      right: cardWidth * (15 / 363),
+                      top: contentHeight * ((_effHideCommentBar ? 153 : 128) / 294),
                       child: _buildReactions(theme),
                     ),
 
-                    // 音楽波形 - Figma: bottom: 96px → top: 198px (294-96), left: 4px, right: 5px
+                    // 音楽波形 - Figma 5111:10598: left 18px, top 205px（コメントバー無し時）
                     Positioned(
-                      left: cardWidth * (12 / 363),
-                      top: contentHeight * ((widget.hideCommentBar ? 205 : 166) / 294),
+                      left: cardWidth * (18 / 363),
+                      top: contentHeight * ((_effHideCommentBar ? 205 : 166) / 294),
                       child: _buildWaveform(theme),
                     ),
 
-                    // コメント入力欄 - Figma: bottom: 40px → top: 254px (294-40), left: 12px, right: 12px
-                    // hideCommentBar 時は非表示。
-                    if (!widget.hideCommentBar)
+                    // コメント入力欄 - コメント機能を切っている間は非表示。
+                    if (kCommentsEnabled && !widget.hideCommentBar)
                       Positioned(
                         left: cardWidth * (12 / 363),
                         right: cardWidth * (12 / 363),
@@ -651,14 +695,13 @@ class PostCardState extends State<PostCard>
               ),
             ),
 
-            // 曲名とアーティスト名
-            // hideCommentBar 時はコメントバー分だけ下へスライド(Figma 4947:10833)。
+            // 曲名とアーティスト名。共有・3点メニューと同じ高さ(88)に揃える。
             Positioned(
               left: cardWidth * (11 / 363),
               right: _isOwner
                   ? cardWidth * (84 / 363)
                   : cardWidth * (12 / 363),
-              bottom: cardHeight * ((widget.hideCommentBar ? 72 : 110) / 645),
+              bottom: cardHeight * ((_effHideCommentBar ? 88 : 110) / 645),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -701,42 +744,44 @@ class PostCardState extends State<PostCard>
               ),
             ),
 
-            // リアクション
+            // リアクション（スマイル＝絵文字リアクション ＋ 追加/保存）
             Positioned(
               left: cardWidth * (12 / 363),
-              bottom: cardHeight * ((widget.hideCommentBar ? 42 : 80) / 645),
+              bottom: cardHeight * ((_effHideCommentBar ? 42 : 80) / 645),
               child: Row(
                 children: [
-                  _buildReactionButton(
-                    icon: isLiked ? Icons.favorite : Icons.favorite_border,
-                    color: isLiked ? Colors.red : Colors.white,
-                    count: widget.hideReactionCounts ? null : (_likeCountOptimistic ?? widget.post.likeCount),
-                    onTap: _handleLikeTap,
-                    textColor: isLiked ? Colors.red : Colors.white,
-                  ),
-                  SizedBox(width: cardWidth * (15 / 363)),
-                  _buildCommentReactionBack(
-                    count: widget.post.commentCount,
-                    onTap: widget.disableInteractions
-                        ? () => RestrictionNotification.show(context, message: 'コメントができません')
-                        : widget.onComment,
-                  ),
-                  SizedBox(width: cardWidth * (15 / 363)),
-                  _buildSaveButton(theme: theme, color: Colors.white),
+                  _buildSmileyButton(
+                      size: cardWidth * (28 / 363), color: Colors.white),
+                  SizedBox(width: cardWidth * (34 / 363)),
+                  // コメント機能は接続を切っている（kCommentsEnabled=false で復活可）。
+                  if (kCommentsEnabled) ...[
+                    _buildCommentReactionBack(
+                      count: widget.post.commentCount,
+                      onTap: widget.disableInteractions
+                          ? () => RestrictionNotification.show(context,
+                              message: 'コメントができません')
+                          : widget.onComment,
+                    ),
+                    SizedBox(width: cardWidth * (34 / 363)),
+                  ],
+                  _buildSaveButton(
+                      theme: theme,
+                      color: Colors.white,
+                      size: cardWidth * (28 / 363)),
                 ],
               ),
             ),
 
-            // ユーザーアバター（右側）
+            // リアクションしたユーザーのアバター＋絵文字（右側）
             if (!widget.hideReactionCounts)
               Positioned(
                 right: cardWidth * (12 / 363),
-                bottom: cardHeight * ((widget.hideCommentBar ? 42 : 80) / 645),
-                child: _buildLikedUsersIconsFront(cardWidth, cardHeight),
+                bottom: cardHeight * ((_effHideCommentBar ? 42 : 80) / 645),
+                child: _buildReactorAvatarsFront(cardWidth, cardHeight),
               ),
 
-            // コメントボタン（半透明黒背景）— hideCommentBar 時は非表示。
-            if (!widget.hideCommentBar)
+            // コメントボタン（半透明黒背景）— コメント機能を切っている間は非表示。
+            if (kCommentsEnabled && !widget.hideCommentBar)
               Positioned(
                 left: cardWidth * (12 / 363),
                 right: cardWidth * (12 / 363),
@@ -754,11 +799,11 @@ class PostCardState extends State<PostCard>
               ),
             ),
 
-            // 共有ボタン（自分の投稿のみ）
+            // 共有ボタン（自分の投稿のみ）。タイトルと同じ高さ(88)。
             if (_isOwner && !widget.hideShareButton)
               Positioned(
                 right: cardWidth * (47 / 363),
-                bottom: cardHeight * (110 / 645),
+                bottom: cardHeight * ((_effHideCommentBar ? 88 : 110) / 645),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: widget.onShare ?? _handleShare,
@@ -782,11 +827,11 @@ class PostCardState extends State<PostCard>
                 ),
               ),
 
-            // 3点メニューボタン（裏面）
+            // 3点メニューボタン（裏面）。タイトル・共有と同じ高さ(88)。
             if (_showMoreButton)
               Positioned(
                 right: cardWidth * (11 / 363),
-                bottom: cardHeight * (110 / 645),
+                bottom: cardHeight * ((_effHideCommentBar ? 88 : 110) / 645),
                 child: _buildMoreButton(theme, color: Colors.white),
               ),
           ],
@@ -1433,40 +1478,33 @@ class PostCardState extends State<PostCard>
     );
   }
 
-  /// リアクション（いいね、コメント、追加）
+  /// リアクション（スマイル＝絵文字リアクション、追加）
   Widget _buildReactions(PostTheme theme) {
-    final isLiked = _isLikedOptimistic ??
-        (widget.currentUserId != null &&
-            widget.post.isLikedBy(widget.currentUserId!));
-    final likeCount = _likeCountOptimistic ?? widget.post.likeCount;
-
+    // Figma 5111:10598: スマイル left12・プラス left82（ともに 32×32）。
+    // 行の起点は left12 なので、スマイル(32)→隙間(38)→プラス(32) で left82 に合う。
     return Row(
       children: [
-        // いいね
-        _buildReactionItem(
-          icon: isLiked ? Icons.favorite : Icons.favorite_border,
-          count: likeCount,
-          onTap: _handleLikeTap,
-          isActive: isLiked,
-          theme: theme,
-        ),
-        SizedBox(width: 15 ),
+        // スマイル（絵文字リアクション）。背景に応じて白/黒が切り替わる。
+        _buildSmileyButton(size: 32, color: theme.iconColor),
+        const SizedBox(width: 38),
 
-        // コメント
-        _buildCommentReaction(
-          count: widget.post.commentCount,
-          onTap: widget.onComment,
-          theme: theme,
-        ),
-        SizedBox(width: 15 ),
+        // コメント（接続を切っている。kCommentsEnabled=false で復活可）
+        if (kCommentsEnabled) ...[
+          _buildCommentReaction(
+            count: widget.post.commentCount,
+            onTap: widget.onComment,
+            theme: theme,
+          ),
+          const SizedBox(width: 38),
+        ],
 
         // 追加（保存ボタン）
-        _buildSaveButton(theme: theme),
+        _buildSaveButton(theme: theme, size: 32),
 
         if (!widget.hideReactionCounts) ...[
           const Spacer(),
-          // いいねしたユーザーのアイコン（最大2人）
-          _buildLikedUsersIcons(),
+          // リアクションしたユーザーのアバター＋絵文字（最大2人）
+          _buildReactorAvatars(),
         ],
       ],
     );
@@ -1600,6 +1638,89 @@ class PostCardState extends State<PostCard>
     );
   }
 
+  /// スマイル（リアクション）ボタン。タップで絵文字ピッカーを開く。
+  /// [color] を渡すと白黒の PNG を srcIn で着色（他アイコンと同じく背景に応じて
+  /// 白/黒が切り替わるよう、表面では theme.iconColor を渡す）。
+  Widget _buildSmileyButton({required double size, Color? color}) {
+    return Builder(
+      builder: (btnCtx) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _showReactionPicker(btnCtx),
+        child: Image.asset(
+          'assets/icons/reaction_smile.png',
+          width: size,
+          height: size,
+          color: color,
+          colorBlendMode: color != null ? BlendMode.srcIn : null,
+        ),
+      ),
+    );
+  }
+
+  /// リアクションしたユーザーのアイコン＋絵文字バッジ（共通ロジック）。
+  /// Figma 4947:10749 準拠: アバター 32×32・間隔0（隣接）・右下に 15px の絵文字。
+  Widget _buildReactorAvatarsCommon({required double iconSize}) {
+    final reactions = effectiveReactions;
+    if (widget.hideReactionCounts || reactions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    const maxShow = 3;
+    final displayCount =
+        reactions.length > maxShow ? maxShow : reactions.length;
+    final emojiSize = iconSize * (15 / 32); // Figma: 32アバターに 15絵文字
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(displayCount, (index) {
+        final r = reactions[index];
+        return GestureDetector(
+          onTap: () => _navigateToUserProfile(r.userId),
+          child: SizedBox(
+            width: iconSize,
+            height: iconSize,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: iconSize,
+                  height: iconSize,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.grey[400],
+                  ),
+                  child: ClipOval(
+                    child: ProfileImage(imageUrl: r.iconUrl, size: iconSize),
+                  ),
+                ),
+                // 絵文字バッジ: 右下角に合わせる（Figma: 右端・下端をアバターに揃える）
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Text(
+                    r.emoji,
+                    style: TextStyle(fontSize: emojiSize, height: 1.0),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  /// リアクションアバター（裏面用 - 相対サイズ 32/363）
+  Widget _buildReactorAvatars() {
+    return _buildReactorAvatarsCommon(iconSize: 32);
+  }
+
+  /// リアクションアバター（表面用 - 相対サイズ 32/363）
+  Widget _buildReactorAvatarsFront(double cardWidth, double cardHeight) {
+    return _buildReactorAvatarsCommon(
+      iconSize: cardWidth * (32 / PostCardConstants.cardBaseWidth),
+    );
+  }
+
   /// ユーザー情報（表面の下部）
   Widget _buildUserInfo(PostTheme theme) {
     final teamId = widget.post.adlTeamId;
@@ -1639,7 +1760,7 @@ class PostCardState extends State<PostCard>
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 9), // Figma: アイコン right44 → 名前 left53
               _buildWeightAdjustedText(
                 widget.post.username,
                 fontSize: 12,
@@ -1715,28 +1836,32 @@ class PostCardState extends State<PostCard>
     );
   }
 
-  Widget _buildSaveButton({required PostTheme theme, Color? color}) {
+  Widget _buildSaveButton({
+    required PostTheme theme,
+    Color? color,
+    double size = 32,
+  }) {
     return GestureDetector(
       onTap: widget.onAdd,
       child: widget.isSaved
-          ? _buildSavedIcon()
+          ? _buildSavedIcon(size: size)
           : Icon(
               Icons.add_circle_outline,
-              size: 24,
+              size: size,
               color: color ?? theme.iconColor,
             ),
     );
   }
 
   /// 保存済みアイコン（緑色の円 + 灰色のチェックマーク）
-  Widget _buildSavedIcon() {
+  Widget _buildSavedIcon({double size = 32}) {
     return Stack(
       alignment: Alignment.center,
       children: [
         // 背景：明るい緑色の塗りつぶし円
         Container(
-          width: 24,
-          height: 24,
+          width: size,
+          height: size,
           decoration: BoxDecoration(
             color: Colors.lightGreen,
             shape: BoxShape.circle,
@@ -1745,7 +1870,7 @@ class PostCardState extends State<PostCard>
         // 前景：灰色のチェックマーク
         Icon(
           Icons.check,
-          size: 18,
+          size: size * 0.72,
           color: Colors.grey[700],
         ),
       ],

@@ -95,15 +95,30 @@ service cloud.firestore {
       allow update: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
         isAdmin() ||
-        // 他ユーザーはいいね・コメント数・歌詞関連フィールドのみ変更可
+        // 他ユーザーはいいね・リアクション・コメント数・歌詞関連フィールドのみ変更可
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['likedUserIds', 'likedByUserIconUrls', 'likeCount',
+                    'reactions', 'reactionCount',
                     'commentCount', 'savedByUserIds', 'savedByUserIconUrls',
                     'lyricsText', 'updatedAt'])
       );
 
       // 削除：投稿者本人または管理者
       allow delete: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // ── playlists コレクション（My Playlist）────────────────────
+    match /playlists/{playlistId} {
+      // 読み取り：ログイン済みなら誰でも可（他人のプロフィールでも表示するため）
+      allow read: if isAuthenticated();
+
+      // 作成：ログイン済み、かつ userId が自分のUID
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+
+      // 更新・削除：作成者本人または管理者
+      allow update, delete: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
     }
 

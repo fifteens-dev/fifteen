@@ -77,6 +77,10 @@ class _HomeScreenState extends State<HomeScreen>
   int _selectedIndex = 1;
   // ホームのタイムライン表示: false=1列(既定) / true=2列グリッド。
   bool _isGridView = false;
+  // 2列グリッドの拡大オーバーレイ表示中フラグ。
+  // 拡大中は再生カードがグリッド上で非表示（プレースホルダ）になるため、
+  // 可視性チェックによる自動停止をスキップして拡大カードの再生を守る。
+  bool _gridEnlargedActive = false;
   final PostService _postService = PostService();
   final MusicServiceManager _musicServiceManager = MusicServiceManager();
   final UserService _userService = UserService();
@@ -768,6 +772,9 @@ class _HomeScreenState extends State<HomeScreen>
   /// スクロール時に各カードの可視性を確認し、
   /// 最も多く見えているカード（50%超）以外の裏面カードを表面に戻す
   void _checkPlayingCardVisibility() {
+    // 2列グリッドの拡大オーバーレイ表示中は、再生カードがグリッド上で
+    // プレースホルダ扱いになり「画面外」と誤判定されるため、停止処理をスキップ。
+    if (_gridEnlargedActive) return;
     final screenHeight = MediaQuery.of(context).size.height;
 
     String? dominantPostId;
@@ -1701,6 +1708,7 @@ class _HomeScreenState extends State<HomeScreen>
                 key: ValueKey('grid_${post.postId}'),
                 cardKey: cardKey,
                 canViewBack: canViewBack,
+                onEnlargedChanged: (v) => _gridEnlargedActive = v,
                 builder: (key, onTap, requestClose) => _buildPostCardFor(
                   post: post,
                   index: index,
@@ -1936,12 +1944,15 @@ class _GridPostCell extends StatefulWidget {
   /// onTap=カードタップ処理、requestClose=拡大を即キャンセル。
   final Widget Function(GlobalKey<PostCardState> key, VoidCallback onTap,
       VoidCallback requestClose) builder;
+  /// 拡大オーバーレイの表示/非表示が変わったとき（true=表示中）に通知。
+  final ValueChanged<bool>? onEnlargedChanged;
 
   const _GridPostCell({
     super.key,
     required this.cardKey,
     required this.canViewBack,
     required this.builder,
+    this.onEnlargedChanged,
   });
 
   @override
@@ -1992,6 +2003,7 @@ class _GridPostCellState extends State<_GridPostCell>
     if (box == null || !box.hasSize) return;
     _startRect = box.localToGlobal(Offset.zero) & box.size;
     _active = true;
+    widget.onEnlargedChanged?.call(true);
     setState(() {}); // セル → プレースホルダ（拡大カードはオーバーレイに別途生成）
     _entry = OverlayEntry(builder: _buildOverlay);
     Overlay.of(context, rootOverlay: true).insert(_entry!);
@@ -2033,6 +2045,7 @@ class _GridPostCellState extends State<_GridPostCell>
     _entry?.remove();
     _entry = null;
     _active = false;
+    widget.onEnlargedChanged?.call(false);
   }
 
   /// 拡大の目標矩形 = 1列配置と同じ「中央・1列カード幅」。

@@ -17,6 +17,7 @@ class CurrentUserProvider extends ChangeNotifier {
   String? _university;
   String? _uid;
   String? _adlTeamId;
+  bool _isAdmin = false;
   bool _loaded = false;
 
   StreamSubscription<User?>? _authSub;
@@ -45,6 +46,7 @@ class CurrentUserProvider extends ChangeNotifier {
   String? get university => _university;
   String? get uid => _uid;
   String? get adlTeamId => _adlTeamId;
+  bool get isAdmin => _isAdmin;
   bool get isLoaded => _loaded;
 
   /// 事前ロード済みの UserModel から初期化（起動時 splash で取得済みの場合等）
@@ -54,6 +56,7 @@ class CurrentUserProvider extends ChangeNotifier {
     _university = model.university;
     _uid = model.uid;
     _adlTeamId = model.adlTeamId;
+    _isAdmin = model.isAdmin;
     _loaded = true;
     notifyListeners();
   }
@@ -81,6 +84,7 @@ class CurrentUserProvider extends ChangeNotifier {
       _university = userData?.university;
       _uid = currentUser.uid;
       _adlTeamId = userData?.adlTeamId;
+      _isAdmin = userData?.isAdmin ?? false;
       _loaded = true;
       notifyListeners();
     } catch (e) {
@@ -101,6 +105,7 @@ class CurrentUserProvider extends ChangeNotifier {
     _university = null;
     _uid = null;
     _adlTeamId = null;
+    _isAdmin = false;
     _loaded = false;
     notifyListeners();
   }

@@ -1698,13 +1698,13 @@ class _HomeScreenState extends State<HomeScreen>
                 key: ValueKey('grid_${post.postId}'),
                 cardKey: cardKey,
                 canViewBack: canViewBack,
-                builder: (onTap, requestClose) => _buildPostCardFor(
+                builder: (key, onTap, requestClose) => _buildPostCardFor(
                   post: post,
                   index: index,
                   postUIState: postUIState,
                   savedItems: savedItems,
                   currentUserIconUrl: currentUserIconUrl,
-                  cardKey: cardKey,
+                  cardKey: key,
                   externalFlipControl: true,
                   onCardTap: onTap,
                   onBeforeSheet: requestClose,
@@ -1919,17 +1919,20 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
 }
 
 /// ホーム2列グリッドの1セル。
-/// タップすると、その投稿カードが元の位置から**拡大**し（オーバーレイで前面に浮かせる）、
-/// 0.2秒後に自動で裏面へ反転する。もう一度タップ（またはカード外タップ）で表面へ戻し縮小。
-/// 反転は PostCard を外部制御（externalFlipControl）して行う。
+/// タップすると、その投稿カードが元の位置から**拡大**し（オーバーレイで前面に浮かせて
+/// 中央・1列幅へ）、0.2秒後に自動で裏面へ反転する。もう一度タップ（またはカード外
+/// タップ）で表面へ戻し縮小。
 ///
-/// 拡大中はカード（GlobalKey 付き）をセルからオーバーレイへ移動させるため、
-/// カードの状態（音楽・反転）は保持される。セル側は同サイズのプレースホルダを表示。
+/// 拡大表示はオーバーレイに**別インスタンスの PostCard**（[_overlayCardKey]）を生成して
+/// 行う。セル内カードを移動させないため、従来通りの裏返しアニメーションが確実に動く。
+/// 拡大中はセル側を空プレースホルダにして二重描画・二重再生を防ぐ。
 class _GridPostCell extends StatefulWidget {
   final GlobalKey<PostCardState> cardKey;
   final bool canViewBack;
-  /// builder(onTap, requestClose): onTap=カードタップ処理、requestClose=拡大を即キャンセル。
-  final Widget Function(VoidCallback onTap, VoidCallback requestClose) builder;
+  /// builder(key, onTap, requestClose): key=カードに付与する GlobalKey、
+  /// onTap=カードタップ処理、requestClose=拡大を即キャンセル。
+  final Widget Function(GlobalKey<PostCardState> key, VoidCallback onTap,
+      VoidCallback requestClose) builder;
 
   const _GridPostCell({
     super.key,
@@ -1945,6 +1948,8 @@ class _GridPostCell extends StatefulWidget {
 class _GridPostCellState extends State<_GridPostCell>
     with SingleTickerProviderStateMixin {
   final GlobalKey _cellKey = GlobalKey();
+  // オーバーレイの拡大カード用（セル内カードとは別インスタンス）。
+  final GlobalKey<PostCardState> _overlayCardKey = GlobalKey<PostCardState>();
   late final AnimationController _anim; // 0=セル内, 1=拡大
   OverlayEntry? _entry;
   Rect _startRect = Rect.zero;
@@ -1984,20 +1989,20 @@ class _GridPostCellState extends State<_GridPostCell>
     if (box == null || !box.hasSize) return;
     _startRect = box.localToGlobal(Offset.zero) & box.size;
     _active = true;
-    setState(() {}); // セル → プレースホルダ（カードはオーバーレイへ移動）
+    setState(() {}); // セル → プレースホルダ（拡大カードはオーバーレイに別途生成）
     _entry = OverlayEntry(builder: _buildOverlay);
     Overlay.of(context, rootOverlay: true).insert(_entry!);
     _anim.forward(from: 0);
     // 拡大後 0.2秒で自動反転＋音楽再生（裏面閲覧可能な場合のみ）。
     Future.delayed(const Duration(milliseconds: 200), () {
       if (_active && widget.canViewBack) {
-        widget.cardKey.currentState?.flipToBack(playAudio: true);
+        _overlayCardKey.currentState?.flipToBack(playAudio: true);
       }
     });
   }
 
   Future<void> _close() async {
-    widget.cardKey.currentState?.flipToFront();
+    _overlayCardKey.currentState?.flipToFront();
     try {
       await _anim.reverse();
     } catch (_) {}
@@ -2010,7 +2015,7 @@ class _GridPostCellState extends State<_GridPostCell>
   void _closeNow() {
     if (!_active) return;
     _anim.stop();
-    widget.cardKey.currentState?.flipToFront();
+    _overlayCardKey.currentState?.flipToFront();
     _removeEntry();
     if (mounted) setState(() {});
   }
@@ -2061,7 +2066,8 @@ class _GridPostCellState extends State<_GridPostCell>
             type: MaterialType.transparency,
             child: FittedBox(
               fit: BoxFit.contain,
-              child: widget.builder(_onTap, _closeNow),
+              // 拡大カードは別インスタンス（_overlayCardKey）。従来通り反転可能。
+              child: widget.builder(_overlayCardKey, _onTap, _closeNow),
             ),
           ),
         ),
@@ -2074,11 +2080,11 @@ class _GridPostCellState extends State<_GridPostCell>
     return SizedBox.expand(
       key: _cellKey,
       child: _active
-          ? const SizedBox.expand() // 拡大中はカードをオーバーレイへ退避
+          ? const SizedBox.expand() // 拡大中はセル内カードを退避（空表示）
           : RepaintBoundary(
               child: FittedBox(
                 fit: BoxFit.contain,
-                child: widget.builder(_onTap, _closeNow),
+                child: widget.builder(widget.cardKey, _onTap, _closeNow),
               ),
             ),
     );

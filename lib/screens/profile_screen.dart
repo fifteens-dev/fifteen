@@ -26,6 +26,7 @@ import '../models/playlist_model.dart';
 import '../services/playlist_service.dart';
 import '../utils/album_image.dart';
 import 'playlist/playlist_track_selection_screen.dart';
+import 'playlist/playlist_detail_screen.dart';
 
 /// プロフィール画面（自分）
 class ProfileScreen extends StatefulWidget {
@@ -910,15 +911,15 @@ class ProfileScreenState extends State<ProfileScreen>
   /// プレイリストをタップ → そのプレイリストのカードのみを、Music Memory と同じ
   /// 横並びのカード詳細（[MusicMemoryDetailScreen]）で表示する。
   Future<void> _openPlaylist(PlaylistModel playlist) async {
-    if (playlist.postIds.isEmpty) return;
-    final posts = await _postService.getPostsByIds(playlist.postIds);
-    if (!mounted || posts.isEmpty) return;
-    // userId / monthsNewToOld を渡さない＝遅延ロードなしで、この投稿群だけを横カルーセル表示。
-    await MusicMemoryDetailScreen.push(
+    // Vibe プレイリストのカード表示を流用した専用画面で開く。
+    final deleted = await PlaylistDetailScreen.push(
       context,
-      posts: posts,
-      initialIndex: 0,
+      playlist: playlist,
+      currentUserId: FirebaseAuth.instance.currentUser?.uid ?? '',
     );
+    if (deleted == true && mounted) {
+      _loadPlaylists(); // 削除を一覧へ反映
+    }
   }
 
   Widget _playlistNewSlot() {

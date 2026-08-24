@@ -290,6 +290,16 @@ class PostCardState extends State<PostCard>
     _flipController.reverse();
   }
 
+  /// 反転せず音楽だけ再生する（外部から呼び出し可能）。
+  /// 裏面閲覧不可のカードでも 1列表示と同様に音楽は鳴らすために使う。
+  void playAudioOnly() {
+    if (!mounted) return;
+    if (!widget.audioManagedExternally) {
+      widget.onPlayStarted?.call();
+      _playAudioAsync();
+    }
+  }
+
   /// 裏面に戻す（外部から呼び出し可能）。
   /// [playAudio] が true の場合、裏面反転と同時に音楽を再生し、裏面閲覧記録
   /// （onFlipToBack）も通知する（ホーム2列グリッドのタップ拡大用）。

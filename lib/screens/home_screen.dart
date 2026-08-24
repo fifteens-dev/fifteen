@@ -1993,10 +1993,16 @@ class _GridPostCellState extends State<_GridPostCell>
     _entry = OverlayEntry(builder: _buildOverlay);
     Overlay.of(context, rootOverlay: true).insert(_entry!);
     _anim.forward(from: 0);
-    // 拡大後 0.2秒で自動反転＋音楽再生（裏面閲覧可能な場合のみ）。
+    // 拡大後 0.2秒で自動アクション。
+    // - 裏面閲覧可: 反転＋音楽再生。
+    // - 裏面閲覧不可（他人の投稿など）: 反転はせず音楽だけ再生（1列表示と同じ挙動）。
     Future.delayed(const Duration(milliseconds: 200), () {
-      if (_active && widget.canViewBack) {
-        _overlayCardKey.currentState?.flipToBack(playAudio: true);
+      if (!_active) return;
+      final st = _overlayCardKey.currentState;
+      if (widget.canViewBack) {
+        st?.flipToBack(playAudio: true);
+      } else {
+        st?.playAudioOnly();
       }
     });
   }

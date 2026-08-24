@@ -1568,7 +1568,10 @@ class _HomeScreenState extends State<HomeScreen>
       onFlipToBack: () => _markPostRevealed(post.postId),
       onPlayStarted: () {
         _playingPostId = post.postId;
-        _preloadNeighborAudio(index);
+        // 2列グリッドの拡大プレビューでは隣接プリロードをしない。
+        // 隣の音声用に別 AudioPlayer を生成すると、iOS の共有オーディオセッション経由で
+        // メイン再生の setUrl が中断され（"Loading interrupted"）音が鳴らないため。
+        if (!externalFlipControl) _preloadNeighborAudio(index);
       },
       onShare: () {
         onBeforeSheet?.call();

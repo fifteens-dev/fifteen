@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
 /// 音楽再生を管理するサービス（Singleton）
@@ -167,6 +168,12 @@ class AudioPlayerService {
 
       if (kDebugMode) print('✅ Successfully playing preview');
     } catch (e, stackTrace) {
+      // 別の再生に切り替えた際の中断（abort / Loading interrupted）は無害なので
+      // エラー扱いせず握りつぶす（呼び出し側でトーストを出さない）。
+      if (e is PlatformException && e.code == 'abort') {
+        if (kDebugMode) print('⏭️ playPreview aborted (interrupted by newer play)');
+        return;
+      }
       if (kDebugMode) {
         print('❌ Error playing preview: $e');
         print('Stack trace: $stackTrace');

@@ -51,6 +51,8 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   bool _isCameraInitialized = false;
   bool _isTakingPhoto = false;
   bool _isFrontCamera = false;
+  // フラッシュモード（off → auto → always の順で切替）。
+  FlashMode _flashMode = FlashMode.off;
 
   // ---- PageView ----
   final PageController _pageController = PageController();
@@ -144,10 +146,34 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
         return;
       }
 
+      // 選択中のフラッシュモードを適用（前面カメラ等・非対応時は無視）。
+      try {
+        await controller.setFlashMode(_flashMode);
+      } catch (_) {}
+
       _cameraController = controller;
       setState(() => _isCameraInitialized = true);
     } catch (_) {}
   }
+
+  /// フラッシュモードを off → auto → always → off の順に切り替える。
+  Future<void> _cycleFlashMode() async {
+    final next = _flashMode == FlashMode.off
+        ? FlashMode.auto
+        : _flashMode == FlashMode.auto
+            ? FlashMode.always
+            : FlashMode.off;
+    setState(() => _flashMode = next);
+    try {
+      await _cameraController?.setFlashMode(next);
+    } catch (_) {}
+  }
+
+  IconData get _flashIcon => _flashMode == FlashMode.off
+      ? Icons.flash_off
+      : _flashMode == FlashMode.auto
+          ? Icons.flash_auto
+          : Icons.flash_on;
 
   // ---- track 事前キャッシュ ----
 
@@ -288,6 +314,10 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     _flashController.forward();
 
     try {
+      // 撮影直前にフラッシュモードを再適用（確実に反映させる）。
+      try {
+        await _cameraController!.setFlashMode(_flashMode);
+      } catch (_) {}
       final photo = await _cameraController!.takePicture();
       if (!mounted) return;
       _navigateToEdit(photo);
@@ -520,8 +550,15 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
                         right: 0,
                         child: Column(
                           children: [
-                            const Icon(Icons.flash_off,
-                                color: Colors.white, size: 24),
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _cycleFlashMode,
+                              child: Padding(
+                                padding: const EdgeInsets.all(6),
+                                child: Icon(_flashIcon,
+                                    color: Colors.white, size: 24),
+                              ),
+                            ),
                             if (widget.vibeTopicTitle != null) ...[
                               const SizedBox(height: 6),
                               Text(

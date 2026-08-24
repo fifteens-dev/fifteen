@@ -182,11 +182,71 @@ class _PlaylistTrackSelectionScreenState
             // 選択時は薄い暗幕を重ねる
             if (selected)
               Container(color: Colors.black.withValues(alpha: 0.25)),
+            // 左下: 楽曲ジャケット + 曲名 + アーティスト（Figma 5239:11184）
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: 8,
+              child: _buildTrackInfoOverlay(post),
+            ),
             Positioned(left: 8, top: 8, child: _buildDateBadge(post.createdAt)),
             Positioned(right: 8, top: 8, child: _buildCheckCircle(selected)),
           ],
         ),
       ),
+    );
+  }
+
+  /// タイル左下の楽曲情報（45×45ジャケット + 曲名 + アーティスト）。
+  Widget _buildTrackInfoOverlay(PostModel post) {
+    final album = post.track.albumImageUrl;
+    const shadow = [
+      Shadow(color: Colors.black54, blurRadius: 3, offset: Offset(0, 1)),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: SizedBox(
+            width: 45,
+            height: 45,
+            child: album.isNotEmpty
+                ? Image(
+                    image: albumImageProvider(album),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        Container(color: const Color(0xFF3A3A3A)),
+                  )
+                : Container(color: const Color(0xFF3A3A3A)),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          post.track.trackName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            height: 1.198,
+            shadows: shadow,
+          ),
+        ),
+        Text(
+          post.track.artistName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 9,
+            height: 1.5,
+            shadows: shadow,
+          ),
+        ),
+      ],
     );
   }
 

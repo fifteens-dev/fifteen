@@ -1335,7 +1335,9 @@ class _HomeScreenState extends State<HomeScreen>
 
             // 投稿フローの起点 FAB（ホームタブのみ・キーボード非表示時）。
             // ナビ中央の投稿ボタンを廃止したため、ここから投稿フローへ入る。
+            // タイムライン0件時は空状態カードのボタンを使うため FAB は隠す。
             if (_selectedIndex == 1 &&
+                !(_cachedPosts != null && _cachedPosts!.isEmpty) &&
                 MediaQuery.of(context).viewInsets.bottom == 0)
               Positioned(
                 right: 20,
@@ -1576,8 +1578,94 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  /// タイムライン0件時の投稿促しカード（Figma 5227:10820 / 5231:11175）。
+  /// 投稿カードと同じ 363:645 の暗いカードに、中央の文言＋白ピルボタンを配置。
+  Widget _buildEmptyTimelinePromptSliver() {
+    const grey = Color(0xFF9D9D9D);
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(15, 9, 15, 0),
+      sliver: SliverToBoxAdapter(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.maxWidth;
+            final h = w * 645 / 363;
+            return Container(
+              width: w,
+              height: h,
+              decoration: BoxDecoration(
+                color: const Color(0xFF141414),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF2A2A2A), width: 1),
+              ),
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '今日のMusic Memory',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'まだ投稿していません',
+                    style: TextStyle(color: grey, fontSize: 11, height: 1.5),
+                  ),
+                  const SizedBox(height: 21),
+                  const Text(
+                    'あなたの今日を彩る1曲を\n残してみましょう',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: grey, fontSize: 11, height: 1.5),
+                  ),
+                  const SizedBox(height: 26),
+                  // 白ピルボタン 174×46（＋アイコン + テキスト）→ 投稿フロー。
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _openPostFlow,
+                    child: Container(
+                      width: 174,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(49),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add, color: Colors.black, size: 22),
+                          SizedBox(width: 8),
+                          Text(
+                            '今日の1曲を残す',
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildTimelineSliver(PostUIState postUIState, SavedItemsProvider savedItems, String? currentUserIconUrl) {
     final posts = _cachedPosts!;
+
+    // タイムラインに投稿が0件のとき、投稿を促すカードを表示（Figma 5227:10820）。
+    if (posts.isEmpty) {
+      return _buildEmptyTimelinePromptSliver();
+    }
 
     if (_isGridView) {
       // 2列グリッド。タップで「その場拡大 → 0.2秒後に自動反転」。
@@ -1857,8 +1945,10 @@ class _GridPostCellState extends State<_GridPostCell>
   Rect _startRect = Rect.zero;
   bool _active = false;
 
-  // 拡大倍率。縦横2倍＝面積4倍で、2列カードをほぼ画面いっぱいまで拡大する。
-  static const double _enlargeScale = 2.0;
+  // 1列タイムラインと同じ左右padding（15px）。拡大時はこの幅の中央配置にする。
+  static const double _oneColPadding = 15.0;
+  // PostCard 前面の縦横比（363:645）。
+  static const double _cardAspect = 363 / 645;
 
   @override
   void initState() {
@@ -1926,16 +2016,26 @@ class _GridPostCellState extends State<_GridPostCell>
     _active = false;
   }
 
+  /// 拡大の目標矩形 = 1列配置と同じ「中央・1列カード幅」。
+  Rect _targetRect(Size media) {
+    // 1列カード幅（左右15pxマージン）。ただし高さが画面に収まらない場合は高さ基準に。
+    double w = media.width - _oneColPadding * 2;
+    double h = w / _cardAspect;
+    final maxH = media.height - 120; // 上下マージン
+    if (h > maxH) {
+      h = maxH;
+      w = h * _cardAspect;
+    }
+    final left = (media.width - w) / 2;
+    final top = (media.height - h) / 2;
+    return Rect.fromLTWH(left, top, w, h);
+  }
+
   Widget _buildOverlay(BuildContext ctx) {
     final media = MediaQuery.of(ctx).size;
     final t = Curves.easeOut.transform(_anim.value);
-    final scale = 1 + (_enlargeScale - 1) * t;
-    final w = _startRect.width * scale;
-    final h = _startRect.height * scale;
-    final center = _startRect.center;
-    // 元の位置の中心から拡大しつつ、画面内(上下左右12/60マージン)に収める。
-    double left = (center.dx - w / 2).clamp(12.0, (media.width - w - 12).clamp(12.0, double.infinity));
-    double top = (center.dy - h / 2).clamp(60.0, (media.height - h - 60).clamp(60.0, double.infinity));
+    // セル位置 → 中央1列位置へ補間（縦横比は一定なので歪みなし）。
+    final rect = Rect.lerp(_startRect, _targetRect(media), t)!;
     return Stack(
       children: [
         // 透明バリア（暗転なし）。カード外タップで閉じる。スクロールも遮る。
@@ -1947,10 +2047,10 @@ class _GridPostCellState extends State<_GridPostCell>
           ),
         ),
         Positioned(
-          left: left,
-          top: top,
-          width: w,
-          height: h,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
           // Material の祖先を与えないと Text に黄色い二重下線が出るため透明 Material で包む。
           child: Material(
             type: MaterialType.transparency,

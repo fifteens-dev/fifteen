@@ -15,10 +15,6 @@ const double _kFrameH = 67; // 枠全体（吹き出し+尻尾）の高さ
 const double _kEmojiSize = 32; // 絵文字サイズ
 const double _kEmojiTop = 9; // 絵文字の上端
 const List<double> _kEmojiCenters = [35, 101, 166, 232, 298]; // 各絵文字の中心X
-const double _kTailLeft = 20; // 尻尾の左端X
-const double _kTailTop = 47; // 尻尾の上端Y
-const double _kTailW = 42; // 尻尾の幅
-const double _kTailH = 20; // 尻尾の高さ
 const double _kBubbleRadius = 25; // 角丸
 
 /// 絵文字ピッカーの吹き出し（下向きの尻尾つき・すりガラス）。Figma の実寸を
@@ -40,13 +36,6 @@ class ReactionPickerBubble extends StatelessWidget {
 
   double get width => _kBubbleW * scale;
   double get height => _kFrameH * scale;
-
-  /// 尻尾の先端X（実px）。尻尾（右へ広がる）が吹き出し内に収まるようクランプ。
-  double get _tailTipPx {
-    final def = _kTailLeft * scale;
-    final tip = tailTipX ?? def;
-    return tip.clamp(0.0, width - _kTailW * scale);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -83,14 +72,7 @@ class ReactionPickerBubble extends StatelessWidget {
               ),
             ),
           ),
-          // 斜めの尻尾（吹き出し下端に重ねる）。先端(左下)をスマイルに合わせる。
-          Positioned(
-            left: _tailTipPx,
-            top: _kTailTop * s,
-            width: _kTailW * s,
-            height: _kTailH * s,
-            child: CustomPaint(painter: _TailPainter()),
-          ),
+          // 尻尾（三角）は非表示。
           // 絵文字（中心Xを Figma 値に合わせて配置）。高さ/幅を固定枠で縛ると
           // グリフが枠からはみ出て overflow になるため、サイズ制約は付けない。
           for (int i = 0; i < kReactionEmojis.length; i++)
@@ -111,26 +93,6 @@ class ReactionPickerBubble extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Figma 5111:10661 の尻尾。左上→右上→左下（先端）の斜めの直角三角形。
-/// 先端（左下）を下に向け、右へ広がって吹き出しに接続する。
-class _TailPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = _kBubbleColor
-      ..isAntiAlias = true;
-    final path = Path()
-      ..moveTo(0, 0) // 左上（吹き出しへの接続・左端）
-      ..lineTo(size.width, 0) // 右上（吹き出しへの接続・右端）
-      ..lineTo(0, size.height) // 先端（左下・スマイルを指す）
-      ..close();
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// タップした絵文字が上へふわっと上がって消えるアニメーション。

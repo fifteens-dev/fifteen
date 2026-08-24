@@ -1201,6 +1201,7 @@ class PostCardState extends State<PostCard>
   /// 左のユーザー情報と同じ高さに揃え、右端に配置する。
   /// 同日2投稿目以降（countsForAdl == false）はハンドル非表示。
   Widget _buildTeamHandleTopRight() {
+    if (!_showAdlTeamHandle) return const SizedBox.shrink();
     final teamId = widget.post.adlTeamId;
     if (teamId == null || teamId.isEmpty) return const SizedBox.shrink();
     if (widget.post.countsForAdl == false) return const SizedBox.shrink();
@@ -1771,8 +1772,8 @@ class PostCardState extends State<PostCard>
           ),
         ),
 
-        // 班ハンドル（@◯◯班）。タップで班プロフィールへ。
-        if (hasTeam) ...[
+        // 班ハンドル（@◯◯班）。タップで班プロフィールへ。ADLハンドルは非表示。
+        if (hasTeam && _showAdlTeamHandle) ...[
           const SizedBox(width: 6),
           GestureDetector(
             onTap: () {
@@ -1798,6 +1799,9 @@ class PostCardState extends State<PostCard>
       ],
     );
   }
+
+  /// ADL班ハンドル（@hiphop 等）は投稿カード上で非表示にする。
+  bool get _showAdlTeamHandle => false;
 
   /// 3点メニューボタン（削除 or 通報）
   bool get _showMoreButton =>

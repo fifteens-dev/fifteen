@@ -35,6 +35,7 @@ import 'services/font_service.dart';
 // チュートリアルを表示しないため import を無効化
 // import 'tutorial/tutorial.dart';
 import 'services/user_service.dart';
+import 'models/user_model.dart';
 import 'services/vibe_topic_service.dart';
 import 'services/adl_service.dart';
 import 'services/music_memory_cycle_service.dart';
@@ -287,7 +288,20 @@ class _AuthGateState extends State<AuthGate> {
       // ログイン済み：Firestoreにユーザーデータがあるか確認（1回のみ）
       try {
         final userService = UserService();
-        final userModel = await userService.getUser(user.uid);
+        // 一時的な読み取り失敗（コールドスタート/オフライン）で、認証済み＝登録済みの
+        // ユーザーを誤って phone-auth へ戻さないよう、数回リトライしてから判定する。
+        UserModel? userModel;
+        for (int attempt = 0; attempt < 3; attempt++) {
+          try {
+            userModel = await userService.getUser(user.uid);
+            if (userModel != null) break;
+          } catch (_) {
+            // 読み取り失敗 → 少し待って再試行
+          }
+          if (attempt < 2) {
+            await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+          }
+        }
 
         if (!mounted) return;
         if (userModel != null) {
@@ -339,15 +353,19 @@ class _AuthGateState extends State<AuthGate> {
             Navigator.pushReplacementNamed(context, '/phone-auth');
           }
         } else {
-          // userDocなし（Firebase Auth セッションのみ） → 認証フロー先頭から
+          // 認証済みだが userDoc を取得できなかった（リトライしても null）。
+          // 認証済み＝登録済みの可能性が高く、一時的な読み取り失敗でログアウト扱い
+          // (phone-auth)にすると登録済みユーザーが電話番号画面へ戻ってしまうため、
+          // /home に進めて Home 側の再取得（CurrentUserProvider 等）に委ねる。
           await _waitForMinSplash();
           if (!mounted) return;
-          Navigator.pushReplacementNamed(context, '/phone-auth');
+          Navigator.pushReplacementNamed(context, '/home');
         }
       } catch (e) {
+        // 認証済みユーザーの確認中に想定外エラー。ログアウト扱いにせず /home へ。
         await _waitForMinSplash();
         if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/phone-auth');
+        Navigator.pushReplacementNamed(context, '/home');
       }
     } else {
       // 未ログイン → 認証画面へ

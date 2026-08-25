@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -281,7 +282,24 @@ class _AuthGateState extends State<AuthGate> {
     if (!mounted) return;
 
     final authService = AuthService();
-    final user = authService.currentUser;
+    User? user = authService.currentUser;
+
+    // Firebase Auth はコールドスタート直後、keychain からのセッション復元が
+    // authStateChanges の初回イベントで確定するまで currentUser が一時的に null に
+    // なることがある。AuthGate は post-frame で同期的に読むため、復元前だと
+    // 登録済みユーザーを誤って「未ログイン」扱い(phone-auth)にしてしまう。
+    // null のときは復元イベントを短時間だけ待ってから判定する。
+    if (user == null) {
+      try {
+        user = await authService.authStateChanges
+            .firstWhere((u) => u != null)
+            .timeout(const Duration(seconds: 2));
+      } catch (_) {
+        // タイムアウト（＝本当に未ログイン）の可能性が高い。現在値で最終判定。
+        user = authService.currentUser;
+      }
+      if (!mounted) return;
+    }
 
     if (user != null) {
       SettingsService().configure(user.uid);
@@ -354,6 +372,10 @@ class _AuthGateState extends State<AuthGate> {
             );
           } else {
             // 登録未完了 → 認証フロー先頭（電話番号入力）から開始
+            if (kDebugMode) {
+              print('🔐 AuthGate→phone-auth: doc有だが username 空 '
+                  '(uid=${user.uid}, username="${userModel.username}")');
+            }
             await _waitForMinSplash();
             if (!mounted) return;
             Navigator.pushReplacementNamed(context, '/phone-auth');
@@ -361,6 +383,10 @@ class _AuthGateState extends State<AuthGate> {
         } else if (gotDefinitiveResult) {
           // サーバーが確定で「ドキュメント無し」と応答（＝未登録）。
           // createUser 失敗などで認証だけ通ったケース。オンボーディング先頭へ。
+          if (kDebugMode) {
+            print('🔐 AuthGate→phone-auth: userDoc が存在しない '
+                '(uid=${user.uid})');
+          }
           await _waitForMinSplash();
           if (!mounted) return;
           Navigator.pushReplacementNamed(context, '/phone-auth');
@@ -379,6 +405,9 @@ class _AuthGateState extends State<AuthGate> {
       }
     } else {
       // 未ログイン → 認証画面へ
+      if (kDebugMode) {
+        print('🔐 AuthGate→phone-auth: currentUser が null（復元待ち後も未認証）');
+      }
       await _waitForMinSplash();
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/phone-auth');

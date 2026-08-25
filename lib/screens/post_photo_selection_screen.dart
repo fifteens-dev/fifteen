@@ -2,6 +2,8 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:provider/provider.dart';
+import '../providers/current_user_provider.dart';
 import '../models/track_model.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
@@ -81,17 +83,23 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   // ---- フラッシュアニメーション ----
   late final AnimationController _flashController;
 
+  // 写真フォルダ（ギャラリー）から選ぶ機能は運営アカウント(isAdmin)のみ利用可。
+  bool _isAdmin = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _isAdmin = context.read<CurrentUserProvider>().isAdmin;
     AudioPlayerService().stop();
     _flashController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 280),
     );
     _initCamera();
-    _loadGalleryImages();
+    // ギャラリー機能は運営のみ。非運営では写真ライブラリを読み込まない
+    // （不要なフォトライブラリ権限プロンプトも出さない）。
+    if (_isAdmin) _loadGalleryImages();
     _gridScrollController.addListener(_onGridScroll);
     _prefetchTrackData();
   }
@@ -478,9 +486,11 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
           PageView(
             controller: _pageController,
             scrollDirection: Axis.vertical,
+            // 写真フォルダ（ギャラリー）ページは運営アカウントのみ。
+            // 非運営はカメラページのみでスワイプ先を持たせない。
             children: [
               _buildCameraPage(),
-              _buildPhotoGridPage(),
+              if (_isAdmin) _buildPhotoGridPage(),
             ],
           ),
           // シャッターフラッシュ
@@ -614,11 +624,11 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // ギャラリーボタン（左下・カメラロールへの入口）は非表示。
-                      // カメラ反転ボタンを右端に保つためサイズは維持する。
-                      // 将来再表示する場合は Visibility を外すだけでよい。
+                      // ギャラリーボタン（左下・カメラロールへの入口）は運営アカウント
+                      // (isAdmin)のみ表示。非運営時もカメラ反転ボタンを右端に保つため
+                      // サイズは維持する（maintainSize）。
                       Visibility(
-                        visible: false,
+                        visible: _isAdmin,
                         maintainSize: true,
                         maintainAnimation: true,
                         maintainState: true,

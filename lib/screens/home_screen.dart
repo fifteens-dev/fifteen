@@ -1056,11 +1056,6 @@ class _HomeScreenState extends State<HomeScreen>
   /// - Spotify / 未連携: ログが取れないため Vibe 楽曲選択シート（お題非表示）→
   ///   曲決定で Apple と同じ写真フロー(PostPhotoSelectionScreen)へ。
   Future<void> _openPostFlow() async {
-    // 写真追加の投稿は現在、管理者権限アカウント（＝15s公式含む）のみ許可。
-    if (!context.read<CurrentUserProvider>().isAdmin) {
-      _showMessage('現在、投稿は運営アカウントのみ利用できます');
-      return;
-    }
     _homeAudioService.stop();
     final service = await _musicServiceManager.getSelectedService();
     if (!mounted) return;

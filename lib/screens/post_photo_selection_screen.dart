@@ -334,32 +334,37 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     }
   }
 
+  /// 気分投稿の透明プレビューを「必ずホームの上」に載せる。
+  ///
+  /// 以前は pushAndRemoveUntil(..., (route) => route.isFirst) で「スタック最下部＝ホーム」を
+  /// 前提にしていたが、新規登録直後/ログアウト→再ログイン直後はスタック最下部が
+  /// phone-auth（AuthGate が pushReplacementNamed('/phone-auth') で作ったベース）になっており、
+  /// 投稿後の pop 先が phone-auth になってしまう不具合があった。
+  /// そこで先に /home を唯一のベースへ載せ替えてから、透明プレビューを push する。
+  void _openMoodPreview(XFile photo) {
+    final nav = Navigator.of(context);
+    nav.pushNamedAndRemoveUntil('/home', (route) => false);
+    nav.push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierDismissible: false,
+        transitionDuration: const Duration(milliseconds: 400),
+        pageBuilder: (_, __, ___) => MoodPostFinalPreviewScreen(
+          track: widget.track,
+          selectedImage: photo,
+        ),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   void _navigateToEdit(XFile photo) {
     if (widget.isMoodPost) {
-      // 気分投稿: 歌詞カード編集をスキップ、カメラ/モーダルまでスタックを畳んで
-      // ホーム route の上に **透明 route** として MoodPostFinalPreviewScreen を載せる。
-      // これで背景にホームが透けて見える。
-      Navigator.of(context).pushAndRemoveUntil(
-        PageRouteBuilder(
-          opaque: false,
-          barrierDismissible: false,
-          transitionDuration: const Duration(milliseconds: 400),
-          pageBuilder: (_, __, ___) => MoodPostFinalPreviewScreen(
-            track: widget.track,
-            selectedImage: photo,
-          ),
-          transitionsBuilder: (_, animation, __, child) => FadeTransition(
-            opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-            child: child,
-          ),
-        ),
-        // ホーム画面は AuthGate が pushReplacement で載せた「名前なし」route。
-        // Navigator.pushReplacementNamed('/home') で載っているわけではないので
-        // ModalRoute.withName('/home') は誰にもマッチせず、指定するとスタック
-        // が完全に空になり pop 先が無くなる。stack 最下部 (= HomeScreen) を
-        // 保持するために isFirst で predicate する。
-        (route) => route.isFirst,
-      );
+      // 気分投稿: 歌詞カード編集をスキップし、ホームの上に透明プレビューを載せる。
+      _openMoodPreview(photo);
       return;
     }
 
@@ -422,29 +427,9 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     if (!mounted) return;
 
     if (widget.isMoodPost) {
-      // 気分投稿: グリッド → 拡大アニメーションを省略し、
-      // ホーム route まで畳んで透明 route として MoodPostFinalPreviewScreen を載せる。
-      Navigator.of(context).pushAndRemoveUntil(
-        PageRouteBuilder(
-          opaque: false,
-          barrierDismissible: false,
-          transitionDuration: const Duration(milliseconds: 400),
-          pageBuilder: (_, __, ___) => MoodPostFinalPreviewScreen(
-            track: widget.track,
-            selectedImage: XFile(file.path),
-          ),
-          transitionsBuilder: (_, animation, __, child) => FadeTransition(
-            opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-            child: child,
-          ),
-        ),
-        // ホーム画面は AuthGate が pushReplacement で載せた「名前なし」route。
-        // Navigator.pushReplacementNamed('/home') で載っているわけではないので
-        // ModalRoute.withName('/home') は誰にもマッチせず、指定するとスタック
-        // が完全に空になり pop 先が無くなる。stack 最下部 (= HomeScreen) を
-        // 保持するために isFirst で predicate する。
-        (route) => route.isFirst,
-      );
+      // 気分投稿: グリッド選択 → 拡大アニメーションを省略し、ホームの上に
+      // 透明プレビューを載せる（スタック最下部が phone-auth でも安全）。
+      _openMoodPreview(XFile(file.path));
       return;
     }
 

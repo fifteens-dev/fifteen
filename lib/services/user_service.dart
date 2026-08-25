@@ -192,6 +192,18 @@ class UserService {
     }
   }
 
+  /// [getUser] と同じだが、読み取りエラー時に**例外を投げる**版。
+  /// 呼び出し側で「一時的な読み取り失敗（例外）」と「ドキュメント無し（null）」を
+  /// 区別したい場合に使う（例: 起動時の認証チェック）。
+  /// ドキュメントが存在しない場合のみ null を返す（＝確定で未登録）。
+  Future<UserModel?> getUserOrThrow(String uid) async {
+    final doc = await _firestore.collection(_usersCollection).doc(uid).get();
+    if (doc.exists) {
+      return UserModel.fromFirestore(doc);
+    }
+    return null;
+  }
+
   // ユーザー名が使用可能かチェック
   Future<bool> isUsernameAvailable(String username) async {
     try {

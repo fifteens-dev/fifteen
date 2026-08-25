@@ -289,17 +289,23 @@ class _AuthGateState extends State<AuthGate> {
       try {
         final userService = UserService();
         // 一時的な読み取り失敗（コールドスタート/オフライン）で、認証済み＝登録済みの
-        // ユーザーを誤って phone-auth へ戻さないよう、数回リトライしてから判定する。
+        // ユーザーを誤って phone-auth へ戻さないよう、例外時は数回リトライする。
+        // 「例外（一時失敗）」と「例外なくnull（サーバー確定=ドキュメント無し）」を区別し、
+        // 前者は /home（登録済みを守る）、後者は phone-auth（未登録=オンボーディングへ）とする。
+        // getUser は内部で例外を握りつぶし常に null を返すため区別できない。
+        // 例外を投げる getUserOrThrow を使い、「例外(一時失敗)」と「null(未登録確定)」を分ける。
         UserModel? userModel;
+        bool gotDefinitiveResult = false; // 例外を投げずに応答(null含む)を得たか
         for (int attempt = 0; attempt < 3; attempt++) {
           try {
-            userModel = await userService.getUser(user.uid);
-            if (userModel != null) break;
+            userModel = await userService.getUserOrThrow(user.uid);
+            gotDefinitiveResult = true; // 例外なく応答（実体 or null）を取得
+            break;
           } catch (_) {
-            // 読み取り失敗 → 少し待って再試行
-          }
-          if (attempt < 2) {
-            await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+            // 一時的な読み取り失敗 → 少し待って再試行
+            if (attempt < 2) {
+              await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+            }
           }
         }
 
@@ -352,11 +358,15 @@ class _AuthGateState extends State<AuthGate> {
             if (!mounted) return;
             Navigator.pushReplacementNamed(context, '/phone-auth');
           }
+        } else if (gotDefinitiveResult) {
+          // サーバーが確定で「ドキュメント無し」と応答（＝未登録）。
+          // createUser 失敗などで認証だけ通ったケース。オンボーディング先頭へ。
+          await _waitForMinSplash();
+          if (!mounted) return;
+          Navigator.pushReplacementNamed(context, '/phone-auth');
         } else {
-          // 認証済みだが userDoc を取得できなかった（リトライしても null）。
-          // 認証済み＝登録済みの可能性が高く、一時的な読み取り失敗でログアウト扱い
-          // (phone-auth)にすると登録済みユーザーが電話番号画面へ戻ってしまうため、
-          // /home に進めて Home 側の再取得（CurrentUserProvider 等）に委ねる。
+          // 全試行が例外＝一時的な読み取り失敗。認証済み＝登録済みの可能性が高いため、
+          // ログアウト扱い(phone-auth)にせず /home に進め、Home 側の再取得に委ねる。
           await _waitForMinSplash();
           if (!mounted) return;
           Navigator.pushReplacementNamed(context, '/home');

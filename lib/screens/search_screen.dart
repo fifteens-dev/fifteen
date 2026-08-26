@@ -361,10 +361,10 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
             ),
-            // 画面右端の閉じるボタン（push 表示時のみ）→ タップでホームへ戻る。
+            // 画面左端の閉じるボタン（push 表示時のみ）→ タップでホームへ戻る。
             if (widget.showBackButton)
               Positioned(
-                right: 0,
+                left: 0,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => Navigator.of(context).maybePop(),

@@ -15,6 +15,7 @@ import '../../providers/saved_items_provider.dart';
 import '../../utils/album_image.dart';
 import '../comment_screen.dart';
 import '../vibe_playlist/widgets/vibe_post_card.dart';
+import '../../widgets/native_pull_down_button.dart';
 
 /// My Playlist を開く画面。Vibe プレイリストのカード表示（縦フルスクリーンの
 /// ページャー + VibePostCard）を流用しつつ、個人プレイリスト向けに簡略化。
@@ -154,39 +155,6 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     await SavedItemsProvider.togglePostWithToast(context, post);
   }
 
-  // ── 3点メニュー（編集 / 削除）── iOS ネイティブのガラス風アクションシート ──
-  Future<void> _showMenu() async {
-    final action = await showCupertinoModalPopup<String>(
-      context: context,
-      builder: (ctx) => CupertinoActionSheet(
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(ctx, 'edit'),
-            child: const Text('編集'),
-          ),
-          CupertinoActionSheetAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.pop(ctx, 'delete'),
-            child: const Text('削除'),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('キャンセル'),
-        ),
-      ),
-    );
-    if (action == 'edit') {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('編集機能は準備中です')),
-        );
-      }
-    } else if (action == 'delete') {
-      await _confirmDelete();
-    }
-  }
-
   Future<void> _confirmDelete() async {
     final ok = await showCupertinoDialog<bool>(
       context: context,
@@ -292,9 +260,27 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   ),
                 ),
               ),
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _showMenu,
+              // 3点メニュー（iOS ネイティブ UIMenu = ガラスの吹き出し）
+              NativePullDownButton(
+                items: const [
+                  NativeMenuItem(id: 'edit', title: '編集', icon: 'pencil'),
+                  NativeMenuItem(
+                      id: 'delete',
+                      title: '削除',
+                      type: 'destructive',
+                      icon: 'trash'),
+                ],
+                onSelected: (id) async {
+                  if (id == 'edit') {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('編集機能は準備中です')),
+                      );
+                    }
+                  } else if (id == 'delete') {
+                    await _confirmDelete();
+                  }
+                },
                 child: const SizedBox(
                   width: 44,
                   height: 44,
@@ -473,16 +459,32 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 ],
               ),
             ),
+            // 保存マーク（既存の VibeSongListItem と同じ: 未保存=円に＋、保存済み=薄緑丸＋チェック）
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => _handleSave(post),
               child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Icon(
-                  isSaved ? Icons.favorite : Icons.favorite_border,
-                  color: isSaved ? const Color(0xFFFF5A5A) : Colors.white70,
-                  size: 22,
-                ),
+                padding: const EdgeInsets.all(8),
+                child: isSaved
+                    ? Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: const BoxDecoration(
+                              color: Colors.lightGreen,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          Icon(Icons.check, size: 15, color: Colors.grey[700]),
+                        ],
+                      )
+                    : const Icon(
+                        Icons.add_circle_outline,
+                        color: Colors.white,
+                        size: 22,
+                      ),
               ),
             ),
           ],

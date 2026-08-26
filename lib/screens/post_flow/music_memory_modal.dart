@@ -19,6 +19,7 @@ import '../../services/playback_history_service.dart';
 import '../../services/user_service.dart';
 import '../../utils/color_extractor.dart';
 import '../../widgets/post_card.dart';
+import '../../widgets/native_pull_down_button.dart';
 import '../post_photo_selection_screen.dart';
 
 /// アルバムアートから抽出したグラデーション色の**プロセス寿命**キャッシュ。
@@ -86,6 +87,10 @@ class MusicMemoryModal extends StatefulWidget {
     BuildContext context, {
     List<TrackModel>? tracks,
   }) {
+    // 全画面ぼかし(BackdropFilter)表示中は、背後の投稿カードのネイティブ3点
+    // (UiKitView)が黒い矩形として描画される iOS の制約を避けるため、
+    // ネイティブ描画を一時抑制する（閉じたら解除）。
+    NativePullDownButton.suppressNative();
     return Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
@@ -109,7 +114,7 @@ class MusicMemoryModal extends StatefulWidget {
           );
         },
       ),
-    );
+    ).whenComplete(NativePullDownButton.releaseNative);
   }
 
   @override

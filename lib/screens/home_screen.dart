@@ -1691,6 +1691,17 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           delegate: SliverChildBuilderDelegate(
             (context, index) {
+              // 奇数件のとき末尾に空セルができ、真っ黒地(背景)が投稿フローの
+              // 透明モーダル越しに黒い四角として透けて見える。淡いカード型の
+              // プレースホルダで埋めて、真っ黒に見えないようにする。
+              if (index >= posts.length) {
+                return DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF171717),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                );
+              }
               final post = posts[index];
               final cardKey = _postCardKeys.putIfAbsent(
                   post.postId, () => GlobalKey<PostCardState>());
@@ -1717,7 +1728,8 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               );
             },
-            childCount: posts.length,
+            childCount:
+                posts.length.isOdd ? posts.length + 1 : posts.length,
           ),
         ),
       );

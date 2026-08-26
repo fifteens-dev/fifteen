@@ -503,11 +503,8 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                   child: Container(
-                    // iOS では背後のネイティブぼかし(VariableBlur PlatformView)を
-                    // BackdropFilter がぼかせず黒くなる不具合があるため、フロスト面を
-                    // ほぼ不透明にして黒い四角を防ぐ（全デバイスで見た目を一定に）。
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1B1B1B).withValues(alpha: 0.96),
+                      color: const Color(0xFF1B1B1B).withValues(alpha: 0.55),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: Colors.white.withValues(alpha: 0.10),

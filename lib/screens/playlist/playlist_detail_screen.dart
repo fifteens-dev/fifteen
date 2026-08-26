@@ -12,6 +12,7 @@ import '../../services/audio_player_service.dart';
 import '../../services/itunes_search_service.dart';
 import '../../providers/post_ui_state.dart';
 import '../../providers/saved_items_provider.dart';
+import '../../utils/album_image.dart';
 import '../comment_screen.dart';
 import '../vibe_playlist/widgets/vibe_post_card.dart';
 
@@ -55,6 +56,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   final ITunesSearchService _itunesService = ITunesSearchService();
 
   PageController? _pageController;
+  // 横タブ（0=投稿の縦カード / 1=曲リスト）。Vibe プレイリストと同じ右スライド構成。
+  final PageController _tabPageController = PageController();
+  int _selectedTab = 0;
   List<PostModel>? _posts;
   bool _isLoading = true;
   int _currentPage = 0;
@@ -73,6 +77,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   void dispose() {
     _audioService.stopIfOwner(this);
     _pageController?.dispose();
+    _tabPageController.dispose();
     super.dispose();
   }
 
@@ -149,23 +154,25 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     await SavedItemsProvider.togglePostWithToast(context, post);
   }
 
-  // ── 3点メニュー（編集 / 削除）─────────────────────────────
+  // ── 3点メニュー（編集 / 削除）── iOS ネイティブのガラス風アクションシート ──
   Future<void> _showMenu() async {
-    final action = await showModalBottomSheet<String>(
+    final action = await showCupertinoModalPopup<String>(
       context: context,
-      backgroundColor: const Color(0xFF1C1C1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _menuItem(ctx, '編集', Icons.edit_outlined, 'edit'),
-            const Divider(height: 1, color: Color(0xFF2C2C2E)),
-            _menuItem(ctx, '削除', Icons.delete_outline, 'delete',
-                danger: true),
-          ],
+      builder: (ctx) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.pop(ctx, 'edit'),
+            child: const Text('編集'),
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(ctx, 'delete'),
+            child: const Text('削除'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('キャンセル'),
         ),
       ),
     );
@@ -178,16 +185,6 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     } else if (action == 'delete') {
       await _confirmDelete();
     }
-  }
-
-  Widget _menuItem(BuildContext ctx, String label, IconData icon, String value,
-      {bool danger = false}) {
-    final color = danger ? const Color(0xFFFF453A) : Colors.white;
-    return ListTile(
-      leading: Icon(icon, color: color),
-      title: Text(label, style: TextStyle(color: color, fontSize: 16)),
-      onTap: () => Navigator.pop(ctx, value),
-    );
   }
 
   Future<void> _confirmDelete() async {
@@ -224,18 +221,40 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final posts = _posts;
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          Positioned.fill(child: _buildBody()),
-          // ヘッダー（戻る + プレイリスト名 + 3点）
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: _buildHeader(),
+          Positioned.fill(
+            child: _isLoading
+                ? const Center(
+                    child: CupertinoActivityIndicator(
+                        color: Colors.white, radius: 14))
+                : (posts == null || posts.isEmpty)
+                    ? const Center(
+                        child: Text('このプレイリストには曲がありません',
+                            style: TextStyle(
+                                color: Colors.white54, fontSize: 14)))
+                    // 横スライドで「投稿(縦カード)」⇔「曲リスト」を切り替え（Vibe と同じ）。
+                    : PageView(
+                        controller: _tabPageController,
+                        onPageChanged: (index) {
+                          if (index == 1) {
+                            _audioService.stop();
+                          } else {
+                            _playMusicForPage(_currentPage);
+                          }
+                          setState(() => _selectedTab = index);
+                        },
+                        children: [
+                          _buildPostsPager(posts),
+                          _buildTracksTab(posts),
+                        ],
+                      ),
           ),
+          // ヘッダー（戻る + プレイリスト名 + 3点 + タブ）
+          Positioned(top: 0, left: 0, right: 0, child: _buildHeader()),
         ],
       ),
     );
@@ -245,38 +264,87 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final topPad = MediaQuery.of(context).padding.top;
     return Container(
       padding: EdgeInsets.only(top: topPad + 6, left: 8, right: 8, bottom: 6),
-      child: Row(
+      color: _selectedTab == 1 ? Colors.black : Colors.transparent,
+      child: Column(
         children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => Navigator.pop(context),
-            child: const SizedBox(
-              width: 44,
-              height: 44,
-              child: Icon(CupertinoIcons.chevron_left,
-                  color: Colors.white, size: 24),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              widget.playlist.name,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
+          Row(
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.pop(context),
+                child: const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Icon(CupertinoIcons.chevron_left,
+                      color: Colors.white, size: 24),
+                ),
               ),
+              Expanded(
+                child: Text(
+                  widget.playlist.name,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _showMenu,
+                child: const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Icon(Icons.more_horiz, color: Colors.white, size: 26),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          // タブ（投稿 / 曲リスト）
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _tabLabel('投稿', 0),
+              const SizedBox(width: 28),
+              _tabLabel('曲リスト', 1),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tabLabel(String text, int index) {
+    final active = _selectedTab == index;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _tabPageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            text,
+            style: TextStyle(
+              color: active ? Colors.white : Colors.white54,
+              fontSize: 14,
+              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _showMenu,
-            child: const SizedBox(
-              width: 44,
-              height: 44,
-              child: Icon(Icons.more_horiz, color: Colors.white, size: 26),
+          const SizedBox(height: 4),
+          Container(
+            width: 22,
+            height: 2,
+            decoration: BoxDecoration(
+              color: active ? Colors.white : Colors.transparent,
+              borderRadius: BorderRadius.circular(1),
             ),
           ),
         ],
@@ -284,20 +352,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     );
   }
 
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(
-        child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
-      );
-    }
-    final posts = _posts;
-    if (posts == null || posts.isEmpty) {
-      return const Center(
-        child: Text('このプレイリストには曲がありません',
-            style: TextStyle(color: Colors.white54, fontSize: 14)),
-      );
-    }
-
+  Widget _buildPostsPager(List<PostModel> posts) {
     // 1 ページにカード 1 枚 + 上下に隣カードが少し覗く（Vibe 画面と同じ）。
     final screenH = MediaQuery.of(context).size.height;
     const pitch = 814.0 + 8.0;
@@ -312,6 +367,162 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       itemCount: posts.length,
       onPageChanged: _onPageChanged,
       itemBuilder: (context, index) => _buildCard(posts[index]),
+    );
+  }
+
+  /// 曲リストタブ（右スライド）。プレイリスト向けに調整:
+  /// 2×2 サマリー画像 + プレイリスト名 + 「n曲」 + 曲リスト（ジャケット/曲名/保存）。
+  Widget _buildTracksTab(List<PostModel> posts) {
+    final topPad = MediaQuery.of(context).padding.top;
+    final summary = posts
+        .map((p) => (p.photoUrl?.isNotEmpty ?? false)
+            ? p.photoUrl!
+            : p.track.albumImageUrl)
+        .where((u) => u.isNotEmpty)
+        .take(4)
+        .toList();
+    return ListView(
+      padding: EdgeInsets.only(top: topPad + 88, left: 16, right: 16, bottom: 40),
+      children: [
+        // 2×2 サマリー
+        Center(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(
+              width: 220,
+              height: 146,
+              child: _summaryGrid(summary),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          widget.playlist.name,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${posts.length}曲',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Color(0xFFA8A8A8), fontSize: 12),
+        ),
+        const SizedBox(height: 18),
+        for (int i = 0; i < posts.length; i++) _buildSongRow(posts[i], i),
+      ],
+    );
+  }
+
+  Widget _buildSongRow(PostModel post, int index) {
+    final isSaved =
+        context.watch<SavedItemsProvider>().isPostOrTrackSaved(post);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        // その曲の投稿へジャンプ（投稿タブへ切替 + 該当ページへ）。
+        _tabPageController.animateToPage(0,
+            duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+        _pageController?.jumpToPage(index);
+      },
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: post.track.albumImageUrl.isNotEmpty
+                    ? Image(
+                        image: albumImageProvider(post.track.albumImageUrl),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            Container(color: const Color(0xFF2A2A2A)),
+                      )
+                    : Container(color: const Color(0xFF2A2A2A)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    post.track.trackName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    post.track.artistName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: Color(0xFF9E9E9E), fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _handleSave(post),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  isSaved ? Icons.favorite : Icons.favorite_border,
+                  color: isSaved ? const Color(0xFFFF5A5A) : Colors.white70,
+                  size: 22,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 2×2 サマリー画像（不足分はダークで埋める）。
+  Widget _summaryGrid(List<String> urls) {
+    Widget cell(int i) {
+      if (i >= urls.length) {
+        return const ColoredBox(color: Color(0xFF1E1E1E));
+      }
+      return Image(
+        image: albumImageProvider(urls[i]),
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) =>
+            const ColoredBox(color: Color(0xFF2A2A2A)),
+      );
+    }
+
+    return Column(
+      children: [
+        Expanded(
+          child: Row(children: [
+            Expanded(child: cell(0)),
+            const SizedBox(width: 2),
+            Expanded(child: cell(1)),
+          ]),
+        ),
+        const SizedBox(height: 2),
+        Expanded(
+          child: Row(children: [
+            Expanded(child: cell(2)),
+            const SizedBox(width: 2),
+            Expanded(child: cell(3)),
+          ]),
+        ),
+      ],
     );
   }
 

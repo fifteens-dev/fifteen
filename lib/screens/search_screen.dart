@@ -345,35 +345,38 @@ class _SearchScreenState extends State<SearchScreen> {
     return Container(
       height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Transform.translate(
-            offset: const Offset(0, -1),
-            child: const Text(
-              '15s',
-              style: TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          // 画面右端の閉じるボタン（push 表示時のみ）→ タップでホームへ戻る。
-          if (widget.showBackButton)
-            Positioned(
-              right: 0,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => Navigator.of(context).maybePop(),
-                child: const SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: Icon(Icons.close, color: Colors.white, size: 26),
+      child: SizedBox(
+        width: double.infinity,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Transform.translate(
+              offset: const Offset(0, -1),
+              child: const Text(
+                '15s',
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
                 ),
               ),
             ),
-        ],
+            // 画面右端の閉じるボタン（push 表示時のみ）→ タップでホームへ戻る。
+            if (widget.showBackButton)
+              Positioned(
+                right: 0,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => Navigator.of(context).maybePop(),
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(Icons.close, color: Colors.white, size: 26),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

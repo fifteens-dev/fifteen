@@ -157,12 +157,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
 
   Future<void> _confirmDelete() async {
-    // 投稿削除ダイアログと同じ見た目（文言のみプレイリスト用に差し替え）。
-    final ok = await showDeleteConfirmDialog(
-      context,
-      title: 'プレイリストを削除しますか？',
-      message: 'このまま削除するとプレイリストが失われます。',
-    );
+    // プレイリスト削除ダイアログ（PNG）。
+    final ok = await showDeletePlaylistConfirmDialog(context);
     if (!ok) return;
     try {
       await _playlistService.deletePlaylist(widget.playlist.id);

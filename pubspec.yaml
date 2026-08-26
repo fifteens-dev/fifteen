@@ -107,6 +107,7 @@ flutter:
     - assets/icons/comment_send_button.png
     - assets/icons/toast_bg.png
     - assets/icons/delete_post_dialog.png
+    - assets/icons/delete_playlist_dialog.png
     - assets/icons/cv_toggle_bg.png
     - assets/icons/cv_toggle_thumb_left.png
     - assets/icons/cv_toggle_thumb_right.png

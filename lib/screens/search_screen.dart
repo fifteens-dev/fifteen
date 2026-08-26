@@ -19,7 +19,10 @@ import '../models/vibe_topic_model.dart';
 
 /// 検索画面
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  /// 独立した画面として push された場合 true。ヘッダー左に戻るボタンを表示する。
+  final bool showBackButton;
+
+  const SearchScreen({super.key, this.showBackButton = false});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -342,18 +345,36 @@ class _SearchScreenState extends State<SearchScreen> {
     return Container(
       height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Center(
-        child: Transform.translate(
-          offset: const Offset(0, -1),
-          child: const Text(
-            '15s',
-            style: TextStyle(
-              fontSize: 30,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Transform.translate(
+            offset: const Offset(0, -1),
+            child: const Text(
+              '15s',
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
             ),
           ),
-        ),
+          // 15s の左端に戻るボタン（push 表示時のみ）→ タップでホームへ戻る。
+          if (widget.showBackButton)
+            Positioned(
+              left: 0,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(context).maybePop(),
+                child: const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Icon(CupertinoIcons.chevron_left,
+                      color: Colors.white, size: 26),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

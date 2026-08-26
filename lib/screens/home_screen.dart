@@ -33,6 +33,7 @@ import '../widgets/campus_vibe_card.dart';
 import '../providers/current_user_provider.dart';
 import 'comment_screen.dart';
 import 'profile_screen.dart';
+import 'search_screen.dart';
 import 'music_selection_screen.dart';
 import 'music_memory_month_screen.dart';
 import 'post_flow/music_memory_modal.dart';
@@ -860,7 +861,15 @@ class _HomeScreenState extends State<HomeScreen>
               bottom: 0,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => _showMessage('友達追加は準備中です'),
+                onTap: () {
+                  _homeAudioService.stop();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const SearchScreen(showBackButton: true),
+                    ),
+                  );
+                },
                 child: Center(
                   child: Image.asset(
                     'assets/icons/friend_add.png',

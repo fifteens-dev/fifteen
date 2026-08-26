@@ -19,6 +19,7 @@
 		EF13ABF52F31DE5B00CA32D8 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = EF13ABF42F31DE5B00CA32D8 /* GoogleService-Info.plist */; };
 		EF13ABF62F31DE5B00CA32D8 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = EF13ABF42F31DE5B00CA32D8 /* GoogleService-Info.plist */; };
 		F1C4DCD7F0CF4EABB2C9C0DF /* NativeMenuChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D4289BEC8946ADB1A9BA69 /* NativeMenuChannel.swift */; };
+		FEEDDEADBEEF000000000A01 /* ReactionPickerChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDDEADBEEF000000000A02 /* ReactionPickerChannel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -48,6 +49,7 @@
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		16D4289BEC8946ADB1A9BA69 /* NativeMenuChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NativeMenuChannel.swift; sourceTree = "<group>"; };
+		FEEDDEADBEEF000000000A02 /* ReactionPickerChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ReactionPickerChannel.swift; sourceTree = "<group>"; };
 		305E5F3570A3E9F4B386C846 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -155,6 +157,7 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				16D4289BEC8946ADB1A9BA69 /* NativeMenuChannel.swift */,
+				FEEDDEADBEEF000000000A02 /* ReactionPickerChannel.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -407,6 +410,7 @@
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				F1C4DCD7F0CF4EABB2C9C0DF /* NativeMenuChannel.swift in Sources */,
+				FEEDDEADBEEF000000000A01 /* ReactionPickerChannel.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

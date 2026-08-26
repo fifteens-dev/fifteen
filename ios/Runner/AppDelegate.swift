@@ -13,6 +13,7 @@ import ObjectiveC.runtime
   private let deepLinkChannel = "com.fifteen.deeplink"
   private let musicMemoryChannel = "com.fifteen.musicmemory"
   private var nativeMenuChannel: AnyObject?
+  private var reactionPickerChannel: AnyObject?
   private var deepLinkFlutterChannel: FlutterMethodChannel?
   // コールドスタート時に Flutter が準備できる前に届いた postId を保持
   private var _pendingDeepLinkPostId: String? = nil
@@ -92,6 +93,13 @@ import ObjectiveC.runtime
             withId: "com.fifteen.nativemenu/button"
           )
         }
+      }
+
+      // ネイティブ絵文字リアクションピッカー（すりガラスの吹き出し）
+      if #available(iOS 13.0, *) {
+        let picker = ReactionPickerChannel()
+        picker.setup(controller: controller)
+        reactionPickerChannel = picker  // ARC で解放されないよう保持
       }
     }
 

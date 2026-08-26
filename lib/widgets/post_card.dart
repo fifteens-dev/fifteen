@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -35,6 +36,7 @@ import 'native_pull_down_button.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'common/app_toast.dart';
 import 'reaction_overlay.dart';
+import '../services/reaction_picker_service.dart';
 
 part 'post_card/mixins/post_card_color_mixin.dart';
 part 'post_card/mixins/post_card_lyrics_mixin.dart';

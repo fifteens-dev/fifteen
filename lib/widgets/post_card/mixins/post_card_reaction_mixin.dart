@@ -58,6 +58,17 @@ extension PostCardReactionMethods on PostCardState {
     final rect = Rect.fromLTWH(topLeft.dx, topLeft.dy, renderedW, renderedH);
     _reactionAnchorRect = rect;
 
+    // iOS: 完全ネイティブのすりガラス吹き出し（UIVisualEffectView）。
+    // ネイティブなので 2列拡大の FittedBox スケールでも見切れず、高品質に表示できる。
+    if (Platform.isIOS) {
+      HapticFeedback.selectionClick();
+      ReactionPickerService.show(emojis: kReactionEmojis, anchorRect: rect)
+          .then((emoji) {
+        if (emoji != null && mounted) _onReactionEmojiSelected(emoji);
+      });
+      return;
+    }
+
     // カード表示倍率 s（スマイル実寸 / Figma上のスマイル幅32）。
     final double s = (renderedW <= 0 ? 32.0 : renderedW) / 32.0;
     final double bubbleW = 331.0 * s;

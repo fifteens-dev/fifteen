@@ -16,6 +16,7 @@ import '../../utils/album_image.dart';
 import '../comment_screen.dart';
 import '../vibe_playlist/widgets/vibe_post_card.dart';
 import '../../widgets/native_pull_down_button.dart';
+import '../../widgets/dialogs/delete_post_dialog.dart';
 
 /// My Playlist を開く画面。Vibe プレイリストのカード表示（縦フルスクリーンの
 /// ページャー + VibePostCard）を流用しつつ、個人プレイリスト向けに簡略化。
@@ -156,25 +157,13 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
 
   Future<void> _confirmDelete() async {
-    final ok = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (ctx) => CupertinoAlertDialog(
-        title: const Text('プレイリストを削除'),
-        content: Text('「${widget.playlist.name}」を削除しますか？'),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('キャンセル'),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('削除'),
-          ),
-        ],
-      ),
+    // 投稿削除ダイアログと同じ見た目（文言のみプレイリスト用に差し替え）。
+    final ok = await showDeleteConfirmDialog(
+      context,
+      title: 'プレイリストを削除しますか？',
+      message: 'このまま削除するとプレイリストが失われます。',
     );
-    if (ok != true) return;
+    if (!ok) return;
     try {
       await _playlistService.deletePlaylist(widget.playlist.id);
       if (mounted) Navigator.pop(context, true); // 削除完了を呼び出し側へ

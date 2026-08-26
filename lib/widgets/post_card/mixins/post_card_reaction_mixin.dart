@@ -38,17 +38,28 @@ extension PostCardReactionMethods on PostCardState {
     }
     _dismissReactionPicker();
 
+    // 2列拡大カードはルートオーバーレイに載るため、吹き出しもルートオーバーレイに
+    // 挿入して「拡大カードの上」に確実に重ね、全画面座標で位置合わせする。
+    final overlayState = Overlay.of(context, rootOverlay: true);
     final box = anchorContext.findRenderObject() as RenderBox?;
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final overlay = overlayState.context.findRenderObject() as RenderBox?;
     if (box == null || overlay == null) return;
 
+    // 2列拡大時はカードが FittedBox でスケールされる。box.size はローカル(未スケール)
+    // 寸法を返すため、実際の描画寸法を 2 隅の localToGlobal 差分から求める。
+    // これで拡大状態でもスケール s が正しくなり、吹き出しが見切れない。
     final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
-    final rect = topLeft & box.size;
+    final topRight =
+        box.localToGlobal(Offset(box.size.width, 0), ancestor: overlay);
+    final bottomLeft =
+        box.localToGlobal(Offset(0, box.size.height), ancestor: overlay);
+    final double renderedW = (topRight - topLeft).distance;
+    final double renderedH = (bottomLeft - topLeft).distance;
+    final rect = Rect.fromLTWH(topLeft.dx, topLeft.dy, renderedW, renderedH);
     _reactionAnchorRect = rect;
 
-    // カード表示倍率 s（スマイル実寸 / Figma上のスマイル幅32 = cardWidth/363）。
-    final double s = rect.width / 32.0;
+    // カード表示倍率 s（スマイル実寸 / Figma上のスマイル幅32）。
+    final double s = (renderedW <= 0 ? 32.0 : renderedW) / 32.0;
     final double bubbleW = 331.0 * s;
     final double screenW = overlay.size.width;
     const double margin = 6.0;
@@ -92,7 +103,7 @@ extension PostCardReactionMethods on PostCardState {
         );
       },
     );
-    Overlay.of(context).insert(_reactionPickerEntry!);
+    overlayState.insert(_reactionPickerEntry!);
   }
 
   void _dismissReactionPicker() {
@@ -138,7 +149,7 @@ extension PostCardReactionMethods on PostCardState {
       ),
     );
     _reactionBurstEntry = entry;
-    Overlay.of(context).insert(entry);
+    Overlay.of(context, rootOverlay: true).insert(entry);
   }
 
   /// postId が変わった/破棄時に、開いているオーバーレイを片付ける。

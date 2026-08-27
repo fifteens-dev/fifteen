@@ -302,7 +302,7 @@ class MilfolhaPeriods {
 
   static MilfolhaPeriods get defaults => MilfolhaPeriods(
         start: _jst(2026, 8, 30, 0, 0),
-        end: _jst(2026, 8, 31, 23, 59),
+        end: _jst(2026, 8, 31, 21, 20),
       );
 
   factory MilfolhaPeriods.fromMap(Map<String, dynamic>? data) {

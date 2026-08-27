@@ -119,7 +119,7 @@ class _MilfolhaTabState extends State<MilfolhaTab> {
                           style: const TextStyle(
                               color: Colors.white, fontSize: 14)),
                       const SizedBox(height: 4),
-                      const Text('（既定 8/30 0:00〜8/31 23:59 JST）',
+                      const Text('（既定 8/30 0:00〜8/31 21:20 JST）',
                           style: TextStyle(
                               color: Color(0xFF6B6B6B), fontSize: 11)),
                     ],

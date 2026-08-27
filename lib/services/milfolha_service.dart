@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/milfolha_teams.dart';
 import '../models/milfolha_team_score.dart';
+import '../models/milfolha_team_model.dart';
 
 enum MilfolhaJoinResult {
   success,
@@ -97,7 +98,7 @@ class MilfolhaService {
         .map((snap) => snap.exists ? snap.data() : null);
   }
 
-  /// チームコードで参加する（切替対応）。班アカウント連携なし。
+  /// チームコードで参加する（切替対応）。班アカウント（users/{teamId}）と相互フォロー同期。
   Future<MilfolhaJoinResult> joinTeamWithCode(String code) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return MilfolhaJoinResult.error;
@@ -109,34 +110,87 @@ class MilfolhaService {
 
     final membershipRef = _db.doc('milfolha_memberships/$uid');
     final userRef = _db.collection('users').doc(uid);
+    final newTeamAccountRef = _db.collection('users').doc(teamId);
 
     try {
-      final existing = await membershipRef.get();
-      final oldTeamId =
-          existing.exists ? (existing.data()?['teamId'] as String?) : null;
-      if (oldTeamId == teamId) return MilfolhaJoinResult.alreadyJoined;
+      return await _db.runTransaction<MilfolhaJoinResult>((tx) async {
+        // ── 読み取り（書き込みより前） ──
+        final memberSnap = await tx.get(membershipRef);
+        final userSnap = await tx.get(userRef);
 
-      final membershipData = <String, dynamic>{
-        'userId': uid,
-        'teamId': teamId,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      // 既存があれば joinedAt を維持、無ければ現在時刻を記録（登録+1判定用）。
-      if (!existing.exists) {
-        membershipData['joinedAt'] = FieldValue.serverTimestamp();
-      }
+        String? oldTeamId;
+        if (memberSnap.exists) {
+          oldTeamId = memberSnap.data()?['teamId'] as String?;
+          if (oldTeamId == teamId) return MilfolhaJoinResult.alreadyJoined;
+        }
 
-      final batch = _db.batch();
-      batch.set(membershipRef, membershipData, SetOptions(merge: true));
-      batch.set(userRef, {
-        'milfolhaTeamId': teamId,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      await batch.commit();
+        // ユーザーの following/followers を Dart 側で計算（旧班を外し新班を追加）
+        final userData = userSnap.data() ?? <String, dynamic>{};
+        final following = ((userData['following'] as List?)
+                    ?.whereType<String>()
+                    .toList() ??
+                <String>[])
+            .toSet();
+        final followers = ((userData['followers'] as List?)
+                    ?.whereType<String>()
+                    .toList() ??
+                <String>[])
+            .toSet();
+        if (oldTeamId != null) {
+          following.remove(oldTeamId);
+          followers.remove(oldTeamId);
+        }
+        following.add(teamId);
+        followers.add(teamId);
 
-      return oldTeamId != null
-          ? MilfolhaJoinResult.switched
-          : MilfolhaJoinResult.success;
+        // ── 書き込み ──
+        // 1. 旧班から離脱（memberCount -1 + 相互フォロー解除）
+        if (oldTeamId != null) {
+          tx.set(_db.collection('milfolha_teams').doc(oldTeamId), {
+            'memberCount': FieldValue.increment(-1),
+          }, SetOptions(merge: true));
+          tx.set(_db.collection('users').doc(oldTeamId), {
+            'followers': FieldValue.arrayRemove([uid]),
+            'following': FieldValue.arrayRemove([uid]),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+
+        // 2. メンバーシップ登録（joinedAt は新規時のみ）
+        final membershipData = <String, dynamic>{
+          'userId': uid,
+          'teamId': teamId,
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        if (!memberSnap.exists) {
+          membershipData['joinedAt'] = FieldValue.serverTimestamp();
+        }
+        tx.set(membershipRef, membershipData, SetOptions(merge: true));
+
+        // 3. 新班統計 memberCount +1
+        tx.set(_db.collection('milfolha_teams').doc(teamId), {
+          'memberCount': FieldValue.increment(1),
+        }, SetOptions(merge: true));
+
+        // 4. ユーザードキュメント更新（milfolhaTeamId + 相互フォロー配列）
+        tx.set(userRef, {
+          'milfolhaTeamId': teamId,
+          'following': following.toList(),
+          'followers': followers.toList(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        // 5. 新班アカウントへ自分を相互フォロー追加
+        tx.set(newTeamAccountRef, {
+          'followers': FieldValue.arrayUnion([uid]),
+          'following': FieldValue.arrayUnion([uid]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        return oldTeamId != null
+            ? MilfolhaJoinResult.switched
+            : MilfolhaJoinResult.success;
+      });
     } catch (_) {
       return MilfolhaJoinResult.error;
     }
@@ -149,20 +203,91 @@ class MilfolhaService {
     final membershipRef = _db.doc('milfolha_memberships/$uid');
     final userRef = _db.collection('users').doc(uid);
     try {
-      final existing = await membershipRef.get();
-      if (!existing.exists) return MilfolhaLeaveResult.notJoined;
+      return await _db.runTransaction<MilfolhaLeaveResult>((tx) async {
+        final memberSnap = await tx.get(membershipRef);
+        if (!memberSnap.exists) return MilfolhaLeaveResult.notJoined;
+        final teamId = memberSnap.data()?['teamId'] as String?;
 
-      final batch = _db.batch();
-      batch.delete(membershipRef);
-      batch.set(userRef, {
-        'milfolhaTeamId': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      await batch.commit();
-      return MilfolhaLeaveResult.success;
+        final userSnap = await tx.get(userRef);
+        final userData = userSnap.data() ?? <String, dynamic>{};
+        final following = ((userData['following'] as List?)
+                    ?.whereType<String>()
+                    .toList() ??
+                <String>[])
+            .toSet();
+        final followers = ((userData['followers'] as List?)
+                    ?.whereType<String>()
+                    .toList() ??
+                <String>[])
+            .toSet();
+        if (teamId != null) {
+          following.remove(teamId);
+          followers.remove(teamId);
+        }
+
+        tx.delete(membershipRef);
+        if (teamId != null) {
+          tx.set(_db.collection('milfolha_teams').doc(teamId), {
+            'memberCount': FieldValue.increment(-1),
+          }, SetOptions(merge: true));
+          tx.set(_db.collection('users').doc(teamId), {
+            'followers': FieldValue.arrayRemove([uid]),
+            'following': FieldValue.arrayRemove([uid]),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+        tx.set(userRef, {
+          'milfolhaTeamId': FieldValue.delete(),
+          'following': following.toList(),
+          'followers': followers.toList(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        return MilfolhaLeaveResult.success;
+      });
     } catch (_) {
       return MilfolhaLeaveResult.error;
     }
+  }
+
+  // ---- 班プロフィール ----
+
+  /// 班統計/プロフィールを取得。
+  Future<MilfolhaTeamModel?> getTeam(String teamId) async {
+    final snap = await _db.collection('milfolha_teams').doc(teamId).get();
+    if (!snap.exists) return null;
+    return MilfolhaTeamModel.fromFirestore(snap);
+  }
+
+  /// 班プロフィール（アイコン/紹介文）を更新。班アカウント users/{teamId} にも同期。
+  Future<void> updateTeamProfile({
+    required String teamId,
+    String? profileImageUrl,
+    String? description,
+  }) async {
+    final teamUpdate = <String, dynamic>{};
+    if (profileImageUrl != null) teamUpdate['profileImageUrl'] = profileImageUrl;
+    if (description != null) teamUpdate['description'] = description;
+    if (teamUpdate.isEmpty) return;
+
+    final batch = _db.batch();
+    batch.set(_db.collection('milfolha_teams').doc(teamId), teamUpdate,
+        SetOptions(merge: true));
+    final userUpdate = <String, dynamic>{};
+    if (profileImageUrl != null) userUpdate['profileImageUrl'] = profileImageUrl;
+    if (description != null) userUpdate['bio'] = description;
+    batch.set(_db.collection('users').doc(teamId), userUpdate,
+        SetOptions(merge: true));
+    await batch.commit();
+  }
+
+  /// 班メンバー（milfolha_memberships で teamId 一致）の uid 一覧。
+  Future<List<String>> getTeamMemberUids(String teamId) async {
+    final snap = await _db
+        .collection('milfolha_memberships')
+        .where('teamId', isEqualTo: teamId)
+        .get();
+    return snap.docs.map((d) => d.id).toList();
   }
 
   // ---- 集計（クライアント計算） ----

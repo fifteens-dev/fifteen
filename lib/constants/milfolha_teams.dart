@@ -25,6 +25,10 @@ class MilfolhaTeamDefinitions {
   /// 入力コードが有効なチームコードか（大文字小文字・前後空白を許容）。
   static bool isValidCode(String code) => _idSet.contains(_normalize(code));
 
+  /// users/{uid} の uid がチームアカウント（8チームのいずれか）に一致するか。
+  /// users コレクションでの id 完全一致のため正規化はしない。
+  static bool isTeamAccountUid(String uid) => _idSet.contains(uid);
+
   /// 入力コードを正規化（小文字化・トリム）。一致しなければ null。
   static String? normalizeCode(String code) {
     final n = _normalize(code);

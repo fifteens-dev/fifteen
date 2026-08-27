@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../constants/adl_teams.dart';
+import '../constants/milfolha_teams.dart';
 import '../constants/profile_fonts.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
@@ -20,6 +21,7 @@ import '../services/spotify_service.dart';
 import '../widgets/profile_widgets.dart';
 import '../widgets/common/app_toast.dart';
 import 'adl_team_playlist_screen.dart';
+import 'milfolha_team_profile_screen.dart';
 import 'artist_profile_screen.dart';
 import 'follow_list_screen.dart';
 import 'music_memory_month_screen.dart';
@@ -102,6 +104,21 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
           context,
           MaterialPageRoute(
             builder: (_) => AdlTeamPlaylistScreen(teamId: widget.userId),
+          ),
+        );
+      });
+      return;
+    }
+
+    // Milfolha チームアカウント (users/{waterfalls_x}) の場合も専用画面へ置換遷移
+    if (MilfolhaTeamDefinitions.isTeamAccountUid(widget.userId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                MilfolhaTeamProfileScreen(teamId: widget.userId),
           ),
         );
       });

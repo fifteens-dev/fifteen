@@ -305,6 +305,23 @@ service cloud.firestore {
       allow create, update, delete: if isOwner(userId) || isAdmin();
     }
 
+    // ── milfolha_teams コレクション ──────────────────────────
+    // Milfolha 班統計・プロフィール。読み取りは全ログインユーザー、管理者は全操作可。
+    // 一般ユーザーは memberCount のみ更新可（参加/離脱時）。
+    // 班員（自分の milfolhaTeamId が teamId と一致）は profileImageUrl と description のみ更新可。
+    match /milfolha_teams/{teamId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (isAuthenticated() &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['memberCount'])) ||
+        (isAuthenticated() &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.milfolhaTeamId == teamId &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['profileImageUrl', 'description']));
+    }
+
     // ── app_open_events コレクション ──────────────────────────
     // DAU/MAU 計測用。1ユーザー1日1件（docId: {uid}_{date}）
     // 作成・更新：本人のみ（set はべき等）

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
@@ -6,8 +8,9 @@ import '../services/milfolha_service.dart';
 
 /// Milfolha 対抗バトルのランキング画面（参加者全員が閲覧可）。
 ///
-/// 画面を開いた時に [MilfolhaService.computeRanking] でクライアント集計し、
-/// チーム別の総ポイント＋内訳（登録/投稿/外部登録/外部投稿）を降順表示する。
+/// モック（バレー大会イベント）準拠のUIを黒背景・紫アクセントで再現。
+/// 上部にイベントサマリー（残り時間・自分のチーム順位/ポイント・自分の個人ポイント）、
+/// 下部にチームランキング（王冠付き）を表示する。
 class MilfolhaRankingScreen extends StatefulWidget {
   const MilfolhaRankingScreen({super.key});
 
@@ -16,71 +19,78 @@ class MilfolhaRankingScreen extends StatefulWidget {
 }
 
 class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
+  static const Color _purple = Color(0xFF7B6FE6);
+
   final MilfolhaService _service = MilfolhaService();
-  List<MilfolhaTeamScore>? _scores;
+
+  MilfolhaRankingResult? _result;
+  MilfolhaPeriods? _periods;
+  String? _myTeamId;
+  String? _myUid;
   bool _loading = true;
   bool _finalized = false;
+
+  Timer? _ticker;
+  Duration _remaining = Duration.zero;
 
   @override
   void initState() {
     super.initState();
+    _myUid = FirebaseAuth.instance.currentUser?.uid;
     _load();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
+      final uid = _myUid;
       final results = await Future.wait([
         _service.computeRanking(),
+        _service.getPeriods(),
         _service.isResultFinalizedOnce(),
+        if (uid != null)
+          _service.getMembership(uid)
+        else
+          Future<Map<String, dynamic>?>.value(null),
       ]);
       if (!mounted) return;
+      final membership = results[3] as Map<String, dynamic>?;
       setState(() {
-        _scores = results[0] as List<MilfolhaTeamScore>;
-        _finalized = results[1] as bool;
+        _result = results[0] as MilfolhaRankingResult;
+        _periods = results[1] as MilfolhaPeriods;
+        _finalized = results[2] as bool;
+        _myTeamId = membership?['teamId'] as String?;
         _loading = false;
       });
+      _tick();
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  void _tick() {
+    final end = _periods?.end;
+    if (end == null) return;
+    final now = DateTime.now();
+    final diff = end.difference(now);
+    setState(() => _remaining = diff.isNegative ? Duration.zero : diff);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Colors.black,
       body: SafeArea(
         child: Column(
           children: [
-            // ヘッダー
-            Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: const Icon(Icons.close, color: Colors.white),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      _finalized ? '最終結果' : 'ランキング',
-                      style: TextStyle(
-                        color: _finalized
-                            ? const Color(0xFFFFD700)
-                            : Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const Icon(Icons.emoji_events,
-                      color: Color(0xFFFFD700), size: 22),
-                ],
-              ),
-            ),
-            const Divider(color: AppColors.divider, height: 1),
+            _header(),
             Expanded(
               child: _loading
                   ? const Center(
@@ -88,9 +98,25 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
                           color: Colors.white, radius: 14))
                   : RefreshIndicator(
                       color: Colors.white,
-                      backgroundColor: AppColors.surface,
+                      backgroundColor: const Color(0xFF1C1C1E),
                       onRefresh: _load,
-                      child: _buildList(),
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                        children: [
+                          _summaryCard(),
+                          const SizedBox(height: 16),
+                          _rankingCard(),
+                          const SizedBox(height: 10),
+                          const Center(
+                            child: Text(
+                              'ⓘ ランキングはリアルタイムで更新されます',
+                              style: TextStyle(
+                                  color: Color(0xFF7A7A7A), fontSize: 11),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
             ),
           ],
@@ -99,101 +125,170 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
     );
   }
 
-  Widget _buildList() {
-    final scores = _scores ?? const <MilfolhaTeamScore>[];
-    return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
-      itemCount: scores.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => _teamCard(i + 1, scores[i]),
+  // ── ヘッダー（× + タイトル）──
+  Widget _header() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            behavior: HitTestBehavior.opaque,
+            child: const Icon(Icons.close, color: Colors.white),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              _finalized ? '最終結果' : 'ランキング',
+              style: TextStyle(
+                color: _finalized ? const Color(0xFFFFD700) : Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const Icon(Icons.emoji_events, color: Color(0xFFFFD700), size: 22),
+        ],
+      ),
     );
   }
 
-  Widget _teamCard(int rank, MilfolhaTeamScore s) {
-    final medal = rank == 1
-        ? const Color(0xFFFFD700)
-        : rank == 2
-            ? const Color(0xFFC0C0C0)
-            : rank == 3
-                ? const Color(0xFFCD7F32)
-                : Colors.white24;
+  String _fmtRemaining(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    final s = d.inSeconds % 60;
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(h)}:${two(m)}:${two(s)}';
+  }
+
+  String _fmtPeriod(MilfolhaPeriods? p) {
+    if (p == null) return '';
+    String jst(DateTime d) {
+      final j = d.toUtc().add(const Duration(hours: 9));
+      return '${j.month}/${j.day} ${j.hour.toString().padLeft(2, '0')}:${j.minute.toString().padLeft(2, '0')}';
+    }
+
+    return '${jst(p.start)} 〜 ${jst(p.end)}';
+  }
+
+  String _fmtPt(int n) {
+    final s = n.toString();
+    final buf = StringBuffer();
+    for (int i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+      buf.write(s[i]);
+    }
+    return buf.toString();
+  }
+
+  // ── サマリーカード ──
+  Widget _summaryCard() {
+    final teams = _result?.teams ?? const <MilfolhaTeamScore>[];
+    // 自分のチーム順位・ポイント
+    int? myRank;
+    int myTeamPt = 0;
+    int diffToTop = 0;
+    if (_myTeamId != null && teams.isNotEmpty) {
+      for (int i = 0; i < teams.length; i++) {
+        if (teams[i].teamId == _myTeamId) {
+          myRank = i + 1;
+          myTeamPt = teams[i].total;
+          diffToTop = teams.first.total - myTeamPt;
+          break;
+        }
+      }
+    }
+    // 自分の個人ポイント・順位
+    final myPt = (_myUid != null)
+        ? (_result?.individualPoints[_myUid] ?? 0)
+        : 0;
+    final myPtRank =
+        (_myUid != null) ? _result?.individualRank[_myUid] : null;
+
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1C1C1E),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF2C2C2E), width: 1),
+        color: const Color(0xFF161616),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF262626)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // タイトル行 + 残り時間
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 順位バッジ
-              Container(
-                width: 34,
-                height: 34,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: medal.withValues(alpha: 0.18),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: medal, width: 1.5),
-                ),
-                child: Text(
-                  '$rank',
-                  style: TextStyle(
-                    color: medal == Colors.white24 ? Colors.white70 : medal,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'チーム ${s.displayName}',
-                      style: const TextStyle(
+                    const Text(
+                      '🏐 バレー大会イベント',
+                      style: TextStyle(
                         color: Colors.white,
-                        fontSize: 16,
+                        fontSize: 17,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                    const SizedBox(height: 4),
                     Text(
-                      '${s.memberCount}人参加',
+                      _fmtPeriod(_periods),
                       style: const TextStyle(
-                          color: Color(0xFF9E9E9E), fontSize: 11),
+                          color: Color(0xFF9A9A9A), fontSize: 12),
                     ),
                   ],
                 ),
               ),
-              // 総ポイント
-              Text(
-                '${s.total}',
-                style: const TextStyle(
-                  color: Color(0xFFFFD700),
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.only(left: 2, top: 8),
-                child: Text('pt',
-                    style: TextStyle(color: Color(0xFFFFD700), fontSize: 12)),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text('残り',
+                      style: TextStyle(color: Color(0xFF9A9A9A), fontSize: 11)),
+                  const SizedBox(height: 2),
+                  Text(
+                    _remaining == Duration.zero
+                        ? '終了'
+                        : _fmtRemaining(_remaining),
+                    style: const TextStyle(
+                      color: _purple,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          // 内訳
+          const SizedBox(height: 14),
+          const Divider(color: Color(0xFF262626), height: 1),
+          const SizedBox(height: 14),
+          // 3スタット
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _breakdown('登録', s.regPt),
-              _breakdown('投稿', s.memberPostPt),
-              _breakdown('外部登録', s.extRegPt),
-              _breakdown('外部投稿', s.extPostPt),
+              _stat(
+                label: 'あなたのチーム順位',
+                value: myRank != null ? '$myRank' : '-',
+                unit: myRank != null ? '位' : '',
+                sub: '/ ${teams.length}チーム',
+              ),
+              _stat(
+                label: 'あなたのチームポイント',
+                value: _fmtPt(myTeamPt),
+                unit: 'pt',
+                sub: (myRank != null && myRank > 1)
+                    ? '1位まであと ${_fmtPt(diffToTop)}pt'
+                    : (myRank == 1 ? '1位' : ''),
+                chip: true,
+              ),
+              _stat(
+                label: 'あなたの個人ポイント',
+                value: _fmtPt(myPt),
+                unit: 'pt',
+                sub: myPtRank != null ? '個人ランキング $myPtRank位' : '',
+                chip: true,
+              ),
             ],
           ),
         ],
@@ -201,24 +296,180 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
     );
   }
 
-  Widget _breakdown(String label, int pt) {
+  Widget _stat({
+    required String label,
+    required String value,
+    required String unit,
+    required String sub,
+    bool chip = false,
+  }) {
     return Expanded(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '+$pt',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
+          Text(label,
+              style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 10)),
+          const SizedBox(height: 6),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Flexible(
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _purple,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (unit.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 1, bottom: 2),
+                  child: Text(unit,
+                      style: const TextStyle(color: _purple, fontSize: 12)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          if (sub.isNotEmpty)
+            chip
+                ? Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _purple.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(sub,
+                        style: const TextStyle(
+                            color: _purple, fontSize: 9.5)),
+                  )
+                : Text(sub,
+                    style: const TextStyle(
+                        color: Color(0xFF7A7A7A), fontSize: 10)),
+        ],
+      ),
+    );
+  }
+
+  // ── ランキングカード ──
+  Widget _rankingCard() {
+    final teams = _result?.teams ?? const <MilfolhaTeamScore>[];
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF161616),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF262626)),
+      ),
+      child: Column(
+        children: [
+          // タブ見出し（チームランキングのみ）
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            alignment: Alignment.centerLeft,
+            child: const Text(
+              'チームランキング',
+              style: TextStyle(
+                color: _purple,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
-          const SizedBox(height: 2),
+          const Divider(color: Color(0xFF262626), height: 1),
+          for (int i = 0; i < teams.length; i++) ...[
+            if (i > 0) const Divider(color: Color(0xFF222222), height: 1),
+            _rankRow(i + 1, teams[i]),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _rankRow(int rank, MilfolhaTeamScore s) {
+    final isMine = s.teamId == _myTeamId;
+    return Container(
+      color: isMine ? _purple.withValues(alpha: 0.10) : Colors.transparent,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          SizedBox(width: 36, child: _rankBadge(rank)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                children: [
+                  TextSpan(
+                    text: '${s.displayName}チーム',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (isMine)
+                    const TextSpan(
+                      text: '（あなたのチーム）',
+                      style: TextStyle(color: _purple, fontSize: 12),
+                    ),
+                ],
+              ),
+            ),
+          ),
           Text(
-            label,
-            style: const TextStyle(color: Color(0xFF8B8B8B), fontSize: 10),
+            '${_fmtPt(s.total)}',
+            style: const TextStyle(
+              color: _purple,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(left: 1, top: 4),
+            child: Text('pt', style: TextStyle(color: _purple, fontSize: 11)),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _rankBadge(int rank) {
+    if (rank <= 3) {
+      final color = rank == 1
+          ? const Color(0xFFFFC93C)
+          : rank == 2
+              ? const Color(0xFFB9C0CC)
+              : const Color(0xFFCD8E52);
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          Icon(Icons.emoji_events, color: color, size: 30),
+          Positioned(
+            bottom: 2,
+            child: Text(
+              '$rank',
+              style: const TextStyle(
+                color: Colors.black87,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return Center(
+      child: Text(
+        '$rank',
+        style: const TextStyle(
+          color: Color(0xFF9A9A9A),
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

@@ -173,9 +173,15 @@ class MilfolhaService {
     return '${j.year}-${j.month.toString().padLeft(2, '0')}-${j.day.toString().padLeft(2, '0')}';
   }
 
+  /// チーム別のみが欲しい呼び出し元用（管理タブ等）。
+  Future<List<MilfolhaTeamScore>> computeTeamRanking() async {
+    final r = await computeRanking();
+    return r.teams;
+  }
+
   /// ランキングを集計する。期間の全 posts / 全 memberships / 期間の invite_usages を
-  /// 読み、メモリ上でポイントを計算して降順で返す。
-  Future<List<MilfolhaTeamScore>> computeRanking() async {
+  /// 読み、メモリ上でチーム別＋個人別のポイントを計算して返す。
+  Future<MilfolhaRankingResult> computeRanking() async {
     final periods = await getPeriods();
     final start = periods.start;
     final end = periods.end;
@@ -215,9 +221,10 @@ class MilfolhaService {
         .where('usedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
         .where('usedAt', isLessThanOrEqualTo: Timestamp.fromDate(end))
         .get();
-    // 外部ユーザー(usedBy) → (最古 usedAt, 招待者チーム)
+    // 外部ユーザー(usedBy) → (最古 usedAt, 招待者チーム / 招待者uid)
     final extEarliest = <String, DateTime>{};
     final extToTeam = <String, String>{};
+    final extToOwner = <String, String>{};
     for (final d in usageSnap.docs) {
       final data = d.data();
       final owner = data['ownerUid'] as String?;
@@ -233,15 +240,17 @@ class MilfolhaService {
       if (prev == null || ts.isBefore(prev)) {
         extEarliest[invited] = ts;
         extToTeam[invited] = team; // 最初に招待したメンバーのチームへ帰属
+        extToOwner[invited] = owner; // 個人ポイント帰属用
       }
     }
 
-    // ── 4) チーム別ポイント集計 ──
+    // ── 4) チーム別ポイント集計 ＋ 個人別ポイント ──
     final reg = <String, int>{};
     final memberPost = <String, int>{};
     final extReg = <String, int>{};
     final extPost = <String, int>{};
     final memberCount = <String, int>{};
+    final individual = <String, int>{}; // uid → 個人貢献ポイント
 
     // メンバー登録 +1（期間中に参加した人）＋ メンバー投稿 +3/日
     for (final entry in uidToTeam.entries) {
@@ -249,25 +258,30 @@ class MilfolhaService {
       final team = entry.value;
       memberCount[team] = (memberCount[team] ?? 0) + 1;
       final jat = joinedAt[uid];
-      if (jat != null &&
-          !jat.isBefore(start) &&
-          !jat.isAfter(end)) {
+      if (jat != null && !jat.isBefore(start) && !jat.isAfter(end)) {
         reg[team] = (reg[team] ?? 0) + 1;
+        individual[uid] = (individual[uid] ?? 0) + 1;
       }
       final days = postDaysByUid[uid];
       if (days != null && days.isNotEmpty) {
         memberPost[team] = (memberPost[team] ?? 0) + days.length * 3;
+        individual[uid] = (individual[uid] ?? 0) + days.length * 3;
       }
     }
 
-    // 外部登録 +3 ＋ 外部投稿 +5/日
+    // 外部登録 +3 ＋ 外部投稿 +5/日（チーム＝最古招待者のチーム、個人＝最古招待者）
     for (final entry in extToTeam.entries) {
       final ext = entry.key;
       final team = entry.value;
+      final owner = extToOwner[ext];
       extReg[team] = (extReg[team] ?? 0) + 3;
+      if (owner != null) individual[owner] = (individual[owner] ?? 0) + 3;
       final days = postDaysByUid[ext];
       if (days != null && days.isNotEmpty) {
         extPost[team] = (extPost[team] ?? 0) + days.length * 5;
+        if (owner != null) {
+          individual[owner] = (individual[owner] ?? 0) + days.length * 5;
+        }
       }
     }
 
@@ -284,8 +298,48 @@ class MilfolhaService {
           memberCount: memberCount[def.id] ?? 0,
         ),
     ]..sort((a, b) => b.total.compareTo(a.total));
-    return scores;
+
+    return MilfolhaRankingResult(
+      teams: scores,
+      individualPoints: individual,
+      individualRank: _rankMap(individual),
+    );
   }
+
+  /// uid→ポイント を、ポイント降順の順位(1始まり)に変換。同点は同順位。
+  static Map<String, int> _rankMap(Map<String, int> points) {
+    final entries = points.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final rank = <String, int>{};
+    int lastPt = -1;
+    int lastRank = 0;
+    for (int i = 0; i < entries.length; i++) {
+      final e = entries[i];
+      if (e.value != lastPt) {
+        lastRank = i + 1;
+        lastPt = e.value;
+      }
+      rank[e.key] = lastRank;
+    }
+    return rank;
+  }
+}
+
+/// 集計結果（チーム＋個人）。
+class MilfolhaRankingResult {
+  final List<MilfolhaTeamScore> teams;
+
+  /// uid → 個人貢献ポイント。
+  final Map<String, int> individualPoints;
+
+  /// uid → 個人ポイント順位（1始まり・同点同順位）。
+  final Map<String, int> individualRank;
+
+  const MilfolhaRankingResult({
+    required this.teams,
+    required this.individualPoints,
+    required this.individualRank,
+  });
 }
 
 /// Milfolha イベント期間。未設定時は 2026-08-30 0:00〜2026-08-31 23:59 JST を既定とする。

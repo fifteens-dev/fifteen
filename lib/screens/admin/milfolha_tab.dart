@@ -38,7 +38,7 @@ class _MilfolhaTabState extends State<MilfolhaTab> {
   Future<void> _runPreview() async {
     setState(() => _previewing = true);
     try {
-      final scores = await _service.computeRanking();
+      final scores = await _service.computeTeamRanking();
       if (mounted) setState(() => _preview = scores);
     } catch (_) {
       if (mounted) AppToast.show(context, '集計に失敗しました');

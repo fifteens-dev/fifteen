@@ -9,6 +9,8 @@ import '../widgets/common_input_field.dart';
 import '../widgets/primary_button.dart';
 import '../services/invite_code_service.dart';
 import '../services/user_service.dart';
+import '../services/milfolha_service.dart';
+import '../constants/milfolha_teams.dart';
 import '../widgets/common/app_toast.dart';
 
 /// 招待コード入力画面
@@ -23,6 +25,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
   final TextEditingController _inviteCodeController = TextEditingController();
   final InviteCodeService _inviteCodeService = InviteCodeService();
   final UserService _userService = UserService();
+  final MilfolhaService _milfolhaService = MilfolhaService();
   bool _isLoading = true;
 
   @override
@@ -65,9 +68,48 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       return;
     }
 
-    // 認証フローでは班の振り分けは行わない。班コードが入力されても通常コードとして処理する
-    // （班への加入は認証完了後に専用画面 adl_join_screen.dart から行う想定）。
+    // Milfolha チームコード（waterfalls_X）なら、そのチームに参加する。
+    if (MilfolhaTeamDefinitions.isValidCode(rawInput)) {
+      await _handleMilfolhaTeamCode(rawInput);
+      return;
+    }
+
+    // それ以外は通常の個人招待コードとして処理する。
     await _handleNormalInviteCode(rawInput.toUpperCase());
+  }
+
+  /// Milfolha チームコードでチームに参加する。
+  Future<void> _handleMilfolhaTeamCode(String code) async {
+    setState(() => _isLoading = true);
+    try {
+      final result = await _milfolhaService.joinTeamWithCode(code);
+      if (!mounted) return;
+      switch (result) {
+        case MilfolhaJoinResult.success:
+        case MilfolhaJoinResult.switched:
+        case MilfolhaJoinResult.alreadyJoined:
+          setState(() => _isLoading = false);
+          Navigator.pushNamed(context, '/name-input');
+          return;
+        case MilfolhaJoinResult.disabled:
+          setState(() => _isLoading = false);
+          AppToast.show(context, '現在このイベントは開催されていません');
+          return;
+        case MilfolhaJoinResult.invalidCode:
+          setState(() => _isLoading = false);
+          AppToast.show(context, '無効なチームコードです');
+          return;
+        case MilfolhaJoinResult.error:
+          setState(() => _isLoading = false);
+          AppToast.show(context, 'チーム参加に失敗しました');
+          return;
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        AppToast.show(context, 'チーム参加に失敗しました');
+      }
+    }
   }
 
   /// 通常の招待コード（7文字英数字）の検証 + 使用済みマーク + コードオーナーフォロー

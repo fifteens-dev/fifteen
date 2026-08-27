@@ -290,6 +290,21 @@ service cloud.firestore {
       allow create, update, delete: if isOwner(userId) || isAdmin();
     }
 
+    // ── milfolha_config コレクション ─────────────────────────
+    // Milfolha イベントの ON/OFF・期間・結果確定。読み取り全ログイン、書き込み管理者のみ
+    match /milfolha_config/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ── milfolha_memberships コレクション ────────────────────
+    // Milfolha のチーム所属。本人は作成/更新（切替）/削除（離脱）可、管理者は全操作可。
+    // ランキング集計で全ドキュメントを読むため、読み取りは全ログインユーザーに許可。
+    match /milfolha_memberships/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isOwner(userId) || isAdmin();
+    }
+
     // ── app_open_events コレクション ──────────────────────────
     // DAU/MAU 計測用。1ユーザー1日1件（docId: {uid}_{date}）
     // 作成・更新：本人のみ（set はべき等）

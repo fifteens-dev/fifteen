@@ -18,6 +18,9 @@ import 'basic_info_screen.dart';
 import 'admin/admin_screen.dart';
 import 'adl_join_screen.dart';
 import '../services/adl_service.dart';
+import 'milfolha_join_screen.dart';
+import '../services/milfolha_service.dart';
+import '../constants/milfolha_teams.dart';
 
 /// 設定画面
 class SettingsScreen extends StatefulWidget {
@@ -31,9 +34,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final UserService _userService = UserService();
   final AdminService _adminService = AdminService();
   final AdlService _adlService = AdlService();
+  final MilfolhaService _milfolhaService = MilfolhaService();
   UserModel? _userData;
   bool _isAdmin = false;
   bool _adlActive = false;
+  bool _milfolhaActive = false;
+  String? _milfolhaTeamId;
 
   @override
   void initState() {
@@ -64,6 +70,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() {
           _adlActive = adlActive;
+        });
+      }
+    } catch (_) {}
+
+    // Milfolha情報も独立してロード
+    try {
+      final active = await _milfolhaService.isActive();
+      final membership =
+          await _milfolhaService.getMembership(currentUser.uid);
+      if (mounted) {
+        setState(() {
+          _milfolhaActive = active;
+          _milfolhaTeamId = membership?['teamId'] as String?;
         });
       }
     } catch (_) {}
@@ -214,6 +233,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                               );
                               // 参加・切替・離脱いずれの結果でも最新状態を反映
+                              _loadUserData();
+                            },
+                          ),
+                        ]),
+                      ],
+
+                      // Milfolha イベント（開催中のみ表示）
+                      if (_milfolhaActive) ...[
+                        const SizedBox(height: 24),
+                        _buildSectionLabel('Milfolha イベント'),
+                        const SizedBox(height: 8),
+                        _buildSettingsCard([
+                          _SettingsItem(
+                            icon: Icons.emoji_events,
+                            title: _milfolhaTeamId != null
+                                ? 'チーム ${MilfolhaTeamDefinitions.displayNameOf(_milfolhaTeamId!)}（参加中）'
+                                : 'チームに参加する',
+                            onTap: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MilfolhaJoinScreen(
+                                    currentTeamId: _milfolhaTeamId,
+                                  ),
+                                ),
+                              );
                               _loadUserData();
                             },
                           ),

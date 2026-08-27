@@ -15,6 +15,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'reports_tab.dart';
 import 'analytics_tab.dart';
 import 'adl_tab.dart';
+import 'milfolha_tab.dart';
 import '../../widgets/common/app_toast.dart';
 
 /// 管理者画面
@@ -37,7 +38,7 @@ class _AdminScreenState extends State<AdminScreen>
   void initState() {
     super.initState();
     // Vibe 機能の全面非表示に伴い、Vibeお題・Vibe投稿タブを除外（9→7）。
-    _tabController = TabController(length: 7, vsync: this);
+    _tabController = TabController(length: 8, vsync: this);
     _checkAdminStatus();
   }
 
@@ -137,6 +138,10 @@ class _AdminScreenState extends State<AdminScreen>
               icon: Icon(Icons.groups),
               text: 'ADLイベント',
             ),
+            Tab(
+              icon: Icon(Icons.emoji_events),
+              text: 'Milfolha',
+            ),
           ],
         ),
       ),
@@ -153,6 +158,7 @@ class _AdminScreenState extends State<AdminScreen>
           ReportsTab(),
           _OfficialAccountTab(),
           AdlTab(),
+          MilfolhaTab(),
         ],
       ),
     );

@@ -73,6 +73,11 @@ class _MilfolhaTeamProfileScreenState extends State<MilfolhaTeamProfileScreen> {
         }
         return;
       }
+      // 集計期間（8/30 0:00〜8/31 21:20 JST 等）を取得し、その期間内の投稿のみ表示する。
+      final periods = await _service.getPeriods();
+      final start = periods.start;
+      final end = periods.end;
+
       // whereIn は最大30件。メンバーを30件ずつに分割してクエリ。
       final all = <PostModel>[];
       for (var i = 0; i < memberUids.length; i += 30) {
@@ -84,6 +89,9 @@ class _MilfolhaTeamProfileScreenState extends State<MilfolhaTeamProfileScreen> {
             .get();
         all.addAll(snap.docs.map(PostModel.fromFirestore));
       }
+      // 集計期間内の投稿のみに絞り込む（ランキングのポイント対象と一致させる）。
+      all.retainWhere((p) =>
+          !p.createdAt.isBefore(start) && !p.createdAt.isAfter(end));
       all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       if (!mounted) return;
       setState(() {

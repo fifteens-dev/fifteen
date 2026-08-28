@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../models/milfolha_team_score.dart';
 import '../services/milfolha_service.dart';
+import 'milfolha_team_profile_screen.dart';
 
 /// Milfolha 対抗バトルのランキング画面（参加者全員が閲覧可）。
 ///
@@ -392,10 +393,19 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
 
   Widget _rankRow(int rank, MilfolhaTeamScore s) {
     final isMine = s.teamId == _myTeamId;
-    return Container(
-      color: isMine ? _purple.withValues(alpha: 0.10) : Colors.transparent,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      // チーム名タップで班アカウントのプロフィール画面へ。
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MilfolhaTeamProfileScreen(teamId: s.teamId),
+        ),
+      ),
+      child: Container(
+        color: isMine ? _purple.withValues(alpha: 0.10) : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
         children: [
           SizedBox(width: 36, child: _rankBadge(rank)),
           const SizedBox(width: 8),
@@ -433,6 +443,7 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
             child: Text('pt', style: TextStyle(color: _purple, fontSize: 11)),
           ),
         ],
+        ),
       ),
     );
   }

@@ -281,13 +281,13 @@ class _Header extends StatelessWidget {
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            (description != null && description!.isNotEmpty)
-                ? description!
-                : 'Milfolha イベント公式アカウント',
-            style: const TextStyle(color: Colors.grey, fontSize: 12),
-          ),
+          if (description != null && description!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              description!,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
         ],
       ),
     );

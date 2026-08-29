@@ -10,6 +10,7 @@ import '../services/post_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/artist_service.dart';
 import '../services/spotify_service.dart';
+import '../services/milfolha_service.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
 import '../models/track_model.dart';
@@ -27,6 +28,7 @@ import '../services/playlist_service.dart';
 import '../utils/album_image.dart';
 import 'playlist/playlist_track_selection_screen.dart';
 import 'playlist/playlist_detail_screen.dart';
+import 'milfolha_ranking_screen.dart';
 
 /// プロフィール画面（自分）
 class ProfileScreen extends StatefulWidget {
@@ -77,6 +79,10 @@ class ProfileScreenState extends State<ProfileScreen>
   final PlaylistService _playlistService = PlaylistService();
   List<PlaylistModel> _playlists = const [];
 
+  // WATERFALLSイベント: 参加中のときだけヘッダー左にランキング導線を出す
+  final MilfolhaService _milfolhaService = MilfolhaService();
+  bool _showMilfolhaRanking = false;
+
   int get _followersCount => _userData?.followersCount ?? 0;
   int get _followingCount => _userData?.followingCount ?? 0;
 
@@ -92,6 +98,22 @@ class ProfileScreenState extends State<ProfileScreen>
     _loadUserData();
     _loadUserPosts();
     _loadPlaylists();
+    _loadMilfolhaEntry();
+  }
+
+  /// WATERFALLSイベントの参加状況を読み込む（開催中 かつ 参加済みのみ導線を出す）。
+  Future<void> _loadMilfolhaEntry() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final active = await _milfolhaService.isActive();
+      final membership =
+          active ? await _milfolhaService.getMembership(uid) : null;
+      final show = active && membership?['teamId'] != null;
+      if (mounted && show != _showMilfolhaRanking) {
+        setState(() => _showMilfolhaRanking = show);
+      }
+    } catch (_) {}
   }
 
   /// My Playlist を読み込む。
@@ -285,6 +307,7 @@ class ProfileScreenState extends State<ProfileScreen>
       _loadUserPosts(limit: 20),
       _loadPostCount(),
       _loadSavedPosts(),
+      _loadMilfolhaEntry(),
     ]);
     // SavedItemsProvider も最新化（保存タブ・他画面の保存状態に反映）
     if (mounted && _userData != null && currentUser != null) {
@@ -359,17 +382,47 @@ class ProfileScreenState extends State<ProfileScreen>
       child: Stack(
         children: [
           // ユーザーID（中央）
+          // 左右のアイコン（ランキング / 設定）に重ならないよう左右を空ける。
           Center(
-            child: Text(
-              username,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                fontFamily: kSfProRounded,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                  horizontal: _showMilfolhaRanking ? 108 : 48),
+              child: Text(
+                username,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  fontFamily: kSfProRounded,
+                ),
               ),
             ),
           ),
+          // WATERFALLSイベントのランキング導線（左端 / 参加中のみ）
+          if (_showMilfolhaRanking)
+            Positioned(
+              left: -8,
+              top: 0,
+              bottom: 0,
+              child: TextButton.icon(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const MilfolhaRankingScreen()),
+                ),
+                icon: const Icon(Icons.emoji_events,
+                    color: Color(0xFFFFD700), size: 18),
+                label: const Text('ランキング',
+                    style: TextStyle(color: Colors.white, fontSize: 13)),
+              ),
+            ),
           // 設定アイコン（右端）
           Positioned(
             right: 0,

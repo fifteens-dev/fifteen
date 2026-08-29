@@ -88,7 +88,7 @@ class _MilfolhaJoinScreenState extends State<MilfolhaJoinScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.background,
         foregroundColor: Colors.white,
-        title: const Text('Milfolha イベント',
+        title: const Text('WATERFALLSイベント',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
         elevation: 0,
         actions: [

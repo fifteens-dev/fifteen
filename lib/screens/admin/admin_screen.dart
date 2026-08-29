@@ -140,7 +140,7 @@ class _AdminScreenState extends State<AdminScreen>
             ),
             Tab(
               icon: Icon(Icons.emoji_events),
-              text: 'Milfolha',
+              text: 'WATERFALLS',
             ),
           ],
         ),

@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../models/user_model.dart';
 import '../services/milfolha_service.dart';
-import '../services/user_service.dart';
 import '../widgets/profile_widgets.dart';
 import 'other_user_profile_screen.dart';
 
-/// Milfolha 班メンバー一覧（milfolha_memberships の teamId 一致で取得）。
-/// ADL の AdlTeamMembersScreen に準拠したシンプル版。
+/// WATERFALLS 班メンバー一覧。
+///
+/// メンバーの解決は [MilfolhaService.getTeamMembers] に集約している。
+/// 以前はここで uid ごとに UserService.getUser を呼んでおり、読み取りに失敗した
+/// メンバーが無言で一覧から消えて班プロフィールの「メンバー」数とズレていた。
 class MilfolhaTeamMembersScreen extends StatefulWidget {
   final String teamId;
   final String teamDisplayName;
@@ -27,11 +29,11 @@ class MilfolhaTeamMembersScreen extends StatefulWidget {
 
 class _MilfolhaTeamMembersScreenState extends State<MilfolhaTeamMembersScreen> {
   final MilfolhaService _service = MilfolhaService();
-  final UserService _userService = UserService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   List<UserModel> _members = [];
   bool _isLoading = true;
+  bool _hasError = false;
   String? _currentUserId;
 
   @override
@@ -42,19 +44,27 @@ class _MilfolhaTeamMembersScreenState extends State<MilfolhaTeamMembersScreen> {
   }
 
   Future<void> _loadData() async {
+    if (mounted) setState(() => _hasError = false);
     try {
-      final uids = (await _service.getTeamMemberUids(widget.teamId))
-          .where((uid) => uid != widget.teamId) // 班アカウント自身は除外
-          .toList();
-      final users = await Future.wait(uids.map(_userService.getUser));
+      final members = await _service.getTeamMembers(widget.teamId);
       if (!mounted) return;
       setState(() {
-        _members = users.whereType<UserModel>().toList();
+        _members = members;
         _isLoading = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _isLoading = false);
+      // 読み取り失敗を「メンバー0人」として黙らせず、再試行を出す。
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  Future<void> _refresh() async {
+    await _loadData();
   }
 
   @override
@@ -90,25 +100,58 @@ class _MilfolhaTeamMembersScreenState extends State<MilfolhaTeamMembersScreen> {
                 ],
               ),
             ),
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CupertinoActivityIndicator(
-                          color: Colors.white, radius: 12))
-                  : _members.isEmpty
-                      ? const Center(
-                          child: Text('メンバーがいません',
-                              style: TextStyle(
-                                  color: Colors.grey, fontSize: 13)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          itemCount: _members.length,
-                          itemBuilder: (context, i) => _memberTile(_members[i]),
-                        ),
-            ),
+            Expanded(child: _buildBody()),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(
+        child: CupertinoActivityIndicator(color: Colors.white, radius: 12),
+      );
+    }
+    if (_hasError) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('メンバーを読み込めませんでした',
+                style: TextStyle(color: Colors.grey, fontSize: 13)),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: _loadData,
+              child: const Text('再試行',
+                  style: TextStyle(color: Colors.white, fontSize: 13)),
+            ),
+          ],
+        ),
+      );
+    }
+    // 引っ張って更新できるよう、空のときもスクロール可能にしておく。
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      backgroundColor: const Color(0xFF1C1C1E),
+      color: Colors.white,
+      child: _members.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 120),
+                Center(
+                  child: Text('メンバーがいません',
+                      style: TextStyle(color: Colors.grey, fontSize: 13)),
+                ),
+              ],
+            )
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: _members.length,
+              itemBuilder: (context, i) => _memberTile(_members[i]),
+            ),
     );
   }
 

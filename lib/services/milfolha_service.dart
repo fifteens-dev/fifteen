@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/milfolha_teams.dart';
 import '../models/milfolha_team_score.dart';
 import '../models/milfolha_team_model.dart';
+import '../models/user_model.dart';
 
 enum MilfolhaJoinResult {
   success,
@@ -81,6 +82,34 @@ class MilfolhaService {
       'resultFinalized': finalized,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+  }
+
+  // ---- ランキング非公開（ブラックアウト）----
+
+  /// 非公開ウィンドウ設定を取得。
+  Future<MilfolhaBlackout> getBlackout() async {
+    final snap = await _db.doc(_configDoc).get();
+    return MilfolhaBlackout.fromMap(snap.data());
+  }
+
+  Stream<MilfolhaBlackout> watchBlackout() {
+    return _db
+        .doc(_configDoc)
+        .snapshots()
+        .map((snap) => MilfolhaBlackout.fromMap(snap.data()));
+  }
+
+  /// 非公開ウィンドウを更新。null の項目は変更しない。
+  Future<void> setBlackout({
+    bool? enabled,
+    DateTime? start,
+    DateTime? end,
+  }) async {
+    final map = <String, dynamic>{'updatedAt': FieldValue.serverTimestamp()};
+    if (enabled != null) map['blackoutEnabled'] = enabled;
+    if (start != null) map['blackoutStart'] = Timestamp.fromDate(start);
+    if (end != null) map['blackoutEnd'] = Timestamp.fromDate(end);
+    await _db.doc(_configDoc).set(map, SetOptions(merge: true));
   }
 
   // ---- 参加 / 離脱 ----
@@ -290,6 +319,55 @@ class MilfolhaService {
     return snap.docs.map((d) => d.id).toList();
   }
 
+  /// 班メンバーを UserModel で返す。
+  ///
+  /// 所属の正は `milfolha_memberships`（ランキングのポイント集計と同じ基準）。
+  /// ユーザー本体は `users` を milfolhaTeamId で 1 クエリ引いて突き合わせるので、
+  /// 通常は uid ごとの get が発生しない（従来の N+1 read を解消）。
+  /// milfolhaTeamId が欠けている等でクエリに載らなかった uid だけ個別に取得する。
+  ///
+  /// 読み取りに失敗した場合は**例外を投げる**（呼び出し側で再試行を出すため）。
+  /// 「メンバー数」と「一覧」がズレないよう、両方この戻り値から数えること。
+  Future<List<UserModel>> getTeamMembers(String teamId) async {
+    // 班アカウント users/{teamId} 自身はメンバーではないので常に除外する。
+    final memberUids = (await getTeamMemberUids(teamId))
+        .where((uid) => uid != teamId)
+        .toSet();
+    if (memberUids.isEmpty) return const [];
+
+    final resolved = <String, UserModel>{};
+
+    final byTeamField = await _db
+        .collection('users')
+        .where('milfolhaTeamId', isEqualTo: teamId)
+        .get();
+    for (final doc in byTeamField.docs) {
+      if (!memberUids.contains(doc.id)) continue;
+      resolved[doc.id] = UserModel.fromFirestore(doc);
+    }
+
+    // 取りこぼした uid のみ個別 get。ドキュメントが本当に無い場合だけ諦める。
+    final missing =
+        memberUids.where((uid) => !resolved.containsKey(uid)).toList();
+    if (missing.isNotEmpty) {
+      final snaps = await Future.wait(
+        missing.map((uid) => _db.collection('users').doc(uid).get()),
+      );
+      for (final snap in snaps) {
+        if (snap.exists) resolved[snap.id] = UserModel.fromFirestore(snap);
+      }
+    }
+
+    // 参加順ではなく uid 順だと不安定なので表示名で安定ソートする。
+    final members = resolved.values.toList()
+      ..sort((a, b) {
+        final an = (a.name?.isNotEmpty == true ? a.name! : (a.username ?? ''));
+        final bn = (b.name?.isNotEmpty == true ? b.name! : (b.username ?? ''));
+        return an.toLowerCase().compareTo(bn.toLowerCase());
+      });
+    return members;
+  }
+
   // ---- 集計（クライアント計算） ----
 
   /// JST(UTC+9) の暦日キー "yyyy-MM-dd" を返す。1日1投稿の日境界に使う。
@@ -492,5 +570,59 @@ class MilfolhaPeriods {
       start: s ?? defaults.start,
       end: e ?? defaults.end,
     );
+  }
+}
+
+/// ランキングの非公開（ブラックアウト）ウィンドウ。
+///
+/// ポイント計算・投稿の集計には一切影響しない。ユーザー向けランキング画面の
+/// 表示だけを止めるための設定で、管理パネルから時刻変更と即時公開ができる。
+class MilfolhaBlackout {
+  final bool enabled;
+  final DateTime start;
+  final DateTime end;
+
+  const MilfolhaBlackout({
+    required this.enabled,
+    required this.start,
+    required this.end,
+  });
+
+  /// JST の日時を UTC の DateTime として保持するためのヘルパ。
+  static DateTime _jst(int y, int mo, int d, int h, int mi) =>
+      DateTime.utc(y, mo, d, h, mi).subtract(const Duration(hours: 9));
+
+  /// 既定は 8/31 18:20〜21:30 JST（集計終了 21:20 の 10 分後に公開）。
+  static MilfolhaBlackout get defaults => MilfolhaBlackout(
+        enabled: true,
+        start: _jst(2026, 8, 31, 18, 20),
+        end: _jst(2026, 8, 31, 21, 30),
+      );
+
+  factory MilfolhaBlackout.fromMap(Map<String, dynamic>? data) {
+    if (data == null) return defaults;
+    final s = (data['blackoutStart'] as Timestamp?)?.toDate();
+    final e = (data['blackoutEnd'] as Timestamp?)?.toDate();
+    final en = data['blackoutEnabled'];
+    return MilfolhaBlackout(
+      // 明示的に false が入っているときだけ無効。未設定は既定どおり有効。
+      enabled: en is bool ? en : defaults.enabled,
+      start: s ?? defaults.start,
+      end: e ?? defaults.end,
+    );
+  }
+
+  /// [now] がウィンドウ内か（開始以上・終了未満）。
+  bool isHiddenAt(DateTime now) {
+    if (!enabled) return false;
+    if (!end.isAfter(start)) return false;
+    final t = now.toUtc();
+    return !t.isBefore(start.toUtc()) && t.isBefore(end.toUtc());
+  }
+
+  /// 公開までの残り時間。非公開中でなければ null。
+  Duration? remainingAt(DateTime now) {
+    if (!isHiddenAt(now)) return null;
+    return end.toUtc().difference(now.toUtc());
   }
 }

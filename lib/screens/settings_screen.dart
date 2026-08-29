@@ -242,7 +242,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       // Milfolha イベント（開催中のみ表示）
                       if (_milfolhaActive) ...[
                         const SizedBox(height: 24),
-                        _buildSectionLabel('Milfolha イベント'),
+                        _buildSectionLabel('WATERFALLSイベント'),
                         const SizedBox(height: 8),
                         _buildSettingsCard([
                           _SettingsItem(

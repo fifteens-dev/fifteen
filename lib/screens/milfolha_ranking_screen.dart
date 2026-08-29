@@ -31,6 +31,13 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
   bool _loading = true;
   bool _finalized = false;
 
+  // 非公開ウィンドウ。中にいる間はランキングを一切取得・表示しない
+  // （ポイントの集計自体は投稿側で従来どおり進む）。
+  MilfolhaBlackout? _blackout;
+  Duration _untilReveal = Duration.zero;
+  // 公開時刻をまたいだ自動再取得は1回だけ（失敗しても毎秒リトライさせない）。
+  bool _revealReloaded = false;
+
   Timer? _ticker;
   Duration _remaining = Duration.zero;
 
@@ -51,6 +58,20 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
+      // 非公開ウィンドウの判定を先に済ませ、非公開中は集計自体を走らせない。
+      // （結果をメモリに持たなければ、画面に漏れる経路もなくなる）
+      final blackout = await _service.getBlackout();
+      if (!mounted) return;
+      if (blackout.isHiddenAt(DateTime.now())) {
+        setState(() {
+          _blackout = blackout;
+          _result = null;
+          _loading = false;
+        });
+        _tick();
+        return;
+      }
+
       final uid = _myUid;
       final results = await Future.wait([
         _service.computeRanking(),
@@ -64,6 +85,7 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
       if (!mounted) return;
       final membership = results[3] as Map<String, dynamic>?;
       setState(() {
+        _blackout = blackout;
         _result = results[0] as MilfolhaRankingResult;
         _periods = results[1] as MilfolhaPeriods;
         _finalized = results[2] as bool;
@@ -76,10 +98,34 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
     }
   }
 
+  bool get _isHidden => _blackout?.isHiddenAt(DateTime.now()) ?? false;
+
   void _tick() {
+    final now = DateTime.now();
+
+    // 非公開中は公開までのカウントダウンを進め、明けた瞬間に自動で取得し直す。
+    final blackout = _blackout;
+    if (blackout != null) {
+      final untilReveal = blackout.remainingAt(now);
+      if (untilReveal == null) {
+        if (_result == null && !_loading && !_revealReloaded) {
+          _revealReloaded = true;
+          _load();
+          return;
+        }
+      } else {
+        setState(() {
+          _untilReveal = untilReveal;
+          // 画面表示中にウィンドウへ入った場合、保持していた結果も捨てる。
+          _result = null;
+          _revealReloaded = false;
+        });
+        return;
+      }
+    }
+
     final end = _periods?.end;
     if (end == null) return;
-    final now = DateTime.now();
     final diff = end.difference(now);
     setState(() => _remaining = diff.isNegative ? Duration.zero : diff);
   }
@@ -97,6 +143,8 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
                   ? const Center(
                       child: CupertinoActivityIndicator(
                           color: Colors.white, radius: 14))
+                  : _isHidden
+                  ? _blackoutView()
                   : RefreshIndicator(
                       color: Colors.white,
                       backgroundColor: const Color(0xFF1C1C1E),
@@ -126,6 +174,78 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
     );
   }
 
+  // ── 非公開中の表示 ──
+  //
+  // 順位・ポイントは一切出さない。ポイントの計算は裏で通常どおり進んでいる旨と、
+  // 公開までのカウントダウンだけを見せる。
+  Widget _blackoutView() {
+    final revealAt = _blackout?.end;
+
+    String two(int v) => v.toString().padLeft(2, '0');
+    final d = _untilReveal.isNegative ? Duration.zero : _untilReveal;
+    final countdown =
+        '${two(d.inHours)}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
+
+    String revealLabel() {
+      if (revealAt == null) return '';
+      final j = revealAt.toUtc().add(const Duration(hours: 9));
+      return '${two(j.hour)}:${two(j.minute)}';
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.lock_outline, color: Color(0xFF7A7A7A), size: 44),
+            const SizedBox(height: 20),
+            const Text(
+              'ランキングは非公開です',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              revealAt == null
+                  ? 'まもなく公開されます'
+                  : '${revealLabel()} に公開されます',
+              style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 13),
+            ),
+            const SizedBox(height: 28),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C1C1E),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF2C2C2E)),
+              ),
+              child: Text(
+                countdown,
+                style: const TextStyle(
+                  color: _purple,
+                  fontSize: 32,
+                  fontWeight: FontWeight.w800,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+            const Text(
+              'ポイントはこの間も通常どおり加算されています。\n投稿を続けてください。',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF7A7A7A), fontSize: 12, height: 1.6),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── ヘッダー（× + タイトル）──
   Widget _header() {
     return Padding(
@@ -140,9 +260,13 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
           const SizedBox(width: 16),
           Expanded(
             child: Text(
-              _finalized ? '最終結果' : 'ランキング',
+              _isHidden
+                  ? 'ランキング'
+                  : (_finalized ? '最終結果' : 'ランキング'),
               style: TextStyle(
-                color: _finalized ? const Color(0xFFFFD700) : Colors.white,
+                color: (_finalized && !_isHidden)
+                    ? const Color(0xFFFFD700)
+                    : Colors.white,
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
               ),
@@ -225,7 +349,7 @@ class _MilfolhaRankingScreenState extends State<MilfolhaRankingScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      '🏐 バレー大会イベント',
+                      '🏆 WATERFALLSイベント',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 17,

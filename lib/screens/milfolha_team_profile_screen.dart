@@ -41,7 +41,18 @@ class _MilfolhaTeamProfileScreenState extends State<MilfolhaTeamProfileScreen> {
   }
 
   Future<void> _loadAll() async {
-    await Future.wait([_loadTeam(), _loadPosts()]);
+    await Future.wait([_loadTeam(), _loadMemberCount(), _loadPosts()]);
+  }
+
+  /// メンバー数はメンバー一覧画面と同じ [MilfolhaService.getTeamMembers] から数える。
+  /// uid の本数で数えると、users が引けなかったメンバーの分だけ一覧とズレる。
+  Future<void> _loadMemberCount() async {
+    try {
+      final members = await _service.getTeamMembers(widget.teamId);
+      if (mounted) setState(() => _memberCount = members.length);
+    } catch (_) {
+      // 数字は前回値のまま。投稿の読み込みは別途進む。
+    }
   }
 
   Future<void> _loadTeam() async {
@@ -60,10 +71,11 @@ class _MilfolhaTeamProfileScreenState extends State<MilfolhaTeamProfileScreen> {
   Future<void> _loadPosts() async {
     try {
       // メンバー uid を集め、その投稿を集約（班アカウント自身は除外）。
+      // 投稿の集約はランキングと同じく milfolha_memberships の uid を正とする
+      // （users が引けないメンバーの投稿もポイント対象なので落とさない）。
       final memberUids = (await _service.getTeamMemberUids(widget.teamId))
           .where((uid) => uid != widget.teamId)
           .toList();
-      _memberCount = memberUids.length;
       if (memberUids.isEmpty) {
         if (mounted) {
           setState(() {

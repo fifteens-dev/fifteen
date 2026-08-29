@@ -60,8 +60,12 @@ class UserModel {
       return val is Timestamp ? val.toDate() : null;
     }
 
+    // uid はドキュメントID が正（users/{uid} で作られる）。
+    // 旧データで uid フィールドが欠けていても doc.id で必ず埋める。
+    final rawUid = data['uid']?.toString();
+
     return UserModel(
-      uid: data['uid']?.toString() ?? '',
+      uid: (rawUid == null || rawUid.isEmpty) ? doc.id : rawUid,
       phoneNumber: data['phoneNumber']?.toString() ?? '',
       name: data['name']?.toString(),
       username: data['username']?.toString(),

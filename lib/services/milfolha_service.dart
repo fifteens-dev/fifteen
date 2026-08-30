@@ -225,6 +225,36 @@ class MilfolhaService {
     }
   }
 
+  /// アカウント削除時に呼ぶ後始末。
+  ///
+  /// `users/{uid}` を消しただけでは `milfolha_memberships/{uid}` が残り、
+  /// 「メンバー一覧には出ないのに登録ポイント +1 が残る」孤児レコードになる。
+  /// 失敗してもアカウント削除自体は続行させたいので例外は投げない。
+  Future<void> cleanupMembershipForDeletedUser(String uid) async {
+    try {
+      final membershipRef = _db.doc('milfolha_memberships/$uid');
+      final snap = await membershipRef.get();
+      if (!snap.exists) return;
+      final teamId = snap.data()?['teamId'] as String?;
+
+      final batch = _db.batch();
+      batch.delete(membershipRef);
+      if (teamId != null) {
+        batch.set(_db.collection('milfolha_teams').doc(teamId), {
+          'memberCount': FieldValue.increment(-1),
+        }, SetOptions(merge: true));
+        batch.set(_db.collection('users').doc(teamId), {
+          'followers': FieldValue.arrayRemove([uid]),
+          'following': FieldValue.arrayRemove([uid]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      await batch.commit();
+    } catch (_) {
+      // 残っても集計側でフィルタされるので、ここでは握りつぶす。
+    }
+  }
+
   Future<MilfolhaLeaveResult> leaveTeam() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return MilfolhaLeaveResult.error;
@@ -400,6 +430,36 @@ class MilfolhaService {
       uidToTeam[d.id] = teamId;
       joinedAt[d.id] = (data['joinedAt'] as Timestamp?)?.toDate();
     }
+    // 退会済み（users ドキュメントが消えている）uid を除外する。
+    // 残った membership をそのまま数えると、メンバー一覧に出ないのに
+    // 登録 +1pt だけ加算される「0人なのに1pt」状態になる。
+    // 照合に失敗したときは従来どおり全件を対象にして集計自体は止めない。
+    try {
+      final alive = <String>{};
+      final teamIds = MilfolhaTeamDefinitions.all.map((t) => t.id).toList();
+      final byTeamField = await _db
+          .collection('users')
+          .where('milfolhaTeamId', whereIn: teamIds)
+          .get();
+      for (final d in byTeamField.docs) {
+        alive.add(d.id);
+      }
+      final unchecked =
+          uidToTeam.keys.where((uid) => !alive.contains(uid)).toList();
+      if (unchecked.isNotEmpty) {
+        final snaps = await Future.wait(
+          unchecked.map((uid) => _db.collection('users').doc(uid).get()),
+        );
+        for (final snap in snaps) {
+          if (snap.exists) alive.add(snap.id);
+        }
+      }
+      uidToTeam.removeWhere((uid, _) => !alive.contains(uid));
+      joinedAt.removeWhere((uid, _) => !alive.contains(uid));
+    } catch (_) {
+      // 照合できなければフィルタしない（従来の挙動にフォールバック）。
+    }
+
     final memberUids = uidToTeam.keys.toSet();
 
     // ── 2) 期間内の投稿（1クエリ） ──

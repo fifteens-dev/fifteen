@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
 import '../models/notification_model.dart';
 import 'notification_service.dart';
+import 'milfolha_service.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -523,6 +524,10 @@ class UserService {
   /// アカウント削除: Firestoreのユーザーデータを削除
   Future<void> deleteUserData(String userId) async {
     try {
+      // WATERFALLS の所属は users とは別コレクションなので、users を消す前に
+      // 後始末する（残すと集計だけに載る孤児メンバーシップになる）。
+      await MilfolhaService().cleanupMembershipForDeletedUser(userId);
+
       final batch = _firestore.batch();
 
       // ユーザードキュメントを削除

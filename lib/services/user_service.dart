@@ -5,6 +5,7 @@ import '../models/user_model.dart';
 import '../models/notification_model.dart';
 import 'notification_service.dart';
 import 'milfolha_service.dart';
+import 'music_memory_cycle_service.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -123,25 +124,37 @@ class UserService {
   }
 
   /// アクティブを記録（DAU/MAU 計測用）
-  /// ドキュメントID = "{uid}_{YYYY-MM-DD}" で 1ユーザー1日1件に制限
+  ///
+  /// 集計の 1 日は暦日（0:00 区切り）ではなく **「15s Day」＝通知が来てから
+  /// 次の通知が来るまで**。そのためドキュメントID を "{uid}_{cycleKey}" にして、
+  /// 1 ユーザー 1 サイクル 1 件になるようにする（cycleKey は通知が発火した JST 暦日）。
+  ///
+  /// 通知がまだ一度も発火していない場合は暦日にフォールバックする。
   Future<void> updateLastActive(String uid) async {
     try {
       final now = DateTime.now();
-      final dateStr =
-          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-      final monthKey =
-          '${now.year}-${now.month.toString().padLeft(2, '0')}';
+      String two(int v) => v.toString().padLeft(2, '0');
+
+      // 現サイクルの開始（＝直近の通知時刻）。未取得なら 1 回だけ取りに行く。
+      final cycle = MusicMemoryCycleService();
+      final cycleStart = cycle.notifiedAt ?? await cycle.fetchNotifiedAt();
+      final anchor = cycleStart ?? now;
+      final cycleKey = '${anchor.year}-${two(anchor.month)}-${two(anchor.day)}';
+      final monthKey = '${anchor.year}-${two(anchor.month)}';
 
       // set() はべき等（同じドキュメントIDに何度呼んでも1件のまま）
       await _firestore
           .collection('app_open_events')
-          .doc('${uid}_$dateStr')
+          .doc('${uid}_$cycleKey')
           .set({
         'userId': uid,
-        'date': dateStr,
+        'cycleKey': cycleKey,
+        if (cycleStart != null) 'cycleStart': Timestamp.fromDate(cycleStart),
+        // 旧スキーマ互換（暦日ベースの既存クエリ・過去データと同じ形）
+        'date': cycleKey,
         'monthKey': monthKey,
         'createdAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
     } catch (_) {}
   }
 

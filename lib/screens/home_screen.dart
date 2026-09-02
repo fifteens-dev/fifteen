@@ -20,6 +20,8 @@ import '../widgets/dialogs/delete_post_dialog.dart';
 import '../services/post_service.dart';
 import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
+import '../services/deep_link_service.dart';
+import '../services/live_activity_service.dart';
 import '../services/music_service_manager.dart';
 import '../models/music_service_type.dart';
 import '../services/itunes_search_service.dart';
@@ -174,6 +176,12 @@ class _HomeScreenState extends State<HomeScreen>
       });
     }
     _updateLastActive();
+
+    // ロック画面の Live Activity: 現在の状況を反映しつつ、
+    // 「投稿する」タップ（fifteenapp://compose）で投稿フローを開けるようにする。
+    DeepLinkService().composeHandler = _openPostFlow;
+    // ignore: discarded_futures
+    LiveActivityService().refresh();
     _processPendingFollowNotification();
     PostingState.instance.addListener(_onPostingStateChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -345,9 +353,14 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// lastActiveAt を Firestore に書き込む（DAU/MAU 計測）
+  /// 併せて、端末ローカルにしか無い「選択中の音楽サービス」を users doc へ同期する
+  /// （管理者パネルのサービス別集計用）。同期は**そのユーザーを一度も刻んで
+  /// いないときだけ**走り、既存ユーザーを埋め終われば起動時の処理は無くなる。
   Future<void> _updateLastActive() async {
     final uid = _auth.currentUser?.uid;
-    if (uid != null) await _userService.updateLastActive(uid);
+    if (uid == null) return;
+    await _userService.updateLastActive(uid);
+    await _musicServiceManager.syncSelectedServiceToProfile();
   }
 
   /// プルダウン更新（投稿リスト＋ユーザー情報＋Vibeを再取得）
@@ -694,6 +707,10 @@ class _HomeScreenState extends State<HomeScreen>
       // フォアグラウンド復帰時: 即再取得 + タイマー再開 (即時 fire は
       // _startStoryRefreshTimer 内で行われるので個別呼び出し不要)。
       _startStoryRefreshTimer();
+      // ロック画面の Live Activity を現在の状況に合わせ直す
+      // （締切超過なら終了、フォロー中の投稿があれば「友達が待っています」へ）。
+      // ignore: discarded_futures
+      LiveActivityService().refresh();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // バックグラウンドでは無駄なポーリングを止める

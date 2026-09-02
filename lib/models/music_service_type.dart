@@ -28,4 +28,17 @@ extension MusicServiceTypeExtension on MusicServiceType {
         return '';
     }
   }
+
+  /// Firestore `users/{uid}.musicService` に保存する識別子。
+  /// 管理者パネルのサービス別集計はこの値でグルーピングする。
+  String get storageKey {
+    switch (this) {
+      case MusicServiceType.spotify:
+        return 'spotify';
+      case MusicServiceType.appleMusic:
+        return 'appleMusic';
+      case MusicServiceType.none:
+        return 'none';
+    }
+  }
 }

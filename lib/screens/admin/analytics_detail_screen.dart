@@ -3,17 +3,17 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../services/music_memory_cycle_service.dart';
 import '../../widgets/common/app_toast.dart';
 
 /// 集計メトリクスの時系列種別
 enum MetricSeriesType {
-  dailyNewUsers,            // 日次DL数
+  dailyNewUsers,            // DL数（15s Day ごと）
   cumulativeUsers,          // 累計DL数（累積）
-  dau,                      // DAU（日次アクティブ）
+  dau,                      // DAU（15s Day ごとのアクティブ）
   mau,                      // MAU（月次アクティブ）
-  dailyPosters,             // 投稿者数（日次ユニーク投稿者）
-  postStarts,               // 投稿開始数
-  postCompletions,          // 投稿完了数（日次）
+  dailyPosters,             // 投稿者数（15s Day ごとのユニーク投稿者）
+  postCompletions,          // 投稿完了数（15s Day ごと）
   cumulativePostCompletions,// 投稿完了数（累積）
 }
 
@@ -24,6 +24,9 @@ class _DataPoint {
 }
 
 /// メトリクス詳細画面（折れ線グラフ + データ表）
+///
+/// 時間軸は暦日ではなく「15s Day」＝通知が来てから次の通知が来るまで。
+/// 境界は `music_memory_cycles` から読むため、履歴が無い期間は点が出ない。
 class AnalyticsDetailScreen extends StatefulWidget {
   final String title;
   final Color color;
@@ -47,7 +50,8 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
   String? _error;
 
   bool get _isMonthly => widget.seriesType == MetricSeriesType.mau;
-  String get _periodLabel => _isMonthly ? '過去12ヶ月' : '過去30日間';
+  String get _periodLabel =>
+      _isMonthly ? '過去12ヶ月' : '直近30 15s Day';
 
   @override
   void initState() {
@@ -72,42 +76,65 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
   // データ取得
   // ──────────────────────────────────────────
 
-  Future<List<_DataPoint>> _fetchData() async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+  /// 集計に使う「15s Day」窓を古い→新しい順で返す（最大 [limit] 件）。
+  Future<List<MusicMemoryDayWindow>> _loadWindows({int limit = 30}) async {
+    final days = await MusicMemoryCycleService().loadDays(limit: limit + 5);
+    if (days.isEmpty) return const [];
+    // loadDays は新しい→古い。古い→新しいに直し、必要な件数だけ残す。
+    final asc = days.reversed.toList();
+    return asc.length <= limit ? asc : asc.sublist(asc.length - limit);
+  }
 
+  /// [t] が属する窓の index。どこにも入らなければ -1。
+  int _windowIndexFor(List<MusicMemoryDayWindow> asc, DateTime t) {
+    for (var i = asc.length - 1; i >= 0; i--) {
+      if (asc[i].contains(t)) return i;
+    }
+    return -1;
+  }
+
+  /// 窓の代表日付（グラフ・CSV のラベル用）。cycleKey の暦日を使う。
+  DateTime _windowDate(MusicMemoryDayWindow w) {
+    final parts = w.key.split('-');
+    if (parts.length != 3) return w.start;
+    return DateTime(
+        int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+  }
+
+  Future<List<_DataPoint>> _fetchData() async {
     // ダミーユーザーは指標から除外する。
     // 集計タブと同じく dummy_config/users(+ bulkDummyUsers) を起点にする。
     final dummyUids = await _loadDummyUids();
 
+    // MAU は月別なので、12ヶ月ぶんの窓が要る。
+    final windows = await _loadWindows(limit: _isMonthly ? 370 : 30);
+    if (windows.isEmpty) return const [];
+
     switch (widget.seriesType) {
       case MetricSeriesType.dailyNewUsers:
-        return _fetchDailyFromCollection('users', 'createdAt', today,
+        return _countPerWindow('users', 'createdAt', windows,
             skipDoc: (doc) => dummyUids.contains(doc.id));
 
       case MetricSeriesType.cumulativeUsers:
-        return _fetchCumulative('users', 'createdAt', today,
+        return _cumulativePerWindow('users', 'createdAt', windows,
             skipDoc: (doc) => dummyUids.contains(doc.id));
 
       case MetricSeriesType.dau:
-        return _fetchDauHistory(today);
+        return _dauPerWindow(windows, dummyUids);
 
       case MetricSeriesType.mau:
-        return _fetchMauHistory(now);
+        return _mauPerMonth(windows, dummyUids);
 
       case MetricSeriesType.dailyPosters:
-        return _fetchDailyDistinctPosters(today, dummyUids);
-
-      case MetricSeriesType.postStarts:
-        return _fetchPostStartsDaily(today);
+        return _distinctPostersPerWindow(windows, dummyUids);
 
       case MetricSeriesType.postCompletions:
-        return _fetchDailyFromCollection('posts', 'createdAt', today,
+        return _countPerWindow('posts', 'createdAt', windows,
             skipDoc: (doc) =>
                 (doc.data() as Map<String, dynamic>)['isDummyPost'] == true);
 
       case MetricSeriesType.cumulativePostCompletions:
-        return _fetchCumulative('posts', 'createdAt', today,
+        return _cumulativePerWindow('posts', 'createdAt', windows,
             skipDoc: (doc) =>
                 (doc.data() as Map<String, dynamic>)['isDummyPost'] == true);
     }
@@ -133,24 +160,46 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     return ids;
   }
 
-  /// 累計グラフ用：30日窓より前のベース件数 + 日次累積
-  ///
-  /// [skipDoc] が指定された場合、ベース件数からも該当ドキュメント分を差し引く。
-  /// ただし count() API では中身を見れないため、Map にして全件取得→フィルタする。
-  Future<List<_DataPoint>> _fetchCumulative(
+  /// コレクションを [dateField] で取得し、15s Day ごとの件数にする。
+  Future<List<_DataPoint>> _countPerWindow(
     String collection,
     String dateField,
-    DateTime today, {
+    List<MusicMemoryDayWindow> windows, {
     bool Function(QueryDocumentSnapshot doc)? skipDoc,
   }) async {
-    final cutoff = today.subtract(const Duration(days: 29));
+    final snap = await _firestore
+        .collection(collection)
+        .where(dateField,
+            isGreaterThanOrEqualTo: Timestamp.fromDate(windows.first.start))
+        .get();
 
+    final counts = List<int>.filled(windows.length, 0);
+    for (final doc in snap.docs) {
+      if (skipDoc != null && skipDoc(doc)) continue;
+      final ts = doc.data()[dateField] as Timestamp?;
+      if (ts == null) continue;
+      final i = _windowIndexFor(windows, ts.toDate());
+      if (i >= 0) counts[i]++;
+    }
+    return [
+      for (var i = 0; i < windows.length; i++)
+        _DataPoint(_windowDate(windows[i]), counts[i]),
+    ];
+  }
+
+  /// 15s Day ごとの累積。窓の開始より前の件数をベースに積み上げる。
+  Future<List<_DataPoint>> _cumulativePerWindow(
+    String collection,
+    String dateField,
+    List<MusicMemoryDayWindow> windows, {
+    bool Function(QueryDocumentSnapshot doc)? skipDoc,
+  }) async {
+    final cutoff = Timestamp.fromDate(windows.first.start);
     int base;
     if (skipDoc == null) {
-      // フィルタなし → count() API で軽量に取得
       final baseSnap = await _firestore
           .collection(collection)
-          .where(dateField, isLessThan: Timestamp.fromDate(cutoff))
+          .where(dateField, isLessThan: cutoff)
           .count()
           .get();
       base = baseSnap.count ?? 0;
@@ -158,67 +207,96 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       // ダミー除外あり → 全件取得して skipDoc を弾く
       final baseSnap = await _firestore
           .collection(collection)
-          .where(dateField, isLessThan: Timestamp.fromDate(cutoff))
+          .where(dateField, isLessThan: cutoff)
           .get();
       base = baseSnap.docs.where((d) => !skipDoc(d)).length;
     }
 
-    // 窓内の日次データを取得（skipDoc が指定されていれば反映される）
-    final daily = await _fetchDailyFromCollection(collection, dateField, today,
+    final daily = await _countPerWindow(collection, dateField, windows,
         skipDoc: skipDoc);
-
-    // ベース＋累積和
-    int running = base;
+    var running = base;
     return daily.map((p) {
       running += p.count;
       return _DataPoint(p.date, running);
     }).toList();
   }
 
-  /// 単一コレクションを日付フィールドで過去30日分取得
+  /// DAU 履歴：15s Day ごとのユニーク起動ユーザー数。
   ///
-  /// [skipDoc] が指定された場合、該当ドキュメントは集計から除外する。
-  Future<List<_DataPoint>> _fetchDailyFromCollection(
-    String collection,
-    String dateField,
-    DateTime today, {
-    bool Function(QueryDocumentSnapshot doc)? skipDoc,
-  }) async {
-    final cutoff = today.subtract(const Duration(days: 29));
+  /// `app_open_events` は 1 ユーザー 1 サイクル 1 件だが、旧スキーマ（暦日キー）の
+  /// ドキュメントとも混在するため、日付キーではなく createdAt が
+  /// どの窓に入るかで判定する（どちらの世代でも正しく数えられる）。
+  Future<List<_DataPoint>> _dauPerWindow(
+      List<MusicMemoryDayWindow> windows, Set<String> dummyUids) async {
     final snap = await _firestore
-        .collection(collection)
-        .where(dateField, isGreaterThanOrEqualTo: Timestamp.fromDate(cutoff))
+        .collection('app_open_events')
+        .where('createdAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(windows.first.start))
         .get();
-    final docs =
-        skipDoc == null ? snap.docs : snap.docs.where((d) => !skipDoc(d)).toList();
-    return _groupByDay(docs, dateField, today);
+
+    final users = List.generate(windows.length, (_) => <String>{});
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final ts = data['createdAt'] as Timestamp?;
+      final uid = data['userId'] as String?;
+      if (ts == null || uid == null || dummyUids.contains(uid)) continue;
+      final i = _windowIndexFor(windows, ts.toDate());
+      if (i >= 0) users[i].add(uid);
+    }
+    return [
+      for (var i = 0; i < windows.length; i++)
+        _DataPoint(_windowDate(windows[i]), users[i].length),
+    ];
   }
 
-  /// analytics_events から post_start を日次集計（複合インデックス不要）
-  Future<List<_DataPoint>> _fetchPostStartsDaily(DateTime today) async {
-    final cutoff = today.subtract(const Duration(days: 29));
+  /// MAU 履歴：15s Day を月ごとにまとめ、月別のユニーク起動ユーザー数を返す。
+  /// 月の切れ目も 15s Day で判断する（8/31 19:00 開始のサイクルは 8 月扱い）。
+  Future<List<_DataPoint>> _mauPerMonth(
+      List<MusicMemoryDayWindow> windows, Set<String> dummyUids) async {
     final snap = await _firestore
-        .collection('analytics_events')
-        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(cutoff))
+        .collection('app_open_events')
+        .where('createdAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(windows.first.start))
         .get();
-    final filtered = snap.docs.where((d) {
-      final data = d.data();
-      return data['type'] == 'post_start';
-    }).toList();
-    return _groupByDay(filtered, 'createdAt', today);
+
+    final byMonth = <String, Set<String>>{};
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final ts = data['createdAt'] as Timestamp?;
+      final uid = data['userId'] as String?;
+      if (ts == null || uid == null || dummyUids.contains(uid)) continue;
+      final i = _windowIndexFor(windows, ts.toDate());
+      if (i < 0) continue;
+      final monthKey = windows[i].key.substring(0, 7);
+      (byMonth[monthKey] ??= <String>{}).add(uid);
+    }
+
+    // 窓が存在する月だけを古い→新しい順に並べる。
+    final months = <String>[];
+    for (final w in windows) {
+      final k = w.key.substring(0, 7);
+      if (months.isEmpty || months.last != k) months.add(k);
+    }
+    return [
+      for (final m in months)
+        _DataPoint(
+          DateTime(int.parse(m.split('-')[0]), int.parse(m.split('-')[1])),
+          byMonth[m]?.length ?? 0,
+        ),
+    ];
   }
 
-  /// posts から日ごとのユニーク投稿者数。
+  /// posts から 15s Day ごとのユニーク投稿者数。
   /// ダミーユーザーの userId は集計対象から外す。
-  Future<List<_DataPoint>> _fetchDailyDistinctPosters(
-      DateTime today, Set<String> dummyUids) async {
-    final cutoff = today.subtract(const Duration(days: 29));
+  Future<List<_DataPoint>> _distinctPostersPerWindow(
+      List<MusicMemoryDayWindow> windows, Set<String> dummyUids) async {
     final snap = await _firestore
         .collection('posts')
-        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(cutoff))
+        .where('createdAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(windows.first.start))
         .get();
 
-    final Map<DateTime, Set<String>> usersByDay = {};
+    final users = List.generate(windows.length, (_) => <String>{});
     for (final doc in snap.docs) {
       final data = doc.data();
       final ts = data['createdAt'] as Timestamp?;
@@ -227,97 +305,13 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       if (dummyUids.contains(userId)) continue;
       // isDummyPost 直接マーキングされている投稿も除外（保険）
       if (data['isDummyPost'] == true) continue;
-      final d = ts.toDate();
-      final day = DateTime(d.year, d.month, d.day);
-      usersByDay.putIfAbsent(day, () => {}).add(userId);
+      final i = _windowIndexFor(windows, ts.toDate());
+      if (i >= 0) users[i].add(userId);
     }
-    return List.generate(30, (i) {
-      final date = today.subtract(Duration(days: 29 - i));
-      return _DataPoint(date, usersByDay[date]?.length ?? 0);
-    });
-  }
-
-  /// DAU 履歴：app_open_events の date フィールドで日別集計
-  /// 1ユーザー1日1件のため count = distinct ユーザー数
-  Future<List<_DataPoint>> _fetchDauHistory(DateTime today) async {
-    final cutoff = today.subtract(const Duration(days: 29));
-    final cutoffStr = _dateStr(cutoff);
-
-    final snap = await _firestore
-        .collection('app_open_events')
-        .where('date', isGreaterThanOrEqualTo: cutoffStr)
-        .get();
-
-    final Map<String, int> countsByDate = {};
-    for (final doc in snap.docs) {
-      final date = doc.data()['date'] as String?;
-      if (date == null) continue;
-      countsByDate[date] = (countsByDate[date] ?? 0) + 1;
-    }
-
-    return List.generate(30, (i) {
-      final date = today.subtract(Duration(days: 29 - i));
-      return _DataPoint(date, countsByDate[_dateStr(date)] ?? 0);
-    });
-  }
-
-  /// MAU 履歴：app_open_events の monthKey フィールドで月別集計
-  /// 各月の distinct userId をメモリで集計
-  Future<List<_DataPoint>> _fetchMauHistory(DateTime now) async {
-    // 12ヶ月前の monthKey を計算
-    int cutoffMonth = now.month - 11;
-    int cutoffYear = now.year;
-    while (cutoffMonth <= 0) { cutoffMonth += 12; cutoffYear--; }
-    final cutoffKey =
-        '$cutoffYear-${cutoffMonth.toString().padLeft(2, '0')}';
-
-    final snap = await _firestore
-        .collection('app_open_events')
-        .where('monthKey', isGreaterThanOrEqualTo: cutoffKey)
-        .get();
-
-    // monthKey → distinct userIds
-    final Map<String, Set<String>> usersByMonth = {};
-    for (final doc in snap.docs) {
-      final monthKey = doc.data()['monthKey'] as String?;
-      final userId = doc.data()['userId'] as String?;
-      if (monthKey == null || userId == null) continue;
-      usersByMonth.putIfAbsent(monthKey, () => {}).add(userId);
-    }
-
-    return List.generate(12, (i) {
-      int month = now.month - 11 + i;
-      int year = now.year;
-      while (month <= 0) { month += 12; year--; }
-      while (month > 12) { month -= 12; year++; }
-      final date = DateTime(year, month);
-      final key = '$year-${month.toString().padLeft(2, '0')}';
-      return _DataPoint(date, usersByMonth[key]?.length ?? 0);
-    });
-  }
-
-  String _dateStr(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
-  /// docs を日付フィールドでグループ化して30日分の配列を返す
-  List<_DataPoint> _groupByDay(
-    List<QueryDocumentSnapshot> docs,
-    String dateField,
-    DateTime today,
-  ) {
-    final Map<DateTime, int> counts = {};
-    for (final doc in docs) {
-      final data = doc.data() as Map<String, dynamic>;
-      final ts = data[dateField] as Timestamp?;
-      if (ts == null) continue;
-      final d = ts.toDate();
-      final day = DateTime(d.year, d.month, d.day);
-      counts[day] = (counts[day] ?? 0) + 1;
-    }
-    return List.generate(30, (i) {
-      final date = today.subtract(Duration(days: 29 - i));
-      return _DataPoint(date, counts[date] ?? 0);
-    });
+    return [
+      for (var i = 0; i < windows.length; i++)
+        _DataPoint(_windowDate(windows[i]), users[i].length),
+    ];
   }
 
   // ──────────────────────────────────────────

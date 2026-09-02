@@ -12,6 +12,7 @@ import '../../models/post_theme.dart';
 import '../../models/track_model.dart';
 import '../../models/user_model.dart';
 import '../../services/audio_player_service.dart';
+import '../../services/live_activity_service.dart';
 import '../../services/post_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/user_service.dart';
@@ -213,6 +214,11 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
         // ignore: unawaited_futures
         _postService.updatePostPhotoUrl(postId: postId, photoUrl: photoUrl);
       }
+
+      // ロック画面の Live Activity を「投稿が完了しました🎉」へ切り替え、
+      // 今日の枠に今の投稿のジャケットを入れる。
+      // ignore: unawaited_futures
+      LiveActivityService().markPosted();
 
       if (!mounted) return;
       AppToast.show(context, '投稿しました');

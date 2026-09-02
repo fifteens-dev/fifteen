@@ -70,8 +70,8 @@ class _DeckColorCache {
 /// - タイトル「今日のMusic Memory」＋サブタイトル（Now Playing / ○時間前）。
 /// - カードは中央スナップの横スクロール・カルーセル（[_CardCarousel]）。中央に
 ///   来るたびハプティック。中央のカードが選択対象。
-/// - 初回投稿（その日まだ未投稿）: 中央カードが緩く横揺れ＋「←左スワイプで曲を変更」
-///   ＋直下に「この曲で続ける」。次回以降: 揺れ無し・文言無しでボタンのみ中央。
+/// - 1枚目・2枚目以降とも「カードをタップで拡大 → 『この曲で続ける』を表示」で統一。
+///   タップ前は案内文言のみ（1枚目は横揺れ＋「←左スワイプで曲変更」、扇は左右案内）。
 /// - 「この曲で続ける」で PostPhotoSelectionScreen（写真フロー）へ。
 ///
 /// ※ Spotify ユーザーはこのモーダルではなく VibeStoryPostSheet（お題非表示）から
@@ -645,26 +645,21 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
                                   ),
                                 );
                               }
-                              // pickup: ボタンのみ（案内は出さない）。
-                              if (_deckMode == _DeckMode.pickup) {
+                              // pickup / singlePickup: ボタンのみ（案内は出さない）。
+                              // 1枚目も2枚目以降と同じく「タップで拡大 → ボタン」。
+                              if (_deckMode == _DeckMode.pickup ||
+                                  _deckMode == _DeckMode.singlePickup) {
                                 return continueBtn;
                               }
-                              // single: カードとボタンの間に案内を表示。
-                              return Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Text(
-                                    '←　左にスワイプで曲変更',
-                                    style: TextStyle(
-                                      color: Color(0xFF8D8D8D),
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w500,
-                                      fontFamily: kSfProRounded,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  continueBtn,
-                                ],
+                              // single: タップ前なので案内のみ（ボタンは出さない）。
+                              return const Text(
+                                '←　左にスワイプで曲変更',
+                                style: TextStyle(
+                                  color: Color(0xFF8D8D8D),
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w500,
+                                  fontFamily: kSfProRounded,
+                                ),
                               );
                             }),
                           ),
@@ -687,8 +682,9 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
 // ─────────────────────────────────────────────────────────────
 
 /// デッキの表示モード。
-/// single: 1枚目（再生中）を単体表示 / fan: 2枚目以降が右へ扇状 / pickup: 選択カードをリフト。
-enum _DeckMode { single, fan, pickup }
+/// single: 1枚目（再生中）を単体表示 / singlePickup: 1枚目をタップでリフト /
+/// fan: 2枚目以降が右へ扇状 / pickup: 扇の選択カードをリフト。
+enum _DeckMode { single, singlePickup, fan, pickup }
 
 /// 1枚のカードの配置（front カード中心からのオフセット・拡大率・回転・不透明度）。
 /// 値は Figma Component 123（扇状デッキ）から採取。dx/dy はカード幅 215px 基準の px。
@@ -912,6 +908,13 @@ class _CardCarouselState extends State<_CardCarousel>
       return;
     }
 
+    // 1枚目のリフト中は、ドラッグでリフトを解除して single へ戻す。
+    if (_mode == _DeckMode.singlePickup) {
+      _pick.reverse();
+      _setMode(_DeckMode.single);
+      return;
+    }
+
     if (_mode == _DeckMode.single) {
       // 1枚目から左スワイプ → 扇を開く。
       if (v <= -threshold && _n > 1) {
@@ -991,6 +994,13 @@ class _CardCarouselState extends State<_CardCarousel>
     } else if (_mode == _DeckMode.pickup) {
       _pick.reverse();
       _setMode(_DeckMode.fan);
+    } else if (_mode == _DeckMode.single) {
+      // 1枚目も2枚目以降と同様、タップで拡大してから「この曲で続ける」を出す。
+      _setMode(_DeckMode.singlePickup);
+      _pick.forward();
+    } else if (_mode == _DeckMode.singlePickup) {
+      _pick.reverse();
+      _setMode(_DeckMode.single);
     }
   }
 
@@ -1106,7 +1116,10 @@ class _CardCarouselState extends State<_CardCarousel>
             rotDeg: rot,
             opacity: op,
             blurSigma: blur,
-            onTap: (isFront && _mode != _DeckMode.single) ? _onFrontTap : null,
+            onTap: (isFront &&
+                    (_mode == _DeckMode.fan || _mode == _DeckMode.pickup))
+                ? _onFrontTap
+                : null,
           ));
         }
 
@@ -1127,16 +1140,21 @@ class _CardCarouselState extends State<_CardCarousel>
                   6.5 * math.sin(math.pi * x) * math.sin(3 * math.pi * x);
             }
           }
+          // single → singlePickup: 扇の pickup と同じリフト（拡大＋僅かに右上）。
           children.add(_positionedCard(
             track: widget.tracks[0],
             baseW: baseW,
             baseH: baseH,
-            centerX: npX + wobbleDx,
-            centerY: area.height * 0.49,
-            scale: 1.0,
+            centerX: npX + wobbleDx + pick * _pickFrontDx * k,
+            centerY: area.height * 0.49 + pick * _pickFrontDy * k,
+            scale: _lerp(1.0, _pickFrontScale, pick),
             rotDeg: 0,
             opacity: 1 - open,
             blurSigma: 0,
+            onTap: (_mode == _DeckMode.single ||
+                    _mode == _DeckMode.singlePickup)
+                ? _onFrontTap
+                : null,
           ));
         }
 

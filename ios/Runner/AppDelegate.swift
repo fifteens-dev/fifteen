@@ -14,9 +14,12 @@ import ObjectiveC.runtime
   private let musicMemoryChannel = "com.fifteen.musicmemory"
   private var nativeMenuChannel: AnyObject?
   private var reactionPickerChannel: AnyObject?
+  private var liveActivityChannel: LiveActivityChannel?
   private var deepLinkFlutterChannel: FlutterMethodChannel?
   // コールドスタート時に Flutter が準備できる前に届いた postId を保持
   private var _pendingDeepLinkPostId: String? = nil
+  // 同上。ロック画面の Live Activity から起動されたときのアクション（"compose"）
+  private var _pendingDeepLinkAction: String? = nil
 
   // MARK: - FlutterTextInputView swizzle: ペーストを常に許可
 
@@ -72,6 +75,11 @@ import ObjectiveC.runtime
       setupInstagramChannel(controller: controller)
       setupDeepLinkChannel(controller: controller)
       setupMusicMemoryChannel(controller: controller)
+
+      // Live Activity（ロック画面の「今日のMusic Memory」）
+      let liveActivity = LiveActivityChannel()
+      liveActivity.setup(controller: controller)
+      liveActivityChannel = liveActivity  // ARC で解放されないよう保持
 
       // PlatformView: 上部連続ぼかし（UIVisualEffectView + グラデマスク）
       if let registrar = self.registrar(forPlugin: "VariableBlurPlugin") {
@@ -580,6 +588,10 @@ import ObjectiveC.runtime
         // コールドスタート時に保持した postId を返して消去
         result(self._pendingDeepLinkPostId)
         self._pendingDeepLinkPostId = nil
+      case "getInitialAction":
+        // コールドスタート時に保持したアクション（Live Activity の "compose"）
+        result(self._pendingDeepLinkAction)
+        self._pendingDeepLinkAction = nil
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -587,7 +599,16 @@ import ObjectiveC.runtime
   }
 
   private func handleDeepLinkURL(_ url: URL) -> Bool {
-    guard url.scheme == "fifteenapp", url.host == "post" else { return false }
+    guard url.scheme == "fifteenapp" else { return false }
+
+    // Live Activity（ロック画面）の「投稿する」→ 投稿フローを開く。
+    if url.host == "compose" {
+      _pendingDeepLinkAction = "compose"
+      deepLinkFlutterChannel?.invokeMethod("onDeepLink", arguments: ["action": "compose"])
+      return true
+    }
+
+    guard url.host == "post" else { return false }
     let segments = url.pathComponents.filter { $0 != "/" }
     guard let postId = segments.first, !postId.isEmpty else { return false }
 

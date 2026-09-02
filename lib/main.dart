@@ -39,6 +39,7 @@ import 'services/user_service.dart';
 import 'models/user_model.dart';
 import 'services/vibe_topic_service.dart';
 import 'services/adl_service.dart';
+import 'services/live_activity_service.dart';
 import 'services/music_memory_cycle_service.dart';
 import 'services/playback_history_service.dart';
 import 'models/post_model.dart';
@@ -110,6 +111,9 @@ void main() async {
 
   // Music Memory 投稿サイクル状態の購読を開始（notifiedAt を保持）。
   MusicMemoryCycleService().start();
+
+  // Live Activity（iOS ロック画面）の push トークン受信を開始。
+  LiveActivityService().start();
 
   // 起動時から再生履歴の手動記録を開始（投稿フロー 2 枚目以降の元データ）。
   PlaybackHistoryService().start();

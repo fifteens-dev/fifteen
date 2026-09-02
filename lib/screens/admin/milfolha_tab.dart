@@ -7,7 +7,7 @@ import '../../widgets/common/app_toast.dart';
 
 /// 管理者パネル: WATERFALLS イベント管理タブ。
 /// モード ON/OFF、期間表示、ランキング非公開ウィンドウ、結果確定、
-/// 集計プレビュー、チームコード一覧。
+/// 集計プレビュー、チームコード一覧、外部ユーザー（招待経由）の追加状況。
 class MilfolhaTab extends StatefulWidget {
   const MilfolhaTab({super.key});
 
@@ -22,6 +22,10 @@ class _MilfolhaTabState extends State<MilfolhaTab> {
   bool _busy = false;
   List<MilfolhaTeamScore>? _preview;
   bool _previewing = false;
+
+  /// 招待経由で入ってきた外部ユーザーの明細（管理者パネルのみで表示）。
+  List<MilfolhaExternalUser>? _external;
+  bool _loadingExternal = false;
 
   Future<void> _toggleActive(bool v) async {
     setState(() => _busy = true);
@@ -85,6 +89,19 @@ class _MilfolhaTabState extends State<MilfolhaTab> {
       end: isStart ? null : picked,
     );
     if (mounted) setState(() => _busy = false);
+  }
+
+  /// 外部ユーザーの追加状況を集計する（管理者専用・ユーザー画面には出さない）。
+  Future<void> _loadExternal() async {
+    setState(() => _loadingExternal = true);
+    try {
+      final list = await _service.loadExternalUserReport();
+      if (mounted) setState(() => _external = list);
+    } catch (_) {
+      if (mounted) AppToast.show(context, '外部ユーザーの集計に失敗しました');
+    } finally {
+      if (mounted) setState(() => _loadingExternal = false);
+    }
   }
 
   Future<void> _runPreview() async {
@@ -349,9 +366,165 @@ class _MilfolhaTabState extends State<MilfolhaTab> {
                 ),
               ),
           ],
+          const SizedBox(height: 24),
+          _externalSection(),
         ],
       ),
     );
+  }
+
+  // ---- 外部ユーザーの追加（管理者パネルのみ） ----
+
+  /// 招待経由で入った外部ユーザーを、チーム別サマリー＋明細で追う。
+  /// ユーザー向け画面（ランキング等）には一切出さない管理者専用ビュー。
+  Widget _externalSection() {
+    final list = _external;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('外部ユーザーの追加（招待経由）',
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        const Text(
+          '集計期間内に、メンバーの招待コードで登録した非メンバーの一覧。'
+          'ポイントは最初に招待したメンバー（とそのチーム）に帰属します。',
+          style: TextStyle(color: Color(0xFF6B6B6B), fontSize: 11, height: 1.5),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _loadingExternal ? null : _loadExternal,
+            icon: const Icon(Icons.person_add_alt),
+            label: Text(_loadingExternal ? '集計中...' : '外部ユーザーを集計'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _purple,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ),
+        if (list != null) ...[
+          const SizedBox(height: 12),
+          if (list.isEmpty)
+            _card(
+              child: const Padding(
+                padding: EdgeInsets.all(14),
+                child: Text('期間内の外部ユーザーはまだいません。',
+                    style:
+                        TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
+              ),
+            )
+          else ...[
+            _externalTeamSummary(list),
+            const SizedBox(height: 12),
+            _card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                    child: Text('明細 (${list.length}人・招待の古い順)',
+                        style: const TextStyle(
+                            color: Color(0xFF9E9E9E), fontSize: 12)),
+                  ),
+                  for (final e in list) ...[
+                    const Divider(height: 1, color: Color(0xFF2C2C2E)),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  e.username?.isNotEmpty == true
+                                      ? '${e.displayName}  @${e.username}'
+                                      : e.displayName,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text('${e.points}pt',
+                                  style: const TextStyle(
+                                      color: Color(0xFF7B6FE6),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '招待: ${e.inviterDisplayName}'
+                            '  /  チーム ${e.teamDisplayName}'
+                            '  /  ${_fmtJst(e.invitedAt)}'
+                            '  /  投稿 ${e.postDays}日',
+                            style: const TextStyle(
+                                color: Color(0xFF9E9E9E),
+                                fontSize: 11,
+                                height: 1.4),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+
+  /// チーム別の外部追加人数・外部投稿日数・寄与ポイント。
+  Widget _externalTeamSummary(List<MilfolhaExternalUser> list) {
+    final counts = <String, int>{};
+    final days = <String, int>{};
+    final pts = <String, int>{};
+    for (final e in list) {
+      counts[e.teamId] = (counts[e.teamId] ?? 0) + 1;
+      days[e.teamId] = (days[e.teamId] ?? 0) + e.postDays;
+      pts[e.teamId] = (pts[e.teamId] ?? 0) + e.points;
+    }
+    return _card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('チーム別サマリー',
+                style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
+            const SizedBox(height: 8),
+            for (final t in MilfolhaTeamDefinitions.all)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  'チーム ${t.displayName}:  ${counts[t.id] ?? 0}人'
+                  '  /  外部投稿 ${days[t.id] ?? 0}日'
+                  '  /  ${pts[t.id] ?? 0}pt',
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// UTC 基準の DateTime を JST 表示にする。
+  static String _fmtJst(DateTime? d) {
+    if (d == null) return '日時不明';
+    final j = d.toUtc().add(const Duration(hours: 9));
+    return '${j.month}/${j.day} '
+        '${j.hour.toString().padLeft(2, '0')}:'
+        '${j.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _card({required Widget child}) {

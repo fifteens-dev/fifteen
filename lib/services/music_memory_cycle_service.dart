@@ -17,6 +17,9 @@ class MusicMemoryCycleService {
 
   static const String _docPath = 'music_memory_state/current';
 
+  /// 「15s Day」境界の履歴コレクション。ドキュメントID = JST の日付キー。
+  static const String _cyclesCollection = 'music_memory_cycles';
+
   DateTime? _notifiedAt;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
 
@@ -38,6 +41,68 @@ class MusicMemoryCycleService {
 
   /// 直近に発火した通知時刻（サイクル開始）。未取得/未発火なら null。
   DateTime? get notifiedAt => _notifiedAt;
+
+  /// 購読が届く前でも確実に通知時刻が欲しいとき用の 1 回取得。
+  /// 取得できた値はキャッシュにも反映する（Live Activity の起動判定などで使う）。
+  Future<DateTime?> fetchNotifiedAt() async {
+    try {
+      final snap = await FirebaseFirestore.instance.doc(_docPath).get();
+      final ts = snap.data()?['notifiedAt'];
+      if (ts is Timestamp) {
+        _notifiedAt = ts.toDate();
+        return _notifiedAt;
+      }
+    } catch (_) {}
+    return _notifiedAt;
+  }
+
+  /// 任意の [cycleStart] に対する通常投稿締切（JST 翌 01:00）。
+  static DateTime deadlineFor(DateTime cycleStart) =>
+      _deadlineForCycleStart(cycleStart);
+
+  /// 直近 [limit] 件の「15s Day」を新しい→古い順で返す。
+  ///
+  /// 1 件目（最新）は現在進行中のサイクルで、[MusicMemoryDayWindow.end] は
+  /// 「次の通知が来るまで」＝現時点では未確定なので `null` になる。
+  /// 履歴が無い期間（通知が発火していない日）は要素として現れない。
+  Future<List<MusicMemoryDayWindow>> loadDays({int limit = 40}) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection(_cyclesCollection)
+          .orderBy('notifiedAt', descending: true)
+          .limit(limit)
+          .get();
+
+      final starts = <({String key, DateTime start})>[];
+      for (final d in snap.docs) {
+        final ts = d.data()['notifiedAt'];
+        if (ts is! Timestamp) continue;
+        starts.add((key: d.id, start: ts.toDate()));
+      }
+      if (starts.isEmpty) return const [];
+
+      // 新しい→古い順。各サイクルの終端は「1つ新しいサイクルの開始」。
+      return [
+        for (var i = 0; i < starts.length; i++)
+          MusicMemoryDayWindow(
+            key: starts[i].key,
+            start: starts[i].start,
+            end: i == 0 ? null : starts[i - 1].start,
+          ),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// [at] が属する「15s Day」のキー（＝直近の通知が発火した JST 暦日）。
+  /// 対応するサイクルが [days] に無ければ null。
+  static String? dayKeyAt(List<MusicMemoryDayWindow> days, DateTime at) {
+    for (final d in days) {
+      if (d.contains(at)) return d.key;
+    }
+    return null;
+  }
 
   /// ホームタイムライン表示の下限（現サイクル開始＝直近 notifiedAt）。
   /// 投稿は24時間を超えても、次の通知が来るまで表示し続ける（次の通知で前サイクル分が外れる）。
@@ -71,4 +136,38 @@ class MusicMemoryCycleService {
         .add(const Duration(days: 1));
     return wall.subtract(const Duration(hours: 9));
   }
+}
+
+
+/// 「15s Day」1 日分の時間窓。
+///
+/// 暦日（0:00 区切り）ではなく **通知が来てから次の通知が来るまで**を 1 日と数える。
+/// 例: 9/2 の 15s Day = 9/2 の通知(19:00) 〜 9/3 の通知。
+class MusicMemoryDayWindow {
+  /// JST の日付キー（"2026-09-02"）。通知が発火した暦日。
+  final String key;
+
+  /// 開始（＝その日の通知発火時刻）。
+  final DateTime start;
+
+  /// 終了（＝次の通知発火時刻）。進行中のサイクルでは null。
+  final DateTime? end;
+
+  const MusicMemoryDayWindow({
+    required this.key,
+    required this.start,
+    this.end,
+  });
+
+  bool get isCurrent => end == null;
+
+  /// 表示用の短いラベル（"9/2"）。
+  String get label {
+    final parts = key.split('-');
+    if (parts.length != 3) return key;
+    return '${int.parse(parts[1])}/${int.parse(parts[2])}';
+  }
+
+  bool contains(DateTime at) =>
+      !at.isBefore(start) && (end == null || at.isBefore(end!));
 }

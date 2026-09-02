@@ -167,6 +167,23 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
     }
 
+    // ── live_activities コレクション ─────────────────────────
+    // iOS の Live Activity（ロック画面の「今日のMusic Memory」）の状態と
+    // APNs 更新トークン。本人だけが読み書きでき、push を送る Cloud Functions は
+    // Admin SDK なのでルールを経由しない。
+    match /live_activities/{userId} {
+      allow read, write: if isOwner(userId);
+      allow read: if isAdmin();
+    }
+
+    // ── music_memory_cycles コレクション ─────────────────────
+    // 「15s Day」の境界（各日の通知発火時刻）の履歴。集計・タイムライン判定に
+    // クライアントが読むため読み取りのみ許可。書き込みは Cloud Functions のみ。
+    match /music_memory_cycles/{cycleKey} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
     // ── music_memory_state コレクション ──────────────────────
     // Cloud Function が通知発火時刻(notifiedAt)を書き込む「投稿サイクルの境界」状態。
     // クライアントはタイムライン表示範囲の判定に使うため読み取りのみ許可。

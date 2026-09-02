@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../screens/other_user_profile_screen.dart';
 import '../screens/post_detail_screen.dart';
+import 'live_activity_service.dart';
 import 'notification_service.dart';
 import 'post_service.dart';
 import 'auth_service.dart';
@@ -109,6 +110,13 @@ class FCMHandlerService {
       print('🔔 フォアグラウンドメッセージ受信: ${message.messageId}');
       print('   タイトル: ${message.notification?.title}');
       print('   本文: ${message.notification?.body}');
+    }
+
+    // Music Memory の通知＝新しいサイクルの開始。ロック画面の Live Activity を
+    // 張り直す（サーバの push-to-start が届かない端末のフォールバックにもなる）。
+    if (message.data['notificationType'] == 'music_memory') {
+      // ignore: discarded_futures
+      LiveActivityService().refresh(force: true);
     }
 
     final title = message.notification?.title ?? '';

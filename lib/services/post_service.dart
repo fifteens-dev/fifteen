@@ -224,6 +224,10 @@ class PostService {
   Future<bool> hasAnyPostInCurrentCycle(String userId) =>
       _checkService.hasAnyPostInCurrentCycle(userId);
 
+  /// フォロー中の誰かが現サイクルで投稿しているか（Live Activity の状態判定）。
+  Future<bool> hasFollowingPostedInCurrentCycle(List<String> followingIds) =>
+      _checkService.hasFollowingPostedInCurrentCycle(followingIds);
+
   /// 特定ユーザーが今週末（金〜日）に投稿しているかチェック（Campus Vibe用）
   Future<bool> hasUserPostedInCurrentWeekend(String userId) =>
       _checkService.hasUserPostedInCurrentWeekend(userId);

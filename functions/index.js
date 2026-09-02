@@ -3,6 +3,7 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
 const crypto = require('crypto');
+const apns = require('./apns');
 
 admin.initializeApp();
 
@@ -157,6 +158,8 @@ async function broadcastPush(db, userIds, { title, body, data }) {
  * 文言は Apple Music / Spotify 共通の統一版。
  */
 const MM_STATE_REF_PATH = 'music_memory_state/current';
+/** 「15s Day」の境界（各日の通知発火時刻）の履歴。ドキュメントID = JST の日付キー。 */
+const MM_CYCLES_COLLECTION = 'music_memory_cycles';
 const MM_WINDOW_START_MIN = 19 * 60;      // 19:00
 const MM_WINDOW_END_MIN = 23 * 60 + 30;   // 23:30
 const MM_NOTIF_TITLE = '🎵 Music Memoryの時間です。';
@@ -256,6 +259,44 @@ exports.musicMemoryDailyNotification = onSchedule(
       console.log(
         `musicMemoryDailyNotification fired for ${dateKey}: users=${targetUserIds.length}, fcm success=${res.success}, failure=${res.failure}`
       );
+
+      // 「15s Day」の境界履歴を残す。集計（DAU / 新規登録 / 投稿 / 継続率）は
+      // 0:00 ではなくこの通知時刻を日の区切りにするため、過去分を後から
+      // 引けるようにサイクルごとに 1 ドキュメント積む。
+      try {
+        const stateSnapForCycle = await stateRef.get();
+        const notifiedAtForCycle =
+          stateSnapForCycle.data()?.notifiedAt?.toDate?.() || now;
+        await db.collection(MM_CYCLES_COLLECTION).doc(dateKey).set(
+          {
+            cycleKey: dateKey,
+            notifiedAt: admin.firestore.Timestamp.fromDate(notifiedAtForCycle),
+            source: 'live',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        console.error('music_memory_cycles write error:', e);
+      }
+
+      // ロック画面の Live Activity を push-to-start（iOS 17.2+）。
+      // サイクル境界はアプリと同じ notifiedAt を使う（serverTimestamp の確定値を読み直す）。
+      // 送信先は上で取得済みの usersSnapshot から組み立て、users を再読込しない。
+      try {
+        const stateSnap = await stateRef.get();
+        const notifiedAt = stateSnap.data()?.notifiedAt?.toDate?.() || now;
+        const laTargets = usersSnapshot.docs
+          .filter(
+            (d) =>
+              d.data().notifVibeEnabled !== false &&
+              d.data().liveActivityPushToStartToken
+          )
+          .map((d) => ({ uid: d.id, token: d.data().liveActivityPushToStartToken }));
+        await startLiveActivitiesForCycle(db, laTargets, notifiedAt);
+      } catch (e) {
+        console.error('startLiveActivitiesForCycle error:', e);
+      }
     } catch (error) {
       console.error('musicMemoryDailyNotification error:', error);
     }
@@ -704,6 +745,30 @@ exports.onPostCreated = onDocumentCreated(
       }
 
       const followers = posterDoc.data().followers || [];
+
+      // 投稿の楽曲取得元を users に記録する（参考値。連携先の判定には使わない）。
+      if (post.isDummyPost !== true) {
+        await updateInferredMusicService(db, posterId, post.track);
+      }
+
+      // ── ロック画面 Live Activity の状態遷移 ──
+      // タイムラインに載らない投稿（ダミー / Vibe ストーリー）は「友達が投稿した」に
+      // 数えない。通知本体の処理より先に、失敗しても止まらないよう try で囲う。
+      if (post.isDummyPost !== true && post.isVibe !== true) {
+        try {
+          const mmState = await db.doc(MM_STATE_REF_PATH).get();
+          const cycleStart = mmState.data()?.notifiedAt?.toDate?.();
+          if (cycleStart) {
+            await markOwnLiveActivityPosted(db, posterId, cycleStart);
+            if (followers.length > 0) {
+              await promoteFollowersLiveActivity(db, followers, cycleStart);
+            }
+          }
+        } catch (e) {
+          console.error('onPostCreated liveActivity error:', e);
+        }
+      }
+
       if (followers.length === 0) {
         console.log(`onPostCreated: user ${posterId} has no followers`);
         return;
@@ -2843,5 +2908,392 @@ exports.unflagBulkDummyPosts = onCall(
 
     console.log(`unflagBulkDummyPosts: ${updated}件の投稿のフラグを解除`);
     return { updated };
+  }
+);
+
+// ─────────────────────────────────────────────────────────────
+// Live Activity（iOS ロック画面の「今日のMusic Memory」）
+//
+// 3パターン:
+//   waiting        … 通知は来たがフォロー中の誰もまだ投稿していない
+//   friendsWaiting … 通知が来ていて、フォロー中の誰かが投稿済み
+//   posted         … 自分の投稿が完了した
+//
+// 状態は APNs の liveactivity push で差し替える。アートワーク（曜日ストリップ）は
+// push に載せず、アプリが App Group に書き出したものをウィジェットが読む。
+// ─────────────────────────────────────────────────────────────
+
+const LIVE_ACTIVITIES_COLLECTION = 'live_activities';
+
+/** 通知時刻（サイクル開始）に対する通常投稿の締切 = JST 翌 01:00（「25:00」）。 */
+function liveActivityDeadline(cycleStart) {
+  return new Date(jstDayStartFor(cycleStart).getTime() + 25 * 60 * 60 * 1000);
+}
+
+/** push で送る content-state。Swift 側 ContentState と 1:1。 */
+function liveActivityContentState(phase, deadline) {
+  return {
+    phase,
+    deadlineEpoch: Math.floor(deadline.getTime() / 1000),
+    revision: Math.floor(Date.now() / 1000),
+  };
+}
+
+/**
+ * 通知発火と同時に、iOS 17.2+ の端末へ Live Activity を push-to-start する。
+ * トークンを持たない（未対応 OS・未起動）ユーザーはスキップされ、アプリ側の
+ * ローカル開始にフォールバックする。
+ *
+ * @param {Array<{uid: string, token: string}>} targets 送信先。呼び出し元が
+ *   既に読み込み済みの users ドキュメントから組み立てて渡す（再読込しない）。
+ */
+async function startLiveActivitiesForCycle(db, targets, cycleStart) {
+  if (!apns.isConfigured()) {
+    console.log('liveActivity: APNs 未設定のため push-to-start をスキップ');
+    return { sent: 0, failed: 0 };
+  }
+  if (targets.length === 0) return { sent: 0, failed: 0 };
+
+  const deadline = liveActivityDeadline(cycleStart);
+  const attributes = { cycleStartEpoch: Math.floor(cycleStart.getTime() / 1000) };
+  const contentState = liveActivityContentState('waiting', deadline);
+  const staleEpoch = Math.floor(deadline.getTime() / 1000);
+
+  let sent = 0;
+  let failed = 0;
+  const chunkSize = 20;
+  for (let i = 0; i < targets.length; i += chunkSize) {
+    const chunk = targets.slice(i, i + chunkSize);
+
+    await Promise.all(
+      chunk.map(async ({ uid, token }) => {
+        const res = await apns.startLiveActivity(token, attributes, contentState, {
+          staleEpoch,
+        });
+        if (res.ok) {
+          sent++;
+          // アプリが起動していなくても状態を追えるよう先に書いておく。
+          // update token はアプリ / OS から届き次第 pushToken で上書きされる。
+          await db.collection(LIVE_ACTIVITIES_COLLECTION).doc(uid).set(
+            {
+              userId: uid,
+              phase: 'waiting',
+              cycleStart: admin.firestore.Timestamp.fromDate(cycleStart),
+              deadline: admin.firestore.Timestamp.fromDate(deadline),
+              revision: contentState.revision,
+              platform: 'ios',
+              startedBy: 'push',
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        } else {
+          failed++;
+          // トークン自体が無効なときだけ消す（次回起動時にアプリが再登録する）。
+          // BadExpirationDate 等の一時的な 400 で消してしまわないよう理由で絞る。
+          const dead =
+            res.reason === 'BadDeviceToken' ||
+            res.reason === 'Unregistered' ||
+            res.reason === 'DeviceTokenNotForTopic';
+          if (dead) {
+            await db.collection('users').doc(uid).update({
+              liveActivityPushToStartToken: admin.firestore.FieldValue.delete(),
+            }).catch(() => {});
+          }
+        }
+      })
+    );
+  }
+  console.log(`liveActivity push-to-start: sent=${sent} failed=${failed}`);
+  return { sent, failed };
+}
+
+/**
+ * 投稿された時に、その投稿者のフォロワーの Live Activity を
+ * 「まだ投稿していません」→「友達があなたを待っています」へ差し替える。
+ *
+ * 既に投稿済み(posted)・別サイクル・締切超過のフォロワーはスキップする。
+ */
+async function promoteFollowersLiveActivity(db, followerIds, cycleStart) {
+  if (!apns.isConfigured() || followerIds.length === 0) return { sent: 0 };
+
+  const deadline = liveActivityDeadline(cycleStart);
+  if (Date.now() >= deadline.getTime()) return { sent: 0 };
+  const contentState = liveActivityContentState('friendsWaiting', deadline);
+  const staleEpoch = Math.floor(deadline.getTime() / 1000);
+  const cycleSec = Math.floor(cycleStart.getTime() / 1000);
+
+  let sent = 0;
+  const chunkSize = 20;
+  for (let i = 0; i < followerIds.length; i += chunkSize) {
+    const chunk = followerIds.slice(i, i + chunkSize);
+    const docs = await Promise.all(
+      chunk.map((uid) => db.collection(LIVE_ACTIVITIES_COLLECTION).doc(uid).get())
+    );
+
+    await Promise.all(
+      docs.map(async (doc) => {
+        if (!doc.exists) return;
+        const d = doc.data();
+        if (d.phase !== 'waiting') return; // posted / 既に friendsWaiting
+        if (!d.pushToken) return; // update token 未取得（アプリ未起動）
+        const docCycle = d.cycleStart?.toDate?.();
+        if (!docCycle || Math.floor(docCycle.getTime() / 1000) !== cycleSec) return;
+
+        const res = await apns.updateLiveActivity(d.pushToken, contentState, {
+          staleEpoch,
+        });
+        if (res.ok) {
+          sent++;
+          await doc.ref.set(
+            {
+              phase: 'friendsWaiting',
+              revision: contentState.revision,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        } else if (res.reason === 'Unregistered' || res.reason === 'BadDeviceToken') {
+          // Activity が既に終了/破棄されている。状態ドキュメントも畳む。
+          await doc.ref.delete().catch(() => {});
+        }
+      })
+    );
+  }
+  if (sent > 0) console.log(`liveActivity friendsWaiting: sent=${sent}`);
+  return { sent };
+}
+
+/**
+ * 投稿者自身の Live Activity を「投稿完了」へ差し替える。
+ * 通常はアプリがフォアグラウンドでローカル更新するが、失敗時の保険として押す。
+ */
+async function markOwnLiveActivityPosted(db, posterId, cycleStart) {
+  if (!apns.isConfigured()) return;
+  const doc = await db.collection(LIVE_ACTIVITIES_COLLECTION).doc(posterId).get();
+  if (!doc.exists) return;
+  const d = doc.data();
+  if (d.phase === 'posted' || !d.pushToken) return;
+
+  const deadline = liveActivityDeadline(cycleStart);
+  if (Date.now() >= deadline.getTime()) return;
+  const contentState = liveActivityContentState('posted', deadline);
+  const res = await apns.updateLiveActivity(d.pushToken, contentState, {
+    staleEpoch: Math.floor(deadline.getTime() / 1000),
+  });
+  if (res.ok) {
+    await doc.ref.set(
+      {
+        phase: 'posted',
+        revision: contentState.revision,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+}
+
+/**
+ * 締切（25:00）を過ぎた Live Activity を終了させる。
+ * アプリが起動されないまま残り続けるのを防ぐ（ActivityKit 自体の 8 時間上限より先に畳む）。
+ */
+exports.endStaleLiveActivities = onSchedule(
+  { schedule: '5 * * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 300 },
+  async () => {
+    if (!apns.isConfigured()) return;
+    const db = admin.firestore();
+    const snap = await db
+      .collection(LIVE_ACTIVITIES_COLLECTION)
+      .where('deadline', '<', admin.firestore.Timestamp.now())
+      .limit(500)
+      .get();
+    if (snap.empty) return;
+
+    let ended = 0;
+    for (const doc of snap.docs) {
+      const d = doc.data();
+      if (d.pushToken) {
+        const deadline = d.deadline.toDate();
+        const res = await apns.endLiveActivity(
+          d.pushToken,
+          liveActivityContentState(d.phase || 'waiting', deadline),
+          { dismissEpoch: Math.floor(Date.now() / 1000) }
+        );
+        if (res.ok) ended++;
+      }
+      await doc.ref.delete().catch(() => {});
+    }
+    console.log(`endStaleLiveActivities: ended=${ended} / docs=${snap.size}`);
+  }
+);
+
+/**
+ * 「15s Day」境界の過去分を `notifications` から復元する（管理者のみ・冪等）。
+ *
+ * `music_memory_state/current.notifiedAt` は上書きされるため過去の通知時刻が残らない。
+ * 一方で通知発火時には全ユーザー分の `notifications`(type='music_memory') を
+ * 同時刻にバッチ作成しているので、その日ごとの最古 createdAt が発火時刻に等しい。
+ *
+ * @param {{days?: number}} data 遡る日数（既定 60・最大 400）
+ */
+exports.backfillMusicMemoryCycles = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です');
+  }
+  const db = admin.firestore();
+  const userSnap = await db.doc(`users/${request.auth.uid}`).get();
+  if (!userSnap.exists || userSnap.data()?.isAdmin !== true) {
+    throw new HttpsError('permission-denied', '管理者権限がありません');
+  }
+
+  const days = Math.min(Math.max(Number(request.data?.days) || 60, 1), 400);
+  const now = new Date();
+  let created = 0;
+  let skipped = 0;
+  let missing = 0;
+
+  for (let i = 0; i < days; i++) {
+    const dayStart = new Date(
+      jstDayStartFor(now).getTime() - i * 24 * 60 * 60 * 1000
+    );
+    const jst = new Date(dayStart.getTime() + 9 * 60 * 60 * 1000);
+    const key = `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, '0')}-${String(jst.getUTCDate()).padStart(2, '0')}`;
+
+    const ref = db.collection(MM_CYCLES_COLLECTION).doc(key);
+    if ((await ref.get()).exists) {
+      skipped++;
+      continue;
+    }
+
+    // その JST 暦日に作られた music_memory 通知のうち最古のものが発火時刻。
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const snap = await db
+      .collection('notifications')
+      .where('type', '==', 'music_memory')
+      .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(dayStart))
+      .where('createdAt', '<', admin.firestore.Timestamp.fromDate(dayEnd))
+      .orderBy('createdAt', 'asc')
+      .limit(1)
+      .get();
+
+    if (snap.empty) {
+      missing++;
+      continue;
+    }
+    const notifiedAt = snap.docs[0].data().createdAt;
+    await ref.set({
+      cycleKey: key,
+      notifiedAt,
+      source: 'backfill',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    created++;
+  }
+
+  console.log(
+    `backfillMusicMemoryCycles: created=${created} skipped=${skipped} missing=${missing}`
+  );
+  return { created, skipped, missing, days };
+});
+
+// ─────────────────────────────────────────────────────────────
+// 投稿の「楽曲取得元」の記録（参考値）
+//
+// 投稿のアートワーク URL は配信元がサービスごとに異なる。
+//   Apple Music / iTunes … *.mzstatic.com
+//   Spotify             … i.scdn.co
+// 補助的に spotifyArtistId（Spotify 由来のみ付く）と trackId の形も見る。
+//
+// ただしこれは **連携先の判定には使えない**。アプリの実装上、
+//   - 未連携ユーザーの検索は Spotify にフォールバックする
+//   - おすすめは連携先に関わらず全員 Apple Music のチャートを引く
+// ため、取得元と連携先は一致しない。
+// あくまで傾向を見る参考値として `musicServiceInferred` に持ち、
+// 集計の分類はアプリが刻む `musicService`（連携スタンプ）だけを根拠にする。
+// ─────────────────────────────────────────────────────────────
+
+/** 投稿の track から楽曲メタデータの取得元を判別する。分からなければ null。 */
+function inferMusicServiceFromTrack(track) {
+  if (!track) return null;
+  const url = String(track.albumImageUrl || '');
+  if (url.includes('scdn.co')) return 'spotify';
+  if (url.includes('mzstatic.com')) return 'appleMusic';
+  if (track.spotifyArtistId) return 'spotify';
+  const id = String(track.trackId || '');
+  if (/^\d{6,}$/.test(id)) return 'appleMusic';
+  if (/^[A-Za-z0-9]{22}$/.test(id)) return 'spotify';
+  return null;
+}
+
+/**
+ * 投稿者の「楽曲取得元」を最新の投稿で更新する（参考値）。
+ */
+async function updateInferredMusicService(db, userId, track) {
+  const service = inferMusicServiceFromTrack(track);
+  if (!service) return;
+  try {
+    await db.collection('users').doc(userId).set(
+      {
+        musicServiceInferred: service,
+        musicServiceInferredAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (e) {
+    console.error(`updateInferredMusicService(${userId}) error:`, e);
+  }
+}
+
+/**
+ * 既存の全投稿から `musicServiceInferred`（楽曲取得元の参考値）を再計算する
+ * （管理者のみ・冪等）。各ユーザーの **最新投稿** の取得元を採用する。
+ */
+exports.backfillMusicServiceFromPosts = onCall(
+  { timeoutSeconds: 540, memory: '512MiB' },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'ログインが必要です');
+    }
+    const db = admin.firestore();
+    const adminSnap = await db.doc(`users/${request.auth.uid}`).get();
+    if (!adminSnap.exists || adminSnap.data()?.isAdmin !== true) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    const posts = await db.collection('posts').get();
+    // uid → { service, at }（最新投稿のサービスを採用）
+    const latest = new Map();
+    for (const doc of posts.docs) {
+      const p = doc.data();
+      if (p.isDummyPost === true) continue;
+      const uid = p.userId;
+      if (!uid) continue;
+      const service = inferMusicServiceFromTrack(p.track);
+      if (!service) continue;
+      const at = p.createdAt?.toDate?.() || new Date(0);
+      const prev = latest.get(uid);
+      if (!prev || at > prev.at) latest.set(uid, { service, at });
+    }
+
+    let written = 0;
+    const entries = [...latest.entries()];
+    for (let i = 0; i < entries.length; i += 400) {
+      const batch = db.batch();
+      for (const [uid, { service }] of entries.slice(i, i + 400)) {
+        batch.set(
+          db.collection('users').doc(uid),
+          {
+            musicServiceInferred: service,
+            musicServiceInferredAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        written++;
+      }
+      await batch.commit();
+    }
+
+    console.log(`backfillMusicServiceFromPosts: users=${written} / posts=${posts.size}`);
+    return { users: written, posts: posts.size };
   }
 );

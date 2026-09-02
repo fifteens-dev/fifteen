@@ -12,6 +12,7 @@ import '../providers/saved_items_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
+import '../widgets/dialogs/delete_post_dialog.dart';
 import '../widgets/post_card.dart';
 import 'card_share_screen.dart';
 
@@ -35,6 +36,9 @@ class MusicMemoryDetailScreen extends StatefulWidget {
   /// すでにロード済みのチャンク数（1チャンク=3ヶ月）。
   final int loadedChunks;
 
+  /// 投稿が削除されたときに postId を通知する（呼び出し元のカレンダー更新用）。
+  final ValueChanged<String>? onPostDeleted;
+
   const MusicMemoryDetailScreen({
     super.key,
     required this.posts,
@@ -42,6 +46,7 @@ class MusicMemoryDetailScreen extends StatefulWidget {
     this.userId,
     this.monthsNewToOld = const [],
     this.loadedChunks = 0,
+    this.onPostDeleted,
   });
 
   static Future<void> push(
@@ -51,6 +56,7 @@ class MusicMemoryDetailScreen extends StatefulWidget {
     String? userId,
     List<String> monthsNewToOld = const [],
     int loadedChunks = 0,
+    ValueChanged<String>? onPostDeleted,
   }) {
     return Navigator.of(context).push(
       PageRouteBuilder(
@@ -63,6 +69,7 @@ class MusicMemoryDetailScreen extends StatefulWidget {
           userId: userId,
           monthsNewToOld: monthsNewToOld,
           loadedChunks: loadedChunks,
+          onPostDeleted: onPostDeleted,
         ),
         // ジャケット→写真の「ズームで表示」を近似する scale + fade。
         transitionsBuilder: (_, animation, __, child) {
@@ -103,7 +110,7 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
   late int _loadedChunks;
   bool _loadingMore = false;
 
-  late final PageController _controller;
+  late PageController _controller;
   late int _index;
   double _page = 0;
 
@@ -236,6 +243,52 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
     super.dispose();
   }
 
+  /// 自分の投稿を削除する（タイムラインと同じ 3点メニュー → 確認ダイアログ）。
+  /// 削除後はカルーセルから外し、残り 0 件なら画面を閉じる。
+  Future<void> _handleDelete(PostModel post) async {
+    final confirmed = await showDeletePostConfirmDialog(context);
+    if (!confirmed || !mounted) return;
+    try {
+      await _postService.deletePost(post.postId);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('削除に失敗しました')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+
+    widget.onPostDeleted?.call(post.postId);
+
+    final removedAt = _days.indexWhere((p) => p.postId == post.postId);
+    if (removedAt < 0) return;
+    if (_days.length <= 1) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    // PageController は残り件数に合わせて作り直す（reverse の PageView は
+    // itemCount だけ減らすと現在ページがずれるため）。
+    final nextIndex = removedAt.clamp(0, _days.length - 2);
+    final oldController = _controller;
+    oldController.removeListener(_onScroll);
+    setState(() {
+      _days.removeAt(removedAt);
+      _index = nextIndex;
+      _page = nextIndex.toDouble();
+      _controller = PageController(
+        viewportFraction: _viewportFraction,
+        initialPage: nextIndex,
+      )..addListener(_onScroll);
+    });
+    // 旧コントローラは PageView が新しい方に差し替わってから破棄する。
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => oldController.dispose());
+    _playCurrent();
+  }
+
   void _goTo(int i) {
     // 範囲チェックは実データ(_days)で行う。追加ロード後も正しく移動できるように
     // widget.posts（初期分のみ）ではなく _days.length を使う。
@@ -312,6 +365,11 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
                                   // 音源は画面側で中央カードを再生管理する。
                                   audioManagedExternally: true,
                                   onShare: () => _share(post),
+                                  // 過去の投稿もタイムラインと同じ 3点メニューから削除できる。
+                                  onDelete: (currentUserId != null &&
+                                          post.userId == currentUserId)
+                                      ? () => _handleDelete(post)
+                                      : null,
                                 ),
                               ),
                             ),

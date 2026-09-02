@@ -290,7 +290,18 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
       userId: widget.userId,
       monthsNewToOld: _monthsNewToOld,
       loadedChunks: _loadedChunks,
+      onPostDeleted: _removeDeletedPost,
     );
+  }
+
+  /// 詳細画面で削除された投稿をカレンダーからも取り除く。
+  void _removeDeletedPost(String postId) {
+    if (!mounted) return;
+    setState(() {
+      for (final list in _postsByMonth.values) {
+        list.removeWhere((p) => p.postId == postId);
+      }
+    });
   }
 
   @override

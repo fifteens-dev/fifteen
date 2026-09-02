@@ -533,6 +533,8 @@ class MilfolhaService {
     }
 
     // 外部登録 +3 ＋ 外部投稿 +5/日（チーム＝最古招待者のチーム、個人＝最古招待者）
+    // 併せて、管理者パネルで「誰がいつ誰を連れてきたか」を追えるよう明細も作る。
+    final extEntries = <MilfolhaExternalEntry>[];
     for (final entry in extToTeam.entries) {
       final ext = entry.key;
       final team = entry.value;
@@ -540,13 +542,27 @@ class MilfolhaService {
       extReg[team] = (extReg[team] ?? 0) + 3;
       if (owner != null) individual[owner] = (individual[owner] ?? 0) + 3;
       final days = postDaysByUid[ext];
+      final dayCount = days?.length ?? 0;
       if (days != null && days.isNotEmpty) {
         extPost[team] = (extPost[team] ?? 0) + days.length * 5;
         if (owner != null) {
           individual[owner] = (individual[owner] ?? 0) + days.length * 5;
         }
       }
+      extEntries.add(MilfolhaExternalEntry(
+        uid: ext,
+        ownerUid: owner,
+        teamId: team,
+        invitedAt: extEarliest[ext],
+        postDays: dayCount,
+      ));
     }
+    // 新しく参加した順（招待記録の古い順）に並べる。
+    extEntries.sort((a, b) {
+      final av = a.invitedAt, bv = b.invitedAt;
+      if (av == null || bv == null) return 0;
+      return av.compareTo(bv);
+    });
 
     // ── 5) 全チーム（定義順）をスコア化して降順ソート ──
     final scores = [
@@ -566,7 +582,70 @@ class MilfolhaService {
       teams: scores,
       individualPoints: individual,
       individualRank: _rankMap(individual),
+      externalEntries: extEntries,
     );
+  }
+
+  /// 管理者パネル用: 期間内に招待で入ってきた**外部ユーザー**の明細を返す。
+  ///
+  /// [computeRanking] が持つ帰属情報（最古の招待者・そのチーム・招待日時・投稿日数）に、
+  /// `users` から取得した表示名を突き合わせたもの。ユーザー画面では使わない。
+  Future<List<MilfolhaExternalUser>> loadExternalUserReport() async {
+    final result = await computeRanking();
+    final entries = result.externalEntries;
+    if (entries.isEmpty) return const [];
+
+    // 外部ユーザー＋招待者の表示名をまとめて解決する（whereIn は 30 件上限）。
+    final uids = <String>{
+      for (final e in entries) ...[
+        e.uid,
+        if (e.ownerUid != null) e.ownerUid!,
+      ],
+    }.toList();
+    final names = <String, UserModel>{};
+    for (var i = 0; i < uids.length; i += 30) {
+      final chunk = uids.skip(i).take(30).toList();
+      try {
+        final snap = await _db
+            .collection('users')
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        for (final d in snap.docs) {
+          names[d.id] = UserModel.fromFirestore(d);
+        }
+      } catch (_) {
+        // 一部が引けなくても残りは表示する。
+      }
+    }
+
+    String label(String? uid) {
+      if (uid == null) return '不明';
+      final u = names[uid];
+      if (u == null) return '退会/不明 (${uid.substring(0, uid.length.clamp(0, 6))})';
+      if (u.name?.isNotEmpty == true) return u.name!;
+      if (u.username?.isNotEmpty == true) return '@${u.username}';
+      return uid;
+    }
+
+    // 定義に無いチームIDはそのまま表示する（別チーム名に化けないように）。
+    final teamNames = {
+      for (final t in MilfolhaTeamDefinitions.all) t.id: t.displayName,
+    };
+
+    return [
+      for (final e in entries)
+        MilfolhaExternalUser(
+          uid: e.uid,
+          displayName: label(e.uid),
+          username: names[e.uid]?.username,
+          teamId: e.teamId,
+          teamDisplayName: teamNames[e.teamId] ?? e.teamId,
+          inviterUid: e.ownerUid,
+          inviterDisplayName: label(e.ownerUid),
+          invitedAt: e.invitedAt,
+          postDays: e.postDays,
+        ),
+    ];
   }
 
   /// uid→ポイント を、ポイント降順の順位(1始まり)に変換。同点は同順位。
@@ -598,11 +677,72 @@ class MilfolhaRankingResult {
   /// uid → 個人ポイント順位（1始まり・同点同順位）。
   final Map<String, int> individualRank;
 
+  /// 期間内に招待経由で入ってきた外部ユーザーの明細（招待の古い順）。
+  /// 管理者パネル専用。表示名は [MilfolhaService.loadExternalUserReport] で解決する。
+  final List<MilfolhaExternalEntry> externalEntries;
+
   const MilfolhaRankingResult({
     required this.teams,
     required this.individualPoints,
     required this.individualRank,
+    this.externalEntries = const [],
   });
+}
+
+/// 外部ユーザー1人分の帰属情報（表示名解決前の生データ）。
+class MilfolhaExternalEntry {
+  /// 外部ユーザーの uid。
+  final String uid;
+
+  /// 最初にこの人を招待したメンバーの uid（＝ポイントの帰属先）。
+  final String? ownerUid;
+
+  /// 帰属チーム（最古の招待者のチーム）。
+  final String teamId;
+
+  /// 招待コードが使われた時刻（最古）。
+  final DateTime? invitedAt;
+
+  /// 期間内に投稿した日数（JST 暦日）。
+  final int postDays;
+
+  const MilfolhaExternalEntry({
+    required this.uid,
+    required this.ownerUid,
+    required this.teamId,
+    required this.invitedAt,
+    required this.postDays,
+  });
+
+  /// この外部ユーザーがチームにもたらしたポイント（登録 +3 ＋ 投稿 +5/日）。
+  int get points => 3 + postDays * 5;
+}
+
+/// 表示名まで解決した外部ユーザー（管理者パネル表示用）。
+class MilfolhaExternalUser {
+  final String uid;
+  final String displayName;
+  final String? username;
+  final String teamId;
+  final String teamDisplayName;
+  final String? inviterUid;
+  final String inviterDisplayName;
+  final DateTime? invitedAt;
+  final int postDays;
+
+  const MilfolhaExternalUser({
+    required this.uid,
+    required this.displayName,
+    required this.username,
+    required this.teamId,
+    required this.teamDisplayName,
+    required this.inviterUid,
+    required this.inviterDisplayName,
+    required this.invitedAt,
+    required this.postDays,
+  });
+
+  int get points => 3 + postDays * 5;
 }
 
 /// Milfolha イベント期間。未設定時は 2026-08-30 0:00〜2026-08-31 23:59 JST を既定とする。

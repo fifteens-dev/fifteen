@@ -1,6 +1,7 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'live_activity_service.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -185,6 +186,9 @@ class AuthService {
 
   // サインアウト
   Future<void> signOut() async {
+    // ロック画面に前ユーザーの Live Activity が残らないよう先に片付ける
+    // （サインアウト後は uid が取れず Firestore の後始末ができないため）。
+    await LiveActivityService().stop();
     await _auth.signOut();
   }
 

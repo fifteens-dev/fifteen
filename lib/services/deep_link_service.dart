@@ -11,6 +11,7 @@ import 'post_service.dart';
 /// Instagram Stories などの外部リンクから起動されたディープリンクを処理する
 ///
 /// fifteenapp://post/{postId} → PostDetailScreen を開いて音楽を自動再生
+/// fifteenapp://compose    → 投稿フローを開く（ロック画面の Live Activity から）
 ///
 /// iOS の処理フロー:
 ///   コールドスタート : AppDelegate が _pendingDeepLinkPostId に保存
@@ -29,6 +30,32 @@ class DeepLinkService {
   GlobalKey<NavigatorState>? _navigatorKey;
   String? _lastHandledPostId; // 二重処理防止
 
+  /// `fifteenapp://compose`（Live Activity の「投稿する」）を受けたときに
+  /// 投稿フローを開くためのハンドラ。HomeScreen が起動時に登録する。
+  VoidCallback? _composeHandler;
+
+  /// ハンドラ登録前（コールドスタート）に届いた compose を保持しておく。
+  bool _pendingCompose = false;
+
+  /// 投稿フローを開くハンドラを登録する。登録時に保留中の要求があれば消化する。
+  set composeHandler(VoidCallback? handler) {
+    _composeHandler = handler;
+    if (handler != null && _pendingCompose) {
+      _pendingCompose = false;
+      handler();
+    }
+  }
+
+  /// 投稿フローを開く要求を処理する。ハンドラ未登録なら保留する。
+  void _requestCompose() {
+    final handler = _composeHandler;
+    if (handler == null) {
+      _pendingCompose = true;
+      return;
+    }
+    handler();
+  }
+
   Future<void> initialize(GlobalKey<NavigatorState> navigatorKey) async {
     _navigatorKey = navigatorKey;
 
@@ -45,6 +72,17 @@ class DeepLinkService {
         }
       } catch (e) {
         if (kDebugMode) print('DeepLinkService getInitialPostId error: $e');
+      }
+
+      // 同上: Live Activity から起動されたときのアクション。
+      try {
+        final action = await _nativeChannel.invokeMethod<String>('getInitialAction');
+        if (action == 'compose') {
+          if (kDebugMode) print('DeepLinkService cold-start action: compose');
+          WidgetsBinding.instance.addPostFrameCallback((_) => _requestCompose());
+        }
+      } catch (e) {
+        if (kDebugMode) print('DeepLinkService getInitialAction error: $e');
       }
     } else {
       // Android: app_links でストリームを監視
@@ -77,6 +115,11 @@ class DeepLinkService {
   Future<void> _onNativeCall(MethodCall call) async {
     if (call.method == 'onDeepLink') {
       final args = call.arguments as Map?;
+      if (args?['action'] == 'compose') {
+        if (kDebugMode) print('DeepLinkService iOS onDeepLink: compose');
+        _requestCompose();
+        return;
+      }
       final postId = args?['postId'] as String?;
       if (postId != null && postId.isNotEmpty) {
         if (kDebugMode) print('DeepLinkService iOS onDeepLink: $postId');
@@ -88,9 +131,12 @@ class DeepLinkService {
   // Android: app_links から
   void _handleUri(Uri uri) {
     if (kDebugMode) print('DeepLinkService Android uri: $uri');
-    if (uri.scheme == 'fifteenapp' &&
-        uri.host == 'post' &&
-        uri.pathSegments.isNotEmpty) {
+    if (uri.scheme != 'fifteenapp') return;
+    if (uri.host == 'compose') {
+      _requestCompose();
+      return;
+    }
+    if (uri.host == 'post' && uri.pathSegments.isNotEmpty) {
       _openPost(uri.pathSegments.first);
     }
   }

@@ -1,4 +1,6 @@
 import 'dart:math';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track_model.dart';
 import '../models/music_service_type.dart';
@@ -46,6 +48,81 @@ class MusicServiceManager {
     _selectedService = service;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_selectedServiceKey, service.toString());
+    await syncSelectedServiceToProfile(service);
+  }
+
+  /// 「このユーザーは既にスタンプ済み」を端末に覚えておくキー。
+  /// 値は uid。アカウントを切り替えたら一致しなくなるので再スタンプされる。
+  static const String _stampedUidKey = 'music_service_stamped_uid';
+
+  /// 選択中サービスを `users/{uid}` に「連携スタンプ」として刻む。
+  ///
+  /// 端末ローカル(SharedPreferences)にしか無い選択を Firestore にも残し、
+  /// 管理者パネルが**確実に**利用サービスを追えるようにする。
+  ///
+  /// 記録する項目:
+  /// - `musicService`            現在の連携先（appleMusic / spotify / none）
+  /// - `musicServiceUpdatedAt`   最後にスタンプした時刻
+  /// - `musicServiceFirst(At)`   最初に記録した連携先とその時刻
+  /// - `musicServicePrevious`    直前の連携先（乗り換えたときだけ）
+  /// - `musicServiceChangedAt`   直近の乗り換え時刻
+  /// - `musicServiceSwitchCount` 乗り換え回数
+  /// - `musicServiceHistory`     `{service, at}` の履歴
+  ///
+  /// # 呼ばれ方と負荷
+  /// - **連携操作時**（[setSelectedService] 経由で [service] 付き）: 必ず刻む。
+  /// - **アプリ起動時**（引数なし）: そのユーザーを**まだ一度も刻んでいないときだけ**
+  ///   実行する。一度刻めば端末に記録が残り、以降の起動では Firestore に
+  ///   一切アクセスしない。既存ユーザーの取りこぼしを埋め終わったあとは
+  ///   実質「連携操作時のみ」に収束する（切り替え作業も再リリースも不要）。
+  ///
+  /// 失敗は無視する（集計用のメタデータであり、機能には影響しないため）。
+  Future<void> syncSelectedServiceToProfile([MusicServiceType? service]) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    // 引数ありは連携操作、無しは起動時のバックフィル。
+    final isExplicit = service != null;
+    final prefs = await SharedPreferences.getInstance();
+    if (!isExplicit && prefs.getString(_stampedUidKey) == uid) return;
+
+    final s = service ?? await getSelectedService();
+    final key = s.storageKey;
+
+    try {
+      final ref = FirebaseFirestore.instance.collection('users').doc(uid);
+      final snap = await ref.get();
+      final previous = snap.data()?['musicService'] as String?;
+
+      if (previous == key) {
+        // 変化なし。最終確認時刻だけ更新する。
+        await ref.set({
+          'musicServiceUpdatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } else {
+        final updates = <String, dynamic>{
+          'musicService': key,
+          'musicServiceUpdatedAt': FieldValue.serverTimestamp(),
+          // arrayUnion の中では serverTimestamp が使えないのでクライアント時刻。
+          'musicServiceHistory': FieldValue.arrayUnion([
+            {'service': key, 'at': Timestamp.now()}
+          ]),
+        };
+        if (previous == null) {
+          // 初回スタンプ。乗り換えではないので previous / changedAt は付けない。
+          updates['musicServiceFirst'] = key;
+          updates['musicServiceFirstAt'] = FieldValue.serverTimestamp();
+        } else {
+          updates['musicServicePrevious'] = previous;
+          updates['musicServiceChangedAt'] = FieldValue.serverTimestamp();
+          updates['musicServiceSwitchCount'] = FieldValue.increment(1);
+        }
+        await ref.set(updates, SetOptions(merge: true));
+      }
+
+      // 成功したときだけ記録する。失敗したら次の起動で再試行される。
+      await prefs.setString(_stampedUidKey, uid);
+    } catch (_) {}
   }
 
   /// 選択されているサービスでログイン

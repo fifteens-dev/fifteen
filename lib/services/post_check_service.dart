@@ -125,6 +125,37 @@ class PostCheckService {
     }
   }
 
+  /// フォロー中のユーザーの誰かが、現サイクルで投稿しているか。
+  ///
+  /// Live Activity の「まだ投稿していません」→「友達があなたを待っています」
+  /// の切り替え判定に使う。件数は要らないので、1 件見つかった時点で打ち切る。
+  Future<bool> hasFollowingPostedInCurrentCycle(List<String> followingIds) async {
+    if (followingIds.isEmpty) return false;
+    final cutoff = MusicMemoryCycleService().currentCycleStart;
+    try {
+      for (var i = 0; i < followingIds.length; i += 30) {
+        final batch = followingIds.skip(i).take(30).toList();
+        final snapshot = await _firestore
+            .collection(_postsCollection)
+            .where('userId', whereIn: batch)
+            .where('createdAt', isGreaterThan: Timestamp.fromDate(cutoff))
+            .orderBy('createdAt', descending: true)
+            .limit(5)
+            .get();
+        final hit = snapshot.docs.any((d) {
+          final m = d.data();
+          return m['isDummyPost'] != true && m['isVibe'] != true;
+        });
+        if (hit) return true;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error checking following posts in cycle: $e');
+      }
+    }
+    return false;
+  }
+
   /// 特定ユーザーの今日の投稿を取得
   Future<List<PostModel>> getTodaysPosts(String userId) async {
     try {

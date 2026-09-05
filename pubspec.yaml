@@ -172,6 +172,11 @@ flutter:
     - assets/profile_images/sana.png
     - assets/profile_images/mina.png
     - assets/profile_images/momo.png
+    # 友達追加シートの共有先アイコン（Figma 5539:11181 から書き出し）
+    - assets/icons/share/line.png
+    - assets/icons/share/instagram.svg
+    - assets/icons/share/x.jpg
+    - assets/icons/share/other.svg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

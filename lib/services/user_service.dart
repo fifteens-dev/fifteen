@@ -242,17 +242,19 @@ class UserService {
   /// [limit] 取得する最大件数（デフォルト: 20）
   ///
   /// Returns: 検索結果のUserModelリスト
+  /// ユーザーを検索する。**表示名(name) と ユーザーID(username) の両方**が対象。
+  ///
+  /// Firestore は 1 クエリで複数フィールドの前方一致 OR を扱えないため、
+  /// フィールドごと・大文字小文字のケース variant ごとに範囲検索を投げ、
+  /// uid でマージしてからクライアント側で contains 絞り込みをかける。
   Future<List<UserModel>> searchUsers({
     required String query,
     int limit = 20,
   }) async {
     try {
-      // 空のクエリは早期リターン
-      if (query.trim().isEmpty) {
-        return [];
-      }
-
       final trimmed = query.trim();
+      if (trimmed.isEmpty) return [];
+
       final searchTerm = trimmed.toLowerCase();
 
       // Firestore の文字列比較はバイト単位で大文字小文字を区別する。
@@ -271,21 +273,25 @@ class UserService {
       }
 
       final merged = <String, UserModel>{};
-      for (final v in variants) {
-        final endTerm = '$v\uf8ff';
-        try {
-          final snap = await _firestore
-              .collection(_usersCollection)
-              .where('username', isGreaterThanOrEqualTo: v)
-              .where('username', isLessThanOrEqualTo: endTerm)
-              .limit(limit * 2)
-              .get();
-          for (final doc in snap.docs) {
-            merged.putIfAbsent(doc.id, () => UserModel.fromFirestore(doc));
-          }
-        } catch (e) {
-          if (kDebugMode) {
-            print('⚠️ variant "$v" query failed: $e');
+      // username（ユーザーID）と name（表示名）の両方を前方一致で引く。
+      for (final field in const ['username', 'name']) {
+        for (final v in variants) {
+          // \uf8ff は Unicode 私用領域の末尾。前方一致の上限に使う。
+          final endTerm = '$v\uf8ff';
+          try {
+            final snap = await _firestore
+                .collection(_usersCollection)
+                .where(field, isGreaterThanOrEqualTo: v)
+                .where(field, isLessThanOrEqualTo: endTerm)
+                .limit(limit * 2)
+                .get();
+            for (final doc in snap.docs) {
+              merged.putIfAbsent(doc.id, () => UserModel.fromFirestore(doc));
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              print('⚠️ $field query for "$v" failed: $e');
+            }
           }
         }
       }
@@ -294,12 +300,31 @@ class UserService {
         print('📥 Merged ${merged.length} unique users across variants');
       }
 
-      // クライアント側の case-insensitive contains フィルタで再確認
-      final users = merged.values.where((user) {
+      // クライアント側の case-insensitive contains フィルタで再確認。
+      // 前方一致（先頭からの入力）を上に、途中一致を下に並べる。
+      final matched = merged.values.where((user) {
         final username = (user.username ?? '').toLowerCase();
         final name = (user.name ?? '').toLowerCase();
         return username.contains(searchTerm) || name.contains(searchTerm);
-      }).take(limit).toList();
+      }).toList();
+
+      int rank(UserModel u) {
+        final username = (u.username ?? '').toLowerCase();
+        final name = (u.name ?? '').toLowerCase();
+        if (username == searchTerm || name == searchTerm) return 0;
+        if (username.startsWith(searchTerm) || name.startsWith(searchTerm)) {
+          return 1;
+        }
+        return 2;
+      }
+
+      matched.sort((a, b) {
+        final r = rank(a).compareTo(rank(b));
+        if (r != 0) return r;
+        return (a.username ?? '').compareTo(b.username ?? '');
+      });
+
+      final users = matched.take(limit).toList();
 
       if (kDebugMode) {
         print('✅ Filtered to ${users.length} matching users');

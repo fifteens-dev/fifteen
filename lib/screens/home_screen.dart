@@ -35,7 +35,7 @@ import '../widgets/campus_vibe_card.dart';
 import '../providers/current_user_provider.dart';
 import 'comment_screen.dart';
 import 'profile_screen.dart';
-import 'search_screen.dart';
+import 'friend_add_sheet.dart';
 import 'music_selection_screen.dart';
 import 'music_memory_month_screen.dart';
 import 'post_flow/music_memory_modal.dart';
@@ -869,7 +869,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
             ),
-            // 左上: 友達追加ボタン（遷移先UIは作成中のため現状はトースト表示）。
+            // 左上: 友達追加ボタン → 友達追加シート（Figma 5539:11181）。
             // Figma 5189:11175: グリフ箱 42×29 @x=23。素材は4x書き出しのタイト画像
             // (155×102) なので実寸 38.75×25.5。ヘッダー左padding16を差し引き left=8。
             Positioned(
@@ -880,12 +880,7 @@ class _HomeScreenState extends State<HomeScreen>
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
                   _homeAudioService.stop();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const SearchScreen(showBackButton: true),
-                    ),
-                  );
+                  FriendAddSheet.show(context);
                 },
                 child: Center(
                   child: Image.asset(

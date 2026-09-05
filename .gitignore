@@ -113,3 +113,6 @@ coverage/
 # 負荷テスト用スクリプト（ハードコード認証情報を含む）
 scripts/load_test.js
 scripts/load_test_data_setup.js
+
+# 片方向フォロー相互化のロールバック用バックアップ（社会グラフを含む）
+scripts/mutualize_follows_backup.json

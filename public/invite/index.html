@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Fifteensに招待されました</title>
+
+  <meta property="og:title" content="Fifteensに招待されました">
+  <meta property="og:description" content="音楽と写真で「今日」をシェアするSNS。招待コードで友達として繋がれます。">
+  <meta property="og:site_name" content="Fifteens">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+      background: #111111;
+      color: #ffffff;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 360px;
+      background: #1c1c1e;
+      border-radius: 20px;
+      padding: 40px 32px 36px;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .logo { font-size: 52px; font-weight: 700; letter-spacing: -1px; }
+    .app-name { font-size: 15px; color: #8e8e93; margin-top: 4px; }
+    .message { font-size: 15px; line-height: 1.7; margin-top: 24px; color: #d7d7d9; }
+
+    .code-label { font-size: 12px; color: #8e8e93; margin-top: 28px; }
+    .code {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .copied { font-size: 12px; color: #4cc764; margin-top: 8px; min-height: 16px; }
+
+    .btn {
+      display: block;
+      width: 100%;
+      margin-top: 12px;
+      padding: 15px;
+      border-radius: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .store-btn { background: #ffffff; color: #111111; margin-top: 24px; }
+    .open-btn  { background: #2c2c2e; color: #ffffff; }
+    .copy-btn  { background: transparent; color: #8e8e93; font-size: 13px; padding: 10px; }
+
+    .hint { font-size: 12px; color: #555; margin-top: 22px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">15s</div>
+    <div class="app-name">Fifteens</div>
+
+    <p class="message" id="message">友達があなたを Fifteens に招待しました。</p>
+
+    <div id="codeBlock" style="display:none">
+      <div class="code-label">招待コード</div>
+      <div class="code" id="code">-</div>
+      <div class="copied" id="copied"></div>
+      <button class="btn copy-btn" id="copyBtn" type="button">コードをコピー</button>
+    </div>
+
+    <a class="btn store-btn" id="storeBtn"
+       href="https://apps.apple.com/jp/app/id6741791979"
+       target="_blank" rel="noopener">App Storeでダウンロード</a>
+    <a class="btn open-btn" id="openBtn" href="fifteenapp://">アプリを持っている方はこちら</a>
+
+    <p class="hint" id="hint">
+      アプリを開いたら、招待コードの入力画面でこのコードを貼り付けてください。<br>
+      入力すると招待した友達と自動でつながります。
+    </p>
+  </div>
+
+  <script>
+    (function () {
+      var STORE_URL = 'https://apps.apple.com/jp/app/id6741791979';
+
+      // 招待コードは ?code=XXXX。念のため #code=XXXX と /invite/XXXX も拾う。
+      function readCode() {
+        var q = new URLSearchParams(window.location.search).get('code');
+        if (q) return q;
+        var h = (window.location.hash || '').replace(/^#/, '');
+        var m = /(?:^|&)code=([^&]+)/.exec(h);
+        if (m) return decodeURIComponent(m[1]);
+        var seg = window.location.pathname.split('/').filter(Boolean).pop();
+        if (seg && seg.toLowerCase() !== 'invite') return seg;
+        return null;
+      }
+
+      var code = (readCode() || '').trim().toUpperCase();
+      var codeEl = document.getElementById('code');
+      var copiedEl = document.getElementById('copied');
+
+      if (code) {
+        document.getElementById('codeBlock').style.display = 'block';
+        codeEl.textContent = code;
+        // アプリ側は起動時にクリップボードの招待コードを拾って入力欄に入れる。
+        // 自動コピーはブラウザによって拒否されるので、失敗しても黙って諦める。
+        copy(true);
+      } else {
+        document.getElementById('message').textContent =
+          '招待コードが読み取れませんでした。送ってくれた友達にリンクをもう一度確認してください。';
+        document.getElementById('hint').style.display = 'none';
+      }
+
+      function copy(silent) {
+        if (!code) return;
+        var done = function () {
+          copiedEl.textContent = 'コードをコピーしました';
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(done).catch(function () {
+            if (!silent) fallbackCopy(done);
+          });
+        } else if (!silent) {
+          fallbackCopy(done);
+        }
+      }
+
+      function fallbackCopy(done) {
+        var ta = document.createElement('textarea');
+        ta.value = code;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) { /* noop */ }
+        document.body.removeChild(ta);
+      }
+
+      document.getElementById('copyBtn').addEventListener('click', function () {
+        copy(false);
+      });
+
+      // App Store へ送るときもコードを保持する（戻ってきた人向け）。
+      document.getElementById('storeBtn').addEventListener('click', function () {
+        copy(true);
+      });
+
+      // 既にアプリを持っている人はそのまま起動する。
+      document.getElementById('openBtn').addEventListener('click', function (e) {
+        e.preventDefault();
+        copy(true);
+        window.location.href = 'fifteenapp://invite/' + encodeURIComponent(code);
+        setTimeout(function () { window.location.href = STORE_URL; }, 1200);
+      });
+    })();
+  </script>
+</body>
+</html>

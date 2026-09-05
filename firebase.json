@@ -12,6 +12,10 @@
       {
         "source": "/post/**",
         "destination": "/post/index.html"
+      },
+      {
+        "source": "/invite/**",
+        "destination": "/invite/index.html"
       }
     ]
   },

@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
@@ -51,6 +52,24 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       }
     } catch (_) {}
     if (mounted) setState(() => _isLoading = false);
+    await _prefillFromClipboard();
+  }
+
+  /// 招待リンク（fifteens-39cfe.web.app/invite/?code=XXXX）からインストールした人向け。
+  /// ランディングページが招待コードをクリップボードに入れるので、それを拾って
+  /// 入力欄に流し込む。形式が招待コードに一致しないときは何もしない。
+  Future<void> _prefillFromClipboard() async {
+    if (_inviteCodeController.text.isNotEmpty) return;
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = (data?.text ?? '').trim().toUpperCase();
+      // 招待コードは紛らわしい文字を除いた英数 7 桁（UserService._generateInviteCode）。
+      if (!RegExp(r'^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{7}$').hasMatch(text)) {
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _inviteCodeController.text = text);
+    } catch (_) {}
   }
 
   @override
@@ -148,7 +167,9 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
         return;
       }
 
-      // 招待コードを使用済みにし、コードオーナーをフォロー
+      // 招待コードを使用済みにし、コードオーナーと**相互フォロー**にする。
+      // 友達は相互フォローで定義しているため、片方向だと招待した側にも
+      // された側にも相手が友達として出ない。招待は双方の合意とみなして両方向を張る。
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
         final ownerUid =
@@ -158,6 +179,11 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
           _userService.followUser(
             currentUserId: uid,
             targetUserId: ownerUid,
+            skipNotification: true,
+          ).catchError((_) {});
+          _userService.followUser(
+            currentUserId: ownerUid,
+            targetUserId: uid,
             skipNotification: true,
           ).catchError((_) {});
           SharedPreferences.getInstance().then((prefs) {

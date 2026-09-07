@@ -105,6 +105,13 @@ final class LiveActivityChannel: NSObject {
         case "getPushToStartToken":
             getPushToStartToken(result: result)
 
+        case "syncPushToStartToken":
+            // フォアグラウンド復帰のたびに現在値を送り直し、閉じている間の
+            // トークン更新を取りこぼさないようにする。
+            emitCurrentPushToStartToken()
+            observeActivities()
+            result(true)
+
         case "currentActivity":
             guard #available(iOS 16.1, *) else { result(nil); return }
             result(currentActivityInfo())
@@ -289,8 +296,14 @@ final class LiveActivityChannel: NSObject {
     }
 
     /// push-to-start トークン（iOS 17.2+）。通知と同時にサーバから開始するために使う。
+    ///
+    /// `pushToStartTokenUpdates` は **既に発行済みのトークンを再送しないことがある**。
+    /// 起動のたびに購読するだけだと、アプリが閉じている間にトークンが変わっても
+    /// 気づけず、サーバは古いトークンに送り続ける（APNs は受理して 200 を返すが
+    /// 端末には何も出ない）。そのため購読の前に現在値を必ず 1 回送る。
     private func observePushToStartToken() {
         guard #available(iOS 17.2, *) else { return }
+        emitCurrentPushToStartToken()
         pushToStartObserver?.cancel()
         pushToStartObserver = Task { [weak self] in
             for await data in Activity<MusicMemoryActivityAttributes>.pushToStartTokenUpdates {
@@ -300,6 +313,14 @@ final class LiveActivityChannel: NSObject {
                 }
             }
         }
+    }
+
+    /// 現在の push-to-start トークンを Flutter へ送る（保存済みと同じなら Dart 側で握り潰す）。
+    private func emitCurrentPushToStartToken() {
+        guard #available(iOS 17.2, *) else { return }
+        guard let data = Activity<MusicMemoryActivityAttributes>.pushToStartToken else { return }
+        let token = data.map { String(format: "%02x", $0) }.joined()
+        channel?.invokeMethod("onPushToStartToken", arguments: ["token": token])
     }
 
     private func getPushToStartToken(result: @escaping FlutterResult) {

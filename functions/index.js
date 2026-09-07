@@ -251,13 +251,41 @@ exports.musicMemoryDailyNotification = onSchedule(
       if (ops > 0) batches.push(batch.commit());
       await Promise.all(batches);
 
-      const res = await broadcastPush(db, targetUserIds, {
+      // ロック画面の Live Activity を push-to-start（iOS 17.2+）。
+      // FCM より先に送る。push-to-start の alert が当日の通知を兼ねるため、
+      // 届いた人には FCM を送らず二重通知を防ぐ。
+      // サイクル境界はアプリと同じ notifiedAt を使う（serverTimestamp の確定値を読み直す）。
+      // 送信先は上で取得済みの usersSnapshot から組み立て、users を再読込しない。
+      let liveActivityDelivered = new Set();
+      try {
+        const stateSnapForPush = await stateRef.get();
+        const notifiedAtForPush =
+          stateSnapForPush.data()?.notifiedAt?.toDate?.() || now;
+        const laTargets = usersSnapshot.docs
+          .filter(
+            (d) =>
+              d.data().notifVibeEnabled !== false &&
+              d.data().liveActivityPushToStartToken
+          )
+          .map((d) => ({ uid: d.id, token: d.data().liveActivityPushToStartToken }));
+        const laResult = await startLiveActivitiesForCycle(
+          db, laTargets, notifiedAtForPush
+        );
+        liveActivityDelivered = laResult.deliveredTo;
+      } catch (e) {
+        console.error('startLiveActivitiesForCycle error:', e);
+      }
+
+      const fcmTargets = targetUserIds.filter((uid) => !liveActivityDelivered.has(uid));
+      const res = await broadcastPush(db, fcmTargets, {
         title: MM_NOTIF_TITLE,
         body: MM_NOTIF_BODY,
         data: { notificationType: 'music_memory', click_action: 'FLUTTER_NOTIFICATION_CLICK' },
       });
       console.log(
-        `musicMemoryDailyNotification fired for ${dateKey}: users=${targetUserIds.length}, fcm success=${res.success}, failure=${res.failure}`
+        `musicMemoryDailyNotification fired for ${dateKey}: users=${targetUserIds.length}, ` +
+        `liveActivity=${liveActivityDelivered.size}, fcm targets=${fcmTargets.length} ` +
+        `success=${res.success}, failure=${res.failure}`
       );
 
       // 「15s Day」の境界履歴を残す。集計（DAU / 新規登録 / 投稿 / 継続率）は
@@ -280,23 +308,6 @@ exports.musicMemoryDailyNotification = onSchedule(
         console.error('music_memory_cycles write error:', e);
       }
 
-      // ロック画面の Live Activity を push-to-start（iOS 17.2+）。
-      // サイクル境界はアプリと同じ notifiedAt を使う（serverTimestamp の確定値を読み直す）。
-      // 送信先は上で取得済みの usersSnapshot から組み立て、users を再読込しない。
-      try {
-        const stateSnap = await stateRef.get();
-        const notifiedAt = stateSnap.data()?.notifiedAt?.toDate?.() || now;
-        const laTargets = usersSnapshot.docs
-          .filter(
-            (d) =>
-              d.data().notifVibeEnabled !== false &&
-              d.data().liveActivityPushToStartToken
-          )
-          .map((d) => ({ uid: d.id, token: d.data().liveActivityPushToStartToken }));
-        await startLiveActivitiesForCycle(db, laTargets, notifiedAt);
-      } catch (e) {
-        console.error('startLiveActivitiesForCycle error:', e);
-      }
     } catch (error) {
       console.error('musicMemoryDailyNotification error:', error);
     }
@@ -2944,15 +2955,23 @@ function liveActivityContentState(phase, deadline) {
  * トークンを持たない（未対応 OS・未起動）ユーザーはスキップされ、アプリ側の
  * ローカル開始にフォールバックする。
  *
+ * `event: "start"` の push は **alert を含めないと iOS が Live Activity を
+ * 起動しない**（APNs は 200 を返すため、送信ログ上は成功に見える）。
+ * そのため通知本文と同じ alert を必ず載せる。
+ *
  * @param {Array<{uid: string, token: string}>} targets 送信先。呼び出し元が
  *   既に読み込み済みの users ドキュメントから組み立てて渡す（再読込しない）。
+ * @returns {{sent: number, failed: number, deliveredTo: Set<string>}}
+ *   deliveredTo は APNs に受理された uid。呼び出し元はこの人たちへの
+ *   FCM 通知を省いて二重通知を防ぐ。
  */
 async function startLiveActivitiesForCycle(db, targets, cycleStart) {
+  const deliveredTo = new Set();
   if (!apns.isConfigured()) {
     console.log('liveActivity: APNs 未設定のため push-to-start をスキップ');
-    return { sent: 0, failed: 0 };
+    return { sent: 0, failed: 0, deliveredTo };
   }
-  if (targets.length === 0) return { sent: 0, failed: 0 };
+  if (targets.length === 0) return { sent: 0, failed: 0, deliveredTo };
 
   const deadline = liveActivityDeadline(cycleStart);
   const attributes = { cycleStartEpoch: Math.floor(cycleStart.getTime() / 1000) };
@@ -2969,9 +2988,13 @@ async function startLiveActivitiesForCycle(db, targets, cycleStart) {
       chunk.map(async ({ uid, token }) => {
         const res = await apns.startLiveActivity(token, attributes, contentState, {
           staleEpoch,
+          // alert が無いと iOS が Live Activity を起動しない。
+          // これが当日の通知そのものになるので、FCM と同じ文言にする。
+          alert: { title: MM_NOTIF_TITLE, body: MM_NOTIF_BODY },
         });
         if (res.ok) {
           sent++;
+          deliveredTo.add(uid);
           // アプリが起動していなくても状態を追えるよう先に書いておく。
           // update token はアプリ / OS から届き次第 pushToken で上書きされる。
           await db.collection(LIVE_ACTIVITIES_COLLECTION).doc(uid).set(
@@ -3005,7 +3028,7 @@ async function startLiveActivitiesForCycle(db, targets, cycleStart) {
     );
   }
   console.log(`liveActivity push-to-start: sent=${sent} failed=${failed}`);
-  return { sent, failed };
+  return { sent, failed, deliveredTo };
 }
 
 /**

@@ -50,6 +50,10 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
   static const Color _posted = Color(0xFF4CC764); // 今日投稿済みのリング
   static const Color _notPosted = Color(0xFF5A5A5A); // 未投稿のリング
 
+  // 共有アイコン（Figma 5539:11200）: 58px の円に 2px ボーダー、中身は 50px。
+  static const double _iconOuter = 58;
+  static const double _iconInner = 50;
+
   final FriendService _friendService = FriendService();
   final UserService _userService = UserService();
   final TextEditingController _searchController = TextEditingController();
@@ -73,6 +77,10 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
 
   /// 「追加」を押した相手（ボタンの見た目を即時に切り替えるための楽観 UI）。
   final Set<String> _requested = {};
+
+  /// 友達一覧を全件出しているか。既定は [_friendsPreviewCount] 件だけ見せる。
+  bool _friendsExpanded = false;
+  static const int _friendsPreviewCount = 2;
 
   @override
   void initState() {
@@ -363,8 +371,13 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
         const SizedBox(height: 8),
         if (_friends.isEmpty)
           _emptyNote('まだ友達がいません。上のリンクから招待してみましょう。')
-        else
-          ..._friends.map(_friendRow),
+        else ...[
+          ...(_friendsExpanded
+                  ? _friends
+                  : _friends.take(_friendsPreviewCount))
+              .map(_friendRow),
+          if (_friends.length > _friendsPreviewCount) _friendsToggle(),
+        ],
         if (_suggestions.isNotEmpty) ...[
           const SizedBox(height: 22),
           const Padding(
@@ -388,6 +401,39 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
           ),
         ],
       ],
+    );
+  }
+
+  /// 「もっと見る」/「閉じる」。友達が多いときにシートが縦に伸びすぎるのを防ぐ。
+  Widget _friendsToggle() {
+    final hidden = _friends.length - _friendsPreviewCount;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(() => _friendsExpanded = !_friendsExpanded),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(5, 6, 5, 6),
+        child: Row(
+          children: [
+            // 友達アイコン（60px）＋間隔（22px）に合わせて文字位置を揃える。
+            const SizedBox(width: 82),
+            Text(
+              _friendsExpanded ? '閉じる' : 'もっと見る（他 $hidden 人）',
+              style: const TextStyle(
+                color: Color(0xFF9F9F9F),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                fontFamily: kSfProRounded,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              _friendsExpanded ? Icons.expand_less : Icons.expand_more,
+              size: 18,
+              color: const Color(0xFF9F9F9F),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -501,41 +547,57 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
           _shareItem(
             label: 'LINE',
             target: _ShareTarget.line,
-            child: ClipOval(
-              child: Image.asset('assets/icons/share/line.png',
-                  width: 58, height: 58, fit: BoxFit.cover),
+            child: _ringedIcon(
+              ring: const Color(0xFF4CC764),
+              child: ClipOval(
+                child: Image.asset('assets/icons/share/line.png',
+                    width: _iconInner, height: _iconInner, fit: BoxFit.cover),
+              ),
             ),
           ),
           _shareItem(
             label: 'Instagram',
             target: _ShareTarget.instagram,
+            // Instagram の素材は 58px で自前の円を持っているのでリングを重ねない。
             child: SvgPicture.asset('assets/icons/share/instagram.svg',
-                width: 58, height: 58),
+                width: _iconOuter, height: _iconOuter),
           ),
           _shareItem(
             label: 'X',
             target: _ShareTarget.x,
-            child: Container(
-              width: 58,
-              height: 58,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.black,
-              ),
+            child: _ringedIcon(
+              ring: const Color(0xFF080808),
               child: ClipOval(
                 child: Image.asset('assets/icons/share/x.jpg',
-                    width: 58, height: 58, fit: BoxFit.cover),
+                    width: _iconInner, height: _iconInner, fit: BoxFit.cover),
               ),
             ),
           ),
           _shareItem(
             label: 'その他',
             target: _ShareTarget.other,
-            child: SvgPicture.asset('assets/icons/share/other.svg',
-                width: 58, height: 58),
+            child: _ringedIcon(
+              ring: const Color(0xFF3E3E3D),
+              child: SvgPicture.asset('assets/icons/share/other.svg',
+                  width: _iconInner, height: _iconInner),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  /// 共有アイコンの外周リング（Figma 5539:11200）。
+  /// 58px の円に 2px のボーダーを引き、中に 50px のアイコンを中央寄せする。
+  Widget _ringedIcon({required Color ring, required Widget child}) {
+    return Container(
+      width: _iconOuter,
+      height: _iconOuter,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: ring, width: 2),
+      ),
+      child: Center(child: child),
     );
   }
 

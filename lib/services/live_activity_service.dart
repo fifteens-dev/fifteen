@@ -110,6 +110,11 @@ class LiveActivityService {
 
     _refreshing = true;
     try {
+      // 閉じている間に push-to-start トークンが変わっていることがある。
+      // サーバが古いトークンに送り続けると APNs は 200 を返すのに端末には
+      // 何も出ないため、フォアグラウンドのたびに現在値を送り直す。
+      await _syncPushToStartToken();
+
       final cycleStart = await _cycle.fetchNotifiedAt();
       // 通知がまだ来ていないサイクルでは何も出さない。
       if (cycleStart == null) {
@@ -265,6 +270,14 @@ class LiveActivityService {
     }
   }
 
+  /// ネイティブに現在の push-to-start トークンを送り直させる。
+  /// 結果は `onPushToStartToken` として返ってくる。
+  Future<void> _syncPushToStartToken() async {
+    try {
+      await _channel.invokeMethod('syncPushToStartToken');
+    } catch (_) {}
+  }
+
   Future<void> _saveUpdateToken(String? token, String? activityId) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || token == null || token.isEmpty) return;
@@ -284,10 +297,15 @@ class LiveActivityService {
     }
   }
 
+  /// 直近に Firestore へ書いた push-to-start トークン。同じ値の再書き込みを防ぐ。
+  String? _lastSavedPushToStartToken;
+
   /// push-to-start トークン（iOS 17.2+）。通知と同時にサーバから開始するのに使う。
   Future<void> _savePushToStartToken(String? token) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || token == null || token.isEmpty) return;
+    if (_lastSavedPushToStartToken == token) return;
+    _lastSavedPushToStartToken = token;
     try {
       await FirebaseFirestore.instance.collection('users').doc(uid).set({
         'liveActivityPushToStartToken': token,

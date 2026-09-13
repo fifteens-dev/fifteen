@@ -160,8 +160,8 @@ async function broadcastPush(db, userIds, { title, body, data }) {
 const MM_STATE_REF_PATH = 'music_memory_state/current';
 /** 「15s Day」の境界（各日の通知発火時刻）の履歴。ドキュメントID = JST の日付キー。 */
 const MM_CYCLES_COLLECTION = 'music_memory_cycles';
-const MM_WINDOW_START_MIN = 19 * 60;      // 19:00
-const MM_WINDOW_END_MIN = 23 * 60 + 30;   // 23:30
+/** 通知の発火時刻（JST）。以前は 19:00〜23:30 のランダムだったが 21:00 固定にした。 */
+const MM_FIRE_MIN = 21 * 60;              // 21:00
 const MM_NOTIF_TITLE = '🎵 Music Memoryの時間です。';
 const MM_NOTIF_BODY = '25:00までに投稿すると、友達の今日が見られます。';
 
@@ -172,7 +172,6 @@ exports.musicMemoryDailyNotification = onSchedule(
     const now = new Date();
     const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
     const dateKey = `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, '0')}-${String(jst.getUTCDate()).padStart(2, '0')}`;
-    const jstMinutes = jst.getUTCHours() * 60 + jst.getUTCMinutes();
     const jstDayStartUtc = jstDayStartFor(now); // JST 00:00 に対応する UTC Date
     const stateRef = db.doc(MM_STATE_REF_PATH);
 
@@ -183,19 +182,15 @@ exports.musicMemoryDailyNotification = onSchedule(
         const s = snap.exists ? snap.data() : {};
         const updates = {};
 
-        // (1) 当日の発火時刻が未決なら、19:00〜23:30 の 5 分刻みからランダムに決定。
-        //     過去スロットは避けるため現在時刻以降のスロットから選ぶ。
+        // (1) 当日の発火時刻は 21:00 固定。
+        //     手動で scheduledFor を差し替えた日はそれを尊重する
+        //     （scheduleDate が当日なら再設定しない）。
         let scheduledForTs = s.scheduleDate === dateKey ? s.scheduledFor : null;
-        if (!scheduledForTs && jstMinutes <= MM_WINDOW_END_MIN) {
-          const startSlot = Math.max(MM_WINDOW_START_MIN, Math.ceil(jstMinutes / 5) * 5);
-          if (startSlot <= MM_WINDOW_END_MIN) {
-            const nSlots = Math.floor((MM_WINDOW_END_MIN - startSlot) / 5) + 1;
-            const pickMin = startSlot + 5 * Math.floor(Math.random() * nSlots);
-            const fireDate = new Date(jstDayStartUtc.getTime() + pickMin * 60 * 1000);
-            scheduledForTs = admin.firestore.Timestamp.fromDate(fireDate);
-            updates.scheduleDate = dateKey;
-            updates.scheduledFor = scheduledForTs;
-          }
+        if (!scheduledForTs) {
+          const fireDate = new Date(jstDayStartUtc.getTime() + MM_FIRE_MIN * 60 * 1000);
+          scheduledForTs = admin.firestore.Timestamp.fromDate(fireDate);
+          updates.scheduleDate = dateKey;
+          updates.scheduledFor = scheduledForTs;
         }
 
         // (2) 予約時刻を過ぎており、当日未送信なら発火を確定。

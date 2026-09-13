@@ -7,7 +7,9 @@ import '../services/apple_music_service.dart';
 import '../services/musickit_service.dart';
 import '../models/music_service_type.dart';
 import '../widgets/dialogs/bottom_sheet_dialog.dart';
+import '../services/friend_service.dart';
 import 'home_screen.dart';
+import 'onboarding_friends_screen.dart';
 import '../widgets/common/app_toast.dart';
 // チュートリアルを表示しないため import を無効化
 // import '../tutorial/tutorial.dart';
@@ -373,12 +375,45 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen>
 
   /// ホームへ遷移。右からスライドではなく、上に重なっている音楽サービス連携の
   /// 幕がフェードアウトしてホームが現れる演出にする。
+  ///
+  /// 同じ人の招待で入ったユーザーが居る場合は、ホームの前に「知り合いかも」を
+  /// 1 枚挟む（候補が 0 人なら挟まずそのままホームへ）。
   Future<void> _goToHome() async {
     if (!mounted) return;
-    // 幕をフェードアウト（背景のHomeScreenが徐々に不透明になる）
+
+    // 候補の取得は幕のフェードと並行させて待ち時間を作らない。
+    final candidatesFuture = OnboardingFriendsScreen.loadCandidates();
     await _fadeController.forward();
     if (!mounted) return;
-    // 視覚的にはホームが既に見えているので、遷移は瞬時に行う（スライドなし）
+
+    List<FriendSuggestion> candidates = const [];
+    try {
+      candidates = await candidatesFuture;
+    } catch (_) {
+      // 取得に失敗してもオンボーディングは止めない。
+    }
+    if (!mounted) return;
+
+    if (candidates.isEmpty) {
+      _replaceWithHome();
+      return;
+    }
+
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => OnboardingFriendsScreen(
+          suggestions: candidates,
+          onDone: _replaceWithHome,
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+  }
+
+  /// 視覚的にはホームが既に見えているので、遷移は瞬時に行う（スライドなし）。
+  void _replaceWithHome() {
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(

@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 #if canImport(ActivityKit)
 import ActivityKit
 #endif
@@ -132,6 +136,59 @@ public enum MusicMemoryShared {
               let days = try? JSONDecoder().decode([MusicMemoryDay].self, from: data)
         else { return [] }
         return days
+    }
+
+    /// そのアートワークが「画像として読める状態で」存在するか。
+    ///
+    /// 存在チェックだけだと、0 バイトや書き込み途中で壊れたファイルが残ったときに
+    /// 「取得済み」と誤判定して二度と落とし直さず、永久にグレーのままになる。
+    public static func hasUsableArtwork(id: String) -> Bool {
+        guard let url = artworkURL(for: "\(id).jpg") else { return false }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? NSNumber, size.intValue > 0 else { return false }
+        #if canImport(UIKit)
+        return UIImage(contentsOfFile: url.path) != nil
+        #else
+        return true
+        #endif
+    }
+
+    /// 端末で何が起きているかを調べるための現状ダンプ（管理者向け）。
+    public static func diagnostics() -> [String: Any] {
+        var out: [String: Any] = [:]
+        out["appGroupId"] = appGroupId
+        out["defaultsAvailable"] = defaults != nil
+        out["containerAvailable"] = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupId) != nil
+        out["artworkDirectory"] = artworkDirectory?.path ?? "(取得できません)"
+
+        let days = readDays()
+        out["dayCount"] = days.count
+        out["days"] = days.map { day -> [String: Any] in
+            var d: [String: Any] = [
+                "label": day.label,
+                "isToday": day.isToday,
+                "imageFile": day.imageFile ?? "(なし)",
+            ]
+            if let f = day.imageFile, let url = artworkURL(for: f) {
+                let exists = FileManager.default.fileExists(atPath: url.path)
+                d["fileExists"] = exists
+                if exists {
+                    let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+                    d["fileSize"] = (attrs?[.size] as? NSNumber)?.intValue ?? -1
+                    #if canImport(UIKit)
+                    d["decodable"] = UIImage(contentsOfFile: url.path) != nil
+                    #endif
+                }
+            }
+            return d
+        }
+
+        if let dir = artworkDirectory {
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+            out["filesInDirectory"] = files
+        }
+        return out
     }
 
     /// 現在のストリップで参照されていないアートワークを削除する。

@@ -22,6 +22,7 @@ import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/deep_link_service.dart';
 import '../services/live_activity_service.dart';
+import '../services/music_memory_cycle_service.dart';
 import '../services/music_service_manager.dart';
 import '../models/music_service_type.dart';
 import '../services/itunes_search_service.dart';
@@ -182,6 +183,8 @@ class _HomeScreenState extends State<HomeScreen>
     DeepLinkService().composeHandler = _openPostFlow;
     // ignore: discarded_futures
     LiveActivityService().refresh();
+    // ignore: discarded_futures
+    _maybeOpenPostFlowForCycle();
     _processPendingFollowNotification();
     PostingState.instance.addListener(_onPostingStateChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -711,6 +714,8 @@ class _HomeScreenState extends State<HomeScreen>
       // （締切超過なら終了、フォロー中の投稿があれば「友達が待っています」へ）。
       // ignore: discarded_futures
       LiveActivityService().refresh();
+      // ignore: discarded_futures
+      _maybeOpenPostFlowForCycle();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // バックグラウンドでは無駄なポーリングを止める
@@ -1069,6 +1074,42 @@ class _HomeScreenState extends State<HomeScreen>
     );
     if (targetIndex != null && mounted) {
       setState(() => _selectedIndex = targetIndex);
+    }
+  }
+
+  /// 通知（21:00）以降まだ投稿していないユーザーは、アプリを開いた時点で
+  /// 投稿フローを開く。
+  ///
+  /// 締切（翌 01:00）を過ぎたら促さない。1 サイクルにつき 1 回だけで、
+  /// 閉じたあとに何度も開き直すことはない（記録は端末に残す）。
+  Future<void> _maybeOpenPostFlowForCycle() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final cycle = MusicMemoryCycleService();
+      final cycleStart = cycle.notifiedAt ?? await cycle.fetchNotifiedAt();
+      if (cycleStart == null) return;
+
+      final now = DateTime.now();
+      if (now.isBefore(cycleStart)) return; // まだ通知前
+      final deadline = MusicMemoryCycleService.deadlineFor(cycleStart);
+      if (!now.isBefore(deadline)) return; // 締切超過
+
+      // このサイクルで既に開いていれば何もしない。
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'auto_post_prompt_${cycleStart.millisecondsSinceEpoch}';
+      if (prefs.getBool(key) == true) return;
+
+      if (await _postService.hasAnyPostInCurrentCycle(uid)) return;
+      if (!mounted) return;
+
+      await prefs.setBool(key, true);
+      // 画面が組み上がってから開く（initState から呼ばれる経路があるため）。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openPostFlow();
+      });
+    } catch (e) {
+      if (kDebugMode) print('_maybeOpenPostFlowForCycle error: $e');
     }
   }
 

@@ -20,8 +20,12 @@ class FriendEntry {
 class FriendSuggestion {
   final UserModel user;
 
-  /// 共通の友達の人数（0 なら別の理由で出している）。
+  /// 共通の友達の人数。[FriendService.minMutualForSuggestion] 未満なら
+  /// 共通の友達を理由には使わない。
   final int mutualCount;
+
+  /// 自分と同じ人の招待コードで登録したか（＝招待者が同じ）。
+  final bool sameInviter;
 
   /// 同じ ADL 班に所属しているか。
   final bool sameAdlTeam;
@@ -29,12 +33,16 @@ class FriendSuggestion {
   const FriendSuggestion({
     required this.user,
     required this.mutualCount,
+    required this.sameInviter,
     required this.sameAdlTeam,
   });
 
-  /// カードに出す 1 行の理由。
+  /// カードに出す 1 行の理由。強い順に選ぶ。
   String get reason {
-    if (mutualCount > 0) return '$mutualCount人の共通の友達';
+    if (mutualCount >= FriendService.minMutualForSuggestion) {
+      return '$mutualCount人の共通の友達';
+    }
+    if (sameInviter) return '同じ人からの招待';
     if (sameAdlTeam) return 'ADLメンバーかも';
     return '15sを使っています';
   }
@@ -96,7 +104,16 @@ class FriendService {
     }
   }
 
-  /// 「知り合いかも」候補。共通の友達が多い順、次に同じ ADL 班。
+  /// 共通の友達を「知り合いかも」の理由にする最小人数。
+  /// 1 人だけだと精度が低く無関係な人が並ぶため 2 人以上にしている。
+  static const int minMutualForSuggestion = 2;
+
+  /// 「知り合いかも」候補。
+  ///
+  /// 採用する理由は次の 3 つ。強い順に並べる。
+  ///  1. 共通の友達が [minMutualForSuggestion] 人以上
+  ///  2. 自分と同じ人の招待コードで登録した（＝招待者が同じ）
+  ///  3. 同じ ADL 班
   Future<List<FriendSuggestion>> loadSuggestions(String uid,
       {int limit = 12}) async {
     try {
@@ -106,7 +123,7 @@ class FriendService {
       final friendUids = friendUidsOf(me);
       final exclude = <String>{uid, ...me.following, ...me.followers};
 
-      // 友達の友達を数える（共通の友達の人数になる）。
+      // ① 友達の友達を数える（その人数がそのまま共通の友達の数になる）。
       final mutual = <String, int>{};
       if (friendUids.isNotEmpty) {
         final friends = await _fetchUsers(friendUids);
@@ -118,10 +135,13 @@ class FriendService {
         }
       }
 
-      // 同じ ADL 班のメンバー。共通の友達が居ないときの補完に使う。
+      // ② 自分と同じ招待者から入った人。
+      final sameInviter = await _sameInviterUids(uid, exclude);
+
+      // ③ 同じ ADL 班。
       final sameTeam = <String>{};
       final teamId = me.adlTeamId;
-      if (teamId != null && teamId.isNotEmpty && mutual.length < limit) {
+      if (teamId != null && teamId.isNotEmpty) {
         try {
           final snap = await _firestore
               .collection(_usersCollection)
@@ -135,8 +155,22 @@ class FriendService {
         } catch (_) {}
       }
 
-      final candidates = <String>{...mutual.keys, ...sameTeam}.toList()
-        ..sort((a, b) => (mutual[b] ?? 0).compareTo(mutual[a] ?? 0));
+      final strongMutual = mutual.entries
+          .where((e) => e.value >= minMutualForSuggestion)
+          .map((e) => e.key)
+          .toSet();
+
+      // 並び順: 共通の友達が多い順 → 同じ招待者 → 同じ班。
+      final candidates = <String>{...strongMutual, ...sameInviter, ...sameTeam}
+          .toList()
+        ..sort((a, b) {
+          final m = (mutual[b] ?? 0).compareTo(mutual[a] ?? 0);
+          if (m != 0) return m;
+          final i = (sameInviter.contains(b) ? 1 : 0)
+              .compareTo(sameInviter.contains(a) ? 1 : 0);
+          return i;
+        });
+
       final picked = candidates.take(limit).toList();
       if (picked.isEmpty) return const [];
 
@@ -148,12 +182,76 @@ class FriendService {
             FriendSuggestion(
               user: byUid[id]!,
               mutualCount: mutual[id] ?? 0,
+              sameInviter: sameInviter.contains(id),
               sameAdlTeam: sameTeam.contains(id),
             ),
       ];
     } catch (e) {
       if (kDebugMode) print('FriendService.loadSuggestions error: $e');
       return const [];
+    }
+  }
+
+  /// 登録直後に出す「知り合いかも」。**同じ人の招待で入った人だけ**を返す。
+  ///
+  /// 登録直後は友達も ADL 班も無いので共通の友達では候補が作れない。
+  /// 招待者が同じ人＝同じコミュニティから来た可能性が高いので、これだけを使う。
+  Future<List<FriendSuggestion>> loadSameInviterSuggestions(String uid,
+      {int limit = 20}) async {
+    try {
+      final me = await _userService.getUser(uid);
+      if (me == null) return const [];
+      final exclude = <String>{uid, ...me.following, ...me.followers};
+      final uids = (await _sameInviterUids(uid, exclude)).take(limit).toList();
+      if (uids.isEmpty) return const [];
+
+      final users = await _fetchUsers(uids);
+      users.sort((a, b) => _displayName(a)
+          .toLowerCase()
+          .compareTo(_displayName(b).toLowerCase()));
+      return [
+        for (final u in users)
+          FriendSuggestion(
+            user: u,
+            mutualCount: 0,
+            sameInviter: true,
+            sameAdlTeam: false,
+          ),
+      ];
+    } catch (e) {
+      if (kDebugMode) print('FriendService.loadSameInviterSuggestions error: $e');
+      return const [];
+    }
+  }
+
+  /// 自分と同じ人の招待コードで登録したユーザー。
+
+  ///
+  /// `invite_usages` に「誰(ownerUid)の招待で誰(usedBy)が入ったか」が残っている。
+  /// 自分の招待者を引き、その人が招待した他の人を兄弟として返す。
+  Future<Set<String>> _sameInviterUids(String uid, Set<String> exclude) async {
+    try {
+      final mine = await _firestore
+          .collection('invite_usages')
+          .where('usedBy', isEqualTo: uid)
+          .limit(1)
+          .get();
+      if (mine.docs.isEmpty) return const {};
+      final ownerUid = mine.docs.first.data()['ownerUid'] as String?;
+      if (ownerUid == null || ownerUid.isEmpty) return const {};
+
+      final siblings = await _firestore
+          .collection('invite_usages')
+          .where('ownerUid', isEqualTo: ownerUid)
+          .limit(50)
+          .get();
+      return {
+        for (final d in siblings.docs)
+          if (d.data()['usedBy'] is String) d.data()['usedBy'] as String,
+      }..removeWhere(exclude.contains);
+    } catch (e) {
+      if (kDebugMode) print('FriendService._sameInviterUids error: $e');
+      return const {};
     }
   }
 

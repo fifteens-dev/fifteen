@@ -186,28 +186,67 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
       '15sで友達になろう！\n招待コード：${_inviteCode ?? ''}\n$_inviteUrl';
 
   Future<void> _shareTo(_ShareTarget target) async {
-    if (_inviteCode == null) return;
+    if (_inviteCode == null) {
+      AppToast.show(context, '招待コードを取得中です');
+      return;
+    }
     final encoded = Uri.encodeComponent(_shareText);
-    Uri? url;
+
     switch (target) {
       case _ShareTarget.line:
-        url = Uri.parse('https://line.me/R/msg/text/?$encoded');
-        break;
+        await _openOrFallback(Uri.parse('https://line.me/R/msg/text/?$encoded'));
+        return;
       case _ShareTarget.x:
-        url = Uri.parse('https://twitter.com/intent/tweet?text=$encoded');
-        break;
+        await _openOrFallback(
+            Uri.parse('https://twitter.com/intent/tweet?text=$encoded'));
+        return;
       case _ShareTarget.instagram:
+        // Instagram は iOS の共有シートでプレーンテキストを受け取れない
+        // （画像・動画しか受け付けない）ため、共有シートに出しても選べない。
+        // 招待文をコピーしてから Instagram を開き、貼り付けてもらう。
+        await Clipboard.setData(ClipboardData(text: _shareText));
+        final opened = await _tryLaunch(Uri.parse('instagram://app'));
+        if (!mounted) return;
+        AppToast.show(
+          context,
+          opened
+              ? '招待リンクをコピーしました。Instagramで貼り付けてください'
+              : 'Instagramが見つかりません。リンクをコピーしました',
+        );
+        return;
       case _ShareTarget.other:
-        // Instagram は URL スキームでのテキスト共有に対応していないため、
-        // OS の共有シートを出して送り先を選んでもらう。
-        await Share.share(_shareText);
+        await _openSystemShareSheet();
         return;
     }
+  }
+
+  /// URL を外部アプリで開く。開けなければ OS の共有シートに逃がす。
+  Future<void> _openOrFallback(Uri url) async {
+    if (await _tryLaunch(url)) return;
+    await _openSystemShareSheet();
+  }
+
+  Future<bool> _tryLaunch(Uri url) async {
     try {
-      final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
-      if (!ok) throw Exception('launch failed');
+      return await launchUrl(url, mode: LaunchMode.externalApplication);
     } catch (_) {
-      await Share.share(_shareText);
+      return false;
+    }
+  }
+
+  /// OS の共有シート。iPad では表示位置の指定が必須なので、
+  /// シート自身の矩形を渡しておく（iPhone では無視される）。
+  Future<void> _openSystemShareSheet() async {
+    try {
+      final box = context.findRenderObject() as RenderBox?;
+      await Share.share(
+        _shareText,
+        sharePositionOrigin: box == null
+            ? null
+            : box.localToGlobal(Offset.zero) & box.size,
+      );
+    } catch (e) {
+      if (mounted) AppToast.show(context, '共有に失敗しました');
     }
   }
 

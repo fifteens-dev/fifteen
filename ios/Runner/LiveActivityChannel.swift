@@ -77,11 +77,15 @@ final class LiveActivityChannel: NSObject {
 
         case "missingArtwork":
             // まだ共有コンテナに無い imageId だけ返す（Flutter が差分だけ落とす）。
+            // 存在するだけでなく **画像として読めるか** まで見る。0 バイトや壊れた
+            // ファイルが残っていると、存在チェックだけでは二度と落とし直されず
+            // 永久にグレーのままになるため。
             let ids = args["ids"] as? [String] ?? []
-            result(ids.filter { id in
-                guard let url = MusicMemoryShared.artworkURL(for: "\(id).jpg") else { return true }
-                return !FileManager.default.fileExists(atPath: url.path)
-            })
+            result(ids.filter { !MusicMemoryShared.hasUsableArtwork(id: $0) })
+
+        case "artworkDiagnostics":
+            // 端末側の共有コンテナの状態をそのまま返す（管理者パネルの調査用）。
+            result(MusicMemoryShared.diagnostics())
 
         case "syncDays":
             // ストリップだけ更新（アクティビティ未起動でも呼べる）。
@@ -144,11 +148,19 @@ final class LiveActivityChannel: NSObject {
             if let imageId = entry["imageId"] as? String, !imageId.isEmpty {
                 let name = "\(imageId).jpg"
                 if let url = MusicMemoryShared.artworkURL(for: name) {
-                    if !FileManager.default.fileExists(atPath: url.path),
-                       let data = (entry["imageBytes"] as? FlutterStandardTypedData)?.data {
-                        try? data.write(to: url, options: .atomic)
+                    // 壊れたファイルが残っている場合も書き直す。
+                    if !MusicMemoryShared.hasUsableArtwork(id: imageId),
+                       let data = (entry["imageBytes"] as? FlutterStandardTypedData)?.data,
+                       !data.isEmpty {
+                        // Live Activity はロック画面で描画される。既定の保護レベルだと
+                        // ロック中にウィジェット側から読めずグレーになり得るため、
+                        // 初回アンロック後は読める保護レベルを明示する。
+                        try? data.write(
+                            to: url,
+                            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+                        )
                     }
-                    if FileManager.default.fileExists(atPath: url.path) { file = name }
+                    if MusicMemoryShared.hasUsableArtwork(id: imageId) { file = name }
                 }
             }
             days.append(MusicMemoryDay(label: label, imageFile: file, isToday: isToday))

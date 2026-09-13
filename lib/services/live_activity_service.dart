@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -172,6 +173,18 @@ class LiveActivityService {
       _lastRefreshAt = DateTime.now();
     } catch (e) {
       if (kDebugMode) print('LiveActivity markPosted error: $e');
+    }
+  }
+
+  /// 端末側の共有コンテナの状態を取得する（管理者パネルの調査用）。
+  /// 曜日ごとのファイル名・存在有無・サイズ・画像として読めるかを返す。
+  Future<Map<String, dynamic>?> artworkDiagnostics() async {
+    if (!_supportedPlatform) return null;
+    try {
+      final res = await _channel.invokeMethod<dynamic>('artworkDiagnostics');
+      return (res as Map?)?.map((k, v) => MapEntry(k.toString(), v));
+    } catch (e) {
+      return {'error': e.toString()};
     }
   }
 
@@ -393,8 +406,38 @@ class LiveActivityService {
     return payload;
   }
 
+  /// アートワークのバイト列を得る。
+  ///
+  /// `albumImageUrl` は http(s) とは限らない。端末ライブラリの取り込み曲では
+  /// 埋め込みアートを `data:image/...;base64,...` で持たせている（[albumImageProvider]
+  /// と同じ事情）。http だけを見ていると、それらが常に空＝グレー表示になる。
   Future<Uint8List?> _download(String url) async {
-    if (url.isEmpty || !url.startsWith('http')) return null;
+    if (url.isEmpty) return null;
+
+    // data URI はその場でデコードする（ネットワーク不要）。
+    if (url.startsWith('data:')) {
+      final i = url.indexOf(',');
+      if (i < 0) return null;
+      try {
+        return base64Decode(url.substring(i + 1));
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // ローカルファイルパスはそのまま読む。
+    if (url.startsWith('file://') || url.startsWith('/')) {
+      try {
+        final path = url.startsWith('file://') ? url.substring(7) : url;
+        final file = File(path);
+        if (!await file.exists()) return null;
+        return await file.readAsBytes();
+      } catch (_) {
+        return null;
+      }
+    }
+
+    if (!url.startsWith('http')) return null;
     try {
       final res = await http
           .get(Uri.parse(url))

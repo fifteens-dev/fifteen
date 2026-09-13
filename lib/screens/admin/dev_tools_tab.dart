@@ -9,6 +9,7 @@ import '../../constants/app_text_styles.dart';
 import '../../constants/app_dimensions.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/common/app_toast.dart';
+import '../../services/live_activity_service.dart';
 
 /// 開発者ツールタブ（管理者パネル内）
 class DevToolsTab extends StatefulWidget {
@@ -102,6 +103,100 @@ class _DevToolsTabState extends State<DevToolsTab> {
     }
   }
 
+  /// Live Activity のアートワーク診断結果（端末の共有コンテナの中身）。
+  String? _artworkDiag;
+  bool _loadingDiag = false;
+
+  /// 共有コンテナの状態を取り込んで整形する。ジャケットがグレーのままになる
+  /// 原因（ファイルが無い / 0 バイト / 画像として読めない）を切り分ける。
+  Future<void> _loadArtworkDiagnostics() async {
+    setState(() => _loadingDiag = true);
+    final res = await LiveActivityService().artworkDiagnostics();
+    if (!mounted) return;
+    setState(() {
+      _loadingDiag = false;
+      if (res == null) {
+        _artworkDiag = 'iOS 以外では利用できません';
+        return;
+      }
+      final buf = StringBuffer();
+      buf.writeln('App Group      : ${res['appGroupId']}');
+      buf.writeln('UserDefaults   : ${res['defaultsAvailable'] == true ? 'OK' : '取得失敗'}');
+      buf.writeln('コンテナ        : ${res['containerAvailable'] == true ? 'OK' : '取得失敗'}');
+      buf.writeln('日数           : ${res['dayCount']}');
+      final days = (res['days'] as List?) ?? const [];
+      for (final d in days) {
+        final m = (d as Map).map((k, v) => MapEntry(k.toString(), v));
+        buf.writeln(
+          '  ${m['label']}${m['isToday'] == true ? '(今日)' : ''}'
+          ' file=${m['imageFile']}'
+          ' exists=${m['fileExists'] ?? '-'}'
+          ' size=${m['fileSize'] ?? '-'}'
+          ' decodable=${m['decodable'] ?? '-'}',
+        );
+      }
+      buf.writeln('ディレクトリ内   : ${(res['filesInDirectory'] as List?)?.length ?? 0} ファイル');
+      if (res['error'] != null) buf.writeln('error: ${res['error']}');
+      _artworkDiag = buf.toString();
+    });
+  }
+
+  Widget _buildArtworkDiagnostics() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Live Activity アートワーク診断',
+          style: TextStyle(
+              color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'ロック画面のジャケットがグレーのままになる原因を切り分けます。',
+          style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.5),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: _loadingDiag ? null : _loadArtworkDiagnostics,
+              icon: const Icon(Icons.bug_report, size: 18),
+              label: Text(_loadingDiag ? '取得中...' : '状態を取得'),
+            ),
+            const SizedBox(width: 8),
+            if (_artworkDiag != null)
+              TextButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: _artworkDiag!));
+                  AppToast.show(context, 'コピーしました');
+                },
+                icon: const Icon(Icons.copy, size: 16),
+                label: const Text('コピー'),
+              ),
+          ],
+        ),
+        if (_artworkDiag != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: SelectableText(
+              _artworkDiag!,
+              style: const TextStyle(
+                  color: Colors.white70, fontSize: 11, height: 1.6),
+            ),
+          ),
+        ],
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -113,6 +208,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 20),
+            _buildArtworkDiagnostics(),
 
             if (_statusMessage.isNotEmpty) ...[
               Container(

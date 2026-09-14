@@ -85,7 +85,8 @@ public enum MusicMemoryPhase: String, Codable {
 public struct MusicMemoryDay: Codable, Hashable {
     /// 見出し（"木" "金" … / 今日の枠は "今日"）。
     public var label: String
-    /// App Group コンテナ内のアートワークファイル名。未投稿の日は nil。
+    /// アートワークの識別子（投稿の postId）。未投稿の日は nil。
+    /// 画像本体は [MusicMemoryShared.artworkData] から引く。
     public var imageFile: String?
     /// 今日の枠か（枠線・プレースホルダ表示の分岐に使う）。
     public var isToday: Bool
@@ -95,72 +96,253 @@ public struct MusicMemoryDay: Codable, Hashable {
         self.imageFile = imageFile
         self.isToday = isToday
     }
+
+    /// 保存ファイル名に使う識別子（拡張子は落とす）。
+    public var artworkId: String? {
+        guard let f = imageFile else { return nil }
+        return f.hasSuffix(".jpg") ? String(f.dropLast(4)) : f
+    }
+}
+
+/// Live Activity の調査用ログ。
+///
+/// 「どこまで成功してどこで落ちたか」を端末上で追えるようにするためのもの。
+/// 曜日データの構築 → アートワークの取得 → 保存 → アクティビティの開始/更新
+/// という一連の流れを、成功も含めて 1 行ずつ残す。
+///
+/// 実際に書けるのは**アプリ本体のプロセスだけ**。ウィジェット拡張は描画時に
+/// ファイルを読めるが書き込みは通らない（実機で確認済み）。
+/// 将来ウィジェット側も書けるようになった場合に備え、プロセスごとに別ファイルへ
+/// 書いて読み出し時にマージする形は残してある。行数は [maxLines] で頭打ち。
+public enum MMLog {
+    /// 保持する行数（プロセスごと）。
+    public static let maxLines = 300
+
+    /// 書き手の識別子。拡張はバンドルIDの末尾で判別する。
+    public static var source: String {
+        let id = Bundle.main.bundleIdentifier ?? ""
+        return id.hasSuffix("FifteensWidget") ? "widget" : "app"
+    }
+
+    private static func url(for source: String) -> URL? {
+        MusicMemoryShared.sharedDirectory?
+            .appendingPathComponent("log_\(source).txt")
+    }
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm:ss"
+        f.timeZone = TimeZone(identifier: "Asia/Tokyo")
+        return f
+    }()
+
+    /// 1 行追記する。失敗しても何もしない（調査用なので本処理を止めない）。
+    public static func log(_ tag: String, _ message: String) {
+        let src = source
+        guard let url = url(for: src) else { return }
+        let line = "\(formatter.string(from: Date())) [\(src)] \(tag): \(message)"
+        var lines = (try? String(contentsOf: url, encoding: .utf8))?
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init) ?? []
+        lines.append(line)
+        if lines.count > maxLines { lines.removeFirst(lines.count - maxLines) }
+        let joined = lines.joined(separator: "\n")
+        if let data = joined.data(using: .utf8) {
+            try? data.write(to: url, options: [.atomic, .noFileProtection])
+        }
+    }
+
+    /// 両プロセスのログを時刻順にマージして返す。
+    public static func read() -> String {
+        var all: [String] = []
+        for src in ["app", "widget"] {
+            guard let u = url(for: src),
+                  let text = try? String(contentsOf: u, encoding: .utf8) else { continue }
+            all.append(contentsOf: text.split(separator: "\n").map(String.init))
+        }
+        // 先頭が "MM-dd HH:mm:ss" なのでそのまま辞書順で時刻順になる。
+        return all.filter { !$0.isEmpty }.sorted().joined(separator: "\n")
+    }
+
+    public static func clear() {
+        for src in ["app", "widget"] {
+            if let u = url(for: src) { try? FileManager.default.removeItem(at: u) }
+        }
+    }
 }
 
 /// アプリ本体 ↔ ウィジェット拡張の共有領域（App Group）。
 ///
 /// アプリは投稿直後・フォアグラウンド復帰時にストリップを書き出し、
 /// ウィジェットは描画のたびにここを読む。push ではこの領域は変わらない。
+///
+/// # 保護レベルを `.noFileProtection` にしている理由（重要）
+/// Live Activity を描画するウィジェットのプロセスは非常に制限の強い
+/// サンドボックスで動いており、**`.completeFileProtectionUntilFirstUserAuthentication`
+/// でも読めない**。実機で次のとおり確認した。
+///
+/// | 保護レベル | アプリから | ウィジェットから |
+/// |---|---|---|
+/// | completeUntilFirstUserAuthentication | 読める | **読めない**（枠がグレーのまま） |
+/// | noFileProtection | 読める | 読める |
+///
+/// 「初回アンロック後は読める」レベルでは足りない。アルバムアートと曜日ラベルに
+/// 秘匿性は無いので保護を外して問題ない。**ここを変えると表示が壊れる。**
+///
+/// # UserDefaults ではなくファイルにしている理由
+/// App Group の `UserDefaults` はプロセスごとにキャッシュされ、ウィジェットが
+/// 古い内容を読み続けることがある。ファイルはキャッシュ層が無く常に現在の
+/// 内容が読めるので、曜日データ・アートワーク・ログのすべてをファイルに統一する。
+///
+/// # ウィジェットからは書けない
+/// 読み取りは上記のとおり可能だが、**ウィジェットのプロセスからの書き込みは通らない**
+/// （ログも診断の記録も残らないことを実機で確認済み）。ウィジェット側の状態は
+/// 観測できないので、調査はアプリ側のログ（[MMLog] の `[app]` 行）で行う。
 public enum MusicMemoryShared {
     /// App Group ID。Runner / FifteensWidget の entitlements と一致させること。
     public static let appGroupId = "group.com.fifteens.sns"
 
-    private static let daysKey = "musicMemory.days"
+    /// 保存するアートワークの最大辺。ストリップは 53pt なので 3x でも 159px。
+    /// 余裕を見て 240px に収め、ウィジェットの描画メモリも抑える。
+    public static let artworkMaxPixel: CGFloat = 240
 
-    public static var defaults: UserDefaults? {
-        UserDefaults(suiteName: appGroupId)
-    }
-
-    /// アートワークを置くディレクトリ（App Group コンテナ内）。
-    public static var artworkDirectory: URL? {
+    /// 共有データを置くディレクトリ（App Group コンテナ内）。
+    public static var sharedDirectory: URL? {
         guard let base = FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: appGroupId) else { return nil }
-        let dir = base.appendingPathComponent("MusicMemoryArtwork", isDirectory: true)
+        let dir = base.appendingPathComponent("MusicMemory", isDirectory: true)
         if !FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         return dir
     }
 
-    public static func artworkURL(for file: String) -> URL? {
-        artworkDirectory?.appendingPathComponent(file)
+    private static var daysURL: URL? {
+        sharedDirectory?.appendingPathComponent("days.json")
     }
 
+    public static func artworkURL(for id: String) -> URL? {
+        sharedDirectory?.appendingPathComponent("art_\(id).jpg")
+    }
+
+    /// ロック中でも読めるよう保護レベルを外して書く。
+    @discardableResult
+    private static func write(_ data: Data, to url: URL) -> Bool {
+        do {
+            try data.write(to: url, options: [.atomic, .noFileProtection])
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: 曜日データ
+
     public static func writeDays(_ days: [MusicMemoryDay]) {
-        guard let data = try? JSONEncoder().encode(days) else { return }
-        defaults?.set(data, forKey: daysKey)
+        guard let url = daysURL, let data = try? JSONEncoder().encode(days) else {
+            MMLog.log("writeDays", "失敗: URL かエンコードが取れない")
+            return
+        }
+        let ok = write(data, to: url)
+        let detail = days.map { "\($0.label)=\($0.imageFile ?? "-")" }.joined(separator: ",")
+        MMLog.log("writeDays", "ok=\(ok) count=\(days.count) [\(detail)]")
     }
 
     public static func readDays() -> [MusicMemoryDay] {
-        guard let data = defaults?.data(forKey: daysKey),
-              let days = try? JSONDecoder().decode([MusicMemoryDay].self, from: data)
-        else { return [] }
+        guard let url = daysURL else {
+            MMLog.log("readDays", "失敗: 共有ディレクトリが取れない")
+            return []
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            MMLog.log("readDays", "ファイル無し \(url.lastPathComponent)")
+            return []
+        }
+        guard let days = try? JSONDecoder().decode([MusicMemoryDay].self, from: data) else {
+            MMLog.log("readDays", "デコード失敗 size=\(data.count)")
+            return []
+        }
         return days
     }
 
-    /// そのアートワークが「画像として読める状態で」存在するか。
-    ///
-    /// 存在チェックだけだと、0 バイトや書き込み途中で壊れたファイルが残ったときに
-    /// 「取得済み」と誤判定して二度と落とし直さず、永久にグレーのままになる。
-    public static func hasUsableArtwork(id: String) -> Bool {
-        guard let url = artworkURL(for: "\(id).jpg") else { return false }
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attrs[.size] as? NSNumber, size.intValue > 0 else { return false }
+    // MARK: アートワーク
+
+    /// アートワークを保存する。保存前に [artworkMaxPixel] まで縮小する。
+    @discardableResult
+    public static func writeArtwork(id: String, data: Data) -> Bool {
+        guard !data.isEmpty, let url = artworkURL(for: id) else { return false }
         #if canImport(UIKit)
-        return UIImage(contentsOfFile: url.path) != nil
+        guard let shrunk = downscaledJPEG(data) else {
+            MMLog.log("writeArtwork", "縮小失敗 id=\(id) in=\(data.count)")
+            return false
+        }
+        let ok = write(shrunk, to: url)
+        MMLog.log("writeArtwork", "ok=\(ok) id=\(id) \(data.count)→\(shrunk.count)B")
+        return ok
+        #else
+        return write(data, to: url)
+        #endif
+    }
+
+    public static func artworkData(for id: String) -> Data? {
+        guard let url = artworkURL(for: id) else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    /// そのアートワークが使える状態で保存されているか。
+    public static func hasUsableArtwork(id: String) -> Bool {
+        guard let data = artworkData(for: id), !data.isEmpty else { return false }
+        #if canImport(UIKit)
+        return UIImage(data: data) != nil
         #else
         return true
         #endif
     }
 
+    #if canImport(UIKit)
+    /// 長辺を [artworkMaxPixel] に収めた JPEG を返す。
+    private static func downscaledJPEG(_ data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let maxSide = max(image.size.width, image.size.height)
+        guard maxSide > 0 else { return nil }
+        let scale = min(1.0, artworkMaxPixel / maxSide)
+        if scale >= 1.0 {
+            return image.jpegData(compressionQuality: 0.85) ?? data
+        }
+        let target = CGSize(width: image.size.width * scale,
+                            height: image.size.height * scale)
+        // scale を明示しないと画面スケール（3x など）で描画され、
+        // 指定した pt の 3 倍の px になって元より重くなる。
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        let resized = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        return resized.jpegData(compressionQuality: 0.85)
+    }
+    #endif
+
+    /// 現在のストリップで参照されていないアートワークを削除する。
+    public static func pruneArtwork(keeping days: [MusicMemoryDay]) {
+        guard let dir = sharedDirectory else { return }
+        let keep = Set(days.compactMap { $0.artworkId }.map { "art_\($0).jpg" })
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        for f in files where f.hasPrefix("art_") && !keep.contains(f) {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(f))
+        }
+    }
+
+    // MARK: 診断
+
     /// 端末で何が起きているかを調べるための現状ダンプ（管理者向け）。
     public static func diagnostics() -> [String: Any] {
         var out: [String: Any] = [:]
         out["appGroupId"] = appGroupId
-        out["defaultsAvailable"] = defaults != nil
+        out["defaultsAvailable"] = true
         out["containerAvailable"] = FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: appGroupId) != nil
-        out["artworkDirectory"] = artworkDirectory?.path ?? "(取得できません)"
+        out["storage"] = sharedDirectory?.path ?? "(コンテナ取得失敗)"
 
         let days = readDays()
         out["dayCount"] = days.count
@@ -170,34 +352,21 @@ public enum MusicMemoryShared {
                 "isToday": day.isToday,
                 "imageFile": day.imageFile ?? "(なし)",
             ]
-            if let f = day.imageFile, let url = artworkURL(for: f) {
-                let exists = FileManager.default.fileExists(atPath: url.path)
-                d["fileExists"] = exists
-                if exists {
-                    let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-                    d["fileSize"] = (attrs?[.size] as? NSNumber)?.intValue ?? -1
-                    #if canImport(UIKit)
-                    d["decodable"] = UIImage(contentsOfFile: url.path) != nil
-                    #endif
-                }
+            if let id = day.artworkId {
+                let data = artworkData(for: id)
+                d["fileExists"] = data != nil
+                d["fileSize"] = data?.count ?? -1
+                #if canImport(UIKit)
+                d["decodable"] = data.flatMap { UIImage(data: $0) } != nil
+                #endif
             }
             return d
         }
 
-        if let dir = artworkDirectory {
-            let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-            out["filesInDirectory"] = files
+        if let dir = sharedDirectory {
+            out["filesInDirectory"] =
+                (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         }
         return out
-    }
-
-    /// 現在のストリップで参照されていないアートワークを削除する。
-    public static func pruneArtwork(keeping days: [MusicMemoryDay]) {
-        guard let dir = artworkDirectory else { return }
-        let keep = Set(days.compactMap { $0.imageFile })
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-        for f in files where !keep.contains(f) {
-            try? FileManager.default.removeItem(at: dir.appendingPathComponent(f))
-        }
     }
 }

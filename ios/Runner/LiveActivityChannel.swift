@@ -83,6 +83,19 @@ final class LiveActivityChannel: NSObject {
             let ids = args["ids"] as? [String] ?? []
             result(ids.filter { !MusicMemoryShared.hasUsableArtwork(id: $0) })
 
+        case "logRead":
+            result(MMLog.read())
+
+        case "logClear":
+            MMLog.clear()
+            result(true)
+
+        case "log":
+            // Dart 側の出来事も同じログに混ぜる（Firestore の結果など）。
+            MMLog.log(args["tag"] as? String ?? "dart",
+                      args["message"] as? String ?? "")
+            result(true)
+
         case "artworkDiagnostics":
             // 端末側の共有コンテナの状態をそのまま返す（管理者パネルの調査用）。
             result(MusicMemoryShared.diagnostics())
@@ -137,7 +150,11 @@ final class LiveActivityChannel: NSObject {
     /// 各要素: `{ label: String, isToday: Bool, imageBytes: Uint8List? , imageId: String? }`
     /// 画像は毎回書き直さず、`imageId` が同じファイルが既にあれば再利用する。
     private func syncDays(from args: [String: Any]) {
-        guard let raw = args["days"] as? [[String: Any]] else { return }
+        guard let raw = args["days"] as? [[String: Any]] else {
+            MMLog.log("syncDays", "失敗: days の型が想定と違う (\(type(of: args["days"])))")
+            return
+        }
+        MMLog.log("syncDays", "受信 \(raw.count) 件")
 
         var days: [MusicMemoryDay] = []
         for entry in raw {
@@ -146,22 +163,22 @@ final class LiveActivityChannel: NSObject {
             var file: String?
 
             if let imageId = entry["imageId"] as? String, !imageId.isEmpty {
-                let name = "\(imageId).jpg"
-                if let url = MusicMemoryShared.artworkURL(for: name) {
-                    // 壊れたファイルが残っている場合も書き直す。
-                    if !MusicMemoryShared.hasUsableArtwork(id: imageId),
-                       let data = (entry["imageBytes"] as? FlutterStandardTypedData)?.data,
-                       !data.isEmpty {
-                        // Live Activity はロック画面で描画される。既定の保護レベルだと
-                        // ロック中にウィジェット側から読めずグレーになり得るため、
-                        // 初回アンロック後は読める保護レベルを明示する。
-                        try? data.write(
-                            to: url,
-                            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
-                        )
+                let already = MusicMemoryShared.hasUsableArtwork(id: imageId)
+                let bytes = (entry["imageBytes"] as? FlutterStandardTypedData)?.data
+                if !already {
+                    if let data = bytes {
+                        MusicMemoryShared.writeArtwork(id: imageId, data: data)
+                    } else {
+                        MMLog.log("syncDays",
+                                  "\(label): 保存済みでないのに imageBytes が無い id=\(imageId)")
                     }
-                    if MusicMemoryShared.hasUsableArtwork(id: imageId) { file = name }
                 }
+                let usable = MusicMemoryShared.hasUsableArtwork(id: imageId)
+                if usable { file = "\(imageId).jpg" }
+                MMLog.log("syncDays",
+                          "\(label): id=\(imageId) 既存=\(already) 受信=\(bytes?.count ?? -1)B 結果=\(usable)")
+            } else {
+                MMLog.log("syncDays", "\(label): 投稿なし")
             }
             days.append(MusicMemoryDay(label: label, imageFile: file, isToday: isToday))
         }
@@ -175,6 +192,7 @@ final class LiveActivityChannel: NSObject {
     @available(iOS 16.1, *)
     private func start(args: [String: Any], result: @escaping FlutterResult) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            MMLog.log("start", "失敗: 設定でライブアクティビティが無効")
             result(FlutterError(code: "DISABLED",
                                 message: "Live Activities are disabled by the user",
                                 details: nil))
@@ -188,6 +206,7 @@ final class LiveActivityChannel: NSObject {
         if let existing = Activity<MusicMemoryActivityAttributes>.activities.first(where: {
             Int($0.attributes.cycleStartEpoch) == Int(cycleStartEpoch)
         }) {
+            MMLog.log("start", "既存のアクティビティを再利用 id=\(existing.id)")
             // push-to-start で始まったものと自前で作ったものが混ざると
             // ロック画面に複数枚並ぶため、別サイクルの残骸をここでも畳む。
             endActivities(immediately: true, except: existing.id)
@@ -219,8 +238,10 @@ final class LiveActivityChannel: NSObject {
                 )
             }
             observePushToken(of: activity)
+            MMLog.log("start", "新規作成 id=\(activity.id) phase=\(content.phase)")
             result(info(for: activity))
         } catch {
+            MMLog.log("start", "失敗: \(error.localizedDescription)")
             result(FlutterError(code: "START_FAILED",
                                 message: error.localizedDescription,
                                 details: nil))
@@ -247,7 +268,12 @@ final class LiveActivityChannel: NSObject {
         staleMs: Any?
     ) async {
         // 版が後退する更新（push とローカルの交差）は捨てる。
-        guard content.revision >= currentState(of: activity).revision else { return }
+        let current = currentState(of: activity)
+        guard content.revision >= current.revision else {
+            MMLog.log("update", "スキップ（版が古い）\(content.revision) < \(current.revision)")
+            return
+        }
+        MMLog.log("update", "phase=\(content.phase) rev=\(content.revision)")
         if #available(iOS 16.2, *) {
             await activity.update(
                 ActivityContent(state: content, staleDate: staleDate(staleMs))

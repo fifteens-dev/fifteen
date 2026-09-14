@@ -117,13 +117,27 @@ class LiveActivityService {
       await _syncPushToStartToken();
 
       final cycleStart = await _cycle.fetchNotifiedAt();
+      await _log('refresh',
+          'cycleStart=${cycleStart?.toIso8601String() ?? "なし"} now=${DateTime.now().toIso8601String()}');
+
+      // 曜日ストリップは**アクティビティの有無に関わらず**書いておく。
+      // アクティビティを出す条件（サイクル中であること）と、履歴を共有領域に
+      // 用意しておくことは別の話で、一体にすると次の穴が開く:
+      //  - サイクル外はデータが更新されず、次に push-to-start で出たときに古い
+      //  - 締切後に投稿しても履歴に反映されない
+      // アプリが前面に来たこのタイミングで最新にしておけば、21:00 に
+      // サーバから開始されたときにも正しい内容で描画される。
+      await _syncDaysOnly(uid, cycleStart);
+
       // 通知がまだ来ていないサイクルでは何も出さない。
       if (cycleStart == null) {
+        await _log('refresh', '終了: 通知が未発火');
         await _end();
         return;
       }
       final deadline = MusicMemoryCycleService.deadlineFor(cycleStart);
       if (!DateTime.now().isBefore(deadline)) {
+        await _log('refresh', '終了: 締切超過 deadline=${deadline.toIso8601String()}');
         await _end();
         return;
       }
@@ -141,6 +155,7 @@ class LiveActivityService {
             : LiveActivityPhase.waiting;
       }
 
+      await _log('refresh', 'phase=${phase.wire} で反映');
       await _apply(
         uid: uid,
         phase: phase,
@@ -148,6 +163,7 @@ class LiveActivityService {
         deadline: deadline,
       );
     } catch (e) {
+      await _log('refresh', 'エラー: $e');
       if (kDebugMode) print('LiveActivity refresh error: $e');
     } finally {
       _refreshing = false;
@@ -161,6 +177,11 @@ class LiveActivityService {
     if (uid == null) return;
     try {
       final cycleStart = await _cycle.fetchNotifiedAt();
+
+      // 締切後の投稿でもストリップ（過去5日の履歴）は更新しておく。
+      // アクティビティを更新するかどうかとは別の話。
+      await _syncDaysOnly(uid, cycleStart);
+
       if (cycleStart == null) return;
       final deadline = MusicMemoryCycleService.deadlineFor(cycleStart);
       if (!DateTime.now().isBefore(deadline)) return;
@@ -174,6 +195,32 @@ class LiveActivityService {
     } catch (e) {
       if (kDebugMode) print('LiveActivity markPosted error: $e');
     }
+  }
+
+  /// 調査用ログに 1 行残す（ネイティブ側の共有ログに合流する）。
+  /// 失敗しても本処理は止めない。
+  Future<void> _log(String tag, String message) async {
+    if (!_supportedPlatform) return;
+    try {
+      await _channel.invokeMethod('log', {'tag': tag, 'message': message});
+    } catch (_) {}
+  }
+
+  /// アプリ側とウィジェット側のログを時刻順にマージして返す。
+  Future<String> readLog() async {
+    if (!_supportedPlatform) return 'iOS 以外では利用できません';
+    try {
+      return await _channel.invokeMethod<String>('logRead') ?? '';
+    } catch (e) {
+      return 'ログ取得に失敗: $e';
+    }
+  }
+
+  Future<void> clearLog() async {
+    if (!_supportedPlatform) return;
+    try {
+      await _channel.invokeMethod('logClear');
+    } catch (_) {}
   }
 
   /// 端末側の共有コンテナの状態を取得する（管理者パネルの調査用）。
@@ -199,13 +246,28 @@ class LiveActivityService {
   // 内部
   // ─────────────────────────────────────────────────────────
 
+  /// 曜日ストリップだけを共有領域へ書き出す（アクティビティは触らない）。
+  ///
+  /// [cycleStart] が無い（通知が一度も発火していない）場合は、暦日を基準にする。
+  Future<void> _syncDaysOnly(String uid, DateTime? cycleStart) async {
+    try {
+      final anchor = cycleStart ?? DateTime.now();
+      final days = await _buildDays(uid, anchor);
+      await _channel.invokeMethod('syncDays', {
+        'days': await _daysPayload(days),
+      });
+    } catch (e) {
+      if (kDebugMode) print('LiveActivity syncDays failed: $e');
+    }
+  }
+
   Future<void> _apply({
     required String uid,
     required LiveActivityPhase phase,
     required DateTime cycleStart,
     required DateTime deadline,
   }) async {
-    final days = await _buildDays(uid);
+    final days = await _buildDays(uid, cycleStart);
 
     // 秒精度のエポックを版番号にする。ローカル更新と push 更新の前後関係を
     // ネイティブ / サーバの双方が同じ基準で判定できる。
@@ -332,11 +394,18 @@ class LiveActivityService {
   // ── 曜日ストリップ ────────────────────────────────────────
 
   /// 過去 4 日 ＋ 今日（古い→新しい）の 5 枠を、自分の投稿から作る。
-  Future<List<_DayEntry>> _buildDays(String uid) async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final start = today.subtract(const Duration(days: 4));
-    final end = today.add(const Duration(days: 1));
+  ///
+  /// 「今日」は暦日ではなく **15s Day**（通知が来てから次の通知まで）で決める。
+  /// 暦日にすると深夜 0 時を回った瞬間に今日の枠が空になり、まだ進行中の
+  /// サイクルで投稿したはずの 1 枚が「昨日」へずれてしまう。
+  Future<List<_DayEntry>> _buildDays(String uid, DateTime cycleStart) async {
+    // サイクルが始まった暦日を「今日」とみなす。
+    final anchor =
+        DateTime(cycleStart.year, cycleStart.month, cycleStart.day);
+    final start = anchor.subtract(const Duration(days: 4));
+    // 今日の枠にはサイクル中の投稿を入れたいので、翌日分まで拾う
+    // （21:00 開始のサイクルは翌 01:00 まで続く）。
+    final end = anchor.add(const Duration(days: 2));
 
     var posts = <PostModel>[];
     try {
@@ -344,19 +413,26 @@ class LiveActivityService {
     } catch (_) {}
 
     // 日ごとの代表（その日の最新）を選ぶ。
+    // サイクル開始以降の投稿は、暦日をまたいでいても「今日」に寄せる。
+    final anchorKey = _dayKey(anchor);
     final byDay = <String, PostModel>{};
     for (final p in posts) {
       if (p.isVibe) continue;
-      final key = _dayKey(p.createdAt);
+      final key =
+          p.createdAt.isBefore(cycleStart) ? _dayKey(p.createdAt) : anchorKey;
       final ex = byDay[key];
       if (ex == null || p.createdAt.isAfter(ex.createdAt)) byDay[key] = p;
     }
+
+    await _log('buildDays',
+        'anchor=${_dayKey(anchor)} 取得${posts.length}件 日別${byDay.length}件 '
+        '[${byDay.keys.join(",")}]');
 
     const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
     return [
       for (var i = 4; i >= 0; i--)
         () {
-          final day = today.subtract(Duration(days: i));
+          final day = anchor.subtract(Duration(days: i));
           final post = byDay[_dayKey(day)];
           return _DayEntry(
             label: i == 0 ? '今日' : weekdays[day.weekday - 1],
@@ -383,10 +459,12 @@ class LiveActivityService {
           {'ids': ids},
         );
         missing = (res ?? const []).map((e) => e.toString()).toSet();
-      } catch (_) {
+      } catch (e) {
+        await _log('daysPayload', 'missingArtwork 失敗: $e');
         missing = ids.toSet();
       }
     }
+    await _log('daysPayload', '対象${ids.length}件 未取得${missing.length}件');
 
     final payload = <Map<String, dynamic>>[];
     for (final d in days) {
@@ -399,6 +477,8 @@ class LiveActivityService {
         if (missing.contains(d.imageId)) {
           final bytes = await _download(d.imageUrl!);
           if (bytes != null) entry['imageBytes'] = bytes;
+          await _log('download',
+              '${d.label}: ${bytes?.length ?? -1}B ${d.imageUrl}');
         }
       }
       payload.add(entry);

@@ -58,6 +58,8 @@ struct MusicMemoryLockScreenView: View {
     let state: MusicMemoryActivityAttributes.ContentState
 
     /// ストリップは push では変わらないので、共有コンテナから描画のたびに読む。
+    /// （ウィジェットのプロセスからは書き込みが通らないため、ここでの記録は残せない。
+    ///   調査はアプリ側のログで行う。詳細は MusicMemoryShared のコメント参照）
     private var days: [MusicMemoryDay] { MusicMemoryShared.readDays() }
 
     private var phase: MusicMemoryPhase { state.resolvedPhase }
@@ -203,9 +205,11 @@ struct MusicMemoryLockScreenView: View {
     @ViewBuilder
     private func artwork(for day: MusicMemoryDay, size: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: MMLayout.slotCorner, style: .continuous)
-        if let file = day.imageFile,
-           let url = MusicMemoryShared.artworkURL(for: file),
-           let image = UIImage(contentsOfFile: url.path) {
+        // 画像は App Group の UserDefaults から読む。ファイルにすると
+        // アプリ本体からは読めてもウィジェット拡張からは読めない（実機で確認済み）。
+        if let id = day.artworkId,
+           let data = MusicMemoryShared.artworkData(for: id),
+           let image = UIImage(data: data) {
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)

@@ -116,3 +116,6 @@ scripts/load_test_data_setup.js
 
 # 片方向フォロー相互化のロールバック用バックアップ（社会グラフを含む）
 scripts/mutualize_follows_backup.json
+
+# xcodebuild をターゲット単体で回したときの生成物（Flutter の build/ とは別の場所）
+ios/build/

@@ -107,6 +107,27 @@ class _DevToolsTabState extends State<DevToolsTab> {
   String? _artworkDiag;
   bool _loadingDiag = false;
 
+  /// アプリ側とウィジェット側のログをマージしたもの。
+  String? _liveActivityLog;
+  bool _loadingLog = false;
+
+  Future<void> _loadLiveActivityLog() async {
+    setState(() => _loadingLog = true);
+    final log = await LiveActivityService().readLog();
+    if (!mounted) return;
+    setState(() {
+      _loadingLog = false;
+      _liveActivityLog = log.isEmpty ? '(ログなし)' : log;
+    });
+  }
+
+  Future<void> _clearLiveActivityLog() async {
+    await LiveActivityService().clearLog();
+    if (!mounted) return;
+    setState(() => _liveActivityLog = '(消去しました)');
+    AppToast.show(context, 'ログを消去しました');
+  }
+
   /// 共有コンテナの状態を取り込んで整形する。ジャケットがグレーのままになる
   /// 原因（ファイルが無い / 0 バイト / 画像として読めない）を切り分ける。
   Future<void> _loadArtworkDiagnostics() async {
@@ -121,7 +142,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
       }
       final buf = StringBuffer();
       buf.writeln('App Group      : ${res['appGroupId']}');
-      buf.writeln('UserDefaults   : ${res['defaultsAvailable'] == true ? 'OK' : '取得失敗'}');
+      buf.writeln('保存ディレクトリ : ${res['storage'] ?? '-'}');
       buf.writeln('コンテナ        : ${res['containerAvailable'] == true ? 'OK' : '取得失敗'}');
       buf.writeln('日数           : ${res['dayCount']}');
       final days = (res['days'] as List?) ?? const [];
@@ -135,7 +156,8 @@ class _DevToolsTabState extends State<DevToolsTab> {
           ' decodable=${m['decodable'] ?? '-'}',
         );
       }
-      buf.writeln('ディレクトリ内   : ${(res['filesInDirectory'] as List?)?.length ?? 0} ファイル');
+      final files = (res['filesInDirectory'] as List?) ?? const [];
+      buf.writeln('ディレクトリ内   : ${files.length} ファイル ${files.join(', ')}');
       if (res['error'] != null) buf.writeln('error: ${res['error']}');
       _artworkDiag = buf.toString();
     });
@@ -189,6 +211,64 @@ class _DevToolsTabState extends State<DevToolsTab> {
               _artworkDiag!,
               style: const TextStyle(
                   color: Colors.white70, fontSize: 11, height: 1.6),
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 16),
+        const Text(
+          'Live Activity ログ',
+          style: TextStyle(
+              color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'アプリ側の記録。どの段階まで成功したかを追えます。'
+          '（ウィジェットのプロセスからは書き込みが通らないため記録できません）',
+          style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.5),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: _loadingLog ? null : _loadLiveActivityLog,
+              icon: const Icon(Icons.receipt_long, size: 18),
+              label: Text(_loadingLog ? '取得中...' : 'ログを取得'),
+            ),
+            const SizedBox(width: 8),
+            if (_liveActivityLog != null)
+              TextButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: _liveActivityLog!));
+                  AppToast.show(context, 'コピーしました');
+                },
+                icon: const Icon(Icons.copy, size: 16),
+                label: const Text('コピー'),
+              ),
+            const Spacer(),
+            TextButton(
+              onPressed: _clearLiveActivityLog,
+              child: const Text('消去', style: TextStyle(color: Colors.white38)),
+            ),
+          ],
+        ),
+        if (_liveActivityLog != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(maxHeight: 320),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: SingleChildScrollView(
+              child: SelectableText(
+                _liveActivityLog!,
+                style: const TextStyle(
+                    color: Colors.white70, fontSize: 10, height: 1.5),
+              ),
             ),
           ),
         ],

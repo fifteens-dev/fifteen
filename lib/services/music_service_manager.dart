@@ -284,14 +284,25 @@ class MusicServiceManager {
   }
 
   /// ユーザーの最近再生した楽曲を取得
-  Future<List<TrackModel>> getRecentlyPlayedTracks({int limit = 30}) async {
+  /// [deduplicate] を false にすると再生順のまま（同じ曲の繰り返しも含めて）
+  /// 返る。アーティストの集計用。
+  ///
+  /// 取れる件数はサービスで違う: Apple Music は offset で遡れるので [limit] まで、
+  /// Spotify は 50 件が天井（[SpotifyService.maxRecentlyPlayed]）。
+  Future<List<TrackModel>> getRecentlyPlayedTracks({
+    int limit = 30,
+    bool deduplicate = true,
+  }) async {
     final service = await getSelectedService();
 
     switch (service) {
       case MusicServiceType.spotify:
         if (await _spotifyAuthService.isAuthenticated()) {
           try {
-            return await _spotifyService.getRecentlyPlayedTracks(limit: limit);
+            return await _spotifyService.getRecentlyPlayedTracks(
+              limit: limit,
+              deduplicate: deduplicate,
+            );
           } catch (e) {
             print('⚠️ Spotify最近再生した曲の取得失敗: $e');
             return [];
@@ -300,7 +311,10 @@ class MusicServiceManager {
         return [];
       case MusicServiceType.appleMusic:
         try {
-          return await _appleMusicService.getRecentlyPlayedTracks(limit: limit);
+          return await _appleMusicService.getRecentlyPlayedTracks(
+            limit: limit,
+            deduplicate: deduplicate,
+          );
         } catch (e) {
           print('⚠️ Apple Music最近再生した曲の取得失敗: $e');
           return [];

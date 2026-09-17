@@ -626,7 +626,15 @@ class AppleMusicService {
 
   /// ユーザーのお気に入り楽曲を取得
   /// User Token認証が必要
-  Future<List<TrackModel>> getRecentlyPlayedTracks({int limit = 30}) async {
+  /// 最近再生した曲を新しい順に返す。
+  ///
+  /// [deduplicate] が true（既定）なら同じ曲を 1 件にまとめる。曲を並べて
+  /// 見せる画面はこちら。false にすると API が返した**再生順のまま**返すので、
+  /// 同じ曲を繰り返し聴いていればその回数ぶん並ぶ（アーティストの集計用）。
+  Future<List<TrackModel>> getRecentlyPlayedTracks({
+    int limit = 30,
+    bool deduplicate = true,
+  }) async {
     if (_userToken == null) {
       _userToken = await _storage.read(key: _userTokenKey);
     }
@@ -641,23 +649,31 @@ class AppleMusicService {
     }
 
     try {
-      final response = await http.get(
-        Uri.parse('https://api.music.apple.com/v1/me/recent/played/tracks?limit=$limit&l=ja-JP'),
-        headers: {
-          'Authorization': 'Bearer $_developerToken',
-          'Music-User-Token': _userToken!,
-        },
-      );
+      // このエンドポイントは 1 回あたり最大 30 件。それ以上要求されたら
+      // offset を進めて集める（プロフィールの top artists が 100 件使う）。
+      const pageSize = 30;
+      final played = <TrackModel>[];
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['data'] == null || (data['data'] as List).isEmpty) {
-          print('⚠️ No recently played tracks found');
-          return [];
+      for (var offset = 0; offset < limit; offset += pageSize) {
+        final pageLimit = (limit - offset).clamp(1, pageSize);
+        final response = await http.get(
+          Uri.parse('https://api.music.apple.com/v1/me/recent/played/tracks'
+              '?limit=$pageLimit&offset=$offset&l=ja-JP'),
+          headers: {
+            'Authorization': 'Bearer $_developerToken',
+            'Music-User-Token': _userToken!,
+          },
+        );
+
+        if (response.statusCode != 200) {
+          print('❌ Apple Music recently played error: ${response.statusCode}');
+          break;
         }
 
-        final songs = data['data'] as List;
-        final Map<String, TrackModel> uniqueTracks = {};
+        final data = json.decode(response.body);
+        final songs = data['data'] as List?;
+        if (songs == null || songs.isEmpty) break; // これ以上履歴が無い
+
         for (final songData in songs) {
           final attributes = songData['attributes'];
           String albumImageUrl = '';
@@ -676,18 +692,26 @@ class AppleMusicService {
             albumImageUrl: albumImageUrl,
             previewUrl: previewUrl,
           );
-          uniqueTracks.putIfAbsent(track.trackId, () => track);
+          played.add(track);
         }
-        return uniqueTracks.values.toList();
-      } else {
-        print('❌ Apple Music recently played error: ${response.statusCode}');
-        return [];
+
+        if (data['next'] == null) break; // 最後のページ
       }
+
+      if (played.isEmpty) print('⚠️ No recently played tracks found');
+      if (!deduplicate) return played;
+
+      final unique = <String, TrackModel>{};
+      for (final t in played) {
+        unique.putIfAbsent(t.trackId, () => t);
+      }
+      return unique.values.toList();
     } catch (e) {
       print('❌ Error getting Apple Music recently played: $e');
       return [];
     }
   }
+
 
   Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {
     // User Tokenがない場合は取得できない

@@ -92,6 +92,12 @@ flutter:
   assets:
     - .env
     - assets/icons/Spotify.png
+    - assets/profile_v2/title_top_artists.png
+    - assets/profile_v2/title_recent_choice.png
+    - assets/profile_v2/rank_1.png
+    - assets/profile_v2/rank_2.png
+    - assets/profile_v2/rank_3.png
+    - assets/profile_v2/glass_button.png
     - assets/friend_match/heart.png
     - assets/friend_match/music_double.png
     - assets/friend_match/music_note.png

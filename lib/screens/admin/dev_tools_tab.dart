@@ -11,6 +11,10 @@ import '../../widgets/primary_button.dart';
 import '../../widgets/common/app_toast.dart';
 import '../../services/live_activity_service.dart';
 import '../friend_match_screen.dart';
+import '../../services/listening_history_service.dart';
+import '../../models/music_service_type.dart';
+import '../../services/spotify_service.dart';
+import '../../services/music_service_manager.dart';
 import '../../models/user_model.dart';
 import '../../services/friend_service.dart';
 
@@ -164,6 +168,138 @@ class _DevToolsTabState extends State<DevToolsTab> {
       if (res['error'] != null) buf.writeln('error: ${res['error']}');
       _artworkDiag = buf.toString();
     });
+  }
+
+  String? _historyDiag;
+  bool _historyBusy = false;
+
+  /// 再生履歴が API からどう返ってくるかをそのまま見る。
+  ///
+  /// top artists は「直近 100 件の再生順」を数える前提で作ってあるので、
+  /// 同じ曲が繰り返し並ぶのか（a, a, b, ...）、曲ごとに 1 件なのかで
+  /// 結果の意味が変わる。実アカウントで確かめるためのもの。
+  Future<void> _loadHistoryDiagnostics() async {
+    setState(() => _historyBusy = true);
+    final buf = StringBuffer();
+    try {
+      final manager = MusicServiceManager();
+      final service = await manager.getSelectedService();
+      buf.writeln('連携サービス : $service');
+
+      final raw = await manager.getRecentlyPlayedTracks(
+        limit: 100,
+        deduplicate: false,
+      );
+      final unique = raw.map((t) => t.trackId).toSet();
+      buf.writeln('Web API 件数 : ${raw.length}');
+      buf.writeln('  曲の種類   : ${unique.length}');
+      buf.writeln(raw.length > unique.length
+          ? '  → 同じ曲が複数回（再生順）'
+          : '  → 重複なし');
+
+      // Web API だけでは埋まらないことがあるので、集計が実際に使う
+      // マージ後の件数と、ソースごとの内訳も出す。
+      // Spotify は API の応答そのものを見ないと切り分けられない
+      // （未認証 / スコープ不足 / 履歴が空 のどれか）。
+      if (service == MusicServiceType.spotify) {
+        final d = await SpotifyService().recentlyPlayedDiagnostics();
+        buf.writeln('');
+        buf.writeln('Spotify 連携アカウント: ${d.account}');
+        buf.writeln('Spotify /me/player/recently-played:');
+        buf.writeln('  HTTP     : ${d.status}'
+            '${d.status == -1 ? '（未認証）' : d.status == -2 ? '（トークン不可）' : ''}');
+        buf.writeln('  items    : ${d.items}');
+        buf.writeln('  曲の種類 : ${d.uniqueTracks}');
+        if (d.note.isNotEmpty) {
+          buf.writeln('  note     : ${d.note.length > 200 ? d.note.substring(0, 200) : d.note}');
+        }
+        if (d.status == 403) {
+          buf.writeln('  → スコープ不足の可能性。設定から Spotify を連携し直すと直る');
+        }
+      }
+
+      final breakdown =
+          await ListeningHistoryService.instance.sourceBreakdown(limit: 100);
+      buf.writeln('');
+      buf.writeln('ソース別（-1 は取得失敗）:');
+      buf.writeln('  Web API      : ${breakdown['webApi']}');
+      if (service == MusicServiceType.appleMusic) {
+        buf.writeln('  アプリ内履歴 : ${breakdown['inApp']}');
+        buf.writeln('  端末ライブラリ: ${breakdown['device']}');
+      }
+      buf.writeln('  マージ後     : ${breakdown['merged']}  ← 集計に使う件数');
+
+      final merged =
+          await ListeningHistoryService.instance.recentArtistNames(limit: 100);
+      buf.writeln('');
+      buf.writeln('マージ後のアーティスト順（先頭30件）:');
+      for (var i = 0; i < merged.length && i < 30; i++) {
+        buf.writeln('${(i + 1).toString().padLeft(3)}. ${merged[i]}');
+      }
+    } catch (e) {
+      buf.writeln('error: $e');
+    }
+    if (!mounted) return;
+    setState(() {
+      _historyDiag = buf.toString();
+      _historyBusy = false;
+    });
+  }
+
+  Widget _buildHistoryDiagnostics() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '再生履歴の生データ',
+          style: TextStyle(
+              color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'プロフィールの top artists が数えている並びをそのまま出します。',
+          style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.5),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: _historyBusy ? null : _loadHistoryDiagnostics,
+              icon: const Icon(Icons.queue_music, size: 18),
+              label: Text(_historyBusy ? '取得中...' : '直近100件を取得'),
+            ),
+            const SizedBox(width: 8),
+            if (_historyDiag != null)
+              TextButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: _historyDiag!));
+                  AppToast.show(context, 'コピーしました');
+                },
+                icon: const Icon(Icons.copy, size: 16),
+                label: const Text('コピー'),
+              ),
+          ],
+        ),
+        if (_historyDiag != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: SelectableText(
+              _historyDiag!,
+              style: const TextStyle(
+                  color: Colors.white70, fontSize: 11, height: 1.6),
+            ),
+          ),
+        ],
+        const SizedBox(height: 20),
+      ],
+    );
   }
 
   bool _previewBusy = false;
@@ -366,6 +502,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 20),
+            _buildHistoryDiagnostics(),
             _buildFriendMatchPreview(),
             _buildArtworkDiagnostics(),
 

@@ -1,36 +1,32 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:provider/provider.dart';
-import '../providers/saved_items_provider.dart';
-import '../services/user_service.dart';
-import '../services/post_service.dart';
-import '../services/audio_player_service.dart';
-import '../services/artist_service.dart';
-import '../services/spotify_service.dart';
-import '../services/milfolha_service.dart';
-import '../models/user_model.dart';
-import '../models/post_model.dart';
-import '../models/track_model.dart';
-import '../models/artist_model.dart';
-import 'artist_profile_screen.dart';
-import '../widgets/profile_widgets.dart';
-import 'settings_screen.dart';
-import 'follow_list_screen.dart';
-import 'vibe_user_story_screen.dart';
-import 'home/vibe_story_bar_section.dart';
-import 'music_memory_detail_screen.dart';
-import '../constants/profile_fonts.dart';
-import '../models/playlist_model.dart';
-import '../services/playlist_service.dart';
-import '../utils/album_image.dart';
-import 'playlist/playlist_track_selection_screen.dart';
-import 'playlist/playlist_detail_screen.dart';
-import 'milfolha_ranking_screen.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 
-/// プロフィール画面（自分）
+import '../constants/profile_fonts.dart';
+import '../models/music_service_type.dart';
+import '../models/post_model.dart';
+import '../models/user_model.dart';
+import '../services/friend_service.dart';
+import '../services/listening_history_service.dart';
+import '../services/milfolha_service.dart';
+import '../services/music_memory_cycle_service.dart';
+import '../services/music_service_manager.dart';
+import '../services/post_service.dart';
+import '../services/spotify_service.dart';
+import '../services/user_service.dart';
+import '../utils/album_image.dart';
+import '../widgets/profile_widgets.dart';
+import 'friend_add_sheet.dart';
+import 'milfolha_ranking_screen.dart';
+import 'settings_screen.dart';
+
+/// プロフィール画面（自分）— Figma 5761:12112。
+///
+/// ## 座標について
+/// Figma の 402×874（iPhone 16/17 Pro）をそのまま数値で持ち、画面幅に対する
+/// 倍率をかけて描く。要素が全て絶対座標で置かれた「ポスター」型のデザインなので、
+/// 個々の値を端末幅で割るより崩れにくい。縦に入り切らない端末ではスクロールする。
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -38,73 +34,139 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => ProfileScreenState();
 }
 
-/// プロフィール上部タブ
-enum _ProfileTab { memories, saved }
+// ── デザイン定数（Figma 5761:12112 の実数値）─────────────────────
 
-/// Saved タブ内のサブタブ
-enum _SavedSubTab { songs, artists, playlists }
+const Color _bg = Color(0xFF121212);
+const Color _pillBg = Color(0xFF262626);
+const Color _statsBg = Color(0xFF09090A);
+const Color _statsBorder = Color(0xFF272627);
+const Color _statsText = Color(0xFF5C5656);
+const Color _handleColor = Color(0xFFA3A3A3);
+const Color _trackArtistColor = Color(0xFF898989);
 
-class ProfileScreenState extends State<ProfileScreen>
-    with SingleTickerProviderStateMixin {
+/// 再生履歴から何件ぶん遡って集計するか。
+/// 履歴は再生順に並んでいるので、同じ曲を繰り返し聴いた分もそれぞれ 1 件。
+const int _appleMusicHistorySize = 100;
+
+/// 投稿から集計するときに遡る期間（Spotify・未連携・履歴が空のとき）。
+const Duration _postWindow = Duration(days: 7);
+
+const double _designW = 402;
+const double _designH = 874;
+
+/// 3 つ並ぶタイルの寸法。left は Figma の並び（0 / 116 / 232）。
+const double _tile = 105;
+const List<double> _tileLefts = [0, 116, 232];
+
+/// top artists / recent choice セクションの左上。
+const Offset _artistsOrigin = Offset(36, 418);
+const Offset _recentOrigin = Offset(37, 641);
+
+/// タイルに共通の落ち影。1 位だけこれに黄緑の光を足す。
+const List<BoxShadow> _tileShadow = [
+  BoxShadow(color: Color(0x2E000000), offset: Offset(0, 4), blurRadius: 12),
+  BoxShadow(color: Color(0x47000000), offset: Offset(0, 14), blurRadius: 32),
+];
+
+class ProfileScreenState extends State<ProfileScreen> {
   final UserService _userService = UserService();
   final PostService _postService = PostService();
-  final AudioPlayerService _audioService = AudioPlayerService();
-  final ArtistService _artistService = ArtistService();
-  final ScrollController _scrollController = ScrollController();
-
-  // タブは「タップ限定」— 横スワイプでは切り替わらないので TabController も
-  // PageController も使わない。虹色バーは AnimationController でスライドさせる。
-  _ProfileTab _tab = _ProfileTab.memories;
-  late AnimationController _tabAnim; // 0.0=Memories, 1.0=Saved
-  _SavedSubTab _savedSubTab = _SavedSubTab.songs;
-
-  // フォロー中アーティスト（Saved > Artists で表示）
-  List<ArtistModel> _followedArtists = const [];
-  bool _isLoadingFollowedArtists = false;
-
-  // ユーザーデータ
-  UserModel? _userData;
-  bool _isLoading = true;
-
-  // 保存済み投稿
-  List<PostModel> _savedPosts = [];
-  String? _playingTrackId;
-
-
-  // 自分の投稿（Music Memory Week / Month 用）
-  List<PostModel> _otherPosts = [];
-  int _totalPostCount = 0;
-
-  // My Playlist
-  final PlaylistService _playlistService = PlaylistService();
-  List<PlaylistModel> _playlists = const [];
-
-  // WATERFALLSイベント: 参加中のときだけヘッダー左にランキング導線を出す
+  final FriendService _friendService = FriendService();
   final MilfolhaService _milfolhaService = MilfolhaService();
+
+  UserModel? _user;
+  bool _loading = true;
+
+  /// 集計のもとになる自分の投稿（新しい順）。
+  List<PostModel> _posts = const [];
+  int _postCount = 0;
+
+  /// 友達の人数と、ピルに出すアイコン（先頭 2 人）。
+  int _friendCount = 0;
+  List<String?> _friendIcons = const [];
+
+  /// 連続投稿日数（15s Day 基準）。
+  int _streakDays = 0;
+
+  /// top artists（多い順に最大 3 名）。集計元は連携中のサービスで変わる。
+  List<String> _topArtistNames = const [];
+
+  /// WATERFALLS 参加中のときだけランキング導線を出す。
   bool _showMilfolhaRanking = false;
 
-  int get _followersCount => _userData?.followersCount ?? 0;
-  int get _followingCount => _userData?.followingCount ?? 0;
-
+  String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
   @override
   void initState() {
     super.initState();
-    _tabAnim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 260),
-    );
-    _loadPostCount();
-    _loadUserData();
-    _loadUserPosts();
-    _loadPlaylists();
-    _loadMilfolhaEntry();
+    _load();
   }
 
-  /// WATERFALLSイベントの参加状況を読み込む（開催中 かつ 参加済みのみ導線を出す）。
-  Future<void> _loadMilfolhaEntry() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+  Future<void> _load() async {
+    final uid = _uid;
+    if (uid == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    await Future.wait([
+      _loadUser(uid),
+      _loadPosts(uid),
+      _loadFriends(uid),
+      _loadMilfolhaEntry(uid),
+    ]);
+    // 投稿を材料に使うことがあるので、_loadPosts のあとに走らせる。
+    await _loadTopArtists();
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _refresh() async {
+    final uid = _uid;
     if (uid == null) return;
+    await Future.wait([
+      _loadUser(uid),
+      _loadPosts(uid),
+      _loadFriends(uid),
+    ]);
+    await _loadTopArtists();
+  }
+
+  Future<void> _loadUser(String uid) async {
+    try {
+      final user = await _userService.getUser(uid);
+      if (mounted) setState(() => _user = user);
+    } catch (_) {/* 表示は既存値のまま */}
+  }
+
+  /// top artists / recent choice / 連続日数の材料をまとめて取る。
+  /// 1 回のページングで足りる範囲（直近 60 件）だけを見る。
+  Future<void> _loadPosts(String uid) async {
+    try {
+      final result = await _postService.getPostsByUserIdPaged(uid, limit: 60);
+      final count = await _postService.getPostCountByUserId(uid);
+      final streak = await _calcStreak(result.posts);
+      if (!mounted) return;
+      setState(() {
+        _posts = result.posts;
+        _postCount = count;
+        _streakDays = streak;
+      });
+    } catch (_) {/* 表示は既存値のまま */}
+  }
+
+  Future<void> _loadFriends(String uid) async {
+    try {
+      final friends = await _friendService.loadFriends(uid);
+      if (!mounted) return;
+      setState(() {
+        _friendCount = friends.length;
+        _friendIcons = [
+          for (final f in friends.take(2)) f.user.profileImageUrl,
+        ];
+      });
+    } catch (_) {/* 表示は既存値のまま */}
+  }
+
+  Future<void> _loadMilfolhaEntry(String uid) async {
     try {
       final active = await _milfolhaService.isActive();
       final membership =
@@ -113,222 +175,116 @@ class ProfileScreenState extends State<ProfileScreen>
       if (mounted && show != _showMilfolhaRanking) {
         setState(() => _showMilfolhaRanking = show);
       }
-    } catch (_) {}
+    } catch (_) {/* 導線を出さないだけ */}
   }
 
-  /// My Playlist を読み込む。
-  Future<void> _loadPlaylists() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    final list = await _playlistService.getPlaylistsByUserId(uid);
-    if (mounted) setState(() => _playlists = list);
-  }
-
-  @override
-  void dispose() {
-    _tabAnim.dispose();
-    _scrollController.dispose();
-    _audioService.stopIfOwner(this);
-    super.dispose();
-  }
-
-  void _switchTab(_ProfileTab next) {
-    if (_tab == next) return;
-    setState(() => _tab = next);
-    if (next == _ProfileTab.saved) {
-      _tabAnim.forward();
-      _loadSavedTabData();
-      _loadFollowedArtists();
-    } else {
-      _tabAnim.reverse();
-    }
-  }
-
-  /// フォロー中アーティスト（＝Saved > Artists）を Firestore から取得。
-  Future<void> _loadFollowedArtists() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    setState(() => _isLoadingFollowedArtists = true);
+  /// 連続投稿日数を数える。
+  ///
+  /// 暦日ではなく 15s Day（通知 〜 次の通知）で数える。進行中のサイクルに
+  /// まだ投稿していない場合はそこを飛ばして 1 つ前から数える。今日まだ
+  /// 投稿していないだけで連続が途切れたことにはしないため。
+  Future<int> _calcStreak(List<PostModel> posts) async {
+    if (posts.isEmpty) return 0;
     try {
-      final list = await _artistService.getFollowedArtists(uid);
-      if (!mounted) return;
-      setState(() {
-        _followedArtists = list;
-        _isLoadingFollowedArtists = false;
-      });
+      final days = await MusicMemoryCycleService().loadDays(limit: 40);
+      if (days.isEmpty) return 0;
+
+      final postedKeys = <String>{};
+      for (final p in posts) {
+        final key = MusicMemoryCycleService.dayKeyAt(days, p.createdAt);
+        if (key != null) postedKeys.add(key);
+      }
+
+      var start = 0;
+      if (!postedKeys.contains(days.first.key)) start = 1;
+      var streak = 0;
+      for (var i = start; i < days.length; i++) {
+        if (!postedKeys.contains(days[i].key)) break;
+        streak++;
+      }
+      return streak;
     } catch (_) {
-      if (mounted) setState(() => _isLoadingFollowedArtists = false);
+      return 0;
     }
   }
 
-  /// 投稿総数を取得（グリッド表示数とは独立して取得）
-  Future<void> _loadPostCount() async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
+  /// top artists を集計する。集計元は連携中のサービスで変える。
+  ///
+  ///  - Apple Music: 再生履歴の直近 [_appleMusicHistorySize] 件
+  ///  - Spotify:     直近 [_postWindow] に自分が投稿した曲
+  ///  - 未連携:      Spotify と同じ
+  ///
+  /// Spotify で再生履歴を使わないのは、**一般ユーザーが履歴 API を叩けない**ため。
+  /// Spotify の Development Mode では許可リストの 5 人しか Web API を使えず、
+  /// Extended Quota Mode は法人かつ 250k MAU が条件で当面申請できない
+  /// （2026-02 の変更で Development Mode 自体もさらに絞られた）。
+  /// 5 人だけ動く集計を仕様にはできないので、投稿ベースに揃えている。
+  ///
+  /// Apple Music の履歴の取り方は [ListeningHistoryService] に任せる。Web API
+  /// だけだと 1 件しか返らないアカウントがあり、投稿フローの選曲画面と同じく
+  /// アプリ内履歴・端末ライブラリと合わせる必要があるため。
+  ///
+  /// 履歴が空のとき（未購読・権限なしなど）も投稿ベースへ落とす。
+  Future<void> _loadTopArtists() async {
+    List<String> names = const [];
     try {
-      final count = await _postService.getPostCountByUserId(currentUser.uid);
-      if (mounted) setState(() => _totalPostCount = count);
-    } catch (_) {}
+      final service = await MusicServiceManager().getSelectedService();
+      if (service == MusicServiceType.appleMusic) {
+        names = await ListeningHistoryService.instance
+            .recentArtistNames(limit: _appleMusicHistorySize);
+      }
+    } catch (_) {/* 投稿ベースに落とす */}
+
+    if (names.isEmpty) names = _artistNamesFromRecentPosts();
+
+    final ranked = _rankByCount(names);
+    if (mounted) setState(() => _topArtistNames = ranked);
   }
 
-  /// ユーザーデータを読み込み
-  Future<void> _loadUserData() async {
-    final currentUser = FirebaseAuth.instance.currentUser;
+  /// 直近 [_postWindow] に投稿した曲のアーティスト名（重複はそのまま）。
+  List<String> _artistNamesFromRecentPosts() {
+    final since = DateTime.now().subtract(_postWindow);
+    return [
+      for (final p in _posts)
+        if (p.createdAt.isAfter(since) && p.track.artistName.trim().isNotEmpty)
+          p.track.artistName.trim(),
+    ];
+  }
 
-    // Web開発用：Firebase認証がない場合はダミーデータを使用
-    if (currentUser == null) {
-      setState(() {
-        _isLoading = false;
+  /// 曲数の多い順に上位 3 名。同数のときは先に出てきた（＝新しい）方を優先する。
+  static List<String> _rankByCount(List<String> names) {
+    final counts = <String, int>{};
+    final firstSeen = <String, int>{};
+    for (var i = 0; i < names.length; i++) {
+      final name = names[i];
+      counts[name] = (counts[name] ?? 0) + 1;
+      firstSeen.putIfAbsent(name, () => i);
+    }
+    final ranked = counts.keys.toList()
+      ..sort((a, b) {
+        final byCount = counts[b]!.compareTo(counts[a]!);
+        if (byCount != 0) return byCount;
+        return firstSeen[a]!.compareTo(firstSeen[b]!);
       });
-      return;
-    }
+    return ranked.take(3).toList();
+  }
 
-    try {
-      print('[ProfileScreen] _loadUserData: fetching uid=${currentUser.uid}');
-      final userData = await _userService.getUser(currentUser.uid);
-      print('[ProfileScreen] _loadUserData: success name=${userData?.name} username=${userData?.username}');
-      if (mounted) {
-        setState(() {
-          _userData = userData;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      print('[ProfileScreen] _loadUserData: error=$e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+  /// アーティスト名から Spotify のアーティスト ID を引く（分かる範囲で）。
+  String? _artistIdOf(String name) {
+    for (final p in _posts) {
+      if (p.track.artistName.trim() == name) {
+        final id = p.track.spotifyArtistId;
+        if (id != null && id.isNotEmpty) return id;
       }
     }
+    return null;
   }
 
-  /// ユーザーの投稿を読み込み（初回）
-  /// [limit] 起動時は9件、リフレッシュ時は20件
-  Future<void> _loadUserPosts({int limit = 9}) async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
-
-    try {
-      print('[ProfileScreen] _loadUserPosts: fetching uid=${currentUser.uid}');
-      final result = await _postService.getPostsByUserIdPaged(
-        currentUser.uid,
-        limit: limit,
-      );
-      print('[ProfileScreen] _loadUserPosts: success count=${result.posts.length} hasMore=${result.hasMore}');
-
-      if (mounted) {
-        setState(() {
-          _otherPosts = result.posts;
-        });
-      }
-    } catch (e) {
-      print('[ProfileScreen] _loadUserPosts: error=$e');
-    }
-  }
-
-  /// 保存済み投稿を読み込み
-  Future<void> _loadSavedPosts() async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-
-    if (currentUser == null) return;
-
-    try {
-      // savedByUserIds フィールドを使った単一クエリで取得
-      final posts = await _postService.getPostsSavedByUser(currentUser.uid);
-
-      if (mounted) {
-        setState(() {
-          _savedPosts = posts;
-        });
-      }
-    } catch (e) {
-      print('保存済み投稿の読み込みエラー: $e');
-    }
-  }
-
-  /// 保存タブに遷移したときに呼ぶ。投稿・ユーザー情報を再読み込みし、
-  /// SavedItemsProvider も最新化する。
-  Future<void> _loadSavedTabData() async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
-    await Future.wait([
-      _loadSavedPosts(),
-      _loadUserData(),
-    ]);
-    if (mounted && _userData != null) {
-      context.read<SavedItemsProvider>().initialize(
-        userId: currentUser.uid,
-        user: _userData!,
-      );
-    }
-  }
-
-
-  /// プロフィール画像を拡大表示（円形に切り抜き）
-  void _showProfileImageDialog(String imageUrl) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black87,
-      builder: (context) => GestureDetector(
-        onTap: () => Navigator.pop(context),
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(40),
-          child: AspectRatio(
-            aspectRatio: 1.0,
-            child: ClipOval(
-              child: CachedNetworkImage(
-                imageUrl: imageUrl,
-                fit: BoxFit.cover,
-                errorWidget: (_, __, ___) => Container(
-                  color: const Color(0xFF2A2A2A),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.person,
-                    color: Colors.white54,
-                    size: 80,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// データを全て再読み込み
-  Future<void> _refresh() async {
-    final refreshStart = DateTime.now();
-    final currentUser = FirebaseAuth.instance.currentUser;
-    await Future.wait([
-      _loadUserData(),
-      _loadUserPosts(limit: 20),
-      _loadPostCount(),
-      _loadSavedPosts(),
-      _loadMilfolhaEntry(),
-    ]);
-    // SavedItemsProvider も最新化（保存タブ・他画面の保存状態に反映）
-    if (mounted && _userData != null && currentUser != null) {
-      context.read<SavedItemsProvider>().initialize(
-        userId: currentUser.uid,
-        user: _userData!,
-      );
-    }
-    // 最低1秒はリフレッシュインジケーターを表示
-    final elapsed = DateTime.now().difference(refreshStart);
-    if (elapsed < const Duration(seconds: 1)) {
-      await Future.delayed(Duration(seconds: 1) - elapsed);
-    }
-  }
-
-  /// 投稿を削除
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
+    if (_loading) {
       return const Scaffold(
-        backgroundColor: Color(0xFF121212),
+        backgroundColor: _bg,
         body: Center(
           child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
         ),
@@ -336,1394 +292,627 @@ class ProfileScreenState extends State<ProfileScreen>
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: _bg,
       body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              // リロード UI はホーム画面と同じ iOS 風（CupertinoSliverRefreshControl）。
-              child: CustomScrollView(
-                controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: BouncingScrollPhysics(),
-                ),
-                slivers: [
-                  CupertinoSliverRefreshControl(onRefresh: _refresh),
-                  SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildProfileInfo(),
-                        _buildStatsRow(),
-                        const SizedBox(height: 20),
-                        _buildTabSelector(),
-                        ..._buildActiveTabContent(),
-                        const SizedBox(height: 32),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// ヘッダー（ユーザーID + 設定アイコン）
-  Widget _buildHeader() {
-    final username = _userData?.username ?? 'ユーザー名';
-
-    return Container(
-      height: 45,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Stack(
-        children: [
-          // ユーザーID（中央）
-          // 左右のアイコン（ランキング / 設定）に重ならないよう左右を空ける。
-          Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: _showMilfolhaRanking ? 108 : 48),
-              child: Text(
-                username,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  fontFamily: kSfProRounded,
-                ),
-              ),
-            ),
+        top: false,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
           ),
-          // WATERFALLSイベントのランキング導線（左端 / 参加中のみ）
-          if (_showMilfolhaRanking)
-            Positioned(
-              left: -8,
-              top: 0,
-              bottom: 0,
-              child: TextButton.icon(
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                onPressed: () => Navigator.push(
+          slivers: [
+            CupertinoSliverRefreshControl(onRefresh: _refresh),
+            SliverToBoxAdapter(
+              child: ProfileView(
+                name: _user?.name?.isNotEmpty == true
+                    ? _user!.name!
+                    : (_user?.username ?? ''),
+                username: _user?.username,
+                avatarUrl: _user?.profileImageUrl,
+                friendCount: _friendCount,
+                friendIcons: _friendIcons,
+                postCount: _postCount,
+                streakDays: _streakDays,
+                topArtists: [
+                  for (final name in _topArtistNames)
+                    (name: name, artistId: _artistIdOf(name)),
+                ],
+                recentPosts: [
+                  for (final p in _posts.take(3))
+                    (
+                      albumImageUrl: p.track.albumImageUrl,
+                      trackName: p.track.trackName,
+                      artistName: p.track.artistName,
+                    ),
+                ],
+                showMilfolhaRanking: _showMilfolhaRanking,
+                onOpenFriendAdd: () => FriendAddSheet.show(context),
+                onOpenSettings: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  );
+                  final uid = _uid;
+                  if (uid != null) await _loadUser(uid);
+                },
+                onOpenMilfolhaRanking: () => Navigator.push(
                   context,
                   MaterialPageRoute(
                       builder: (_) => const MilfolhaRankingScreen()),
                 ),
-                icon: const Icon(Icons.emoji_events,
-                    color: Color(0xFFFFD700), size: 18),
-                label: const Text('ランキング',
-                    style: TextStyle(color: Colors.white, fontSize: 13)),
-              ),
-            ),
-          // 設定アイコン（右端）
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            child: IconButton(
-              icon: const Icon(Icons.settings_outlined, color: Colors.white),
-              onPressed: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                );
-                // 設定画面から戻ったらデータを再読み込み
-                _loadUserData();
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// プロフィール情報セクション（Figma 4687:8337 / 4687:8330）。
-  ///
-  /// レイアウト:
-  ///   - 上段: 左に 85×85 アバター、右に 名前 / @handle / bio (自己紹介)
-  ///   - 下段: Tracks / Followers / Following の 3カラム
-  Widget _buildProfileInfo() {
-    final displayName = _userData?.name ?? '';
-    final handle = _userData?.username;
-    final bio = _userData?.bio;
-    final profileImageUrl = _userData?.profileImageUrl;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(27, 24, 27, 0),
-      child: Row(
-        // Figma 4690:9232: テキスト塊(名前/@handle/bio)は 85px アバターに対し
-        // 上下中央（テキストは y6〜78 でアバター 0〜85 の中央）。
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // 左: 85×85 アバター
-          GestureDetector(
-            onTap: profileImageUrl != null && profileImageUrl.isNotEmpty
-                ? () => _showProfileImageDialog(profileImageUrl)
-                : null,
-            child: Container(
-              width: 85,
-              height: 85,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.grey[800],
-              ),
-              child: ClipOval(
-                child: ProfileImage(imageUrl: profileImageUrl, size: 85),
-              ),
-            ),
-          ),
-          const SizedBox(width: 20),
-          // 右: 名前 / @handle / bio。Figma 5189:11208 の絶対配置に合わせ、
-          // 85px アバターと同じ高さの領域内で top=6/33/61 に配置する。
-          Expanded(
-            child: SizedBox(
-              height: 85,
-              child: Stack(
-                children: [
-                  if (displayName.isNotEmpty)
-                    Positioned(
-                      left: 0,
-                      top: 6,
-                      right: 0,
-                      child: Text(
-                        displayName,
-                        // Figma 5189:11212: 20px Bold 白
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          fontFamily: kSfProRounded,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  if (handle != null && handle.isNotEmpty)
-                    Positioned(
-                      left: 2,
-                      top: 33,
-                      right: 0,
-                      child: Text(
-                        handle.startsWith('@') ? handle : '@$handle',
-                        // Figma 5189:11209: SF Pro Rounded Regular 15px 白
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontFamily: kSfProRounded,
-                          fontWeight: FontWeight.w400,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  if (bio != null && bio.isNotEmpty)
-                    Positioned(
-                      left: 2,
-                      top: 61,
-                      right: 0,
-                      child: Text(
-                        bio,
-                        // Figma 5189:11210: SF Pro Rounded Regular 14px #8A8A8A
-                        style: const TextStyle(
-                          color: Color(0xFF8A8A8A),
-                          fontSize: 14,
-                          fontFamily: kSfProRounded,
-                          fontWeight: FontWeight.w400,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 統計行（Followers / Following）— 数字は SF Pro Rounded。
-  /// Tracks は非表示にし、Followers / Following を中央に寄せて並べる。
-  Widget _buildStatsRow() {
-    // Figma 5189:11201「Frame 689」準拠:
-    //   - カラム 58×38、カラム間の隙間 36、中央揃え
-    //   - 数字 20px SF Pro Rounded Bold 白 / ラベル 11px SF Pro Regular #919191
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(27, 24, 27, 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _statItem(
-            _followersCount,
-            'Followers',
-            onTap: () => _openFollowList(true),
-          ),
-          const SizedBox(width: 36),
-          _statItem(
-            _followingCount,
-            'Following',
-            onTap: () => _openFollowList(false),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statItem(int count, String label, {VoidCallback? onTap}) {
-    // Figma 5189:11202/11206: 58×38 の枠に数字＋ラベルを上寄せ中央配置。
-    final content = SizedBox(
-      width: 58,
-      height: 38,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 1),
-          Text(
-            '$count',
-            style: const TextStyle(
-              color: Colors.white,
-              fontFamily: kSfProRounded,
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              height: 1.0,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Color(0xFF919191),
-              fontFamily: kSfProRounded,
-              fontSize: 11,
-              height: 1.256,
-            ),
-          ),
-        ],
-      ),
-    );
-    if (onTap == null) return content;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: content,
-    );
-  }
-
-  void _openFollowList(bool showFollowers) {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => FollowListScreen(
-          userId: userId,
-          showFollowers: showFollowers,
-        ),
-      ),
-    );
-  }
-
-  /// Memories / Saved タブ切替（素材モックアップに準拠）
-  ///
-  /// 仕様:
-  ///   - タップのみで切替（横スワイプ不可）
-  ///   - 下部の虹色バー（アセット画像）が選択タブ側にスライド
-  ///   - アイコンは選択でカラー・非選択でグレー
-  ///   - ラベルは SF Pro Rounded
-  Widget _buildTabSelector() {
-    // Figma 4687:8389: Frame 683 は Frame 699 (x=14) 直下で幅 373 →
-    // 画面左から 14px 左オフセットで配置。Music Memory 枠 (x=14, w=370) と
-    // 同じ左端に揃える。
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: AnimatedBuilder(
-        animation: _tabAnim,
-        builder: (context, _) {
-          final t = _tabAnim.value.clamp(0.0, 1.0);
-          return LayoutBuilder(
-          builder: (context, constraints) {
-            final totalWidth = constraints.maxWidth;
-            final tabWidth = totalWidth / 2;
-            const barWidth = 141.0;
-            const barHeight = 3.0;
-            final barLeft = (tabWidth - barWidth) / 2 + t * tabWidth;
-
-            return Stack(
-              children: [
-                // Figma 4687:8390: 39px 高 / bg #090909 / border #1F1F20 / radius 13
-                Container(
-                  height: 39,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF090909),
-                    borderRadius: BorderRadius.circular(13),
-                    border: Border.all(
-                      color: const Color(0xFF1F1F20),
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      _tabItem(
-                        activeAsset: 'assets/profile/tab_calendar_active.png',
-                        inactiveAsset:
-                            'assets/profile/tab_calendar_inactive.png',
-                        label: 'Playlist',
-                        active: _tab == _ProfileTab.memories,
-                        onTap: () => _switchTab(_ProfileTab.memories),
-                      ),
-                      _tabItem(
-                        activeAsset: 'assets/profile/tab_heart_active.png',
-                        inactiveAsset: 'assets/profile/tab_heart_inactive.png',
-                        label: 'Saved',
-                        active: _tab == _ProfileTab.saved,
-                        onTap: () => _switchTab(_ProfileTab.saved),
-                      ),
-                    ],
-                  ),
-                ),
-                // 中央縦線（Figma Line 150）— 20px 高
-                Positioned(
-                  left: totalWidth / 2 - 0.5,
-                  top: 9,
-                  bottom: 10,
-                  width: 1,
-                  child: const ColoredBox(color: Color(0xFF2E2E2E)),
-                ),
-                // 虹色スライドバー（アセット画像）
-                Positioned(
-                  bottom: 0,
-                  left: barLeft,
-                  child: Image.asset(
-                    'assets/profile/tab_rainbow_bar.png',
-                    width: barWidth,
-                    height: barHeight,
-                    fit: BoxFit.fill,
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-      ),
-    );
-  }
-
-  Widget _tabItem({
-    required String activeAsset,
-    required String inactiveAsset,
-    required String label,
-    required bool active,
-    required VoidCallback onTap,
-  }) {
-    // Figma 4687:8389:
-    //   - アイコン 14×14 相当
-    //   - ラベル 12px SF Pro Rounded Semibold
-    //   - 非選択色 #8B8B8B
-    final labelColor = active ? Colors.white : const Color(0xFF8B8B8B);
-    return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.asset(
-              active ? activeAsset : inactiveAsset,
-              width: 14,
-              height: 14,
-              fit: BoxFit.contain,
-            ),
-            const SizedBox(width: 7),
-            Text(
-              label,
-              style: TextStyle(
-                color: labelColor,
-                fontSize: 12,
-                fontFamily: kSfProRounded,
-                fontWeight: FontWeight.w600,
               ),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  /// アクティブタブに応じた本文（通常 Widget リスト）。
-  /// 横スワイプはさせないので PageView 不使用。
-  List<Widget> _buildActiveTabContent() {
-    if (_tab == _ProfileTab.saved) {
-      return [_buildSavedContent()];
-    }
-    // Playlist タブ: 💜/🔥 の記録カード + My Playlist のみ。
-    // （Music Memory のカレンダーはボトムナビの Music Memory タブへ移動済み）
-    return [
-      _buildPlaylistStatCard(),
-      _buildMyPlaylistSection(),
-    ];
-  }
-
-  /// Playlist タブ上部の記録カード（💜 曲数 / 🔥 連続日数）。
-  /// Figma 5189:11238「Frame 674」= 236×47 の固定幅・中央配置。
-  Widget _buildPlaylistStatCard() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 22),
-      child: Center(
-        child: SizedBox(
-          width: 236,
-          child: _buildRecordCard(),
-        ),
-      ),
-    );
-  }
-
-  /// 記録カード。💜 曲数 と 🔥 連続日数 を並置。
-  /// Figma 4687:8367: 236×47 / bg #09090A / border #272627 / radius 15
-  ///   - テキスト 14px SF Pro Rounded Semibold color #5C5656
-  ///   - 中央 divider Line 145 (14px 高)
-  Widget _buildRecordCard() {
-    // 投稿総数（= Tracks 数）を正確に表示。グリッドの読み込み件数(_otherPosts)は
-    // ページング上限（初回9件など）で頭打ちになるため使わない。
-    final musicCount = _totalPostCount;
-    final streak = _computePostingStreak();
-    return Container(
-      height: 47,
-      decoration: BoxDecoration(
-        color: const Color(0xFF09090A),
-        borderRadius: BorderRadius.circular(15),
-      ),
-      foregroundDecoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: const Color(0xFF272627), width: 1),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('💜', style: TextStyle(fontSize: 14)),
-                  const SizedBox(width: 6),
-                  Text(
-                    '$musicCount Music',
-                    style: const TextStyle(
-                      color: Color(0xFF5C5656),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: kSfProRounded,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Container(width: 1, height: 14, color: const Color(0xFF272627)),
-          Expanded(
-            child: Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('🔥', style: TextStyle(fontSize: 14)),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${streak}d 連続',
-                    style: const TextStyle(
-                      color: Color(0xFF5C5656),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: kSfProRounded,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 連続投稿日数を集計（今日 → 過去へ、1日でも空くと打ち切り）
-  int _computePostingStreak() {
-    if (_otherPosts.isEmpty) return 0;
-    final days = <DateTime>{};
-    for (final p in _otherPosts) {
-      final d = p.createdAt;
-      days.add(DateTime(d.year, d.month, d.day));
-    }
-    var streak = 0;
-    var cursor = DateTime.now();
-    cursor = DateTime(cursor.year, cursor.month, cursor.day);
-    while (days.contains(cursor)) {
-      streak++;
-      cursor = cursor.subtract(const Duration(days: 1));
-    }
-    return streak;
-  }
-
-  /// ストーリー（Vibe 投稿）を Vibe プレイリスト形式のストーリービューアで開く。
-  /// タップした投稿と同じ日の Vibe 投稿だけをまとめて 1 つのストーリーとして渡し、
-  /// タップした投稿から再生開始。
-  void _openVibeStory(PostModel post) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    bool sameDay(DateTime a, DateTime b) =>
-        a.year == b.year && a.month == b.month && a.day == b.day;
-    final vibePosts = _otherPosts
-        .where((p) => p.isVibe && sameDay(p.createdAt, post.createdAt))
-        .toList();
-    final idx = vibePosts.indexWhere((p) => p.postId == post.postId);
-    final storyItem = VibeStoryItem(
-      userId: uid,
-      username: _userData?.username ?? _userData?.name,
-      iconUrl: _userData?.profileImageUrl,
-      unread: false,
-      posts: vibePosts.isEmpty ? [post] : vibePosts,
-    );
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => VibeUserStoryScreen(
-          stories: [storyItem],
-          currentUserId: uid,
-          initialPostIndex: idx < 0 ? 0 : idx,
-        ),
-      ),
-    );
-  }
-
-  /// My Playlist セクション（Figma 4687:8402 準拠）
-  /// - サムネイル 57×81、間隔 30 (87 - 57 = 30)
-  /// - 新規投稿枠のみカラー
-  /// - 名前 10px SF Pro Medium 白 / "23曲" 9px SF Pro Regular #9E9FA1
-  /// - 「新しいプレイリスト」9px SF Pro Medium #8C8986
-  Widget _buildMyPlaylistSection() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 26, 14, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 2),
-            child: Text(
-              'My Playlist',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                fontFamily: kSfProRounded,
-              ),
-            ),
-          ),
-          const SizedBox(height: 9),
-          SizedBox(
-            height: 118, // 枠 79 + gap + テキスト2行
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.zero,
-              children: [
-                _playlistNewSlot(),
-                for (final p in _playlists) ...[
-                  const SizedBox(width: 30),
-                  _playlistExistingSlot(
-                    name: p.name,
-                    trackCount: p.trackCount,
-                    coverImageUrl: p.coverImageUrl,
-                    onTap: () => _openPlaylist(p),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// プレイリスト作成フローを開く（画面1 → 画面2 → 作成）。完了後に一覧を更新。
-  Future<void> _openCreatePlaylist() async {
-    final result = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const PlaylistTrackSelectionScreen(),
-      ),
-    );
-    if (result == true && mounted) _loadPlaylists();
-  }
-
-  /// プレイリストをタップ → そのプレイリストのカードのみを、Music Memory と同じ
-  /// 横並びのカード詳細（[MusicMemoryDetailScreen]）で表示する。
-  Future<void> _openPlaylist(PlaylistModel playlist) async {
-    // Vibe プレイリストのカード表示を流用した専用画面で開く。
-    final deleted = await PlaylistDetailScreen.push(
-      context,
-      playlist: playlist,
-      currentUserId: FirebaseAuth.instance.currentUser?.uid ?? '',
-    );
-    if (deleted == true && mounted) {
-      _loadPlaylists(); // 削除を一覧へ反映
-    }
-  }
-
-  Widget _playlistNewSlot() {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _openCreatePlaylist,
-      // 枠(68)より「新しいプレイリスト」の方が広いので、外側を固定幅にせず
-      // Column をラベル幅に合わせて広げる（横 ListView 内なので主軸は無制限）。
-      // サムネイルは中央寄せで配置し、ラベルは省略せず全文表示する。
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Image.asset(
-            'assets/profile/playlist_new.png',
-            width: 68,
-            height: 79, // asset(278×324)の比率に合わせ余白を消す (68×324/278)
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => Container(
-              width: 68,
-              height: 79,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF36C5F4), Color(0xFFF857C1), Color(0xFF6D5BFF)],
-                ),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.add, color: Colors.white, size: 24),
-            ),
-          ),
-          const SizedBox(height: 9),
-          // Figma 4690:9311: 枠幅より広い 1 行テキスト。省略せず全文表示。
-          const Text(
-            '新しいプレイリスト',
-            style: TextStyle(
-              color: Color(0xFF8C8986),
-              fontSize: 9,
-              fontFamily: kSfProRounded,
-              fontWeight: FontWeight.w500,
-            ),
-            maxLines: 1,
-            softWrap: false,
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 既存プレイリストのサムネイル。提供された枠PNG(playlist_既存)をそのまま土台にし、
-  /// その白いカード領域にだけカバー写真を重ねる（枠のグレー・ページ・背表紙はPNGのまま）。
-  Widget _buildPlaylistThumbnail(String coverImageUrl) {
-    const double w = 68;
-    const double h = 79; // PNG 278x324 のアスペクトに合わせた表示サイズ
-    return SizedBox(
-      width: w,
-      height: h,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // 枠PNG（白カード＋斜めのページ＋背表紙）を土台に表示。
-          Image.asset(
-            'assets/profile/playlist_existing.png',
-            width: w,
-            height: h,
-            fit: BoxFit.fill,
-            errorBuilder: (_, __, ___) => Container(
-              width: w,
-              height: h,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: const Color(0xFF424242),
-              ),
-            ),
-          ),
-          // 白いカード領域にだけカバー写真を重ねる（枠の内側に合わせて配置）。
-          if (coverImageUrl.isNotEmpty)
-            Positioned(
-              left: 4,
-              top: 4,
-              width: 47,
-              height: 71,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: Image(
-                  image: albumImageProvider(coverImageUrl),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _playlistExistingSlot({
-    required String name,
-    required int trackCount,
-    String coverImageUrl = '',
-    VoidCallback? onTap,
-  }) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: SizedBox(
-        width: 68, // 57 の約 1.2 倍
-        child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // カバー: 白枠カード＋写真＋後ろに斜めのページが覗く合成（Figma 4773:10071）。
-          _buildPlaylistThumbnail(coverImageUrl),
-          const SizedBox(height: 2), // 既存スロットはサムネイル→名前を 2px (Figma 4690:9281)
-          Text(
-            name,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 10,
-              fontFamily: kSfProRounded,
-              fontWeight: FontWeight.w500,
-              height: 1.2,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          Text(
-            '$trackCount曲',
-            style: const TextStyle(
-              color: Color(0xFF9E9FA1),
-              fontSize: 9,
-              fontFamily: kSfProRounded,
-              height: 1.44,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-        ),
-      ),
-    );
-  }
-
-  /// Saved タブの本文（Recently Saved + Songs / Artists / Playlists サブタブ）。
-  /// Figma 4682:8196: サブタブ(38) 直下からリスト(60×N)が始まる(0 gap)。
-  Widget _buildSavedContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildRecentlySavedSection(),
-        _buildSavedSubTabs(),
-        _buildSavedSubTabContent(),
-      ],
-    );
-  }
-
-  /// Recently Saved セクション（Figma 4679:9793）。
-  /// 直近保存の楽曲を横スクロールで最大 N 件表示。
-  ///   - タイトル "Recently Saved" 16px SF Pro Rounded Bold
-  ///   - アルバム 90×90 radius **10** + border `#323232` 1px
-  ///   - タイトル 14px SF Pro Rounded Bold / アーティスト 10px `#9B9B9B`
-  ///   - 間隔 15px、アルバム→テキスト 3px、Section 下 13px でサブタブに繋ぐ
-  Widget _buildRecentlySavedSection() {
-    final entries = _sortedSavedEntries();
-    if (entries.isEmpty) return const SizedBox.shrink();
-    final recent = entries.take(5).toList();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 13),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Recently Saved',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              fontFamily: kSfProRounded,
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 130, // 90(album) + 3(gap) + 33(text 2 lines) + 少しの余白
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.zero,
-              itemCount: recent.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 15),
-              itemBuilder: (context, i) {
-                final e = recent[i];
-                final track = e.track ?? e.post!.track;
-                return _recentlySavedItem(track);
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _recentlySavedItem(TrackModel track) {
-    return SizedBox(
-      width: 90,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 90×90 アルバム、radius 10、border #323232 1px
-          Container(
-            width: 90,
-            height: 90,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF323232), width: 1),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: track.albumImageUrl.isNotEmpty
-                ? CachedNetworkImage(
-                    imageUrl: track.albumImageUrl,
-                    fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => Container(
-                      color: const Color(0xFF2A2A2A),
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.album,
-                          color: Colors.white38, size: 28),
-                    ),
-                  )
-                : Container(
-                    color: const Color(0xFF2A2A2A),
-                    alignment: Alignment.center,
-                    child: const Icon(Icons.album,
-                        color: Colors.white38, size: 28),
-                  ),
-          ),
-          const SizedBox(height: 3),
-          Padding(
-            padding: const EdgeInsets.only(left: 5),
-            child: Text(
-              track.trackName,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                fontFamily: kSfProRounded,
-                height: 1.2,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 5),
-            child: Text(
-              track.artistName,
-              style: const TextStyle(
-                color: Color(0xFF9B9B9B),
-                fontSize: 10,
-                height: 1.5,
-                fontFamily: kSfProRounded,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Figma 4679:9838: サブタブバー。
-  /// - Container 38 高、bg #131315、border #272627 1px、**上端のみ radius 19**
-  /// - 3タブ均等分割、テキスト 12px SF Pro Rounded Bold
-  ///   active=white / 非active=#8B8B8B
-  /// - 下線 77×2 が active タブ下端(bottom:1)に位置
-  Widget _buildSavedSubTabs() {
-    return Container(
-      height: 38,
-      decoration: const BoxDecoration(
-        color: Color(0xFF131315),
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(19),
-          topRight: Radius.circular(19),
-        ),
-      ),
-      foregroundDecoration: BoxDecoration(
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(19),
-          topRight: Radius.circular(19),
-        ),
-        border: Border.all(color: const Color(0xFF272627), width: 1),
-      ),
-      child: Row(
-        children: [
-          _savedSubTabItem('Songs', _SavedSubTab.songs),
-          _savedSubTabItem('Artists', _SavedSubTab.artists),
-          _savedSubTabItem('Playlists', _SavedSubTab.playlists),
-        ],
-      ),
-    );
-  }
-
-  Widget _savedSubTabItem(String label, _SavedSubTab tab) {
-    final active = _savedSubTab == tab;
-    return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          setState(() => _savedSubTab = tab);
-          if (tab == _SavedSubTab.artists) _loadFollowedArtists();
-        },
-        child: Stack(
-          alignment: Alignment.topCenter,
-          children: [
-            Positioned(
-              top: 12,
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: active ? Colors.white : const Color(0xFF8B8B8B),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  fontFamily: kSfProRounded,
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: 1,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                height: 2,
-                width: active ? 77 : 0,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSavedSubTabContent() {
-    switch (_savedSubTab) {
-      case _SavedSubTab.songs:
-        return _buildSavedPostsGrid();
-      case _SavedSubTab.artists:
-        return _buildSavedArtistsList();
-      case _SavedSubTab.playlists:
-        return _buildSavedPlaylistsList();
-    }
-  }
-
-  /// Artists サブタブ = **フォロー中アーティスト一覧**。
-  /// モックアップ準拠: 円形アバター + アーティスト名 + "アーティスト" サブテキスト。
-  /// タップで ArtistProfileScreen へ遷移。
-  Widget _buildSavedArtistsList() {
-    if (_isLoadingFollowedArtists && _followedArtists.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 40),
-        child: Center(
-          child: CupertinoActivityIndicator(color: Colors.white70, radius: 10),
-        ),
-      );
-    }
-    if (_followedArtists.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-        child: Center(
-          child: Text(
-            'フォロー中のアーティストがいません',
-            style: TextStyle(
-                color: Colors.white54, fontSize: 13, fontFamily: kSfProRounded),
-          ),
-        ),
-      );
-    }
-    return Column(
-      children: _followedArtists
-          .map((a) => _followedArtistRow(a))
-          .toList(growable: false),
-    );
-  }
-
-  Widget _followedArtistRow(ArtistModel artist) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ArtistProfileScreen(
-              artistName: artist.artistName,
-            ),
-          ),
-        );
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          children: [
-            _FollowedArtistAvatar(artist: artist),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    artist.artistName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: kSfProRounded,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    'アーティスト',
-                    style: TextStyle(
-                      color: Color(0xFF9A9A9A),
-                      fontSize: 12,
-                      fontFamily: kSfProRounded,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Playlists サブタブ。現状はプレイリスト保存機構が未実装なので占位。
-  Widget _buildSavedPlaylistsList() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-      child: Center(
-        child: Text(
-          '保存済みのプレイリストがありません',
-          style: TextStyle(
-              color: Colors.white54, fontSize: 13, fontFamily: kSfProRounded),
-        ),
-      ),
-    );
-  }
-
-  /// 楽曲(savedTracksData) と 投稿(savedPosts) を保存時刻で統合しソート。
-  /// trackId 重複は track ベースを優先。最新が先頭。
-  List<_SavedEntry> _sortedSavedEntries() {
-    final savedTracksData = _userData?.savedTracksData ?? {};
-    final savedPostsAt = _userData?.savedPostsAt ?? {};
-    final entries = <_SavedEntry>[];
-    final seenTrackIds = <String>{};
-
-    for (final v in savedTracksData.values) {
-      if (v is! Map) continue;
-      final m = Map<String, dynamic>.from(v);
-      final trackId = m['trackId']?.toString() ?? '';
-      if (trackId.isEmpty || seenTrackIds.contains(trackId)) continue;
-      seenTrackIds.add(trackId);
-      final ts = m['savedAt'];
-      entries.add(_SavedEntry(
-        savedAt: ts is Timestamp ? ts.toDate() : DateTime(0),
-        track: TrackModel(
-          trackId: trackId,
-          trackName: m['trackName']?.toString() ?? '',
-          artistName: m['artistName']?.toString() ?? '',
-          albumImageUrl: m['albumImageUrl']?.toString() ?? '',
-          previewUrl: m['previewUrl']?.toString(),
-        ),
-      ));
-    }
-
-    for (final post in _savedPosts) {
-      if (seenTrackIds.contains(post.track.trackId)) continue;
-      seenTrackIds.add(post.track.trackId);
-      final ts = savedPostsAt[post.postId];
-      entries.add(_SavedEntry(
-        savedAt: ts is Timestamp ? ts.toDate() : DateTime(0),
-        post: post,
-      ));
-    }
-
-    entries.sort((a, b) => b.savedAt.compareTo(a.savedAt));
-    return entries;
-  }
-
-  /// 保存済み楽曲リスト（Figma 566:8620準拠）
-  Widget _buildSavedPostsGrid() {
-    final entries = _sortedSavedEntries();
-
-    if (entries.isEmpty) {
-      return const Center(
-        child: Text(
-          '保存済みの楽曲がありません',
-          style: TextStyle(
-              color: Colors.white54, fontSize: 14, fontFamily: kSfProRounded),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: EdgeInsets.zero,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final e = entries[index];
-        if (e.post != null) return _buildSavedTrackItem(e.post!);
-        return _buildSavedTrackModelItem(e.track!);
-      },
-    );
-  }
-
-  Future<void> _handlePlay(TrackModel track) async {
-    final isPlaying = _playingTrackId == track.trackId;
-    if (isPlaying) {
-      _audioService.stop();
-      setState(() => _playingTrackId = null);
-      return;
-    }
-    setState(() => _playingTrackId = track.trackId);
-    final url = track.previewUrl;
-    if (url != null && url.isNotEmpty) {
-      await _audioService.playPreview(url);
-    }
-  }
-
-  /// アーティストプロフィールから保存した楽曲の行（trackId ベース）
-  Widget _buildSavedTrackModelItem(TrackModel track) {
-    return _SavedTrackItem(
-      track: track,
-      isPlaying: _playingTrackId == track.trackId,
-      onPlayTap: () => _handlePlay(track),
-      onSaveTap: () => SavedItemsProvider.toggleTrackWithToast(context, track),
-    );
-  }
-
-  /// 投稿保存から追加された楽曲の行（postId ベース）
-  Widget _buildSavedTrackItem(PostModel post) {
-    final track = post.track;
-    return _SavedTrackItem(
-      track: track,
-      postId: post.postId,
-      isPlaying: _playingTrackId == track.trackId,
-      onPlayTap: () => _handlePlay(track),
-      onSaveTap: () => SavedItemsProvider.togglePostWithToast(context, post),
     );
   }
 }
 
-/// 保存済み楽曲の行 Widget。
-/// 保存状態は SavedItemsProvider から直接読み取り、タップで toggle を呼ぶ。
-class _SavedTrackItem extends StatelessWidget {
-  final TrackModel track;
-  final String? postId; // 投稿として保存されている場合
-  final bool isPlaying;
-  final Future<void> Function() onPlayTap;
-  final Future<void> Function() onSaveTap;
+/// プロフィールの見た目だけを持つ層。
+///
+/// 読み込みと描画を分けてあるのは、Figma との突き合わせを Firebase 抜きで
+/// できるようにするため（座標が多く、実機だけで確かめるのは手間が大きい）。
+class ProfileView extends StatelessWidget {
+  final String name;
+  final String? username;
+  final String? avatarUrl;
+  final int friendCount;
 
-  const _SavedTrackItem({
-    required this.track,
-    this.postId,
-    required this.isPlaying,
-    required this.onPlayTap,
-    required this.onSaveTap,
+  /// ピルに重ねて出す友達アイコン（先頭 2 人ぶん）。
+  final List<String?> friendIcons;
+  final int postCount;
+  final int streakDays;
+
+  /// 上位アーティスト（最大 3）。画像は名前 / ID から引く。
+  final List<({String name, String? artistId})> topArtists;
+
+  /// 直近の投稿（最大 3）。
+  final List<({String albumImageUrl, String trackName, String artistName})>
+      recentPosts;
+
+  final bool showMilfolhaRanking;
+
+  /// 左上のボタン。友達追加シートを開く。
+  final VoidCallback? onOpenFriendAdd;
+  final VoidCallback? onOpenSettings;
+  final VoidCallback? onOpenMilfolhaRanking;
+
+  const ProfileView({
+    super.key,
+    required this.name,
+    required this.username,
+    required this.avatarUrl,
+    required this.friendCount,
+    required this.friendIcons,
+    required this.postCount,
+    required this.streakDays,
+    required this.topArtists,
+    required this.recentPosts,
+    this.showMilfolhaRanking = false,
+    this.onOpenFriendAdd,
+    this.onOpenSettings,
+    this.onOpenMilfolhaRanking,
   });
 
   @override
   Widget build(BuildContext context) {
-    final savedItems = context.watch<SavedItemsProvider>();
-    final isSaved = savedItems.isTrackSaved(track.trackId) ||
-        (postId != null && savedItems.isPostSaved(postId!));
+    final width = MediaQuery.sizeOf(context).width;
+    final scale = width / _designW;
+    return SizedBox(
+      width: width,
+      height: _designH * scale,
+      child: Transform.scale(
+        scale: scale,
+        alignment: Alignment.topLeft,
+        child: SizedBox(
+          width: _designW,
+          height: _designH,
+          child: Stack(children: _content(context)),
+        ),
+      ),
+    );
+  }
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onPlayTap,
-      child: Container(
-        height: 60,
-        color: isPlaying ? const Color(0xFF2A2A2A) : const Color(0xFF121212),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
+  List<Widget> _content(BuildContext context) => [
+        _shareButton(),
+        _settingsButton(),
+        _avatar(),
+        _name(),
+        _handle(),
+        _friendsPill(),
+        _statsPill(),
+        ..._topArtistsSection(),
+        ..._recentChoiceSection(),
+      ];
+
+  // ── ヘッダー ───────────────────────────────────────────
+
+  /// 左上のガラスボタン。Figma: Frame 840 (16,62) 52×45。
+  /// 友達追加シート（招待リンクの共有を含む）を開く。
+  Widget _shareButton() {
+    return Positioned(
+      left: 16,
+      top: 62,
+      width: 52,
+      height: 45,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onOpenFriendAdd,
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(5),
-              child: SizedBox(
-                width: 50,
-                height: 50,
-                child: track.albumImageUrl.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: track.albumImageUrl,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Container(
-                          color: Colors.grey[800],
-                          child: const Icon(Icons.album, size: 24, color: Colors.white38),
-                        ),
-                      )
-                    : Container(
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.album, size: 24, color: Colors.white38),
-                      ),
-              ),
+            Image.asset(
+              'assets/profile_v2/glass_button.png',
+              width: 52,
+              height: 45,
+              fit: BoxFit.fill,
             ),
-            const SizedBox(width: 22),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    track.trackName,
-                    style: TextStyle(
-                      color: isPlaying ? const Color(0xFF1DB954) : Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      height: 1.198,
-                      fontFamily: kSfProRounded,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    track.artistName,
-                    style: const TextStyle(
-                      color: Color(0xFF9B9B9B),
-                      fontSize: 10,
-                      height: 1.5,
-                      fontFamily: kSfProRounded,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            if (isPlaying)
-              const Padding(
-                padding: EdgeInsets.only(right: 8),
-                child: Icon(Icons.volume_up, color: Color(0xFF1DB954), size: 18),
-              ),
+            const Icon(Icons.ios_share, color: Colors.white, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 設定（と WATERFALLS ランキング）への導線。
+  ///
+  /// Figma の右上は空いているが、タブを無くした結果ここが設定への唯一の
+  /// 入口になる。消すと account 編集やログアウトに辿り着けなくなるため残す。
+  Widget _settingsButton() {
+    return Positioned(
+      right: 16,
+      top: 62,
+      height: 45,
+      child: Row(
+        children: [
+          if (showMilfolhaRanking)
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => onSaveTap(),
-              child: isSaved
-                  ? Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Container(
-                          width: 24,
-                          height: 24,
-                          decoration: const BoxDecoration(
-                            color: Colors.lightGreen,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        Icon(Icons.check, size: 18, color: Colors.grey[700]),
-                      ],
-                    )
-                  : const Icon(Icons.add_circle_outline, color: Colors.white54, size: 24),
+              onTap: onOpenMilfolhaRanking,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Icon(Icons.emoji_events,
+                    color: Color(0xFFFFD700), size: 22),
+              ),
+            ),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onOpenSettings,
+            child: const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child:
+                  Icon(Icons.settings_outlined, color: Colors.white, size: 24),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── プロフィール ───────────────────────────────────────
+
+  Widget _avatar() {
+    return Positioned(
+      left: 156.5,
+      top: 109,
+      child: ClipOval(
+        child: Container(
+          width: 89,
+          height: 89,
+          color: const Color(0xFF3A3A3A),
+          child: ProfileImage(imageUrl: avatarUrl, size: 89),
+        ),
+      ),
+    );
+  }
+
+  Widget _name() {
+    return Positioned(
+      left: 20,
+      right: 20,
+      top: 209,
+      child: Text(
+        name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 24,
+          height: 1.2,
+          fontWeight: FontWeight.w600,
+          fontFamily: kSfProRounded,
+        ),
+      ),
+    );
+  }
+
+  Widget _handle() {
+    final handle = username;
+    return Positioned(
+      left: 20,
+      right: 20,
+      top: 238,
+      child: Text(
+        (handle == null || handle.isEmpty) ? '' : '@$handle',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: _handleColor,
+          fontSize: 15,
+          height: 1.2,
+          fontWeight: FontWeight.w600,
+          fontFamily: kSfProRounded,
+        ),
+      ),
+    );
+  }
+
+  /// Figma では「2人の共通」（共通の友達）だが、自分のプロフィールでは
+  /// 成り立たないので友達の人数に差し替えている。アイコンの重ね方と傾きは
+  /// デザインのまま。
+  Widget _friendsPill() {
+    return Positioned(
+      left: 114,
+      top: 277,
+      width: 174,
+      height: 52,
+      child: Container(
+        decoration: BoxDecoration(
+          color: _pillBg,
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Stack(
+          children: [
+            // 奥側（少し傾いている方）
+            Positioned(
+              left: 15.9,
+              top: 13.8,
+              child: Transform.rotate(
+                angle: -9.51 * 3.1415926535 / 180,
+                child: _pillAvatar(friendIcons.elementAtOrNull(0)),
+              ),
+            ),
+            Positioned(
+              left: 44,
+              top: 11,
+              child: _pillAvatar(friendIcons.elementAtOrNull(1)),
+            ),
+            Positioned(
+              left: 82,
+              right: 8,
+              top: 17,
+              child: Text(
+                '友達 $friendCount人',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  height: 1.2,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: kSfProRounded,
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
   }
-}
 
-/// 保存タブの行データ。投稿ベース or 楽曲ベースのどちらか一方が入る。
-class _SavedEntry {
-  final DateTime savedAt;
-  final PostModel? post;
-  final TrackModel? track;
-  _SavedEntry({required this.savedAt, this.post, this.track});
-}
-
-/// フォロー中アーティストのアバター(56×56, 円形)。
-///
-/// - artist.imageUrl があれば直接表示(Firestore に保存済み = 本人と断定できたもの)
-/// - 無ければ表示時に Spotify 名前検索で都度取得(セッション内キャッシュあり)
-/// - 名前検索の結果は関連アーティストにヒットする可能性があるため Firestore には保存しない
-///   (次回起動時にまた取得しなおす)
-class _FollowedArtistAvatar extends StatefulWidget {
-  final ArtistModel artist;
-  const _FollowedArtistAvatar({required this.artist});
-
-  @override
-  State<_FollowedArtistAvatar> createState() => _FollowedArtistAvatarState();
-}
-
-class _FollowedArtistAvatarState extends State<_FollowedArtistAvatar> {
-  final SpotifyService _spotify = SpotifyService();
-  String? _resolvedUrl;
-  bool _loading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final saved = widget.artist.imageUrl;
-    if (saved != null && saved.isNotEmpty) {
-      _resolvedUrl = saved;
-    } else {
-      _fetchOnDemand();
-    }
-  }
-
-  Future<void> _fetchOnDemand() async {
-    if (_loading) return;
-    setState(() => _loading = true);
-    try {
-      final url = await _spotify.getArtistImageUrl(widget.artist.artistName);
-      if (!mounted) return;
-      setState(() {
-        _resolvedUrl = url;
-        _loading = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _pillAvatar(String? url) {
     return ClipOval(
-      child: SizedBox(
-        width: 56,
-        height: 56,
-        child: (_resolvedUrl != null && _resolvedUrl!.isNotEmpty)
-            ? CachedNetworkImage(
-                imageUrl: _resolvedUrl!,
-                fit: BoxFit.cover,
-                errorWidget: (_, __, ___) => const _ArtistAvatarPlaceholder(),
-              )
-            : const _ArtistAvatarPlaceholder(),
+      child: Container(
+        width: 30,
+        height: 30,
+        color: const Color(0xFF3A3A3A),
+        child: ProfileImage(imageUrl: url, size: 30),
       ),
     );
   }
+
+  /// 「💜 N Music ｜ 🔥 Nd 連続」。Figma: Frame 674 (83,350) 236×47。
+  Widget _statsPill() {
+    return Positioned(
+      left: 83,
+      top: 350,
+      width: 236,
+      height: 47,
+      child: Container(
+        decoration: BoxDecoration(
+          color: _statsBg,
+          border: Border.all(color: _statsBorder),
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              left: 14,
+              top: 14,
+              child: _statsLabel('💜  $postCount ', 'Music'),
+            ),
+            Positioned(
+              left: 118,
+              top: 16.5,
+              child: Container(width: 1, height: 14, color: _statsBorder),
+            ),
+            Positioned(
+              left: 148,
+              top: 14,
+              child: _statsLabel('🔥${streakDays}d ', '連続'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 絵文字だけ 16px、文字は 14px（Figma の指定通り）。
+  Widget _statsLabel(String emojiPart, String textPart) {
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: emojiPart, style: const TextStyle(fontSize: 16)),
+          TextSpan(text: textPart, style: const TextStyle(fontSize: 14)),
+        ],
+      ),
+      style: const TextStyle(
+        color: _statsText,
+        height: 1.2,
+        fontWeight: FontWeight.w600,
+        fontFamily: kSfProRounded,
+      ),
+    );
+  }
+
+  // ── top artists ───────────────────────────────────────
+
+  List<Widget> _topArtistsSection() {
+    final artists = topArtists;
+    return [
+      // タイトルは 4x 書き出し。影のぶん左右に 16pt ずつ余白が入っているので、
+      // 画像幅 = canvas/4 で置けば文字が Figma の位置に来る。
+      Positioned(
+        left: (_designW - 1395 / 4) / 2,
+        top: 421.9,
+        child: Image.asset(
+          'assets/profile_v2/title_top_artists.png',
+          width: 1395 / 4,
+        ),
+      ),
+      for (var i = 0; i < 3; i++) ...[
+        Positioned(
+          left: _artistsOrigin.dx + _tileLefts[i],
+          top: _artistsOrigin.dy + 49,
+          child: _artistTile(
+            artist: i < artists.length ? artists[i] : null,
+            isFirst: i == 0,
+          ),
+        ),
+        // 順位の数字はタイルの上に重なる。ベースラインを揃えたいので下端で置く。
+        Positioned(
+          left: _artistsOrigin.dx + _tileLefts[i],
+          top: _artistsOrigin.dy + 49,
+          width: _tile,
+          child: _rankNumeral(i),
+        ),
+        Positioned(
+          left: _artistsOrigin.dx + _tileLefts[i] - 12,
+          top: _artistsOrigin.dy + 169,
+          width: _tile + 24,
+          child: Text(
+            i < artists.length ? artists[i].name : '',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              height: 1.2,
+              letterSpacing: 0.12,
+              fontWeight: FontWeight.w700,
+              fontFamily: kSfProRounded,
+            ),
+          ),
+        ),
+      ],
+    ];
+  }
+
+  /// 数字は Figma のテキスト枠（幅 30/38/40、中心 95/208/317）に合わせて置く。
+  /// 素材は 4x なので高さ = canvas/4、下端をベースライン（相対 153）に揃える。
+  Widget _rankNumeral(int index) {
+    const heights = [178 / 4, 181 / 4, 184 / 4];
+    const centers = [95.0, 208.0, 317.0];
+    final h = heights[index];
+    return SizedBox(
+      height: 105,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            // 中心 - タイル左端 で、このタイル内での中心位置になる。
+            left: centers[index] - _tileLefts[index] - 40,
+            top: 153 - 49 - h,
+            width: 80,
+            child: Center(
+              child: Image.asset(
+                'assets/profile_v2/rank_${index + 1}.png',
+                height: h,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _artistTile({
+    required ({String name, String? artistId})? artist,
+    required bool isFirst,
+  }) {
+    return Container(
+      width: _tile,
+      height: _tile,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [
+          if (isFirst)
+            const BoxShadow(color: Color(0x1FD5F94B), blurRadius: 24),
+          ..._tileShadow,
+        ],
+      ),
+      child: ClipOval(
+        child: artist == null
+            ? const _TilePlaceholder(icon: Icons.person)
+            : _ArtistImage(name: artist.name, artistId: artist.artistId),
+      ),
+    );
+  }
+
+  // ── recent choice ─────────────────────────────────────
+
+  List<Widget> _recentChoiceSection() {
+    final recent = recentPosts;
+    return [
+      Positioned(
+        left: (_designW - 1562 / 4) / 2,
+        top: 595.9,
+        child: Image.asset(
+          'assets/profile_v2/title_recent_choice.png',
+          width: 1562 / 4,
+        ),
+      ),
+      for (var i = 0; i < 3; i++) ...[
+        Positioned(
+          left: _recentOrigin.dx + _tileLefts[i],
+          top: _recentOrigin.dy,
+          child: Container(
+            width: _tile,
+            height: _tile,
+            decoration: const BoxDecoration(boxShadow: _tileShadow),
+            // URL が空の投稿（取り込み曲などでアートが無い）もあるので、
+            // 長さだけでなく中身も見てからネットワーク画像にする。
+            child: i < recent.length && recent[i].albumImageUrl.isNotEmpty
+                ? Image(
+                    image: albumImageProvider(recent[i].albumImageUrl),
+                    width: _tile,
+                    height: _tile,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        const _TilePlaceholder(icon: Icons.music_note),
+                  )
+                : const _TilePlaceholder(icon: Icons.music_note),
+          ),
+        ),
+        Positioned(
+          left: _recentOrigin.dx + _tileLefts[i] - 12,
+          top: _recentOrigin.dy + 114,
+          width: _tile + 24,
+          child: Text(
+            i < recent.length ? recent[i].trackName : '',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              height: 1.2,
+              letterSpacing: 0.13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Positioned(
+          left: _recentOrigin.dx + _tileLefts[i] - 12,
+          top: _recentOrigin.dy + 133,
+          width: _tile + 24,
+          child: Text(
+            i < recent.length ? recent[i].artistName : '',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: _trackArtistColor,
+              fontSize: 12,
+              height: 1.2,
+              letterSpacing: 0.12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    ];
+  }
 }
 
-class _ArtistAvatarPlaceholder extends StatelessWidget {
-  const _ArtistAvatarPlaceholder();
+/// 中身がまだ無いタイル。
+class _TilePlaceholder extends StatelessWidget {
+  final IconData icon;
+  const _TilePlaceholder({required this.icon});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: const Color(0xFF2A2A2A),
       alignment: Alignment.center,
-      child: const Icon(Icons.person, color: Colors.white38, size: 26),
+      child: Icon(icon, color: Colors.white24, size: 34),
+    );
+  }
+}
+
+/// アーティスト画像。投稿には入っていないので Spotify から引く。
+/// [artistId] が分かっていればそちらの方が正確（同名アーティスト対策）。
+class _ArtistImage extends StatefulWidget {
+  final String name;
+  final String? artistId;
+
+  const _ArtistImage({required this.name, this.artistId});
+
+  @override
+  State<_ArtistImage> createState() => _ArtistImageState();
+}
+
+class _ArtistImageState extends State<_ArtistImage> {
+  final SpotifyService _spotify = SpotifyService();
+  String? _url;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ArtistImage old) {
+    super.didUpdateWidget(old);
+    if (old.name != widget.name || old.artistId != widget.artistId) _fetch();
+  }
+
+  Future<void> _fetch() async {
+    try {
+      final id = widget.artistId;
+      final url = (id != null && id.isNotEmpty)
+          ? await _spotify.getArtistImageUrlById(id)
+          : await _spotify.getArtistImageUrl(widget.name);
+      if (mounted) setState(() => _url = url);
+    } catch (_) {/* プレースホルダのまま */}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final url = _url;
+    if (url == null || url.isEmpty) {
+      return const _TilePlaceholder(icon: Icons.person);
+    }
+    return CachedNetworkImage(
+      imageUrl: url,
+      fit: BoxFit.cover,
+      errorWidget: (_, __, ___) => const _TilePlaceholder(icon: Icons.person),
     );
   }
 }

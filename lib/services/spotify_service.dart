@@ -6,6 +6,11 @@ import 'spotify_auth_service.dart';
 
 /// Spotify Web API サービス
 class SpotifyService {
+  /// `/me/player/recently-played` が 1 回で返せる上限。
+  /// これを超えると 400 "Invalid limit"。さらに古い履歴は before カーソルで
+  /// 遡っても空が返るため、Spotify で見られるのは実質この件数まで。
+  static const int maxRecentlyPlayed = 50;
+
   static final SpotifyService _instance = SpotifyService._internal();
   factory SpotifyService() => _instance;
   SpotifyService._internal();
@@ -587,7 +592,104 @@ class SpotifyService {
 
   /// ユーザーの最近再生した楽曲を取得
   /// OAuth認証が必要（user-read-recently-playedスコープ）
-  Future<List<TrackModel>> getRecentlyPlayedTracks({int limit = 30}) async {
+  /// `/me/player/recently-played` の生の応答を見るための診断。
+  ///
+  /// 「アプリだと 1 件しか返らない」が、API の中身なのか手前（未認証・
+  /// スコープ不足・トークン失効）なのかを切り分けるために使う。
+  /// 返す [body] は先頭だけ（トークンは含まれない）。
+  Future<({int status, int items, int uniqueTracks, String note, String account})>
+      recentlyPlayedDiagnostics({int limit = maxRecentlyPlayed}) async {
+    if (!await _authService.isAuthenticated()) {
+      return (
+        status: -1,
+        items: 0,
+        uniqueTracks: 0,
+        note: '未認証（Spotify 連携なし）',
+        account: '-',
+      );
+    }
+    final token = await _authService.getAccessToken();
+    if (token == null) {
+      return (
+        status: -2,
+        items: 0,
+        uniqueTracks: 0,
+        note: 'アクセストークンを取得できない（要再連携）',
+        account: '-',
+      );
+    }
+
+    // どのアカウントに繋がっているかを先に見る。履歴が薄いときは、
+    // 普段聴いているのとは別のアカウントで連携している可能性がある。
+    var account = '(取得失敗)';
+    try {
+      final me = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (me.statusCode == 200) {
+        final d = json.decode(me.body);
+        account = '${d['display_name']} (${d['id']}) / ${d['product']}';
+      } else {
+        account = 'HTTP ${me.statusCode}';
+      }
+    } catch (e) {
+      account = '$e';
+    }
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me/player/recently-played'
+            '?limit=${limit.clamp(1, maxRecentlyPlayed)}'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        // 403 はたいていスコープ不足（user-read-recently-played を含まない
+        // 古いトークンのまま連携が続いている）。再連携で直る。
+        return (
+          status: response.statusCode,
+          items: 0,
+          uniqueTracks: 0,
+          note: response.body.replaceAll(RegExp(r'\s+'), ' ').trim(),
+          account: account,
+        );
+      }
+      final items = (json.decode(response.body)['items'] as List);
+      final ids = items
+          .where((i) => i['track'] != null)
+          .map((i) => i['track']['id'] as String)
+          .toList();
+      return (
+        status: 200,
+        items: items.length,
+        uniqueTracks: ids.toSet().length,
+        note: items.isEmpty ? '履歴が空' : '',
+        account: account,
+      );
+    } catch (e) {
+      return (
+        status: -3,
+        items: 0,
+        uniqueTracks: 0,
+        note: '$e',
+        account: account,
+      );
+    }
+  }
+
+  /// 最近再生した曲を新しい順に返す。
+  ///
+  /// [deduplicate] が true（既定）なら同じ曲を 1 件にまとめる。曲を並べて
+  /// 見せる画面はこちら。false にすると API が返した**再生順のまま**返すので、
+  /// 同じ曲を繰り返し聴いていればその回数ぶん並ぶ（アーティストの集計用）。
+  ///
+  /// このエンドポイントは 1 回 50 件が上限で、それより古い履歴は
+  /// before カーソルで遡っても返らない（実測: scripts/spotify_recent_test.js）。
+  /// 51 以上を渡すと 400 になるため [maxRecentlyPlayed] で丸める。
+  Future<List<TrackModel>> getRecentlyPlayedTracks({
+    int limit = 30,
+    bool deduplicate = true,
+  }) async {
     if (!await _authService.isAuthenticated()) {
       print('❌ OAuth authentication required for recently played');
       return [];
@@ -603,7 +705,8 @@ class SpotifyService {
 
     try {
       final response = await http.get(
-        Uri.parse('https://api.spotify.com/v1/me/player/recently-played?limit=$limit'),
+        Uri.parse('https://api.spotify.com/v1/me/player/recently-played'
+            '?limit=${limit.clamp(1, maxRecentlyPlayed)}'),
         headers: {
           'Authorization': 'Bearer $token',
         },
@@ -612,15 +715,17 @@ class SpotifyService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final items = data['items'] as List;
-        // 重複を除外（同じ曲が複数回再生されている場合）
-        final Map<String, TrackModel> uniqueTracks = {};
-        for (final item in items) {
-          if (item['track'] != null) {
-            final track = _parseTrackData(item['track']);
-            uniqueTracks.putIfAbsent(track.trackId, () => track);
-          }
+        final played = <TrackModel>[
+          for (final item in items)
+            if (item['track'] != null) _parseTrackData(item['track']),
+        ];
+        if (!deduplicate) return played;
+
+        final unique = <String, TrackModel>{};
+        for (final t in played) {
+          unique.putIfAbsent(t.trackId, () => t);
         }
-        return uniqueTracks.values.toList();
+        return unique.values.toList();
       } else {
         print('Spotify recently played error: ${response.statusCode} ${response.body}');
         return [];

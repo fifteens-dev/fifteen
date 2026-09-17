@@ -68,48 +68,8 @@ import ObjectiveC.runtime
     // FlutterTextInputView の paste を常に許可（SystemContextMenu でペーストを常時表示）
     swizzleFlutterPasteAction()
 
-    // Setup MusicKit Method Channel + Native Menu Channel
-    if let controller = window?.rootViewController as? FlutterViewController {
-      setupMusicKitChannel(controller: controller)
-      setupFontsChannel(controller: controller)
-      setupInstagramChannel(controller: controller)
-      setupDeepLinkChannel(controller: controller)
-      setupMusicMemoryChannel(controller: controller)
-
-      // Live Activity（ロック画面の「今日のMusic Memory」）
-      let liveActivity = LiveActivityChannel()
-      liveActivity.setup(controller: controller)
-      liveActivityChannel = liveActivity  // ARC で解放されないよう保持
-
-      // PlatformView: 上部連続ぼかし（UIVisualEffectView + グラデマスク）
-      if let registrar = self.registrar(forPlugin: "VariableBlurPlugin") {
-        registrar.register(
-          VariableBlurFactory(messenger: registrar.messenger()),
-          withId: "com.fifteen/variable_blur"
-        )
-      }
-
-      if #available(iOS 14.0, *) {
-        let menuChannel = NativeMenuChannel()
-        menuChannel.setup(controller: controller)
-        nativeMenuChannel = menuChannel  // ARC で解放されないよう保持
-
-        // PlatformView: 透明 UIButton + UIMenu
-        if let registrar = self.registrar(forPlugin: "NativeMenuButtonPlugin") {
-          registrar.register(
-            NativeMenuButtonFactory(messenger: registrar.messenger()),
-            withId: "com.fifteen.nativemenu/button"
-          )
-        }
-      }
-
-      // ネイティブ絵文字リアクションピッカー（すりガラスの吹き出し）
-      if #available(iOS 13.0, *) {
-        let picker = ReactionPickerChannel()
-        picker.setup(controller: controller)
-        reactionPickerChannel = picker  // ARC で解放されないよう保持
-      }
-    }
+    // メソッドチャンネルの登録は SceneDelegate 側で行う。
+    // シーン方式では、この時点ではまだ window（＝FlutterViewController）が無い。
 
     // FCM: Request notification permissions
     if #available(iOS 10.0, *) {
@@ -129,6 +89,60 @@ import ObjectiveC.runtime
     application.registerForRemoteNotifications()
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // MARK: - Flutter チャンネルの登録
+
+  private var _didSetupChannels = false
+
+  /// メソッドチャンネルと PlatformView をまとめて登録する。
+  ///
+  /// UIScene 移行前は didFinishLaunching から呼んでいたが、シーン方式では
+  /// その時点で `window` が nil のため FlutterViewController を取得できない。
+  /// 実際に取れるのはシーンが接続されたあと（SceneDelegate 参照）。
+  func setupFlutterChannels(controller: FlutterViewController) {
+    if _didSetupChannels { return }
+    _didSetupChannels = true
+
+    setupMusicKitChannel(controller: controller)
+    setupFontsChannel(controller: controller)
+    setupInstagramChannel(controller: controller)
+    setupDeepLinkChannel(controller: controller)
+    setupMusicMemoryChannel(controller: controller)
+
+    // Live Activity（ロック画面の「今日のMusic Memory」）
+    let liveActivity = LiveActivityChannel()
+    liveActivity.setup(controller: controller)
+    liveActivityChannel = liveActivity  // ARC で解放されないよう保持
+
+    // PlatformView: 上部連続ぼかし（UIVisualEffectView + グラデマスク）
+    if let registrar = self.registrar(forPlugin: "VariableBlurPlugin") {
+      registrar.register(
+        VariableBlurFactory(messenger: registrar.messenger()),
+        withId: "com.fifteen/variable_blur"
+      )
+    }
+
+    if #available(iOS 14.0, *) {
+      let menuChannel = NativeMenuChannel()
+      menuChannel.setup(controller: controller)
+      nativeMenuChannel = menuChannel  // ARC で解放されないよう保持
+
+      // PlatformView: 透明 UIButton + UIMenu
+      if let registrar = self.registrar(forPlugin: "NativeMenuButtonPlugin") {
+        registrar.register(
+          NativeMenuButtonFactory(messenger: registrar.messenger()),
+          withId: "com.fifteen.nativemenu/button"
+        )
+      }
+    }
+
+    // ネイティブ絵文字リアクションピッカー（すりガラスの吹き出し）
+    if #available(iOS 13.0, *) {
+      let picker = ReactionPickerChannel()
+      picker.setup(controller: controller)
+      reactionPickerChannel = picker  // ARC で解放されないよう保持
+    }
   }
 
   // MARK: - Instagram Storiesチャンネル
@@ -598,7 +612,7 @@ import ObjectiveC.runtime
     }
   }
 
-  private func handleDeepLinkURL(_ url: URL) -> Bool {
+  func handleDeepLinkURL(_ url: URL) -> Bool {
     guard url.scheme == "fifteenapp" else { return false }
 
     // Live Activity（ロック画面）の「投稿する」→ 投稿フローを開く。
@@ -628,6 +642,68 @@ import ObjectiveC.runtime
   ) -> Bool {
     if handleDeepLinkURL(url) { return true }
     return super.application(app, open: url, options: options)
+  }
+}
+
+// MARK: - UIScene ライフサイクル
+//
+// Xcode 27（iOS 27 SDK）以降、UIScene ライフサイクルの採用が必須になった。
+// Info.plist に UIApplicationSceneManifest が無いと、起動直後に
+// "UIScene life cycle is required for apps built with this SDK" で落ちる。
+//
+// 移行にあたって変わったこと（どちらも実際に踏んだ）:
+//  1. AppDelegate.window は常に nil になる。ウィンドウを持つのはシーンなので、
+//     FlutterViewController はシーン接続後にしか取得できない。
+//     → チャンネル登録を didFinishLaunching からここへ移した。
+//  2. URL で開かれても application(_:open:) は呼ばれない。
+//     コールドスタートは connectionOptions.urlContexts、
+//     起動後は scene(_:openURLContexts:) に届く。
+//
+// FlutterSceneDelegate を継承しているのは、プラグインへのシーンイベント転送を
+// Flutter 側に任せるため。super の呼び出しを外すと firebase 等のプラグインが
+// シーンイベントを受け取れなくなる。
+@objc(SceneDelegate)
+class SceneDelegate: FlutterSceneDelegate {
+  private var appDelegate: AppDelegate? {
+    UIApplication.shared.delegate as? AppDelegate
+  }
+
+  private var flutterViewController: FlutterViewController? {
+    window?.rootViewController as? FlutterViewController
+  }
+
+  override func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions  // iOS 27 SDK で UISceneConnectionOptions から改名
+  ) {
+    super.scene(scene, willConnectTo: session, options: connectionOptions)
+
+    if let controller = flutterViewController {
+      appDelegate?.setupFlutterChannels(controller: controller)
+    }
+
+    // コールドスタート時の fifteenapp:// はここに届く。
+    // チャンネル登録より前に来ても AppDelegate 側が pending に貯めるので取りこぼさない。
+    for context in connectionOptions.urlContexts {
+      if appDelegate?.handleDeepLinkURL(context.url) == true { break }
+    }
+  }
+
+  override func sceneDidBecomeActive(_ scene: UIScene) {
+    super.sceneDidBecomeActive(scene)
+    // willConnectTo の時点で rootViewController が未設定だった場合の保険。
+    // setupFlutterChannels は二重呼び出しを自前で弾く。
+    if let controller = flutterViewController {
+      appDelegate?.setupFlutterChannels(controller: controller)
+    }
+  }
+
+  override func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    for context in URLContexts {
+      if appDelegate?.handleDeepLinkURL(context.url) == true { return }
+    }
+    super.scene(scene, openURLContexts: URLContexts)
   }
 }
 

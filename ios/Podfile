@@ -36,8 +36,26 @@ target 'Runner' do
   end
 end
 
+# 依存ライブラリの deployment target をアプリ本体に合わせて引き上げる。
+#
+# Xcode 27 以降は 15.0 未満の deployment target を受け付けない
+# （"supported deployment target versions is 15.0 to 27.0.x" でビルドが落ちる）。
+# Firebase / gRPC / 一部の Flutter プラグインは 9.0〜13.0 のままなので、
+# ここで一括して上書きしないと全滅する。
+#
+# flutter_additional_ios_build_settings はもっと低い値を入れてくるため、
+# **その後に**設定すること。順番を入れ替えると効かない。
+IOS_DEPLOYMENT_TARGET = '16.0'
+
 post_install do |installer|
+  installer.pods_project.build_configurations.each do |config|
+    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = IOS_DEPLOYMENT_TARGET
+  end
+
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = IOS_DEPLOYMENT_TARGET
+    end
   end
 end

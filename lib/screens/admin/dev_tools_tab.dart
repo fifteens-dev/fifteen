@@ -10,6 +10,9 @@ import '../../constants/app_dimensions.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/common/app_toast.dart';
 import '../../services/live_activity_service.dart';
+import '../friend_match_screen.dart';
+import '../../models/user_model.dart';
+import '../../services/friend_service.dart';
 
 /// 開発者ツールタブ（管理者パネル内）
 class DevToolsTab extends StatefulWidget {
@@ -163,6 +166,81 @@ class _DevToolsTabState extends State<DevToolsTab> {
     });
   }
 
+  bool _previewBusy = false;
+
+  /// プレビューを実データで再生する。
+  ///
+  /// アイコンは Firebase Auth の photoURL ではなく Firestore の
+  /// users/{uid}.profileImageUrl にあるので、本番と同じくそちらから引く。
+  /// 友達が居なければ相手側は自分のアイコンで代用する。
+  Future<void> _previewFriendMatch(int ordinal) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    setState(() => _previewBusy = true);
+    try {
+      final meSnap = await _firestore.collection('users').doc(uid).get();
+      if (!meSnap.exists) return;
+      final me = UserModel.fromFirestore(meSnap);
+
+      UserModel friend = me;
+      final friendUids = FriendService.friendUidsOf(me);
+      if (friendUids.isNotEmpty) {
+        final snap =
+            await _firestore.collection('users').doc(friendUids.first).get();
+        if (snap.exists) friend = UserModel.fromFirestore(snap);
+      }
+      if (!mounted) return;
+
+      await FriendMatchScreen.show(
+        context,
+        meImageUrl: me.profileImageUrl,
+        meName: me.name?.isNotEmpty == true ? me.name! : (me.username ?? 'you'),
+        friendImageUrl: friend.profileImageUrl,
+        friendName: friend.name?.isNotEmpty == true
+            ? friend.name!
+            : (friend.username ?? 'friend'),
+        ordinal: ordinal,
+      );
+    } finally {
+      if (mounted) setState(() => _previewBusy = false);
+    }
+  }
+
+  /// 友達成立アニメーションの見た目を確認するためのプレビュー。
+  ///
+  /// 本番の発火は「最初の3人と相互フォローになったとき」なので、実機で
+  /// 何度も試せない。序数を選んでそのまま再生できるようにしてある。
+  Widget _buildFriendMatchPreview() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '友達成立アニメーション',
+          style: TextStyle(
+              color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '自分と友達1人の実際のアイコンで再生します（本番の発火条件は無視）。',
+          style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.5),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (var n = 1; n <= 3; n++) ...[
+              ElevatedButton(
+                onPressed: _previewBusy ? null : () => _previewFriendMatch(n),
+                child: Text('$n人目'),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ],
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
   Widget _buildArtworkDiagnostics() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -288,6 +366,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 20),
+            _buildFriendMatchPreview(),
             _buildArtworkDiagnostics(),
 
             if (_statusMessage.isNotEmpty) ...[

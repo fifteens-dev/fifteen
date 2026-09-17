@@ -92,6 +92,11 @@ flutter:
   assets:
     - .env
     - assets/icons/Spotify.png
+    - assets/friend_match/heart.png
+    - assets/friend_match/music_double.png
+    - assets/friend_match/music_note.png
+    - assets/friend_match/ampersand.png
+    - assets/friend_match/friends.png
     - assets/icons/Apple_Music.png
     - assets/icons/Vibe.png
     - assets/icons/emotion.png

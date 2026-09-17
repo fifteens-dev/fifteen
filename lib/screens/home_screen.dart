@@ -37,6 +37,7 @@ import '../providers/current_user_provider.dart';
 import 'comment_screen.dart';
 import 'profile_screen.dart';
 import 'friend_add_sheet.dart';
+import '../services/friend_match_service.dart';
 import 'music_selection_screen.dart';
 import 'music_memory_month_screen.dart';
 import 'post_flow/music_memory_modal.dart';
@@ -184,7 +185,7 @@ class _HomeScreenState extends State<HomeScreen>
     // ignore: discarded_futures
     LiveActivityService().refresh();
     // ignore: discarded_futures
-    _maybeOpenPostFlowForCycle();
+    _runStartupFlows();
     _processPendingFollowNotification();
     PostingState.instance.addListener(_onPostingStateChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -715,13 +716,23 @@ class _HomeScreenState extends State<HomeScreen>
       // ignore: discarded_futures
       LiveActivityService().refresh();
       // ignore: discarded_futures
-      _maybeOpenPostFlowForCycle();
+      _runStartupFlows();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // バックグラウンドでは無駄なポーリングを止める
       _storyRefreshTimer?.cancel();
       _storyRefreshTimer = null;
     }
+  }
+
+  /// 起動時・フォアグラウンド復帰時に画面へ割り込む処理を順番に走らせる。
+  ///
+  /// どちらも全画面なので、同時に出すと重なってしまう。投稿フローを開いた
+  /// ときは友達成立のお祝いを見送り、次にアプリを開いたときに回す。
+  Future<void> _runStartupFlows() async {
+    final openedPostFlow = await _maybeOpenPostFlowForCycle();
+    if (openedPostFlow || !mounted) return;
+    await FriendMatchService.instance.maybeCelebrate(context);
   }
 
   /// ストーリーバー用の周期タイマーを (再) 開始する。
@@ -1082,34 +1093,39 @@ class _HomeScreenState extends State<HomeScreen>
   ///
   /// 締切（翌 01:00）を過ぎたら促さない。1 サイクルにつき 1 回だけで、
   /// 閉じたあとに何度も開き直すことはない（記録は端末に残す）。
-  Future<void> _maybeOpenPostFlowForCycle() async {
+  /// 締切前で未投稿なら投稿フローを開く。
+  /// 戻り値は「この呼び出しで投稿フローを開いたか」。開いたときに
+  /// 別の全画面表示を重ねないよう、呼び出し側が見る。
+  Future<bool> _maybeOpenPostFlowForCycle() async {
     final uid = _auth.currentUser?.uid;
-    if (uid == null) return;
+    if (uid == null) return false;
     try {
       final cycle = MusicMemoryCycleService();
       final cycleStart = cycle.notifiedAt ?? await cycle.fetchNotifiedAt();
-      if (cycleStart == null) return;
+      if (cycleStart == null) return false;
 
       final now = DateTime.now();
-      if (now.isBefore(cycleStart)) return; // まだ通知前
+      if (now.isBefore(cycleStart)) return false; // まだ通知前
       final deadline = MusicMemoryCycleService.deadlineFor(cycleStart);
-      if (!now.isBefore(deadline)) return; // 締切超過
+      if (!now.isBefore(deadline)) return false; // 締切超過
 
       // このサイクルで既に開いていれば何もしない。
       final prefs = await SharedPreferences.getInstance();
       final key = 'auto_post_prompt_${cycleStart.millisecondsSinceEpoch}';
-      if (prefs.getBool(key) == true) return;
+      if (prefs.getBool(key) == true) return false;
 
-      if (await _postService.hasAnyPostInCurrentCycle(uid)) return;
-      if (!mounted) return;
+      if (await _postService.hasAnyPostInCurrentCycle(uid)) return false;
+      if (!mounted) return false;
 
       await prefs.setBool(key, true);
       // 画面が組み上がってから開く（initState から呼ばれる経路があるため）。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openPostFlow();
       });
+      return true;
     } catch (e) {
       if (kDebugMode) print('_maybeOpenPostFlowForCycle error: $e');
+      return false;
     }
   }
 

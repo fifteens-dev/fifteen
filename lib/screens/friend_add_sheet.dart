@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../constants/profile_fonts.dart';
 import '../models/user_model.dart';
+import '../services/friend_match_service.dart';
 import '../services/friend_service.dart';
 import '../services/user_service.dart';
 import '../widgets/common/app_toast.dart';
@@ -265,7 +266,10 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
         currentUserId: uid,
         targetUserId: user.uid,
       );
-      if (mounted) AppToast.show(context, '友達申請を送りました');
+      if (!mounted) return;
+      AppToast.show(context, '友達申請を送りました');
+      // 相手がすでに自分を追加済みなら、この時点で友達成立になる。
+      await FriendMatchService.instance.maybeCelebrate(context);
     } catch (_) {
       if (mounted) {
         setState(() => _requested.remove(user.uid));

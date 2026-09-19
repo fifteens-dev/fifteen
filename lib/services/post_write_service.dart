@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/post_theme.dart';
@@ -5,6 +7,7 @@ import '../models/notification_model.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
 import 'music_memory_cycle_service.dart';
+import 'profile_snapshot_service.dart';
 
 /// 投稿データの書き込み（作成・更新・削除）を担当するサービス
 class PostWriteService {
@@ -12,6 +15,26 @@ class PostWriteService {
   final String _postsCollection = 'posts';
   final NotificationService _notificationService = NotificationService();
   final UserService _userService = UserService();
+
+  /// 投稿カード裏面用のスナップショットを、作成済みの投稿に後追いで書き込む。
+  ///
+  /// 失敗しても投稿自体は成立しているので握りつぶす（裏面が空になるだけ）。
+  /// 直近の投稿を材料にするため、作成した投稿自身も recent choice に入る。
+  Future<void> _writeProfileSnapshot(String postId, String userId) async {
+    try {
+      final snapshot =
+          await ProfileSnapshotService.instance.build(uid: userId);
+      final user = await _userService.getUser(userId);
+      final update = <String, dynamic>{
+        if (!snapshot.isEmpty) 'profileSnapshot': snapshot.toMap(),
+        if (user?.name != null && user!.name!.isNotEmpty) 'authorName': user.name,
+      };
+      if (update.isEmpty) return;
+      await _firestore.collection(_postsCollection).doc(postId).update(update);
+    } catch (e) {
+      if (kDebugMode) print('_writeProfileSnapshot error: $e');
+    }
+  }
 
   /// 投稿を作成
   Future<String> createPost({
@@ -105,6 +128,11 @@ class PostWriteService {
       };
 
       await postRef.set(postData);
+
+      // カード裏面に出す「その時点の音楽の顔」。集計に Spotify を叩くので、
+      // 投稿の完了を待たせないよう書き込んだあとに追いかけて入れる。
+      unawaited(_writeProfileSnapshot(postRef.id, userId));
+
       return postRef.id;
     } catch (e) {
       if (kDebugMode) {

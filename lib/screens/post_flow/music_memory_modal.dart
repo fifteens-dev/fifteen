@@ -20,7 +20,7 @@ import '../../services/user_service.dart';
 import '../../utils/color_extractor.dart';
 import '../../widgets/post_card.dart';
 import '../../widgets/native_pull_down_button.dart';
-import '../post_photo_selection_screen.dart';
+import 'mood_post_final_preview_screen.dart';
 
 /// アルバムアートから抽出したグラデーション色の**プロセス寿命**キャッシュ。
 ///
@@ -72,7 +72,7 @@ class _DeckColorCache {
 ///   来るたびハプティック。中央のカードが選択対象。
 /// - 1枚目・2枚目以降とも「カードをタップで拡大 → 『この曲で続ける』を表示」で統一。
 ///   タップ前は案内文言のみ（1枚目は横揺れ＋「←左スワイプで曲変更」、扇は左右案内）。
-/// - 「この曲で続ける」で PostPhotoSelectionScreen（写真フロー）へ。
+/// - 「この曲で続ける」で MoodPostFinalPreviewScreen（最終確認）へ。
 ///
 /// ※ Spotify ユーザーはこのモーダルではなく VibeStoryPostSheet（お題非表示）から
 ///   楽曲選択し、同じ写真フローへ合流する（home_screen 側で分岐）。
@@ -452,22 +452,20 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
     } catch (_) {}
   }
 
-  /// 白ボタン「この曲で続ける」→ 以前の投稿フローと同じカメラ画面へ。
-  /// PostPhotoSelectionScreen が上下 2 ページの Vertical PageView (カメラ / 写真グリッド) を持ち、
-  /// 撮影・写真選択の後 PostCardEditScreen → PostFinalPreviewScreen へ進む。
+  /// 白ボタン「この曲で続ける」→ そのまま最終確認へ。
   ///
-  /// カメラ画面左上のくの字ボタンで曲選択に戻れるよう、モーダル自体は
-  /// pop せずスタックに残しておく (カメラは fullscreenDialog で上に被さる)。
+  /// 以前は写真を撮る画面を挟んでいたが、カード裏面が写真ではなく
+  /// プロフィール（top artists / recent choice）になったので写真を使わない。
+  ///
+  /// 曲選択に戻れるよう、モーダル自体は pop せずスタックに残しておく
+  /// (確認画面が上に被さる)。
   void _confirmAndProceed(TrackModel track) {
-    // 写真フローへ進む前にプレビュー再生を停止（モーダルはスタックに残るため）。
+    // 次へ進む前にプレビュー再生を停止（モーダルはスタックに残るため）。
     _audioService.stop();
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) => PostPhotoSelectionScreen(
-          track: track,
-          isMoodPost: true,
-        ),
+        builder: (_) => MoodPostFinalPreviewScreen(track: track),
       ),
     );
   }

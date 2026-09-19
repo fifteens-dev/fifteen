@@ -16,6 +16,8 @@ import 'package:just_audio/just_audio.dart';
 import '../constants/adl_teams.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
+import '../models/profile_snapshot.dart';
+import 'post_card_back_profile.dart';
 import '../screens/adl_team_playlist_screen.dart';
 import '../screens/artist_profile_screen.dart';
 import '../screens/other_user_profile_screen.dart';
@@ -74,6 +76,13 @@ class PostCard extends StatefulWidget {
   final VoidCallback? onPlayStarted; // 音楽再生開始時のコールバック
   final String? externalPreviewUrl; // 外部から渡されるプレビューURL（waveform用）
   final bool backSideEnabled; // falseの場合、裏面に反転しない
+
+  /// 裏面のピルに出す文言（「2人の共通」「友達 5人」など）。
+  /// 見る人との関係で変わるので、投稿には焼き込まず呼び出し側が渡す。
+  final String? backPillLabel;
+
+  /// 同ピルに重ねるアイコン（先頭 2 人ぶん）。
+  final List<String?> backPillAvatars;
   final bool disableInteractions; // trueの場合、いいね・コメント無効（カウントのみ表示）
   final bool autoPlay; // trueの場合、裏面スタート時に自動で音楽を再生
   final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
@@ -108,6 +117,8 @@ class PostCard extends StatefulWidget {
     this.onPlayStarted, // 再生開始通知（オプション）
     this.externalPreviewUrl, // 外部プレビューURL（オプション）
     this.backSideEnabled = true, // デフォルトは裏面反転可能
+    this.backPillLabel,
+    this.backPillAvatars = const [],
     this.disableInteractions = false, // デフォルトはインタラクション有効
     this.autoPlay = false, // デフォルトは自動再生なし
     this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
@@ -653,200 +664,29 @@ class PostCardState extends State<PostCard>
       );
     }
 
-    final isLiked = _isLikedOptimistic ??
-        (widget.currentUserId != null && widget.post.isLikedBy(widget.currentUserId!));
-
+    // 裏面は「その投稿時点の音楽の顔」を出す（Figma 5787-12995）。
+    // 以前は写真の上に曲情報とリアクションを重ねていたが、投稿フローから
+    // 写真の工程を外したので写真そのものが無い。
+    //
+    // リアクション・コメント・共有はこの面に置き場所が無くなったため、今は
+    // 出していない（行き先が決まったら戻す）。
+    final snapshot = widget.post.profileSnapshot;
     return Container(
       width: cardWidth,
       height: cardHeight,
       color: const Color(0xFF121212),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
-        child: Stack(
-          children: [
-            // 写真（カード全体に高さ基準でフィット）
-            Positioned.fill(
-              child: _buildPhotoArea(cardWidth, cardHeight),
-            ),
-
-            // ユーザー情報（左上）
-            Positioned(
-              left: 23,
-              top: 18,
-              child: _buildUserInfoTopLeft(theme),
-            ),
-
-            // 班ハンドル（右上）- ユーザーアイコンと垂直中央を揃える
-            Positioned(
-              right: 23,
-              top: 18,
-              height: 32,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: _buildTeamHandleTopRight(),
-              ),
-            ),
-
-            // 歌詞カード
-            _buildLyricsCardOverlay(),
-
-            // 下部グラデーション（テキスト可読性）
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: cardHeight * (174.0 / 645.0),
-              child: const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Color(0x80000000)],
-                  ),
-                ),
-              ),
-            ),
-
-            // 曲名とアーティスト名。共有・3点メニューと同じ高さ(88)に揃える。
-            Positioned(
-              left: cardWidth * (11 / 363),
-              right: _isOwner
-                  ? cardWidth * (84 / 363)
-                  : cardWidth * (12 / 363),
-              bottom: cardHeight * ((_effHideCommentBar ? 88 : 110) / 645),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  MarqueeText(
-                    textSpan: _buildWeightAdjustedSpan(
-                      widget.post.track.trackName,
-                      baseStyle: const TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                    width: _isOwner
-                        ? cardWidth * (268 / 363)
-                        : cardWidth * (340 / 363),
-                  ),
-                  const SizedBox(height: 1.198),
-                  GestureDetector(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ArtistProfileScreen(
-                          artistName: widget.post.track.artistName,
-                          spotifyArtistId: widget.post.track.spotifyArtistId,
-                        ),
-                      ),
-                    ),
-                    child: Opacity(
-                      opacity: 0.8,
-                      child: _buildWeightAdjustedText(
-                        widget.post.track.artistName,
-                        fontSize: 11,
-                        baseWeight: FontWeight.w400,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // リアクション（スマイル＝絵文字リアクション ＋ 追加/保存）
-            Positioned(
-              left: cardWidth * (12 / 363),
-              bottom: cardHeight * ((_effHideCommentBar ? 42 : 80) / 645),
-              child: Row(
-                children: [
-                  _buildSmileyButton(
-                      size: cardWidth * (28 / 363), color: Colors.white),
-                  SizedBox(width: cardWidth * (34 / 363)),
-                  // コメント機能は接続を切っている（kCommentsEnabled=false で復活可）。
-                  if (kCommentsEnabled) ...[
-                    _buildCommentReactionBack(
-                      count: widget.post.commentCount,
-                      onTap: widget.disableInteractions
-                          ? () => RestrictionNotification.show(context,
-                              message: 'コメントができません')
-                          : widget.onComment,
-                    ),
-                    SizedBox(width: cardWidth * (34 / 363)),
-                  ],
-                  _buildSaveButton(
-                      theme: theme,
-                      color: Colors.white,
-                      size: cardWidth * (28 / 363)),
-                ],
-              ),
-            ),
-
-            // リアクションしたユーザーのアバター＋絵文字（右側）
-            if (!widget.hideReactionCounts)
-              Positioned(
-                right: cardWidth * (12 / 363),
-                bottom: cardHeight * ((_effHideCommentBar ? 42 : 80) / 645),
-                child: _buildReactorAvatarsFront(cardWidth, cardHeight),
-              ),
-
-            // コメントボタン（半透明黒背景）— コメント機能を切っている間は非表示。
-            if (kCommentsEnabled && !widget.hideCommentBar)
-              Positioned(
-                left: cardWidth * (12 / 363),
-                right: cardWidth * (12 / 363),
-                bottom: cardHeight * (28 / 645),
-                child: _buildCommentButtonBack(),
-              ),
-
-            // "Provided courtesy of Apple Music"
-            Positioned(
-              left: cardWidth * (17 / 363),
-              bottom: cardHeight * (9 / 645),
-              child: const Text(
-                'Provided courtesy of Apple Music',
-                style: TextStyle(fontSize: 10, color: Color(0xFFB0B0B0)),
-              ),
-            ),
-
-            // 共有ボタン（自分の投稿のみ）。タイトルと同じ高さ(88)。
-            if (_isOwner && !widget.hideShareButton)
-              Positioned(
-                right: cardWidth * (47 / 363),
-                bottom: cardHeight * ((_effHideCommentBar ? 88 : 110) / 645),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: widget.onShare ?? _handleShare,
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.5),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Image.asset(
-                        'assets/icons/share_button.png',
-                        width: 36,
-                        height: 36,
-                        color: Colors.white,
-                        colorBlendMode: BlendMode.srcIn,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-            // 3点メニューボタン（裏面）。タイトル・共有と同じ高さ(88)。
-            if (_showMoreButton)
-              Positioned(
-                right: cardWidth * (11 / 363),
-                bottom: cardHeight * ((_effHideCommentBar ? 88 : 110) / 645),
-                child: _buildMoreButton(theme, color: Colors.white),
-              ),
-          ],
+      child: FittedBox(
+        // 実寸 363×645 で組んであるので、枠が違うときは丸ごと拡縮する。
+        fit: BoxFit.contain,
+        child: PostCardBackProfile(
+          name: widget.post.authorName?.isNotEmpty == true
+              ? widget.post.authorName!
+              : widget.post.username,
+          username: widget.post.username,
+          avatarUrl: widget.post.userIconUrl,
+          snapshot: snapshot ?? ProfileSnapshot.empty,
+          pillLabel: widget.backPillLabel,
+          pillAvatars: widget.backPillAvatars,
         ),
       ),
     );

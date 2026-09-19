@@ -4,15 +4,13 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../constants/profile_fonts.dart';
-import '../models/music_service_type.dart';
 import '../models/post_model.dart';
 import '../models/user_model.dart';
 import '../services/friend_service.dart';
-import '../services/listening_history_service.dart';
 import '../services/milfolha_service.dart';
 import '../services/music_memory_cycle_service.dart';
-import '../services/music_service_manager.dart';
 import '../services/post_service.dart';
+import '../services/profile_snapshot_service.dart';
 import '../services/spotify_service.dart';
 import '../services/user_service.dart';
 import '../utils/album_image.dart';
@@ -43,13 +41,6 @@ const Color _statsBorder = Color(0xFF272627);
 const Color _statsText = Color(0xFF5C5656);
 const Color _handleColor = Color(0xFFA3A3A3);
 const Color _trackArtistColor = Color(0xFF898989);
-
-/// 再生履歴から何件ぶん遡って集計するか。
-/// 履歴は再生順に並んでいるので、同じ曲を繰り返し聴いた分もそれぞれ 1 件。
-const int _appleMusicHistorySize = 100;
-
-/// 投稿から集計するときに遡る期間（Spotify・未連携・履歴が空のとき）。
-const Duration _postWindow = Duration(days: 7);
 
 const double _designW = 402;
 const double _designH = 874;
@@ -208,65 +199,14 @@ class ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  /// top artists を集計する。集計元は連携中のサービスで変える。
-  ///
-  ///  - Apple Music: 再生履歴の直近 [_appleMusicHistorySize] 件
-  ///  - Spotify:     直近 [_postWindow] に自分が投稿した曲
-  ///  - 未連携:      Spotify と同じ
-  ///
-  /// Spotify で再生履歴を使わないのは、**一般ユーザーが履歴 API を叩けない**ため。
-  /// Spotify の Development Mode では許可リストの 5 人しか Web API を使えず、
-  /// Extended Quota Mode は法人かつ 250k MAU が条件で当面申請できない
-  /// （2026-02 の変更で Development Mode 自体もさらに絞られた）。
-  /// 5 人だけ動く集計を仕様にはできないので、投稿ベースに揃えている。
-  ///
-  /// Apple Music の履歴の取り方は [ListeningHistoryService] に任せる。Web API
-  /// だけだと 1 件しか返らないアカウントがあり、投稿フローの選曲画面と同じく
-  /// アプリ内履歴・端末ライブラリと合わせる必要があるため。
-  ///
-  /// 履歴が空のとき（未購読・権限なしなど）も投稿ベースへ落とす。
+  /// top artists を集計する。中身は [ProfileSnapshotService] に寄せてある。
+  /// 投稿カードの裏面も同じ集計を出すので、ここで独自には持たない。
   Future<void> _loadTopArtists() async {
-    List<String> names = const [];
-    try {
-      final service = await MusicServiceManager().getSelectedService();
-      if (service == MusicServiceType.appleMusic) {
-        names = await ListeningHistoryService.instance
-            .recentArtistNames(limit: _appleMusicHistorySize);
-      }
-    } catch (_) {/* 投稿ベースに落とす */}
-
-    if (names.isEmpty) names = _artistNamesFromRecentPosts();
-
-    final ranked = _rankByCount(names);
-    if (mounted) setState(() => _topArtistNames = ranked);
-  }
-
-  /// 直近 [_postWindow] に投稿した曲のアーティスト名（重複はそのまま）。
-  List<String> _artistNamesFromRecentPosts() {
-    final since = DateTime.now().subtract(_postWindow);
-    return [
-      for (final p in _posts)
-        if (p.createdAt.isAfter(since) && p.track.artistName.trim().isNotEmpty)
-          p.track.artistName.trim(),
-    ];
-  }
-
-  /// 曲数の多い順に上位 3 名。同数のときは先に出てきた（＝新しい）方を優先する。
-  static List<String> _rankByCount(List<String> names) {
-    final counts = <String, int>{};
-    final firstSeen = <String, int>{};
-    for (var i = 0; i < names.length; i++) {
-      final name = names[i];
-      counts[name] = (counts[name] ?? 0) + 1;
-      firstSeen.putIfAbsent(name, () => i);
-    }
-    final ranked = counts.keys.toList()
-      ..sort((a, b) {
-        final byCount = counts[b]!.compareTo(counts[a]!);
-        if (byCount != 0) return byCount;
-        return firstSeen[a]!.compareTo(firstSeen[b]!);
-      });
-    return ranked.take(3).toList();
+    final uid = _uid;
+    if (uid == null) return;
+    final names = await ProfileSnapshotService.instance
+        .topArtistNames(uid: uid, posts: _posts);
+    if (mounted) setState(() => _topArtistNames = names);
   }
 
   /// アーティスト名から Spotify のアーティスト ID を引く（分かる範囲で）。

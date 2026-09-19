@@ -1,14 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../models/post_model.dart';
-import '../../models/post_theme.dart';
 import '../../models/track_model.dart';
 import '../../models/user_model.dart';
 import '../../services/audio_player_service.dart';
@@ -16,12 +13,13 @@ import '../../services/live_activity_service.dart';
 import '../../services/post_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/user_service.dart';
+import '../../models/profile_snapshot.dart';
+import '../../services/profile_snapshot_service.dart';
+import '../../widgets/post_card_back_profile.dart';
 import '../../utils/color_extractor.dart';
 import '../../utils/photo_helper.dart';
 import '../../widgets/common/app_toast.dart';
 import '../../widgets/post_card.dart';
-import '../../widgets/post_card_back_info.dart';
-import '../../widgets/shared/user_info_badge.dart';
 
 /// 気分投稿 (Music Memory から始まる投稿フロー) 用の最終プレビュー画面。
 ///
@@ -36,12 +34,14 @@ import '../../widgets/shared/user_info_badge.dart';
 /// isVibe: false, vibeTopicId/Title: null で気分投稿として保存する。
 class MoodPostFinalPreviewScreen extends StatefulWidget {
   final TrackModel track;
-  final XFile selectedImage;
+  /// 写真。投稿フローから写真の工程を外したので通常は null。
+  /// 旧フローから来たときのために受け取れる形は残してある。
+  final XFile? selectedImage;
 
   const MoodPostFinalPreviewScreen({
     super.key,
     required this.track,
-    required this.selectedImage,
+    this.selectedImage,
   });
 
   @override
@@ -60,6 +60,9 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
 
   // ── サービス ──
   final AudioPlayerService _audioService = AudioPlayerService();
+
+  /// 裏面に出す top artists / recent choice。投稿前にその場で集計する。
+  ProfileSnapshot? _snapshot;
   final PostService _postService = PostService();
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
@@ -102,6 +105,11 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     if (uid == null) return;
     try {
       final me = await _userService.getUser(uid);
+      // 裏面用。少し時間がかかるので待たずに進め、取れたら差し替える。
+      // ignore: discarded_futures
+      ProfileSnapshotService.instance.build(uid: uid).then((s) {
+        if (mounted) setState(() => _snapshot = s);
+      });
       if (mounted) setState(() => _me = me);
     } catch (_) {}
   }
@@ -160,21 +168,30 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       final adlTeamId = me?.adlTeamId;
       final university = me?.university;
 
-      // 写真圧縮 → アップロード (VibeStoryPreviewScreen と同じ軽量パス)
-      final imgBytes = await widget.selectedImage.readAsBytes();
-      final (processedBytes, width, height) =
-          await PhotoHelper.compressForUpload(imgBytes);
-      final uploadResult = await PhotoHelper.uploadCompressedSplit(
-        imageBytes: processedBytes,
-        userId: user.uid,
-        storageService: _storageService,
-      );
+      // 写真は通常の投稿フローでは選ばない（カード裏面がプロフィールに
+      // 変わったので出す場所が無い）。旧フローから写真付きで来たときだけ
+      // 従来通り圧縮してアップロードする。
+      final photo = widget.selectedImage;
+      var width = 0;
+      var height = 0;
+      Future<String?> urlFuture = Future.value(null);
 
-      // URL 取得 + Firestore 書き込みを並列
-      final urlFuture = uploadResult.storageRef!
-          .getDownloadURL()
-          .then<String?>((u) => u)
-          .catchError((_) => null);
+      if (photo != null) {
+        final imgBytes = await photo.readAsBytes();
+        final (processedBytes, w, h) =
+            await PhotoHelper.compressForUpload(imgBytes);
+        width = w;
+        height = h;
+        final uploadResult = await PhotoHelper.uploadCompressedSplit(
+          imageBytes: processedBytes,
+          userId: user.uid,
+          storageService: _storageService,
+        );
+        urlFuture = uploadResult.storageRef!
+            .getDownloadURL()
+            .then<String?>((u) => u)
+            .catchError((_) => null);
+      }
 
       final postIdFuture = _postService.createPost(
         userId: user.uid,
@@ -381,77 +398,21 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     );
   }
 
+  /// 裏面。写真ではなく「その時点の音楽の顔」を出す（Figma 5787-12995）。
+  /// 中身は投稿時に焼き込むスナップショットと同じものを、ここでは
+  /// 投稿前にその場で集計して見せている。
   Widget _buildBack() {
-    // 反転後の裏面: 左右反転を戻すため rotateY(pi) をかける
-    PostTheme theme = PostTheme.defaultTheme;
-    if (_gradientStart != null && _gradientEnd != null) {
-      theme = ColorExtractor.createThemeFromColors(
-        _gradientStart!,
-        _gradientEnd!,
-      );
-    }
     return Transform(
       alignment: Alignment.center,
+      // 反転後の裏面: 左右反転を戻すため rotateY(pi) をかける
       transform: Matrix4.identity()..rotateY(pi),
-      child: Container(
-        width: 363,
-        height: 645,
-        decoration: BoxDecoration(
-          color: const Color(0xFF121212),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Stack(
-            children: [
-              // 写真 (横幅フィット + 縦中央、上下の余白は真っ黒 #000000)
-              Positioned.fill(
-                child: ColoredBox(
-                  color: const Color(0xFF000000),
-                  child: kIsWeb
-                      ? Image.network(
-                          widget.selectedImage.path,
-                          fit: BoxFit.fitWidth,
-                        )
-                      : Image.file(
-                          File(widget.selectedImage.path),
-                          fit: BoxFit.fitWidth,
-                        ),
-                ),
-              ),
-              // 楽曲情報 (下部)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: PostCardBackInfo(
-                  track: widget.track,
-                  theme: theme,
-                  likeCount: 3,
-                  commentCount: 3,
-                  isLiked: false,
-                  showCounts: false,
-                  onLike: () {},
-                  onComment: () {},
-                  onAdd: () {},
-                ),
-              ),
-              // ユーザー情報 (左上)
-              if (_me != null)
-                Positioned(
-                  left: 23,
-                  top: 18,
-                  child: UserInfoBadge(
-                    username: (_me!.username?.isNotEmpty ?? false)
-                        ? _me!.username!
-                        : 'ユーザー',
-                    iconUrl: _me!.profileImageUrl,
-                    showBackground: false,
-                  ),
-                ),
-            ],
-          ),
-        ),
+      child: PostCardBackProfile(
+        name: (_me?.name?.isNotEmpty ?? false)
+            ? _me!.name!
+            : (_me?.username ?? 'ユーザー'),
+        username: _me?.username,
+        avatarUrl: _me?.profileImageUrl,
+        snapshot: _snapshot ?? ProfileSnapshot.empty,
       ),
     );
   }

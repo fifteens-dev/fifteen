@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'track_model.dart';
 import 'post_theme.dart';
+import 'profile_snapshot.dart';
 
 /// 投稿の公開範囲。
 /// - `public`: 全ユーザーに公開（既定）
@@ -87,6 +88,13 @@ class PostModel {
   final String? lyricsText; // 歌詞テキスト（歌詞カード表示用）
   final int audioStartMs; // 音楽再生開始位置（ミリ秒）
   final int audioDurationSec; // 音楽再生時間（秒）
+
+  /// 投稿した時点の top artists / recent choice。カード裏面に出す。
+  /// あとから集計し直さず、投稿時の姿をそのまま残すために焼き込んでいる。
+  final ProfileSnapshot? profileSnapshot;
+
+  /// 投稿者の表示名。裏面の見出しに使う。username とは別。
+  final String? authorName;
   final String? university; // 投稿者の大学名（Campus Vibe用）
   final bool campusVibeParticipating; // Campus Vibe参加フラグ（デフォルトtrue）
   final bool campusVibePost; // Campus Vibe参加投稿フラグ（作成時確定・変更不可）
@@ -138,6 +146,8 @@ class PostModel {
     this.lyricsText,
     this.audioStartMs = 0,
     this.audioDurationSec = 15,
+    this.profileSnapshot,
+    this.authorName,
     this.university,
     this.campusVibeParticipating = true,
     this.campusVibePost = false,
@@ -231,6 +241,8 @@ class PostModel {
       lyricsText: data['lyricsText']?.toString(),
       audioStartMs: (data['audioStartMs'] as num?)?.toInt() ?? 0,
       audioDurationSec: (data['audioDurationSec'] as num?)?.toInt() ?? 15,
+      profileSnapshot: ProfileSnapshot.fromMap(data['profileSnapshot']),
+      authorName: data['authorName'] as String?,
       university: data['university']?.toString(),
       // null の場合デフォルト true、false が明示されている場合のみ false
       campusVibeParticipating: data['campusVibeParticipating'] != false,
@@ -283,6 +295,8 @@ class PostModel {
       'lyricsText': lyricsText,
       'audioStartMs': audioStartMs,
       'audioDurationSec': audioDurationSec,
+      'profileSnapshot': profileSnapshot?.toMap(),
+      'authorName': authorName,
       'university': university,
       'campusVibeParticipating': campusVibeParticipating,
       'adlTeamId': adlTeamId,
@@ -330,6 +344,8 @@ class PostModel {
     String? lyricsText,
     int? audioStartMs,
     int? audioDurationSec,
+    ProfileSnapshot? profileSnapshot,
+    String? authorName,
     String? university,
     bool? campusVibeParticipating,
     String? adlTeamId,
@@ -374,6 +390,8 @@ class PostModel {
       lyricsText: lyricsText ?? this.lyricsText,
       audioStartMs: audioStartMs ?? this.audioStartMs,
       audioDurationSec: audioDurationSec ?? this.audioDurationSec,
+      profileSnapshot: profileSnapshot ?? this.profileSnapshot,
+      authorName: authorName ?? this.authorName,
       university: university ?? this.university,
       campusVibeParticipating: campusVibeParticipating ?? this.campusVibeParticipating,
       campusVibePost: this.campusVibePost,

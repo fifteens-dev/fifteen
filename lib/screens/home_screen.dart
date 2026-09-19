@@ -54,7 +54,7 @@ import '../widgets/common/app_toast.dart';
 import '../services/posting_state.dart';
 import '../models/track_model.dart';
 import '../tutorial/tutorial.dart';
-import 'post_photo_selection_screen.dart';
+import 'post_flow/mood_post_final_preview_screen.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -1132,7 +1132,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// 投稿フローの起点（ホームの FAB から呼ぶ）。
   /// - Apple Music: 「今日のMusic Memory」カルーセル(MusicMemoryModal)。
   /// - Spotify / 未連携: ログが取れないため Vibe 楽曲選択シート（お題非表示）→
-  ///   曲決定で Apple と同じ写真フロー(PostPhotoSelectionScreen)へ。
+  ///   曲決定で Apple と同じく最終確認(MoodPostFinalPreviewScreen)へ。
   Future<void> _openPostFlow() async {
     _homeAudioService.stop();
     final service = await _musicServiceManager.getSelectedService();
@@ -1143,14 +1143,12 @@ class _HomeScreenState extends State<HomeScreen>
       VibeStoryPostSheet.show(
         context,
         moodPostMode: true,
+        // Apple Music 側と同じく、写真の工程は挟まず最終確認へ直行する。
         onTrackChosen: (track) {
           Navigator.of(context).push(
             MaterialPageRoute(
               fullscreenDialog: true,
-              builder: (_) => PostPhotoSelectionScreen(
-                track: track,
-                isMoodPost: true,
-              ),
+              builder: (_) => MoodPostFinalPreviewScreen(track: track),
             ),
           );
         },

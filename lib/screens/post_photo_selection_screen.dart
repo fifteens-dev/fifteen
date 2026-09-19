@@ -342,23 +342,8 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   /// 投稿後の pop 先が phone-auth になってしまう不具合があった。
   /// そこで先に /home を唯一のベースへ載せ替えてから、透明プレビューを push する。
   void _openMoodPreview(XFile photo) {
-    final nav = Navigator.of(context);
-    nav.pushNamedAndRemoveUntil('/home', (route) => false);
-    nav.push(
-      PageRouteBuilder(
-        opaque: false,
-        barrierDismissible: false,
-        transitionDuration: const Duration(milliseconds: 400),
-        pageBuilder: (_, __, ___) => MoodPostFinalPreviewScreen(
-          track: widget.track,
-          selectedImage: photo,
-        ),
-        transitionsBuilder: (_, animation, __, child) => FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-          child: child,
-        ),
-      ),
-    );
+    // 遷移の作法（ホームの上に opaque:false で重ねる）は画面側に寄せてある。
+    MoodPostFinalPreviewScreen.open(context, widget.track, photo: photo);
   }
 
   void _navigateToEdit(XFile photo) {

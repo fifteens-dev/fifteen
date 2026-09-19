@@ -457,17 +457,12 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
   /// 以前は写真を撮る画面を挟んでいたが、カード裏面が写真ではなく
   /// プロフィール（top artists / recent choice）になったので写真を使わない。
   ///
-  /// 曲選択に戻れるよう、モーダル自体は pop せずスタックに残しておく
-  /// (確認画面が上に被さる)。
+  /// 確認画面はホームの上にシートとして重なる（[MoodPostFinalPreviewScreen.open]）。
+  /// このモーダルはそこでスタックから外れるので、閉じるとホームに戻る。
   void _confirmAndProceed(TrackModel track) {
     // 次へ進む前にプレビュー再生を停止（モーダルはスタックに残るため）。
     _audioService.stop();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => MoodPostFinalPreviewScreen(track: track),
-      ),
-    );
+    MoodPostFinalPreviewScreen.open(context, track);
   }
 
   /// 中央カードのサブタイトル。再生中は "Now Playing"、24時間以内は "○分前/○時間前"。

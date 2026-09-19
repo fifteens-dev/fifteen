@@ -44,6 +44,33 @@ class MoodPostFinalPreviewScreen extends StatefulWidget {
     this.selectedImage,
   });
 
+  /// ホーム画面の上にシートとして重ねて開く。
+  ///
+  /// この画面は **ホームが下に透けている前提**で作られている
+  /// （Scaffold は透明、上に 70% の黒ディムを敷いてカードを浮かせる。
+  ///  投稿完了時も pop するだけでホームに戻る）。
+  /// 不透明なルートで push すると下が描画されず背景が真っ黒になるので、
+  /// 遷移の作法をここに閉じ込めて呼び出し側が間違えられないようにしている。
+  ///
+  /// 曲選択のモーダル等はスタックから外し、ホームの直上に置く。
+  static void open(BuildContext context, TrackModel track, {XFile? photo}) {
+    final nav = Navigator.of(context);
+    nav.pushNamedAndRemoveUntil('/home', (route) => false);
+    nav.push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierDismissible: false,
+        transitionDuration: const Duration(milliseconds: 400),
+        pageBuilder: (_, __, ___) =>
+            MoodPostFinalPreviewScreen(track: track, selectedImage: photo),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   @override
   State<MoodPostFinalPreviewScreen> createState() =>
       _MoodPostFinalPreviewScreenState();

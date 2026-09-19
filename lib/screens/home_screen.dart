@@ -1144,14 +1144,8 @@ class _HomeScreenState extends State<HomeScreen>
         context,
         moodPostMode: true,
         // Apple Music 側と同じく、写真の工程は挟まず最終確認へ直行する。
-        onTrackChosen: (track) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              fullscreenDialog: true,
-              builder: (_) => MoodPostFinalPreviewScreen(track: track),
-            ),
-          );
-        },
+        onTrackChosen: (track) =>
+            MoodPostFinalPreviewScreen.open(context, track),
       );
     }
   }

@@ -439,15 +439,28 @@ class ProfileView extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: onOpenFriendAdd,
         child: Stack(
-          alignment: Alignment.center,
           children: [
+            // 素材は書き出し時に影のぶんの余白が付いていたので、ノード枠
+            // （52×45）だけを切り出したものを入れてある。4x なので等倍で敷く。
             Image.asset(
               'assets/profile_v2/glass_button.png',
               width: 52,
               height: 45,
               fit: BoxFit.fill,
             ),
-            const Icon(Icons.ios_share, color: Colors.white, size: 20),
+            // Figma: Share は (16,12) の 20×20、グリフの実寸は 14×18。
+            // CupertinoIcons.share はインク比 0.785（目標 0.778）で、
+            // size 19 のとき 14.1×18.0 とほぼ一致する
+            // （Icons.ios_share は 0.728 で細長すぎる）。
+            const Positioned(
+              left: 16,
+              top: 12,
+              width: 20,
+              height: 20,
+              child: Center(
+                child: Icon(CupertinoIcons.share, color: Colors.white, size: 19),
+              ),
+            ),
           ],
         ),
       ),

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Fifteensに招待されました</title>
+
+  <!--
+    招待カードの QR （/u/{uid}?code=XXXX）の着地ページ。
+
+    ここでは相手の名前もアイコンも出さない。URL さえ知れば誰でも開けてしまい、
+    uid を総当たりされると誰が居るか分かってしまうため。
+    アプリを持っている人だけが fifteenapp://user/{uid} でプロフィールへ進む。
+  -->
+  <meta property="og:title" content="Fifteensに招待されました">
+  <meta property="og:description" content="音楽で「今日」をシェアするSNS。アプリを開くと相手のプロフィールが見られます。">
+  <meta property="og:site_name" content="Fifteens">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+      background: #111111;
+      color: #ffffff;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 360px;
+      background: #1c1c1e;
+      border-radius: 20px;
+      padding: 40px 32px 36px;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .logo { font-size: 52px; font-weight: 700; letter-spacing: -1px; }
+    .app-name { font-size: 15px; color: #8e8e93; margin-top: 4px; }
+    .message { font-size: 15px; line-height: 1.7; margin-top: 24px; color: #d7d7d9; }
+
+    .btn {
+      display: block;
+      width: 100%;
+      margin-top: 14px;
+      padding: 15px 16px;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .open-btn { background: #b7ff4a; color: #111111; margin-top: 28px; }
+    .store-btn { background: #2c2c2e; color: #ffffff; }
+
+    .hint { font-size: 12px; line-height: 1.7; color: #8e8e93; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">15s</div>
+    <div class="app-name">Fifteens</div>
+
+    <p class="message" id="message">
+      友達があなたを Fifteens に招待しました。<br>
+      アプリを開くと相手のプロフィールが見られます。
+    </p>
+
+    <a class="btn open-btn" id="openBtn" href="#">アプリで開く</a>
+    <a class="btn store-btn" id="storeBtn"
+       href="https://apps.apple.com/jp/app/id6741791979"
+       target="_blank" rel="noopener">App Storeでダウンロード</a>
+
+    <p class="hint" id="hint">
+      インストール後にもう一度 QR を読み取ると、相手のプロフィールが開きます。
+    </p>
+  </div>
+
+  <script>
+    (function () {
+      var STORE_URL = 'https://apps.apple.com/jp/app/id6741791979';
+
+      // /u/{uid} の uid。?code= があれば招待コードとして一緒に渡す。
+      var segments = window.location.pathname.split('/').filter(Boolean);
+      var uid = segments.length > 1 ? segments[segments.length - 1] : null;
+      if (uid && uid.toLowerCase() === 'u') uid = null;
+      var code = (new URLSearchParams(window.location.search).get('code') || '').trim();
+
+      if (!uid) {
+        document.getElementById('message').textContent =
+          'リンクが読み取れませんでした。QR をもう一度読み取ってください。';
+        document.getElementById('openBtn').style.display = 'none';
+        document.getElementById('hint').style.display = 'none';
+        return;
+      }
+
+      var appUrl = 'fifteenapp://user/' + encodeURIComponent(uid) +
+        (code ? '?code=' + encodeURIComponent(code) : '');
+
+      function openApp(e) {
+        if (e) e.preventDefault();
+        // 招待コードはアプリ側が起動時にクリップボードから拾う。
+        // 拒否するブラウザもあるので失敗しても黙って進む。
+        if (code && navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).catch(function () {});
+        }
+        window.location.href = appUrl;
+        // アプリが無ければ戻ってこないので、少し待って App Store へ。
+        setTimeout(function () { window.location.href = STORE_URL; }, 1200);
+      }
+
+      document.getElementById('openBtn').addEventListener('click', openApp);
+    })();
+  </script>
+</body>
+</html>

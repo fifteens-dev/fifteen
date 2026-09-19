@@ -10,12 +10,27 @@
     "trailingSlash": false,
     "rewrites": [
       {
+        "source": "/u/**",
+        "destination": "/u/index.html"
+      },
+      {
         "source": "/post/**",
         "destination": "/post/index.html"
       },
       {
         "source": "/invite/**",
         "destination": "/invite/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
       }
     ]
   },

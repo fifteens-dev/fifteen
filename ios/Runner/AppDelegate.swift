@@ -18,6 +18,8 @@ import ObjectiveC.runtime
   private var deepLinkFlutterChannel: FlutterMethodChannel?
   // コールドスタート時に Flutter が準備できる前に届いた postId を保持
   private var _pendingDeepLinkPostId: String? = nil
+  // 同上。招待カードの QR から起動されたときの相手の uid
+  private var _pendingDeepLinkUserId: String? = nil
   // 同上。ロック画面の Live Activity から起動されたときのアクション（"compose"）
   private var _pendingDeepLinkAction: String? = nil
 
@@ -588,7 +590,8 @@ import ObjectiveC.runtime
     return ("TOKEN_ERROR", "Apple Music トークンの取得に失敗しました。時間をおいて再度お試しください。")
   }
 
-  // MARK: - ディープリンクチャンネル（fifteenapp://post/{postId}）
+  // MARK: - ディープリンクチャンネル
+  // fifteenapp://post/{postId} / fifteenapp://user/{uid} / fifteenapp://compose
 
   private func setupDeepLinkChannel(controller: FlutterViewController) {
     let ch = FlutterMethodChannel(name: deepLinkChannel, binaryMessenger: controller.binaryMessenger)
@@ -602,6 +605,10 @@ import ObjectiveC.runtime
         // コールドスタート時に保持した postId を返して消去
         result(self._pendingDeepLinkPostId)
         self._pendingDeepLinkPostId = nil
+      case "getInitialUserId":
+        // QR から起動されたときに保持した uid を返して消去
+        result(self._pendingDeepLinkUserId)
+        self._pendingDeepLinkUserId = nil
       case "getInitialAction":
         // コールドスタート時に保持したアクション（Live Activity の "compose"）
         result(self._pendingDeepLinkAction)
@@ -619,6 +626,15 @@ import ObjectiveC.runtime
     if url.host == "compose" {
       _pendingDeepLinkAction = "compose"
       deepLinkFlutterChannel?.invokeMethod("onDeepLink", arguments: ["action": "compose"])
+      return true
+    }
+
+    // 招待カードの QR（fifteenapp://user/{uid}）→ 相手のプロフィール。
+    if url.host == "user" {
+      let segments = url.pathComponents.filter { $0 != "/" }
+      guard let uid = segments.first, !uid.isEmpty else { return false }
+      _pendingDeepLinkUserId = uid
+      deepLinkFlutterChannel?.invokeMethod("onDeepLink", arguments: ["userId": uid])
       return true
     }
 

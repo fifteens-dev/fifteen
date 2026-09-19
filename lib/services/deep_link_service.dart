@@ -5,12 +5,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../screens/other_user_profile_screen.dart';
 import '../screens/post_detail_screen.dart';
 import 'post_service.dart';
 
 /// Instagram Stories などの外部リンクから起動されたディープリンクを処理する
 ///
 /// fifteenapp://post/{postId} → PostDetailScreen を開いて音楽を自動再生
+/// fifteenapp://user/{uid}  → そのユーザーのプロフィールを開く（招待カードの QR）
 /// fifteenapp://compose    → 投稿フローを開く（ロック画面の Live Activity から）
 ///
 /// iOS の処理フロー:
@@ -29,6 +31,7 @@ class DeepLinkService {
   StreamSubscription<Uri>? _androidSub;
   GlobalKey<NavigatorState>? _navigatorKey;
   String? _lastHandledPostId; // 二重処理防止
+  String? _lastHandledUserId; // 同上（プロフィール）
 
   /// `fifteenapp://compose`（Live Activity の「投稿する」）を受けたときに
   /// 投稿フローを開くためのハンドラ。HomeScreen が起動時に登録する。
@@ -72,6 +75,17 @@ class DeepLinkService {
         }
       } catch (e) {
         if (kDebugMode) print('DeepLinkService getInitialPostId error: $e');
+      }
+
+      // 同上: QR から起動されたときのプロフィール。
+      try {
+        final uid = await _nativeChannel.invokeMethod<String>('getInitialUserId');
+        if (uid != null && uid.isNotEmpty) {
+          if (kDebugMode) print('DeepLinkService cold-start userId: $uid');
+          WidgetsBinding.instance.addPostFrameCallback((_) => _openProfile(uid));
+        }
+      } catch (e) {
+        if (kDebugMode) print('DeepLinkService getInitialUserId error: $e');
       }
 
       // 同上: Live Activity から起動されたときのアクション。
@@ -120,6 +134,12 @@ class DeepLinkService {
         _requestCompose();
         return;
       }
+      final userId = args?['userId'] as String?;
+      if (userId != null && userId.isNotEmpty) {
+        if (kDebugMode) print('DeepLinkService iOS onDeepLink user: $userId');
+        await _openProfile(userId);
+        return;
+      }
       final postId = args?['postId'] as String?;
       if (postId != null && postId.isNotEmpty) {
         if (kDebugMode) print('DeepLinkService iOS onDeepLink: $postId');
@@ -138,7 +158,45 @@ class DeepLinkService {
     }
     if (uri.host == 'post' && uri.pathSegments.isNotEmpty) {
       _openPost(uri.pathSegments.first);
+      return;
     }
+    if (uri.host == 'user' && uri.pathSegments.isNotEmpty) {
+      _openProfile(uri.pathSegments.first);
+    }
+  }
+
+  /// 招待カードの QR から開かれたプロフィール。
+  ///
+  /// 自分自身の QR を読んだ場合は何もしない（他人用の画面を自分で開いても
+  /// フォローボタンなどが成立しないため）。
+  Future<void> _openProfile(String userId) async {
+    if (userId == _lastHandledUserId) return;
+    _lastHandledUserId = userId;
+
+    if (userId == FirebaseAuth.instance.currentUser?.uid) {
+      if (kDebugMode) print('DeepLinkService: 自分の QR なので開かない');
+      return;
+    }
+
+    final navigator = await _waitForNavigator();
+    if (navigator == null) {
+      _lastHandledUserId = null; // リセットして再試行を許容
+      return;
+    }
+    navigator.push(MaterialPageRoute(
+      builder: (_) => OtherUserProfileScreen(userId: userId),
+    ));
+  }
+
+  /// Navigator が使えるようになるまで最大 2 秒待つ。
+  Future<NavigatorState?> _waitForNavigator() async {
+    for (var i = 0; i < 10; i++) {
+      final navigator = _navigatorKey?.currentState;
+      if (navigator != null) return navigator;
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    if (kDebugMode) print('DeepLinkService: navigator not ready');
+    return null;
   }
 
   Future<void> _openPost(String postId) async {

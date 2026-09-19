@@ -13,14 +13,21 @@ class InstagramStoriesService {
     }
   }
 
-  static Future<bool> share(Uint8List pngBytes, {String? postId}) async {
+  /// [contentUrl] を渡すとストーリーの「リンク」にそれを使う。
+  /// 渡さなければ従来通り [postId] から投稿の URL を組み立てる。
+  static Future<bool> share(
+    Uint8List pngBytes, {
+    String? postId,
+    String? contentUrl,
+  }) async {
     try {
-      final contentUrl = postId != null && postId.isNotEmpty
-          ? 'https://fifteens-39cfe.web.app/post/$postId'
-          : 'https://fifteens-39cfe.web.app/';
+      final url = contentUrl ??
+          (postId != null && postId.isNotEmpty
+              ? 'https://fifteens-39cfe.web.app/post/$postId'
+              : 'https://fifteens-39cfe.web.app/');
       final args = <String, dynamic>{
         'imageData': pngBytes,
-        'contentURL': contentUrl,
+        'contentURL': url,
       };
       await _channel.invokeMethod('shareToStories', args);
       const bundleId = 'com.fifteen.app';

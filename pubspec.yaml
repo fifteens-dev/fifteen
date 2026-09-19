@@ -65,6 +65,7 @@ dependencies:
   provider: ^6.1.5+1
   app_links: ^6.4.0
   camera: ^0.12.0+1
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:
@@ -92,6 +93,11 @@ flutter:
   assets:
     - .env
     - assets/icons/Spotify.png
+    - assets/invite_card/cd_case.png
+    - assets/invite_card/barcode.svg
+    - assets/invite_card/bubble.svg
+    - assets/invite_card/hand.svg
+    - assets/invite_card/bubble_tick.svg
     - assets/profile_v2/title_top_artists.png
     - assets/profile_v2/title_recent_choice.png
     - assets/profile_v2/rank_1.png
@@ -202,6 +208,9 @@ flutter:
     - family: SF Pro Rounded
       fonts:
         - asset: assets/fonts/SFProRounded.ttf
+    - family: Caveat
+      fonts:
+        - asset: assets/fonts/Caveat-Regular.ttf
 
   # To add custom fonts to your application, add a fonts section here,
   # in this "flutter" section. Each entry in this list should have a

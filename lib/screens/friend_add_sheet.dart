@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../constants/profile_fonts.dart';
 import '../models/user_model.dart';
 import '../services/friend_match_service.dart';
+import '../services/invite_story_service.dart';
 import '../services/friend_service.dart';
 import '../services/user_service.dart';
 import '../widgets/common/app_toast.dart';
@@ -62,6 +63,10 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
   String? _uid;
   String? _inviteCode;
   UserModel? _me;
+
+  /// Instagram 用のカード画像を作っている間。1 秒ほどかかるので、
+  /// 押したのに何も起きていないように見えないようアイコンを差し替える。
+  bool _sharingToInstagram = false;
 
   List<FriendEntry> _friends = const [];
   List<FriendSuggestion> _suggestions = const [];
@@ -186,6 +191,16 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
   String get _shareText =>
       '15sで友達になろう！\n招待コード：${_inviteCode ?? ''}\n$_inviteUrl';
 
+  /// 招待カードの QR に埋める URL。読むと相手（＝自分）のプロフィールが開く。
+  /// 招待コードも付けておくと、そこから登録した人の招待元が辿れる。
+  String? get _profileUrl {
+    final uid = _uid;
+    if (uid == null) return null;
+    final code = _inviteCode;
+    return 'https://fifteens-39cfe.web.app/u/$uid'
+        '${code != null && code.isNotEmpty ? '?code=$code' : ''}';
+  }
+
   Future<void> _shareTo(_ShareTarget target) async {
     if (_inviteCode == null) {
       AppToast.show(context, '招待コードを取得中です');
@@ -202,22 +217,41 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
             Uri.parse('https://twitter.com/intent/tweet?text=$encoded'));
         return;
       case _ShareTarget.instagram:
-        // Instagram は iOS の共有シートでプレーンテキストを受け取れない
-        // （画像・動画しか受け付けない）ため、共有シートに出しても選べない。
-        // 招待文をコピーしてから Instagram を開き、貼り付けてもらう。
-        await Clipboard.setData(ClipboardData(text: _shareText));
-        final opened = await _tryLaunch(Uri.parse('instagram://app'));
-        if (!mounted) return;
-        AppToast.show(
-          context,
-          opened
-              ? '招待リンクをコピーしました。Instagramで貼り付けてください'
-              : 'Instagramが見つかりません。リンクをコピーしました',
-        );
+        await _shareToInstagramStory();
         return;
       case _ShareTarget.other:
         await _openSystemShareSheet();
         return;
+    }
+  }
+
+  /// 招待カード（QR 入り）を画像にして Instagram ストーリーの編集画面を開く。
+  ///
+  /// Instagram は iOS の共有シートでプレーンテキストを受け取れない
+  /// （画像・動画しか受け付けない）ので、テキストを渡す道は元から無い。
+  /// 以前は招待文をコピーして Instagram を開くだけだったが、
+  /// ストーリー用の画像を渡せばそのまま投稿してもらえる。
+  Future<void> _shareToInstagramStory() async {
+    final url = _profileUrl;
+    final name = _me?.username;
+    if (url == null || name == null || name.isEmpty) {
+      AppToast.show(context, 'プロフィールを取得中です');
+      return;
+    }
+
+    setState(() => _sharingToInstagram = true);
+    final ok = await InviteStoryService.shareToInstagram(
+      context,
+      username: name,
+      qrUrl: url,
+    );
+    if (!mounted) return;
+    setState(() => _sharingToInstagram = false);
+    if (!ok) {
+      // 画像は作れたが Instagram が入っていない場合もここに来る。
+      await Clipboard.setData(ClipboardData(text: _shareText));
+      if (!mounted) return;
+      AppToast.show(context, 'Instagramを開けませんでした。リンクをコピーしました');
     }
   }
 
@@ -602,8 +636,16 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
             label: 'Instagram',
             target: _ShareTarget.instagram,
             // Instagram の素材は 58px で自前の円を持っているのでリングを重ねない。
-            child: SvgPicture.asset('assets/icons/share/instagram.svg',
-                width: _iconOuter, height: _iconOuter),
+            child: _sharingToInstagram
+                ? const SizedBox(
+                    width: _iconOuter,
+                    height: _iconOuter,
+                    child: Center(
+                      child: CupertinoActivityIndicator(color: Colors.white),
+                    ),
+                  )
+                : SvgPicture.asset('assets/icons/share/instagram.svg',
+                    width: _iconOuter, height: _iconOuter),
           ),
           _shareItem(
             label: 'X',
@@ -651,7 +693,7 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
   }) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => _shareTo(target),
+      onTap: _sharingToInstagram ? null : () => _shareTo(target),
       child: SizedBox(
         width: 68,
         child: Column(

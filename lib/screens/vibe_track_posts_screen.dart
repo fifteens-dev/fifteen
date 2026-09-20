@@ -226,7 +226,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                               startFromBack: _hasPostedToday,
                               audioManagedExternally: true,
                               externalPreviewUrl: _previewUrlCache[index],
-                              backSideEnabled: _hasPostedToday,
+                              backSideEnabled: true, // 裏返し制限は廃止
                               onLike: () => PostUIState.handleLike(
                                 context: context,
                                 post: basePost,

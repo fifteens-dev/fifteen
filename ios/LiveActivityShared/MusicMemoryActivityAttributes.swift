@@ -24,7 +24,7 @@ public struct MusicMemoryActivityAttributes: Codable, Hashable {
         /// 文字列で持つのは、サーバ(JSON)からそのまま差し替えられるようにするため。
         public var phase: String
 
-        /// 通常投稿の締切（＝通知日の翌 01:00 JST＝「25:00」）。**Unix エポック秒**。
+        /// 投稿の締切（＝通知日の 24:00 JST）。**Unix エポック秒**。
         ///
         /// Date ではなく数値で持つのは、ActivityKit が APNs の `content-state` を
         /// 既定の `JSONDecoder`（Date は Apple 基準日=2001-01-01 からの秒）で

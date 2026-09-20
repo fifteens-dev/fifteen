@@ -121,7 +121,7 @@ struct MusicMemoryLockScreenView: View {
     private var thirdLine: some View {
         switch phase {
         case .waiting:
-            Text("25:00まで")
+            Text("24:00まで")
                 .font(.system(size: 11))
                 .foregroundColor(.white)
                 .lineLimit(1)

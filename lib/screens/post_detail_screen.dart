@@ -223,7 +223,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     audioManagedExternally: true,
                     externalPreviewUrl: _previewUrl,
                     startFromBack: _hasPostedToday,
-                    backSideEnabled: _hasPostedToday,
+                    backSideEnabled: true, // 裏返し制限は廃止
                     isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(widget.post),
                     disableInteractions: widget.disableInteractions,
                     onLike: _currentUserId.isEmpty

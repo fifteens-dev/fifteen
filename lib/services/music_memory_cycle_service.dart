@@ -8,7 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// `music_memory_state/current.notifiedAt` に記録する。これが「投稿サイクルの境界」。
 ///
 /// - タイムライン表示: `createdAt >= currentCycleStart`（＝直近 notifiedAt 以降）のみ。
-/// - 通常投稿締切: notifiedAt の JST 日付 + 1 日 01:00（＝「25:00」）。以降は Late 投稿。
+/// - 投稿締切: notifiedAt の JST 日付の 24:00。以降は投稿できない（Late 投稿は廃止）。
 class MusicMemoryCycleService {
   MusicMemoryCycleService._();
   static final MusicMemoryCycleService _instance =
@@ -110,7 +110,7 @@ class MusicMemoryCycleService {
   DateTime get currentCycleStart =>
       _notifiedAt ?? DateTime.now().subtract(const Duration(hours: 24));
 
-  /// 現サイクルの通常投稿締切（notifiedAt の JST 日付 + 1 日 01:00 JST）。
+  /// 現サイクルの投稿締切（notifiedAt の JST 日付の 24:00 = 翌 0:00 JST）。
   /// notifiedAt が無いときは null（＝締切判定不能）。
   DateTime? get currentDeadline {
     final start = _notifiedAt;
@@ -118,21 +118,45 @@ class MusicMemoryCycleService {
     return _deadlineForCycleStart(start);
   }
 
-  /// [createdAt] が現サイクルの締切を過ぎている（＝Late 投稿）か。
-  /// 締切不明のときは false（＝通常投稿扱い）。
+  /// 今が投稿できる時間帯か（通知 21:00 〜 24:00）。
+  ///
+  /// 締切を過ぎたら投稿そのものができない仕様なので、Late 投稿は発生しない。
+  /// 通知がまだ来ていない（notifiedAt が無い）ときも投稿できない。
+  bool get canPostNow {
+    final start = _notifiedAt;
+    final deadline = currentDeadline;
+    if (start == null || deadline == null) return false;
+    final now = DateTime.now();
+    return !now.isBefore(start) && now.isBefore(deadline);
+  }
+
+  /// [canPostNow] と同じ判定。ただし通知時刻が未取得なら取りに行く。
+  ///
+  /// 投稿ボタンのように「アプリを開いた直後に押される」経路では
+  /// [notifiedAt] がまだ null のことがあり、そのまま見ると
+  /// 「通知前」と誤判定してしまう。
+  Future<bool> ensureCanPostNow() async {
+    if (_notifiedAt == null) await fetchNotifiedAt();
+    return canPostNow;
+  }
+
+  /// [createdAt] が現サイクルの締切を過ぎているか。
+  ///
+  /// 21:00〜24:00 以外は投稿できないので、新しい投稿でこれが true になることは
+  /// ない。締切が 25:00 だった頃の投稿を判定するために残している。
   bool isLate(DateTime createdAt) {
     final deadline = currentDeadline;
     if (deadline == null) return false;
     return createdAt.toUtc().isAfter(deadline);
   }
 
-  /// サイクル開始（通知時刻）に対する通常投稿締切の instant を返す。
-  /// JST 固定: notifiedAt の JST 暦日 + 1 日 01:00 JST。
+  /// サイクル開始（通知時刻）に対する投稿締切の instant を返す。
+  /// JST 固定: notifiedAt の JST 暦日の 24:00（＝翌日 0:00 JST）。
   static DateTime _deadlineForCycleStart(DateTime cycleStart) {
     // instant を JST の壁時計（フィールドが JST 値の UTC DateTime）に変換。
     final jst = cycleStart.toUtc().add(const Duration(hours: 9));
-    // JST 暦日の翌日 01:00（壁時計）を UTC フィールドとして構築し、9h 引いて instant 化。
-    final wall = DateTime.utc(jst.year, jst.month, jst.day, 1)
+    // JST 暦日の翌日 0:00（壁時計）を UTC フィールドとして構築し、9h 引いて instant 化。
+    final wall = DateTime.utc(jst.year, jst.month, jst.day)
         .add(const Duration(days: 1));
     return wall.subtract(const Duration(hours: 9));
   }

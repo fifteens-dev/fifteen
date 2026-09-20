@@ -1133,7 +1133,21 @@ class _HomeScreenState extends State<HomeScreen>
   /// - Apple Music: 「今日のMusic Memory」カルーセル(MusicMemoryModal)。
   /// - Spotify / 未連携: ログが取れないため Vibe 楽曲選択シート（お題非表示）→
   ///   曲決定で Apple と同じく最終確認(MoodPostFinalPreviewScreen)へ。
+  /// 投稿フローを開く。投稿できるのは通知（21:00）から 24:00 までの間だけで、
+  /// それ以外の時間は開かずに理由を出す。
   Future<void> _openPostFlow() async {
+    final cycle = MusicMemoryCycleService();
+    if (!await cycle.ensureCanPostNow()) {
+      if (!mounted) return;
+      // 通知がまだ来ていないのか、締切を過ぎたのかで文言を分ける。
+      final start = cycle.notifiedAt;
+      final beforeStart = start == null || DateTime.now().isBefore(start);
+      AppToast.show(
+        context,
+        beforeStart ? '21時から投稿できます' : '今日の投稿は24時で締め切りました',
+      );
+      return;
+    }
     _homeAudioService.stop();
     final service = await _musicServiceManager.getSelectedService();
     if (!mounted) return;
@@ -1601,15 +1615,10 @@ class _HomeScreenState extends State<HomeScreen>
       currentUserIconUrl: currentUserIconUrl,
     );
 
-    // ゲーティング（裏面閲覧とリアクションを分離）:
-    //  - 裏面（写真）閲覧: 自分の投稿 or 現サイクルで投稿済み（Late 含む）
-    //    or 既に裏を見た投稿。未投稿者は表面のみ。
-    //  - リアクション（いいね・コメント）: 自分の投稿 or 現サイクルで
-    //    「期限内（25:00 まで）」投稿済みのときのみ。Late 投稿者は不可。
+    // 裏面は誰でも見られる（「投稿しないと裏返せない」制限は廃止）。
+    // リアクション（いいね・コメント）は、自分の投稿か、現サイクルで
+    // 投稿済みのときだけ。
     final isOwnPost = post.userId == currentUserId;
-    final canViewBack = isOwnPost ||
-        _postedAnyThisCycle ||
-        _revealedPostIds.contains(post.postId);
     final canReact = isOwnPost || _postedOnTimeThisCycle;
 
     return PostCard(
@@ -1635,7 +1644,7 @@ class _HomeScreenState extends State<HomeScreen>
             }
           : null,
       isSaved: savedItems.isPostOrTrackSaved(post),
-      backSideEnabled: canViewBack,
+      backSideEnabled: true,
       disableInteractions: !canReact,
       onFlipToBack: () => _markPostRevealed(post.postId),
       onPlayStarted: () {
@@ -1766,13 +1775,9 @@ class _HomeScreenState extends State<HomeScreen>
                   post.postId, () => GlobalKey<PostCardState>());
               final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
               final isOwnPost = post.userId == currentUserId;
-              final canViewBack = isOwnPost ||
-                  _postedAnyThisCycle ||
-                  _revealedPostIds.contains(post.postId);
               return _GridPostCell(
                 key: ValueKey('grid_${post.postId}'),
                 cardKey: cardKey,
-                canViewBack: canViewBack,
                 onEnlargedChanged: (v) => _gridEnlargedActive = v,
                 builder: (key, onTap, requestClose) => _buildPostCardFor(
                   post: post,
@@ -2004,7 +2009,6 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
 /// 拡大中はセル側を空プレースホルダにして二重描画・二重再生を防ぐ。
 class _GridPostCell extends StatefulWidget {
   final GlobalKey<PostCardState> cardKey;
-  final bool canViewBack;
   /// builder(key, onTap, requestClose): key=カードに付与する GlobalKey、
   /// onTap=カードタップ処理、requestClose=拡大を即キャンセル。
   final Widget Function(GlobalKey<PostCardState> key, VoidCallback onTap,
@@ -2015,7 +2019,6 @@ class _GridPostCell extends StatefulWidget {
   const _GridPostCell({
     super.key,
     required this.cardKey,
-    required this.canViewBack,
     required this.builder,
     this.onEnlargedChanged,
   });
@@ -2073,17 +2076,11 @@ class _GridPostCellState extends State<_GridPostCell>
     _entry = OverlayEntry(builder: _buildOverlay);
     Overlay.of(context, rootOverlay: true).insert(_entry!);
     _anim.forward(from: 0);
-    // 拡大後 0.2秒で自動アクション。
-    // - 裏面閲覧可: 反転＋音楽再生。
-    // - 裏面閲覧不可（他人の投稿など）: 反転はせず音楽だけ再生（1列表示と同じ挙動）。
+    // 拡大後 0.2秒で反転＋音楽再生。
+    // 「投稿しないと裏返せない」制限は廃止したので、常に反転してよい。
     Future.delayed(const Duration(milliseconds: 200), () {
       if (!_active) return;
-      final st = _overlayCardKey.currentState;
-      if (widget.canViewBack) {
-        st?.flipToBack(playAudio: true);
-      } else {
-        st?.playAudioOnly();
-      }
+      _overlayCardKey.currentState?.flipToBack(playAudio: true);
     });
   }
 

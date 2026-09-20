@@ -163,7 +163,7 @@ const MM_CYCLES_COLLECTION = 'music_memory_cycles';
 /** 通知の発火時刻（JST）。以前は 19:00〜23:30 のランダムだったが 21:00 固定にした。 */
 const MM_FIRE_MIN = 21 * 60;              // 21:00
 const MM_NOTIF_TITLE = '🎵 Music Memoryの時間です。';
-const MM_NOTIF_BODY = '25:00までに投稿すると、友達の今日が見られます。';
+const MM_NOTIF_BODY = '24:00までに投稿しましょう。';
 
 exports.musicMemoryDailyNotification = onSchedule(
   { schedule: '*/5 * * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 300 },
@@ -2931,9 +2931,10 @@ exports.unflagBulkDummyPosts = onCall(
 
 const LIVE_ACTIVITIES_COLLECTION = 'live_activities';
 
-/** 通知時刻（サイクル開始）に対する通常投稿の締切 = JST 翌 01:00（「25:00」）。 */
+/** 通知時刻（サイクル開始）に対する投稿締切 = JST 24:00（翌 0:00）。
+ *  この時刻を過ぎると投稿そのものができない（Late 投稿は廃止）。 */
 function liveActivityDeadline(cycleStart) {
-  return new Date(jstDayStartFor(cycleStart).getTime() + 25 * 60 * 60 * 1000);
+  return new Date(jstDayStartFor(cycleStart).getTime() + 24 * 60 * 60 * 1000);
 }
 
 /** push で送る content-state。Swift 側 ContentState と 1:1。 */
@@ -3112,7 +3113,7 @@ async function markOwnLiveActivityPosted(db, posterId, cycleStart) {
 }
 
 /**
- * 締切（25:00）を過ぎた Live Activity を終了させる。
+ * 締切（24:00）を過ぎた Live Activity を終了させる。
  * アプリが起動されないまま残り続けるのを防ぐ（ActivityKit 自体の 8 時間上限より先に畳む）。
  */
 exports.endStaleLiveActivities = onSchedule(

@@ -263,7 +263,7 @@ class _CampusVibeScreenState extends State<CampusVibeScreen> {
                           startFromBack: _hasPostedThisWeekend,
                           audioManagedExternally: true,
                           externalPreviewUrl: _previewUrlCache[index],
-                          backSideEnabled: _hasPostedThisWeekend,
+                          backSideEnabled: true, // 裏返し制限は廃止
                           onLike: () {},
                           onComment: () {},
                           onAdd: () {},

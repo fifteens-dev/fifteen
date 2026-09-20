@@ -43,7 +43,7 @@ enum LiveActivityPhase {
 /// - アプリ起動 / フォアグラウンド復帰 → [refresh]
 /// - Music Memory 通知の受信 → [refresh]
 /// - 投稿完了 → [markPosted]
-/// - 締切（25:00）到達 → [refresh] が終了させる
+/// - 締切（24:00）到達 → [refresh] が終了させる
 /// - フォロー中の誰かが投稿 → Cloud Functions が APNs push で phase を差し替え
 class LiveActivityService {
   LiveActivityService._();

@@ -40,7 +40,7 @@ function deadlineFor(cycleStart) {
   const o = 9 * 60 * 60 * 1000;
   const j = new Date(cycleStart.getTime() + o);
   const dayStart = new Date(Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate()) - o);
-  return new Date(dayStart.getTime() + 25 * 60 * 60 * 1000);
+  return new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 }
 
 const jst = (d) => (d ? new Date(d.getTime() + 9 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19) : '-');
@@ -92,7 +92,7 @@ async function main() {
         ? undefined
         : {
             title: '🎵 Music Memoryの時間です。',
-            body: '25:00までに投稿すると、友達の今日が見られます。',
+            body: '24:00までに投稿しましょう。',
           },
     });
     console.log(

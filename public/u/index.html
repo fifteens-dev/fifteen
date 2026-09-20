@@ -107,19 +107,28 @@
       var appUrl = 'fifteenapp://user/' + encodeURIComponent(uid) +
         (code ? '?code=' + encodeURIComponent(code) : '');
 
-      function openApp(e) {
-        if (e) e.preventDefault();
-        // 招待コードはアプリ側が起動時にクリップボードから拾う。
-        // 拒否するブラウザもあるので失敗しても黙って進む。
-        if (code && navigator.clipboard && navigator.clipboard.writeText) {
+      // 招待コードはアプリが初回起動時にクリップボードから拾い、
+      // 入力を省略してそのまま適用する。インストール後に戻ってこない
+      // 導線（App Store 経由）でも効くよう、開いた時点でコピーしておく。
+      // 拒否するブラウザもあるので、失敗しても黙って進む。
+      function copyCode() {
+        if (!code) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(code).catch(function () {});
         }
+      }
+      copyCode();
+
+      function openApp(e) {
+        if (e) e.preventDefault();
+        copyCode();
         window.location.href = appUrl;
         // アプリが無ければ戻ってこないので、少し待って App Store へ。
         setTimeout(function () { window.location.href = STORE_URL; }, 1200);
       }
 
       document.getElementById('openBtn').addEventListener('click', openApp);
+      document.getElementById('storeBtn').addEventListener('click', copyCode);
     })();
   </script>
 </body>

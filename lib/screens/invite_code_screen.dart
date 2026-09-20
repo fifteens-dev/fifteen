@@ -51,25 +51,39 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
         return;
       }
     } catch (_) {}
+    await _autoApplyFromClipboard();
     if (mounted) setState(() => _isLoading = false);
-    await _prefillFromClipboard();
   }
 
-  /// 招待リンク（fifteens-39cfe.web.app/invite/?code=XXXX）からインストールした人向け。
-  /// ランディングページが招待コードをクリップボードに入れるので、それを拾って
-  /// 入力欄に流し込む。形式が招待コードに一致しないときは何もしない。
-  Future<void> _prefillFromClipboard() async {
+  /// 招待リンク（/invite?code=XXXX や /u/{uid}?code=XXXX）からインストールした
+  /// 人向け。ランディングページが招待コードをクリップボードに入れるので、
+  /// それを拾って**入力を省略しそのまま適用する**。
+  ///
+  /// クリップボードの中身はたまたま形式が一致しただけかもしれないので、
+  /// 検証に通ったときだけ進める。通らなければ何も言わずに入力欄へ流し込み、
+  /// 通常どおり手入力してもらう（誤検知でエラーを出さない）。
+  Future<void> _autoApplyFromClipboard() async {
     if (_inviteCodeController.text.isNotEmpty) return;
+    String code;
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
-      final text = (data?.text ?? '').trim().toUpperCase();
-      // 招待コードは紛らわしい文字を除いた英数 7 桁（UserService._generateInviteCode）。
-      if (!RegExp(r'^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{7}$').hasMatch(text)) {
-        return;
-      }
-      if (!mounted) return;
-      setState(() => _inviteCodeController.text = text);
-    } catch (_) {}
+      code = (data?.text ?? '').trim().toUpperCase();
+    } catch (_) {
+      return;
+    }
+    // 招待コードは紛らわしい文字を除いた英数 7 桁（UserService._generateInviteCode）。
+    if (!RegExp(r'^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{7}$').hasMatch(code)) {
+      return;
+    }
+
+    final applied = await _applyInviteCode(code);
+    if (!mounted) return;
+    if (applied) {
+      Navigator.pushReplacementNamed(context, '/name-input');
+      return;
+    }
+    // 使えないコードだった場合は入力欄に残して手直しできるようにする。
+    setState(() => _inviteCodeController.text = code);
   }
 
   @override
@@ -134,13 +148,23 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
   /// 通常の招待コード（7文字英数字）の検証 + 使用済みマーク + コードオーナーフォロー
   Future<void> _handleNormalInviteCode(String inviteCode) async {
     setState(() => _isLoading = true);
+    final applied = await _applyInviteCode(inviteCode, showErrors: true);
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    if (applied) Navigator.pushNamed(context, '/name-input');
+  }
 
+  /// 招待コードを検証して適用する。成功したら true。
+  ///
+  /// 画面遷移はしない（呼び出し側が決める）。[showErrors] が false のときは
+  /// 何も表示しない — クリップボードからの自動適用で、たまたま形式が
+  /// 一致しただけの文字列にエラーを出さないため。
+  Future<bool> _applyInviteCode(String inviteCode,
+      {bool showErrors = false}) async {
     try {
-      // 招待コードを検証（詳細な結果を取得）
       final validationResult =
           await _inviteCodeService.validateInviteCodeDetailed(inviteCode);
 
-      // 検証結果に応じたエラーメッセージを表示
       String? errorMessage;
       switch (validationResult) {
         case InviteCodeValidationResult.valid:
@@ -160,11 +184,8 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       }
 
       if (errorMessage != null) {
-        if (mounted) {
-          setState(() => _isLoading = false);
-          AppToast.show(context, errorMessage);
-        }
-        return;
+        if (showErrors && mounted) AppToast.show(context, errorMessage);
+        return false;
       }
 
       // 招待コードを使用済みにし、コードオーナーと**相互フォロー**にする。
@@ -191,17 +212,13 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
           });
         }
       }
-
-      if (mounted) {
-        setState(() => _isLoading = false);
-        Navigator.pushNamed(context, '/name-input');
-      }
+      return true;
     } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
+      if (showErrors && mounted) {
         AppToast.show(context,
             'エラーが発生しました: ${e.toString().replaceFirst('Exception: ', '')}');
       }
+      return false;
     }
   }
 

@@ -148,18 +148,6 @@ class _HomeScreenState extends State<HomeScreen>
   // 現在のユーザーが今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
 
-  // 現サイクルで「期限内（Late でない）投稿」済みか。
-  // true のときだけ他人の投稿への**リアクション**を許可する（Late 投稿者は不可）。
-  bool _postedOnTimeThisCycle = false;
-
-  // 現サイクルで（Late 含む）投稿済みか。
-  // true のとき他人の投稿の**裏面（写真）閲覧**を許可する。
-  // 未投稿者は false（表面のみ）。Late 投稿者も投稿した時点で裏面は見られる。
-  bool _postedAnyThisCycle = false;
-
-  // 一度裏面を見た投稿IDのセット（永続化済み）
-  Set<String> _revealedPostIds = {};
-
   @override
   void initState() {
     super.initState();
@@ -167,7 +155,6 @@ class _HomeScreenState extends State<HomeScreen>
     _vibeDataFuture = widget.initialVibeData != null
         ? Future.value(widget.initialVibeData)
         : _loadVibeData();
-    _loadRevealedPostIds();
     _loadViewedStoryPostIds();
     // CurrentUserProvider に initialUserModel を流し込んでおく（Firestore 再フェッチ不要）
     if (widget.initialUserModel != null) {
@@ -251,33 +238,6 @@ class _HomeScreenState extends State<HomeScreen>
         );
       }
     }
-  }
-
-  /// 一度裏面を見た投稿IDをSharedPreferencesから読み込む
-  Future<void> _loadRevealedPostIds() async {
-    final prefs = await SharedPreferences.getInstance();
-    final currentUserId = _auth.currentUser?.uid;
-    if (currentUserId == null) return;
-    final key = 'revealed_posts_$currentUserId';
-    final ids = prefs.getStringList(key) ?? [];
-    if (mounted) {
-      setState(() {
-        _revealedPostIds = ids.toSet();
-      });
-    }
-  }
-
-  /// 投稿IDを「裏面閲覧済み」として記録・永続化する
-  Future<void> _markPostRevealed(String postId) async {
-    if (_revealedPostIds.contains(postId)) return;
-    setState(() {
-      _revealedPostIds.add(postId);
-    });
-    final prefs = await SharedPreferences.getInstance();
-    final currentUserId = _auth.currentUser?.uid;
-    if (currentUserId == null) return;
-    final key = 'revealed_posts_$currentUserId';
-    await prefs.setStringList(key, _revealedPostIds.toList());
   }
 
   /// Vibe ストーリー既読 postId を読み込む
@@ -392,8 +352,6 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _cachedPosts = postsResult.posts;
         _hasPostedToday = postsResult.hasPostedToday;
-        _postedOnTimeThisCycle = postsResult.postedOnTimeThisCycle;
-        _postedAnyThisCycle = postsResult.postedAnyThisCycle;
         _previewUrlCache.clear(); // リフレッシュ時はキャッシュをリセット
         // 完了済みFutureに差し替えればFutureBuilderはwaitingにならず暗転しない
         _vibeDataFuture = Future.value(vibeData);
@@ -573,8 +531,6 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _cachedPosts = result.posts;
         _hasPostedToday = result.hasPostedToday;
-        _postedOnTimeThisCycle = result.postedOnTimeThisCycle;
-        _postedAnyThisCycle = result.postedAnyThisCycle;
       });
       print('🔄 setState()完了');
       final uid = _auth.currentUser?.uid ?? '';
@@ -1615,11 +1571,8 @@ class _HomeScreenState extends State<HomeScreen>
       currentUserIconUrl: currentUserIconUrl,
     );
 
-    // 裏面は誰でも見られる（「投稿しないと裏返せない」制限は廃止）。
-    // リアクション（いいね・コメント）は、自分の投稿か、現サイクルで
-    // 投稿済みのときだけ。
-    final isOwnPost = post.userId == currentUserId;
-    final canReact = isOwnPost || _postedOnTimeThisCycle;
+    // 裏面の閲覧もリアクションも、投稿の有無で制限しない
+    // （「投稿しないと裏返せない / 反応できない」は廃止）。
 
     return PostCard(
       key: cardKey,
@@ -1645,8 +1598,6 @@ class _HomeScreenState extends State<HomeScreen>
           : null,
       isSaved: savedItems.isPostOrTrackSaved(post),
       backSideEnabled: true,
-      disableInteractions: !canReact,
-      onFlipToBack: () => _markPostRevealed(post.postId),
       onPlayStarted: () {
         _playingPostId = post.postId;
         // 2列グリッドの拡大プレビューでは隣接プリロードをしない。
@@ -1773,8 +1724,6 @@ class _HomeScreenState extends State<HomeScreen>
               final post = posts[index];
               final cardKey = _postCardKeys.putIfAbsent(
                   post.postId, () => GlobalKey<PostCardState>());
-              final currentUserId = _auth.currentUser?.uid ?? 'test_user_temp';
-              final isOwnPost = post.userId == currentUserId;
               return _GridPostCell(
                 key: ValueKey('grid_${post.postId}'),
                 cardKey: cardKey,

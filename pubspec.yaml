@@ -98,6 +98,8 @@ flutter:
     - assets/invite_card/bubble.svg
     - assets/invite_card/hand.svg
     - assets/invite_card/bubble_tick.svg
+    - assets/card_back/title_top_artists.png
+    - assets/card_back/title_recent_choice.png
     - assets/profile_v2/title_top_artists.png
     - assets/profile_v2/title_recent_choice.png
     - assets/profile_v2/rank_1.png

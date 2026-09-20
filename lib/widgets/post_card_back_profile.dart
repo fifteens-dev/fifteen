@@ -209,19 +209,16 @@ class PostCardBackProfile extends StatelessWidget {
   List<Widget> _topArtists() {
     final artists = snapshot.topArtists;
     return [
-      // Figma のグラデーション文字。プロフィール画面と違って白〜グレーなので
-      // 書き出し素材は使わず、同じ停止位置を ShaderMask で再現する。
-      _gradientTitle(
-        text: 'top artists',
-        top: 246,
-        fontSize: 60,
-        letterSpacing: 0.6,
-        colors: const [
-          Color(0xFFFFFFFF),
-          Color(0xFFF2F2F2),
-          Color(0xFFC9CDC4),
-          Color(0xFF7E857A),
-        ],
+      // 見出しは書き出し素材をそのまま使う（4x）。位置は Figma の
+      // 書き出し（Frame 840）と重ね合わせて割り出した実測値。
+      const Positioned(
+        left: 25,
+        top: 248.5,
+        child: Image(
+          image: AssetImage('assets/card_back/title_top_artists.png'),
+          width: 322.75,
+          height: 82,
+        ),
       ),
       for (var i = 0; i < 3; i++) ...[
         Positioned(
@@ -296,17 +293,15 @@ class PostCardBackProfile extends StatelessWidget {
   List<Widget> _recentChoice() {
     final tracks = snapshot.recentTracks;
     return [
-      _gradientTitle(
-        text: 'recent choice',
-        top: 438,
-        fontSize: 55,
-        letterSpacing: 0.55,
-        colors: const [
-          Color(0xFFFFF7FB),
-          Color(0xFBF2E8EF),
-          Color(0xC3C8B8C3),
-          Color(0xFF7F737B),
-        ],
+      // 左右はカード幅いっぱいで、素材の時点で両端が切れている（Figma も同じ）。
+      const Positioned(
+        left: 0,
+        top: 440,
+        child: Image(
+          image: AssetImage('assets/card_back/title_recent_choice.png'),
+          width: 363,
+          height: 68.5,
+        ),
       ),
       for (var i = 0; i < 3; i++) ...[
         Positioned(
@@ -361,44 +356,6 @@ class PostCardBackProfile extends StatelessWidget {
   }
 
   // ── 部品 ──────────────────────────────────────────────
-
-  /// 縦のグラデーションで塗った見出し。停止位置は Figma のまま。
-  Widget _gradientTitle({
-    required String text,
-    required double top,
-    required double fontSize,
-    required double letterSpacing,
-    required List<Color> colors,
-  }) {
-    return Positioned(
-      left: 0,
-      right: 0,
-      top: top,
-      child: ShaderMask(
-        shaderCallback: (bounds) => LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: colors,
-          stops: const [0.28947, 0.44, 0.61, 0.80263],
-        ).createShader(bounds),
-        blendMode: BlendMode.srcIn,
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: fontSize,
-            height: 1.2,
-            letterSpacing: letterSpacing,
-            fontWeight: FontWeight.w900,
-            shadows: const [
-              Shadow(color: Color(0x33000000), offset: Offset(0, 4), blurRadius: 12),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _networkOrPlaceholder(String? url, IconData icon) {
     if (url == null || url.isEmpty) return _placeholder(icon);

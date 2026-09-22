@@ -15,7 +15,6 @@ import '../services/spotify_service.dart';
 import '../services/user_service.dart';
 import '../utils/album_image.dart';
 import '../widgets/profile_widgets.dart';
-import '../services/invite_story_service.dart';
 import 'invite_share_sheet.dart';
 import 'milfolha_ranking_screen.dart';
 import 'settings_screen.dart';
@@ -179,10 +178,8 @@ class ProfileScreenState extends State<ProfileScreen> {
     await InviteShareSheet.show(
       context,
       username: handle,
-      qrUrl: InviteStoryService.profileUrl(
-        uid: uid,
-        inviteCode: user?.inviteCode,
-      ),
+      uid: uid,
+      inviteCode: user?.inviteCode,
     );
   }
 

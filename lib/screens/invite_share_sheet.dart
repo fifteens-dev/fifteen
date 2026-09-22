@@ -14,27 +14,36 @@ class InviteShareSheet extends StatefulWidget {
   /// カードに出す表示名。`@` は内部で付ける。
   final String username;
 
-  /// QR に埋める URL。
-  final String qrUrl;
+  /// 自分の uid。QR の URL と共有文の組み立てに使う。
+  final String uid;
+
+  /// 自分の招待コード。
+  final String? inviteCode;
 
   const InviteShareSheet({
     super.key,
     required this.username,
-    required this.qrUrl,
+    required this.uid,
+    this.inviteCode,
   });
 
   /// 下から出す。Figma ではステータスバーのすぐ下（y=62）から始まる。
   static Future<void> show(
     BuildContext context, {
     required String username,
-    required String qrUrl,
+    required String uid,
+    String? inviteCode,
   }) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.45),
-      builder: (_) => InviteShareSheet(username: username, qrUrl: qrUrl),
+      builder: (_) => InviteShareSheet(
+        username: username,
+        uid: uid,
+        inviteCode: inviteCode,
+      ),
     );
   }
 
@@ -46,17 +55,21 @@ class _InviteShareSheetState extends State<InviteShareSheet> {
   /// 画像を作っている間。1 秒ほどかかるのでアイコンを差し替える。
   bool _sharing = false;
 
+  /// 友達追加シートの Instagram と同じ挙動（共通の入口を通す）。
   Future<void> _shareToInstagram() async {
     if (_sharing) return;
     setState(() => _sharing = true);
-    final ok = await InviteStoryService.shareToInstagram(
+    final ok = await InviteStoryService.shareToInstagramOrCopy(
       context,
       username: widget.username,
-      qrUrl: widget.qrUrl,
+      uid: widget.uid,
+      inviteCode: widget.inviteCode,
     );
     if (!mounted) return;
     setState(() => _sharing = false);
-    if (!ok) AppToast.show(context, 'Instagramを開けませんでした');
+    if (!ok) {
+      AppToast.show(context, 'Instagramを開けませんでした。リンクをコピーしました');
+    }
   }
 
   @override
@@ -84,7 +97,10 @@ class _InviteShareSheetState extends State<InviteShareSheet> {
                 alignment: Alignment.topLeft,
                 child: InviteStoryCard.sheet(
                   username: widget.username,
-                  qrData: widget.qrUrl,
+                  qrData: InviteStoryService.profileUrl(
+                    uid: widget.uid,
+                    inviteCode: widget.inviteCode,
+                  ),
                 ),
               ),
             ),

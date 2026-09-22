@@ -181,15 +181,10 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
 
   // ── 招待リンクの共有 ────────────────────────────────────
 
-  /// 招待コード付きの共有 URL。開くとコードがクリップボードに入り、
-  /// App Store へ誘導される。アプリ側は起動時にそれを拾って自動入力する。
-  /// 末尾スラッシュ無し。Firebase Hosting は trailingSlash:false なので
-  /// `/invite/` だと 301 を 1 回挟む（一部のメッセージアプリでプレビューが崩れる）。
-  String get _inviteUrl =>
-      'https://fifteens-39cfe.web.app/invite?code=${_inviteCode ?? ''}';
-
+  /// 招待文。プロフィールの共有シートと同じものを使うため、組み立ては
+  /// [InviteStoryService] に置いてある。
   String get _shareText =>
-      '15sで友達になろう！\n招待コード：${_inviteCode ?? ''}\n$_inviteUrl';
+      InviteStoryService.shareText(inviteCode: _inviteCode);
 
   /// 招待カードの QR に埋める URL。組み立ては [InviteStoryService] に置いてある
   /// （プロフィールの共有シートと同じものを使うため）。
@@ -238,17 +233,15 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
     }
 
     setState(() => _sharingToInstagram = true);
-    final ok = await InviteStoryService.shareToInstagram(
+    final ok = await InviteStoryService.shareToInstagramOrCopy(
       context,
       username: name,
-      qrUrl: url,
+      uid: _uid!,
+      inviteCode: _inviteCode,
     );
     if (!mounted) return;
     setState(() => _sharingToInstagram = false);
     if (!ok) {
-      // 画像は作れたが Instagram が入っていない場合もここに来る。
-      await Clipboard.setData(ClipboardData(text: _shareText));
-      if (!mounted) return;
       AppToast.show(context, 'Instagramを開けませんでした。リンクをコピーしました');
     }
   }

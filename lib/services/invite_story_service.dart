@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../widgets/invite_story_card.dart';
@@ -31,6 +32,41 @@ class InviteStoryService {
     final code = inviteCode;
     return 'https://fifteens-39cfe.web.app/u/$uid'
         '${code != null && code.isNotEmpty ? '?code=$code' : ''}';
+  }
+
+  /// 招待コード付きの共有 URL。開くとコードがクリップボードに入り、
+  /// App Store へ誘導される。アプリ側は起動時にそれを拾って自動で適用する。
+  /// 末尾スラッシュ無し。Firebase Hosting は trailingSlash:false なので
+  /// `/invite/` だと 301 を 1 回挟む（一部のメッセージアプリでプレビューが崩れる）。
+  static String inviteUrl({String? inviteCode}) =>
+      'https://fifteens-39cfe.web.app/invite?code=${inviteCode ?? ''}';
+
+  /// メッセージアプリ等に流す招待文。
+  static String shareText({String? inviteCode}) =>
+      '15sで友達になろう！\n招待コード：${inviteCode ?? ''}\n'
+      '${inviteUrl(inviteCode: inviteCode)}';
+
+  /// 招待カードをストーリーへ送る。開けなければ招待文をコピーして false を返す。
+  ///
+  /// 友達追加シートとプロフィールの共有シートで挙動を揃えるための入口。
+  /// 同じことを両方に書くと、片方だけ直したときに食い違う。
+  static Future<bool> shareToInstagramOrCopy(
+    BuildContext context, {
+    required String username,
+    required String uid,
+    String? inviteCode,
+  }) async {
+    final ok = await shareToInstagram(
+      context,
+      username: username,
+      qrUrl: profileUrl(uid: uid, inviteCode: inviteCode),
+    );
+    if (ok) return true;
+    // 画像は作れたが Instagram が入っていない場合もここに来る。
+    await Clipboard.setData(
+      ClipboardData(text: shareText(inviteCode: inviteCode)),
+    );
+    return false;
   }
 
   /// 招待カードを Instagram ストーリーで開く。

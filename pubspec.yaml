@@ -192,6 +192,8 @@ flutter:
     - assets/profile_images/mina.png
     - assets/profile_images/momo.png
     # 友達追加シートの共有先アイコン（Figma 5539:11181 から書き出し）
+    - assets/icons/sheet/search.svg
+    - assets/icons/sheet/friends.svg
     - assets/icons/share/line.png
     - assets/icons/share/instagram.svg
     - assets/icons/share/x.jpg

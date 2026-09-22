@@ -356,7 +356,9 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
               child: Row(
                 children: [
                   const SizedBox(width: 18),
-                  const Icon(Icons.search, size: 18, color: Color(0xFF727272)),
+                  // Figma 5539:11185 の書き出し。色も素材のまま。
+                  SvgPicture.asset('assets/icons/sheet/search.svg',
+                      width: 18, height: 18),
                   const SizedBox(width: 6),
                   Expanded(
                     child: TextField(
@@ -435,7 +437,10 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
         const SizedBox(height: 5),
         _shareRow(),
         const SizedBox(height: 22),
-        _sectionHeader(Icons.people_alt, 'あなたの友達'),
+        // Figma 5540:11239 の書き出し（person.2.fill）。実寸 27×18。
+        _sectionHeader(null, 'あなたの友達',
+            iconAsset: 'assets/icons/sheet/friends.svg',
+            iconSize: const Size(27, 18)),
         const SizedBox(height: 8),
         if (_friends.isEmpty)
           _emptyNote('まだ友達がいません。上のリンクから招待してみましょう。')
@@ -505,12 +510,18 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
     );
   }
 
-  Widget _sectionHeader(IconData icon, String text, {String? emphasizeFirst}) {
+  /// 見出し。[icon] か [iconAsset]（Figma 書き出しの SVG）のどちらかを出す。
+  Widget _sectionHeader(IconData? icon, String text,
+      {String? emphasizeFirst, String? iconAsset, Size? iconSize}) {
     return Padding(
       padding: const EdgeInsets.only(left: 10),
       child: Row(
         children: [
-          Icon(icon, size: 19, color: const Color(0xFFDFDFDE)),
+          if (iconAsset != null)
+            SvgPicture.asset(iconAsset,
+                width: iconSize?.width, height: iconSize?.height)
+          else
+            Icon(icon, size: 19, color: const Color(0xFFDFDFDE)),
           const SizedBox(width: 9),
           if (emphasizeFirst == null)
             Text(

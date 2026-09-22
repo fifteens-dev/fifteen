@@ -245,6 +245,11 @@ class ProfileScreenState extends State<ProfileScreen> {
       );
     }
 
+    // デザインは画面の最上端（y=0）から始まるので、リロードのインジケータを
+    // 既定のまま出すとノッチ / ステータスバーの裏に入って見えない。
+    // その高さぶん下げて描き、引っ張る距離も同じだけ伸ばす。
+    final topInset = MediaQuery.paddingOf(context).top;
+
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
@@ -254,7 +259,18 @@ class ProfileScreenState extends State<ProfileScreen> {
             parent: BouncingScrollPhysics(),
           ),
           slivers: [
-            CupertinoSliverRefreshControl(onRefresh: _refresh),
+            CupertinoSliverRefreshControl(
+              onRefresh: _refresh,
+              refreshTriggerPullDistance: 100 + topInset,
+              refreshIndicatorExtent: 60 + topInset,
+              // 既定の見た目のまま、位置だけ下げる。引数を加工すると
+              // CupertinoActivityIndicator の radius > 0 の assert に触れる。
+              builder: (ctx, mode, pulled, trigger, extent) => Padding(
+                padding: EdgeInsets.only(top: topInset),
+                child: CupertinoSliverRefreshControl.buildRefreshIndicator(
+                    ctx, mode, pulled, trigger, extent),
+              ),
+            ),
             SliverToBoxAdapter(
               child: ProfileView(
                 name: _user?.name?.isNotEmpty == true

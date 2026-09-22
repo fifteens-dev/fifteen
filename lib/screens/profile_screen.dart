@@ -15,7 +15,8 @@ import '../services/spotify_service.dart';
 import '../services/user_service.dart';
 import '../utils/album_image.dart';
 import '../widgets/profile_widgets.dart';
-import 'friend_add_sheet.dart';
+import '../services/invite_story_service.dart';
+import 'invite_share_sheet.dart';
 import 'milfolha_ranking_screen.dart';
 import 'settings_screen.dart';
 
@@ -169,6 +170,22 @@ class ProfileScreenState extends State<ProfileScreen> {
     } catch (_) {/* 導線を出さないだけ */}
   }
 
+  /// 招待カードの共有シートを開く（Figma 5779-12975）。
+  Future<void> _openShareSheet() async {
+    final uid = _uid;
+    final user = _user;
+    final handle = user?.username;
+    if (uid == null || handle == null || handle.isEmpty) return;
+    await InviteShareSheet.show(
+      context,
+      username: handle,
+      qrUrl: InviteStoryService.profileUrl(
+        uid: uid,
+        inviteCode: user?.inviteCode,
+      ),
+    );
+  }
+
   /// 連続投稿日数を数える。
   ///
   /// 暦日ではなく 15s Day（通知 〜 次の通知）で数える。進行中のサイクルに
@@ -265,7 +282,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                     ),
                 ],
                 showMilfolhaRanking: _showMilfolhaRanking,
-                onOpenFriendAdd: () => FriendAddSheet.show(context),
+                onOpenShare: _openShareSheet,
                 onOpenSettings: () async {
                   await Navigator.push(
                     context,
@@ -312,8 +329,8 @@ class ProfileView extends StatelessWidget {
 
   final bool showMilfolhaRanking;
 
-  /// 左上のボタン。友達追加シートを開く。
-  final VoidCallback? onOpenFriendAdd;
+  /// 左上のボタン。招待カードの共有シートを開く。
+  final VoidCallback? onOpenShare;
   final VoidCallback? onOpenSettings;
   final VoidCallback? onOpenMilfolhaRanking;
 
@@ -329,7 +346,7 @@ class ProfileView extends StatelessWidget {
     required this.topArtists,
     required this.recentPosts,
     this.showMilfolhaRanking = false,
-    this.onOpenFriendAdd,
+    this.onOpenShare,
     this.onOpenSettings,
     this.onOpenMilfolhaRanking,
   });
@@ -368,7 +385,7 @@ class ProfileView extends StatelessWidget {
   // ── ヘッダー ───────────────────────────────────────────
 
   /// 左上のガラスボタン。Figma: Frame 840 (16,62) 52×45。
-  /// 友達追加シート（招待リンクの共有を含む）を開く。
+  /// 招待カードの共有シート（Figma 5779-12975）を開く。
   Widget _shareButton() {
     return Positioned(
       left: 16,
@@ -377,7 +394,7 @@ class ProfileView extends StatelessWidget {
       height: 45,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: onOpenFriendAdd,
+        onTap: onOpenShare,
         child: Stack(
           children: [
             // 素材は書き出し時に影のぶんの余白が付いていたので、ノード枠

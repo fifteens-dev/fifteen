@@ -191,14 +191,12 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
   String get _shareText =>
       '15sで友達になろう！\n招待コード：${_inviteCode ?? ''}\n$_inviteUrl';
 
-  /// 招待カードの QR に埋める URL。読むと相手（＝自分）のプロフィールが開く。
-  /// 招待コードも付けておくと、そこから登録した人の招待元が辿れる。
+  /// 招待カードの QR に埋める URL。組み立ては [InviteStoryService] に置いてある
+  /// （プロフィールの共有シートと同じものを使うため）。
   String? get _profileUrl {
     final uid = _uid;
     if (uid == null) return null;
-    final code = _inviteCode;
-    return 'https://fifteens-39cfe.web.app/u/$uid'
-        '${code != null && code.isNotEmpty ? '?code=$code' : ''}';
+    return InviteStoryService.profileUrl(uid: uid, inviteCode: _inviteCode);
   }
 
   Future<void> _shareTo(_ShareTarget target) async {

@@ -25,6 +25,14 @@ class InviteStoryService {
     'assets/invite_card/hand.svg',
   ];
 
+  /// 招待カードの QR に埋める URL。読むとそのユーザーのプロフィールが開く。
+  /// 招待コードも付けておくと、そこから登録した人の招待元が辿れる。
+  static String profileUrl({required String uid, String? inviteCode}) {
+    final code = inviteCode;
+    return 'https://fifteens-39cfe.web.app/u/$uid'
+        '${code != null && code.isNotEmpty ? '?code=$code' : ''}';
+  }
+
   /// 招待カードを Instagram ストーリーで開く。
   ///
   /// [username] はカードに出す表示名、[qrUrl] は QR に埋める URL。
@@ -59,7 +67,7 @@ class InviteStoryService {
         top: 0,
         child: RepaintBoundary(
           key: boundaryKey,
-          child: InviteStoryCard(username: username, qrData: qrUrl),
+          child: InviteStoryCard.story(username: username, qrData: qrUrl),
         ),
       ),
     );

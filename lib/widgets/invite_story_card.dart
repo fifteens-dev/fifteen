@@ -23,23 +23,51 @@ class InviteStoryCard extends StatelessWidget {
   /// QR に埋め込む URL。
   final String qrData;
 
+  /// 描く高さ。ストーリー用は 9:16 の [storyHeight]、シート用は Figma の
+  /// フレームそのままの [sheetHeight]。
+  final double height;
+
+  /// 内容を縦にずらす量。Figma の座標に足す。
+  final double contentShift;
+
   const InviteStoryCard({
     super.key,
     required this.username,
     required this.qrData,
+    this.height = storyHeight,
+    this.contentShift = storyShift,
   });
+
+  /// Instagram ストーリーに流す用。9:16 に合わせ、内容を上下中央へ寄せる。
+  const InviteStoryCard.story({
+    super.key,
+    required this.username,
+    required this.qrData,
+  })  : height = storyHeight,
+        contentShift = storyShift;
+
+  /// アプリ内のシート用。Figma のフレーム（402×812）そのままの座標で描く。
+  const InviteStoryCard.sheet({
+    super.key,
+    required this.username,
+    required this.qrData,
+  })  : height = sheetHeight,
+        contentShift = 0;
 
   /// デザイン上の幅。書き出し時はこの比率で拡大する。
   static const double designWidth = 402;
 
   /// 9:16 にするための高さ。
-  static const double designHeight = 715;
+  static const double storyHeight = 715;
+
+  /// Figma のシートの高さ（402×812）。
+  static const double sheetHeight = 812;
 
   /// 1080×1920 で書き出すための倍率。
   static const double exportPixelRatio = 1080 / designWidth;
 
-  /// 内容（y 60〜608）を 715 の中で上下中央に寄せるための移動量。
-  static const double _shift = (designHeight - (608 - 60)) / 2 - 60;
+  /// 内容（y 60〜608）を [storyHeight] の中で上下中央に寄せるための移動量。
+  static const double storyShift = (storyHeight - (608 - 60)) / 2 - 60;
 
   static const Color _cardBlack = Color(0xFF141413);
   static const Color _spine = Color(0xFF161515);
@@ -66,7 +94,7 @@ class InviteStoryCard extends StatelessWidget {
   Widget _build() {
     return SizedBox(
       width: designWidth,
-      height: designHeight,
+      height: height,
       child: DecoratedBox(
         decoration: const BoxDecoration(
           // Figma: linear-gradient(205.96deg, ...)。CSS の角度をそのまま
@@ -90,7 +118,7 @@ class InviteStoryCard extends StatelessWidget {
             _emoji('🫶', left: 0.72, top: 340, size: 64, deg: 14.28),
             _emoji('😎', left: 315, top: 508.5, size: 64, deg: -17.72),
             _title(),
-            Positioned(left: 21, top: 174 + _shift, child: _case()),
+            Positioned(left: 21, top: 174 + contentShift, child: _case()),
           ],
         ),
       ),
@@ -101,7 +129,7 @@ class InviteStoryCard extends StatelessWidget {
     return Positioned(
       left: 0,
       right: 0,
-      top: 60 + _shift,
+      top: 60 + contentShift,
       child: const Text(
         'invite your friends to 15s',
         textAlign: TextAlign.center,
@@ -125,7 +153,7 @@ class InviteStoryCard extends StatelessWidget {
       required double deg}) {
     return Positioned(
       left: left,
-      top: top + _shift,
+      top: top + contentShift,
       child: Transform.rotate(
         angle: deg * math.pi / 180,
         child: Text(

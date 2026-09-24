@@ -1,5 +1,6 @@
 import Flutter
 import Foundation
+import WidgetKit
 import UIKit
 
 #if canImport(ActivityKit)
@@ -105,6 +106,11 @@ final class LiveActivityChannel: NSObject {
             syncDays(from: args)
             result(true)
 
+        case "syncFriends":
+            // ホーム画面ウィジェット用。アクティビティとは無関係に呼べる。
+            syncFriends(from: args)
+            result(true)
+
         case "start":
             guard #available(iOS 16.1, *) else { result(nil); return }
             syncDays(from: args)
@@ -149,6 +155,48 @@ final class LiveActivityChannel: NSObject {
     ///
     /// 各要素: `{ label: String, isToday: Bool, imageBytes: Uint8List? , imageId: String? }`
     /// 画像は毎回書き直さず、`imageId` が同じファイルが既にあれば再利用する。
+    /// ホーム画面ウィジェット（友達が今聴いてる曲）のデータを書き出す。
+    ///
+    /// 画像は Live Activity と同じ置き場に `art_<id>.jpg` で入れる。
+    /// 既に持っている画像は Dart 側が bytes を送ってこないので、
+    /// その場合は保存済みのものをそのまま使う。
+    private func syncFriends(from args: [String: Any]) {
+        guard let raw = args["items"] as? [[String: Any]] else {
+            MMLog.log("syncFriends", "失敗: items の型が想定と違う")
+            return
+        }
+
+        var items: [FriendNowPlaying] = []
+        for entry in raw {
+            func store(_ idKey: String, _ bytesKey: String) -> String? {
+                guard let id = entry[idKey] as? String, !id.isEmpty else { return nil }
+                if !MusicMemoryShared.hasUsableArtwork(id: id),
+                   let data = (entry[bytesKey] as? FlutterStandardTypedData)?.data {
+                    MusicMemoryShared.writeArtwork(id: id, data: data)
+                }
+                return MusicMemoryShared.hasUsableArtwork(id: id) ? id : nil
+            }
+
+            items.append(FriendNowPlaying(
+                trackName: entry["trackName"] as? String ?? "",
+                artistName: entry["artistName"] as? String ?? "",
+                artworkId: store("artworkId", "artworkBytes"),
+                avatarId: store("avatarId", "avatarBytes"),
+                friendName: entry["friendName"] as? String ?? "",
+                service: entry["service"] as? String
+            ))
+        }
+
+        FriendNowPlayingShared.write(items)
+        FriendNowPlayingShared.pruneArtwork(keeping: items)
+        MMLog.log("syncFriends", "保存 \(items.count) 件")
+
+        // 書き換えたらウィジェットに取り直させる。
+        if #available(iOS 14.0, *) {
+            WidgetCenter.shared.reloadTimelines(ofKind: "FriendNowPlayingWidget")
+        }
+    }
+
     private func syncDays(from args: [String: Any]) {
         guard let raw = args["days"] as? [[String: Any]] else {
             MMLog.log("syncDays", "失敗: days の型が想定と違う (\(type(of: args["days"])))")

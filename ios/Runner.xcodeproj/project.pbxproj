@@ -14,6 +14,8 @@
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		4E9BAC6128AB95FD93231F92 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 96026BE78F2AA4D7407D75CE /* Assets.xcassets */; };
+		658AE5159FD44EC8F370EC56 /* FriendNowPlayingShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = E070BCAE9DF33B5986BD7A8E /* FriendNowPlayingShared.swift */; };
+		67A91F78320DD7A890CB3F7F /* FriendNowPlayingShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = E070BCAE9DF33B5986BD7A8E /* FriendNowPlayingShared.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		811256863EF5E08B475B73A5 /* MusicMemoryActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EC682CC06770CB91A842EC3 /* MusicMemoryActivityAttributes.swift */; };
 		93E81A169B96BF049447CC22 /* FifteensWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89FEA2EFEB6B35966D33CA33 /* FifteensWidgetBundle.swift */; };
@@ -24,6 +26,7 @@
 		A55674A8CB08B5EEC9386E11 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A396B1C369F40218F3F77601 /* Foundation.framework */; };
 		B0A84DB6635CA9067628FD9C /* LiveActivityChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E5C30524C5EEC077F71CF3 /* LiveActivityChannel.swift */; };
 		DDFDF74623E7E103B2CA08CE /* MusicMemoryActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EC682CC06770CB91A842EC3 /* MusicMemoryActivityAttributes.swift */; };
+		EAEA68445CA52EB1A50CE041 /* FriendNowPlayingWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20BAD5F27C247D5A70A8410 /* FriendNowPlayingWidget.swift */; };
 		EF13ABF52F31DE5B00CA32D8 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = EF13ABF42F31DE5B00CA32D8 /* GoogleService-Info.plist */; };
 		EF13ABF62F31DE5B00CA32D8 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = EF13ABF42F31DE5B00CA32D8 /* GoogleService-Info.plist */; };
 		F1C4DCD7F0CF4EABB2C9C0DF /* NativeMenuChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D4289BEC8946ADB1A9BA69 /* NativeMenuChannel.swift */; };
@@ -101,9 +104,11 @@
 		A396B1C369F40218F3F77601 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		B010E46F89F20D4C1EFCE97B /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		B1ED99DDF40867A4CE91CC7C /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		B20BAD5F27C247D5A70A8410 /* FriendNowPlayingWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FriendNowPlayingWidget.swift; sourceTree = "<group>"; };
 		BAE79075B4C6C5467A96FEBD /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		D838298B0A33A7F133ACD77B /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D9E5C30524C5EEC077F71CF3 /* LiveActivityChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityChannel.swift; sourceTree = "<group>"; };
+		E070BCAE9DF33B5986BD7A8E /* FriendNowPlayingShared.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FriendNowPlayingShared.swift; sourceTree = "<group>"; };
 		EA96AAA5BB7DAFEEF7AAE797 /* FifteensWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FifteensWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		EF13ABF42F31DE5B00CA32D8 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		F9EC21B720C8FE97F9388280 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -172,6 +177,7 @@
 				D838298B0A33A7F133ACD77B /* Info.plist */,
 				0DCDBF296B06A3106F4ED06B /* FifteensWidget.entitlements */,
 				96026BE78F2AA4D7407D75CE /* Assets.xcassets */,
+				B20BAD5F27C247D5A70A8410 /* FriendNowPlayingWidget.swift */,
 			);
 			path = FifteensWidget;
 			sourceTree = SOURCE_ROOT;
@@ -235,6 +241,7 @@
 			isa = PBXGroup;
 			children = (
 				9EC682CC06770CB91A842EC3 /* MusicMemoryActivityAttributes.swift */,
+				E070BCAE9DF33B5986BD7A8E /* FriendNowPlayingShared.swift */,
 			);
 			path = LiveActivityShared;
 			sourceTree = SOURCE_ROOT;
@@ -518,6 +525,7 @@
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				811256863EF5E08B475B73A5 /* MusicMemoryActivityAttributes.swift in Sources */,
 				B0A84DB6635CA9067628FD9C /* LiveActivityChannel.swift in Sources */,
+				67A91F78320DD7A890CB3F7F /* FriendNowPlayingShared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -528,6 +536,8 @@
 				93E81A169B96BF049447CC22 /* FifteensWidgetBundle.swift in Sources */,
 				2911D3C3E1B0FEFE3CF67564 /* MusicMemoryLiveActivity.swift in Sources */,
 				DDFDF74623E7E103B2CA08CE /* MusicMemoryActivityAttributes.swift in Sources */,
+				658AE5159FD44EC8F370EC56 /* FriendNowPlayingShared.swift in Sources */,
+				EAEA68445CA52EB1A50CE041 /* FriendNowPlayingWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

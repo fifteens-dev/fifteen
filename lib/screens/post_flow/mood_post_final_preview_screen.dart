@@ -8,6 +8,7 @@ import '../../models/post_model.dart';
 import '../../models/track_model.dart';
 import '../../models/user_model.dart';
 import '../../services/audio_player_service.dart';
+import '../../services/friend_widget_service.dart';
 import '../../services/live_activity_service.dart';
 import '../../services/post_service.dart';
 import '../../services/storage_service.dart';
@@ -226,6 +227,10 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       // 今日の枠に今の投稿のジャケットを入れる。
       // ignore: unawaited_futures
       LiveActivityService().markPosted();
+      // 自分の投稿は友達側のウィジェットに出るものなので、ここでは
+      // 自分のウィジェットを更新するだけ（友達の最新を取り直す）。
+      // ignore: unawaited_futures
+      FriendWidgetService.instance.refresh(force: true);
 
       if (!mounted) return;
       AppToast.show(context, '投稿しました');

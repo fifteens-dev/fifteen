@@ -38,6 +38,7 @@ import 'comment_screen.dart';
 import 'profile_screen.dart';
 import 'friend_add_sheet.dart';
 import '../services/friend_match_service.dart';
+import '../services/friend_widget_service.dart';
 import 'music_selection_screen.dart';
 import 'music_memory_month_screen.dart';
 import 'post_flow/music_memory_modal.dart';
@@ -171,6 +172,9 @@ class _HomeScreenState extends State<HomeScreen>
     DeepLinkService().composeHandler = _openPostFlow;
     // ignore: discarded_futures
     LiveActivityService().refresh();
+    // ホーム画面ウィジェット（友達が今聴いてる曲）。
+    // ignore: discarded_futures
+    FriendWidgetService.instance.refresh();
     // ignore: discarded_futures
     _runStartupFlows();
     _processPendingFollowNotification();
@@ -671,6 +675,8 @@ class _HomeScreenState extends State<HomeScreen>
       // （締切超過なら終了、フォロー中の投稿があれば「友達が待っています」へ）。
       // ignore: discarded_futures
       LiveActivityService().refresh();
+      // ignore: discarded_futures
+      FriendWidgetService.instance.refresh();
       // ignore: discarded_futures
       _runStartupFlows();
     } else if (state == AppLifecycleState.paused ||

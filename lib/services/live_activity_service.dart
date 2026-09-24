@@ -491,6 +491,10 @@ class LiveActivityService {
   /// `albumImageUrl` は http(s) とは限らない。端末ライブラリの取り込み曲では
   /// 埋め込みアートを `data:image/...;base64,...` で持たせている（[albumImageProvider]
   /// と同じ事情）。http だけを見ていると、それらが常に空＝グレー表示になる。
+  /// 画像を取ってくる（http / data URI / ローカルパス）。
+  /// ホーム画面ウィジェット側（[FriendWidgetService]）からも使う。
+  Future<Uint8List?> downloadImage(String url) => _download(url);
+
   Future<Uint8List?> _download(String url) async {
     if (url.isEmpty) return null;
 

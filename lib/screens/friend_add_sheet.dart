@@ -229,7 +229,9 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
         await _shareToInstagramStory();
         return;
       case _ShareTarget.other:
-        await _openSystemShareSheet();
+        // OS の共有シートは出さず、招待リンクをコピーするだけ。
+        await Clipboard.setData(ClipboardData(text: _shareText));
+        if (mounted) AppToast.show(context, '招待リンクをコピーしました');
         return;
     }
   }

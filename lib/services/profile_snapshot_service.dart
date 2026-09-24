@@ -104,13 +104,14 @@ class ProfileSnapshotService {
       final source = posts ?? await _recentPosts(uid);
       final names = await topArtistNames(uid: uid, posts: source);
 
-      final artists = <SnapshotArtist>[];
-      for (final name in names) {
-        artists.add(SnapshotArtist(
-          name: name,
-          imageUrl: await _artistImage(name, source),
-        ));
-      }
+      // 画像は 3 人ぶんまとめて取る。直列だと回線が細いとき 3 往復ぶん待つ。
+      final images = await Future.wait(
+        [for (final name in names) _artistImage(name, source)],
+      );
+      final artists = [
+        for (var i = 0; i < names.length; i++)
+          SnapshotArtist(name: names[i], imageUrl: images[i]),
+      ];
 
       return ProfileSnapshot(
         topArtists: artists,
@@ -129,9 +130,35 @@ class ProfileSnapshotService {
     }
   }
 
-  /// アーティスト画像。投稿に Spotify の ID が入っていればそちらを優先する
-  /// （同名アーティスト対策）。
+  /// アーティスト名 → 画像 URL。プロフィールと投稿カードで同じ人を何度も
+  /// 引き直さないためのキャッシュ。取れなかった結果（null）も覚える。
+  static final Map<String, String?> _artistImageCache = {};
+
+  /// アーティスト画像。プロフィール画面の表示側からも使う。
+  /// [artistId] が分かっていればそちらが正確（同名アーティスト対策）。
+  Future<String?> artistImage(String name, {String? artistId}) async {
+    if (_artistImageCache.containsKey(name)) return _artistImageCache[name];
+    String? url;
+    try {
+      url = (artistId != null && artistId.isNotEmpty)
+          ? await _spotify.getArtistImageUrlById(artistId)
+          : await _spotify.getArtistImageUrl(name);
+    } catch (_) {
+      url = null;
+    }
+    _artistImageCache[name] = url;
+    return url;
+  }
+
+  /// 投稿に Spotify の ID が入っていればそちらを優先する（同名アーティスト対策）。
   Future<String?> _artistImage(String name, List<PostModel> posts) async {
+    if (_artistImageCache.containsKey(name)) return _artistImageCache[name];
+    final url = await _fetchArtistImage(name, posts);
+    _artistImageCache[name] = url;
+    return url;
+  }
+
+  Future<String?> _fetchArtistImage(String name, List<PostModel> posts) async {
     try {
       for (final p in posts) {
         if (p.track.artistName.trim() != name) continue;

@@ -103,26 +103,41 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
     super.dispose();
   }
 
+  /// シートを出すまでに待つのは自分の情報だけ。
+  ///
+  /// 以前は友達一覧と「知り合いかも」まで揃うまでローディングだった。
+  /// 知り合いかもは友達の友達を辿るので一番重く、回線が細いと
+  /// それだけで数十秒かかる。枠を先に出して、取れた順に埋める。
   Future<void> _load() async {
     final uid = _uid;
     if (uid == null) {
       setState(() => _loading = false);
       return;
     }
-    final results = await Future.wait([
-      _userService.getUser(uid),
-      _userService.ensureInviteCode(uid),
-      _friendService.loadFriends(uid),
-      _friendService.loadSuggestions(uid),
-    ]);
+
+    // 招待コードは自分のドキュメントに入っているので、まず getUser で見る。
+    // 無いときだけ ensureInviteCode（発行を伴うので書き込みが走る）。
+    final me = await _userService.getUser(uid);
     if (!mounted) return;
     setState(() {
-      _me = results[0] as UserModel?;
-      _inviteCode = results[1] as String?;
-      _friends = results[2] as List<FriendEntry>;
-      _suggestions = results[3] as List<FriendSuggestion>;
+      _me = me;
+      _inviteCode = me?.inviteCode;
       _loading = false;
     });
+
+    if (me?.inviteCode == null || me!.inviteCode!.isEmpty) {
+      unawaited(_userService.ensureInviteCode(uid).then((code) {
+        if (mounted) setState(() => _inviteCode = code);
+      }));
+    }
+
+    // 友達一覧 → 知り合いかも の順。前者の方が軽く、先に出したい。
+    unawaited(_friendService.loadFriends(uid, me: me).then((v) {
+      if (mounted) setState(() => _friends = v);
+    }));
+    unawaited(_friendService.loadSuggestions(uid, me: me).then((v) {
+      if (mounted) setState(() => _suggestions = v);
+    }));
   }
 
   // ── 検索 ────────────────────────────────────────────────

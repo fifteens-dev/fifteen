@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
@@ -11,7 +12,6 @@ import '../services/milfolha_service.dart';
 import '../services/music_memory_cycle_service.dart';
 import '../services/post_service.dart';
 import '../services/profile_snapshot_service.dart';
-import '../services/spotify_service.dart';
 import '../services/user_service.dart';
 import '../utils/album_image.dart';
 import '../widgets/profile_widgets.dart';
@@ -41,6 +41,10 @@ const Color _statsBorder = Color(0xFF272627);
 const Color _statsText = Color(0xFF5C5656);
 const Color _handleColor = Color(0xFFA3A3A3);
 const Color _trackArtistColor = Color(0xFF898989);
+
+/// 集計に使う投稿の件数。top artists は直近 7 日ぶんしか見ないので、
+/// 60 件も取ると回線が細いときに無駄が大きい。
+const int _postsForAggregation = 30;
 
 const double _designW = 402;
 const double _designH = 874;
@@ -93,32 +97,35 @@ class ProfileScreenState extends State<ProfileScreen> {
     _load();
   }
 
+  /// 画面を出すまでに待つのは名前とアイコンだけ。
+  ///
+  /// 以前は友達・投稿・top artists まで全部揃うまでローディングだった。
+  /// どれも別々のクエリで、回線が細いと待ち時間が足し算になる。
+  /// 枠はすぐ出して、取れたものから順に埋める。
   Future<void> _load() async {
     final uid = _uid;
     if (uid == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
-    await Future.wait([
-      _loadUser(uid),
-      _loadPosts(uid),
-      _loadFriends(uid),
-      _loadMilfolhaEntry(uid),
-    ]);
-    // 投稿を材料に使うことがあるので、_loadPosts のあとに走らせる。
-    await _loadTopArtists();
+
+    await _loadUser(uid);
     if (mounted) setState(() => _loading = false);
+
+    // 残りは背景で。互いに独立なので同時に走らせる。
+    unawaited(_loadPosts(uid));
+    unawaited(_loadFriends(uid));
+    unawaited(_loadMilfolhaEntry(uid));
   }
 
   Future<void> _refresh() async {
     final uid = _uid;
     if (uid == null) return;
-    await Future.wait([
-      _loadUser(uid),
-      _loadPosts(uid),
-      _loadFriends(uid),
-    ]);
-    await _loadTopArtists();
+    // 友達一覧は自分の following / followers から作るので、先に自分を取り直す。
+    // 並列にすると古い関係のまま描いてしまう。
+    // top artists は _loadPosts が投稿を取ったあとに自分で走らせる。
+    await Future.wait([_loadUser(uid), _loadPosts(uid)]);
+    await _loadFriends(uid);
   }
 
   Future<void> _loadUser(String uid) async {
@@ -132,21 +139,29 @@ class ProfileScreenState extends State<ProfileScreen> {
   /// 1 回のページングで足りる範囲（直近 60 件）だけを見る。
   Future<void> _loadPosts(String uid) async {
     try {
-      final result = await _postService.getPostsByUserIdPaged(uid, limit: 60);
-      final count = await _postService.getPostCountByUserId(uid);
-      final streak = await _calcStreak(result.posts);
+      // 投稿一覧と件数は独立なので同時に取る。
+      final (result, count) = await (
+        _postService.getPostsByUserIdPaged(uid, limit: _postsForAggregation),
+        _postService.getPostCountByUserId(uid),
+      ).wait;
       if (!mounted) return;
       setState(() {
         _posts = result.posts;
         _postCount = count;
-        _streakDays = streak;
       });
+
+      // 連続日数と top artists は投稿が要るのでここから。どちらも待たない。
+      unawaited(_calcStreak(result.posts).then((streak) {
+        if (mounted) setState(() => _streakDays = streak);
+      }));
+      unawaited(_loadTopArtists());
     } catch (_) {/* 表示は既存値のまま */}
   }
 
   Future<void> _loadFriends(String uid) async {
     try {
-      final friends = await _friendService.loadFriends(uid);
+      // 既に取得済みの自分の情報を渡して、同じ読み取りを 2 回走らせない。
+      final friends = await _friendService.loadFriends(uid, me: _user);
       if (!mounted) return;
       setState(() {
         _friendCount = friends.length;
@@ -861,7 +876,6 @@ class _ArtistImage extends StatefulWidget {
 }
 
 class _ArtistImageState extends State<_ArtistImage> {
-  final SpotifyService _spotify = SpotifyService();
   String? _url;
 
   @override
@@ -877,13 +891,11 @@ class _ArtistImageState extends State<_ArtistImage> {
   }
 
   Future<void> _fetch() async {
-    try {
-      final id = widget.artistId;
-      final url = (id != null && id.isNotEmpty)
-          ? await _spotify.getArtistImageUrlById(id)
-          : await _spotify.getArtistImageUrl(widget.name);
-      if (mounted) setState(() => _url = url);
-    } catch (_) {/* プレースホルダのまま */}
+    // 取得とキャッシュは ProfileSnapshotService に寄せてある。
+    // 投稿カードの裏面も同じ画像を使うので、別々に引くと往復が倍になる。
+    final url = await ProfileSnapshotService.instance
+        .artistImage(widget.name, artistId: widget.artistId);
+    if (mounted) setState(() => _url = url);
   }
 
   @override

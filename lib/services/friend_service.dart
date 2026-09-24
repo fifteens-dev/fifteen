@@ -76,9 +76,11 @@ class FriendService {
   }
 
   /// 友達一覧を「今日投稿したか」付きで返す。表示名の昇順。
-  Future<List<FriendEntry>> loadFriends(String uid) async {
+  /// [me] を渡すと自分のドキュメントを取り直さない。呼び出し側が既に
+  /// 持っているときは渡すこと（同じ読み取りが 2 回走るのを避ける）。
+  Future<List<FriendEntry>> loadFriends(String uid, {UserModel? me}) async {
     try {
-      final me = await _userService.getUser(uid);
+      me ??= await _userService.getUser(uid);
       if (me == null) return const [];
       final friendUids = friendUidsOf(me);
       if (friendUids.isEmpty) return const [];
@@ -114,10 +116,11 @@ class FriendService {
   ///  1. 共通の友達が [minMutualForSuggestion] 人以上
   ///  2. 自分と同じ人の招待コードで登録した（＝招待者が同じ）
   ///  3. 同じ ADL 班
+  /// [me] については [loadFriends] と同じ。
   Future<List<FriendSuggestion>> loadSuggestions(String uid,
-      {int limit = 12}) async {
+      {int limit = 12, UserModel? me}) async {
     try {
-      final me = await _userService.getUser(uid);
+      me ??= await _userService.getUser(uid);
       if (me == null) return const [];
 
       final friendUids = friendUidsOf(me);

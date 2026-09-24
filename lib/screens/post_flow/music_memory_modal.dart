@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -121,6 +122,12 @@ class MusicMemoryModal extends StatefulWidget {
   State<MusicMemoryModal> createState() => _MusicMemoryModalState();
 }
 
+/// 表示前に色抽出を待つ枚数。カルーセルで最初に見える範囲だけ。
+const int _eagerColorCount = 3;
+
+/// その待ち時間の上限。超えたら既定色で先に出す。
+const Duration _colorWarmupBudget = Duration(milliseconds: 600);
+
 class _MusicMemoryModalState extends State<MusicMemoryModal> {
   final MusicServiceManager _music = MusicServiceManager();
   final UserService _userService = UserService();
@@ -180,7 +187,12 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
   /// 例) 手動 a,b,c,d,e / Web b,c,d,f のとき、a を出し→手動の b が Web 先頭 b と一致
   ///     →以降 Web(b,c,d,f) で a,b,c,d,f となる。
   Future<void> _applyTracks(List<TrackModel> tracks) async {
-    final npTrack = await _resolveNowPlayingFront(tracks);
+    // 「今再生中」の解決と端末の再生履歴は互いに独立なので同時に取る。
+    // 直列だと、どちらも数秒かかる回線で待ち時間が足し算になる。
+    final (npTrack, deviceRecents) = await (
+      _resolveNowPlayingFront(tracks),
+      NowPlayingService().getDeviceRecentlyPlayed(limit: 50),
+    ).wait;
 
     bool isNp(String title, String artist) =>
         npTrack != null &&
@@ -206,8 +218,6 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
 
     // Web の各曲に「○分前」ラベルを付与。優先は手動履歴の時刻、無ければ端末履歴。
     // どちらにも無い純 Web 曲は時刻無しのまま。
-    final deviceRecents =
-        await NowPlayingService().getDeviceRecentlyPlayed(limit: 50);
     final webAnnotated = webBase.map((t) {
       for (final h in history) {
         if (_sameSong(t.trackName, t.artistName, h.trackName, h.artistName)) {
@@ -255,8 +265,12 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
     // 繰り上げた先頭は、再生中カードと同様にアートを確実化する（保存アートが空/劣化でも
     // storeId からカタログ解決してジャケットを復元する）。
     TrackModel? front = npTrack != null ? npTrack.copyWith(isNowPlaying: true) : null;
+    // アートが空の先頭カードはカタログから復元するが、ここでは待たない。
+    // 待つと 1 往復ぶん画面が遅れる。取れたら差し替える。
+    TrackModel? frontNeedingArt;
     if (front == null && rest.isNotEmpty) {
-      front = await _ensureArt(rest.removeAt(0));
+      front = rest.removeAt(0);
+      if (front.albumImageUrl.isEmpty) frontNeedingArt = front;
     }
 
     final ordered = <TrackModel>[
@@ -269,6 +283,20 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
       _tracks = ordered;
       _loading = false;
     });
+
+    // 先頭のアート復元は表示後に。取れたらその 1 枚だけ差し替える。
+    if (frontNeedingArt != null) {
+      unawaited(_ensureArt(frontNeedingArt).then((withArt) {
+        if (!mounted || withArt.albumImageUrl.isEmpty) return;
+        final i = _tracks.indexWhere((t) => t.trackId == withArt.trackId);
+        if (i < 0) return;
+        setState(() => _tracks = [..._tracks]..[i] = withArt);
+        unawaited(_DeckColorCache.ensureAll([withArt]).then((_) {
+          if (mounted) setState(() {});
+        }));
+      }));
+    }
+
     await _prepareColors(ordered);
   }
 
@@ -437,10 +465,26 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
   /// 表示前に全 track の色をプロセス寿命キャッシュへ乗せる。
   /// キャッシュに既にあるものは瞬時に返るので、2 回目以降のモーダルオープンは
   /// 実質ゼロレイテンシで deck が出る。
+  /// 色抽出は待たない。
+  ///
+  /// 以前は全曲ぶん終わるまでカードを出さなかったが、抽出はアルバムアートを
+  /// 1 枚ずつ取ってくるので、回線が細いと曲数ぶん待たされる（15 曲なら 15 枚）。
+  /// 先頭の数枚だけ先に進め、終わったものから順に反映する。
+  /// 間に合わなかったカードは PostCard 側の既定グラデーションで出る。
   Future<void> _prepareColors(List<TrackModel> tracks) async {
-    await _DeckColorCache.ensureAll(tracks);
+    // 最初に見えるぶんだけ待つ。これも取れなければそのまま進む。
+    final head = tracks.take(_eagerColorCount).toList();
+    await _DeckColorCache.ensureAll(head)
+        .timeout(_colorWarmupBudget, onTimeout: () => const []);
     if (!mounted) return;
     setState(() => _colorsReady = true);
+
+    // 残りは裏で。1 枚終わるごとに反映して、スクロールの先に間に合わせる。
+    for (final t in tracks.skip(_eagerColorCount)) {
+      unawaited(_DeckColorCache.ensureAll([t]).then((_) {
+        if (mounted) setState(() {});
+      }));
+    }
   }
 
   Future<void> _loadMe() async {

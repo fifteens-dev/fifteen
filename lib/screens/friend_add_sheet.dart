@@ -17,6 +17,7 @@ import '../services/user_service.dart';
 import '../widgets/common/app_toast.dart';
 import '../widgets/profile_widgets.dart';
 import 'other_user_profile_screen.dart';
+import '../widgets/common/copy_icon.dart';
 
 /// ホームの友達追加ボタンから開くシート（Figma 5539:11181）。
 ///
@@ -599,13 +600,12 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
                 ],
               ),
             ),
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => _shareTo(_ShareTarget.other),
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 18),
-                child: Icon(Icons.ios_share, size: 20, color: Colors.white),
-              ),
+            // 設定 → 招待コードと同じコピーアイコン。手前の紙の塗りは
+            // このカードの背景色を渡す（そうしないと重なって見えない）。
+            // タップはカード全体で拾うので、ここでは受けない。
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 18),
+              child: CopyIcon(background: _card),
             ),
           ],
         ),

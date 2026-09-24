@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/user_service.dart';
 import '../widgets/common/common.dart';
+import '../widgets/common/copy_icon.dart';
 
 /// 招待画面
 class InvitationScreen extends StatefulWidget {
@@ -130,7 +131,7 @@ class _InvitationScreenState extends State<InvitationScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _buildCopyIcon(),
+                        CopyIcon(background: Colors.grey[800]!),
                         const SizedBox(width: 8),
                         Text(
                           _inviteCode ?? '------',
@@ -146,43 +147,6 @@ class _InvitationScreenState extends State<InvitationScreen> {
                   ],
                 ),
         ),
-      ),
-    );
-  }
-
-  /// コピーアイコン（2枚の紙が重なったアイコン）
-  Widget _buildCopyIcon() {
-    return SizedBox(
-      width: 20,
-      height: 20,
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            top: 0,
-            child: Container(
-              width: 14,
-              height: 16,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.white, width: 1.5),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Container(
-              width: 14,
-              height: 16,
-              decoration: BoxDecoration(
-                color: Colors.grey[800],
-                border: Border.all(color: Colors.white, width: 1.5),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

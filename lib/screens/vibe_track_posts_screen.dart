@@ -223,7 +223,7 @@ class _VibeTrackPostsScreenState extends State<VibeTrackPostsScreen> {
                               currentUserId: widget.currentUserId,
                               currentUserIconUrl: _currentUserIconUrl,
                               audioService: _audioService,
-                              startFromBack: _hasPostedToday,
+                              startFromBack: false, // 常に表面から
                               audioManagedExternally: true,
                               externalPreviewUrl: _previewUrlCache[index],
                               backSideEnabled: true, // 裏返し制限は廃止

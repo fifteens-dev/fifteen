@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -13,9 +12,6 @@ import '../../services/live_activity_service.dart';
 import '../../services/post_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/user_service.dart';
-import '../../models/profile_snapshot.dart';
-import '../../services/profile_snapshot_service.dart';
-import '../../widgets/post_card_back_profile.dart';
 import '../../utils/color_extractor.dart';
 import '../../utils/photo_helper.dart';
 import '../../widgets/common/app_toast.dart';
@@ -79,17 +75,10 @@ class MoodPostFinalPreviewScreen extends StatefulWidget {
 class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     with SingleTickerProviderStateMixin {
   // ── 反転アニメーション ──
-  late final AnimationController _flipCtrl;
-  late final Animation<double> _flip;
-  Timer? _flipTimer;
   // false = 裏面 (プレビュー画面と同じく裏面から開始)
-  bool _showFront = false;
 
   // ── サービス ──
   final AudioPlayerService _audioService = AudioPlayerService();
-
-  /// 裏面に出す top artists / recent choice。投稿前にその場で集計する。
-  ProfileSnapshot? _snapshot;
   final PostService _postService = PostService();
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
@@ -105,15 +94,6 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   @override
   void initState() {
     super.initState();
-    _flipCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-      value: 1.0, // 裏面から
-    );
-    _flip = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _flipCtrl, curve: Curves.easeInOut),
-    );
-    _flipTimer = Timer.periodic(const Duration(seconds: 2), (_) => _doFlip());
     _loadMe();
     _extractColors();
     WidgetsBinding.instance.addPostFrameCallback((_) => _playPreview());
@@ -121,8 +101,6 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
 
   @override
   void dispose() {
-    _flipTimer?.cancel();
-    _flipCtrl.dispose();
     _audioService.stopIfOwner(this);
     super.dispose();
   }
@@ -132,11 +110,6 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     if (uid == null) return;
     try {
       final me = await _userService.getUser(uid);
-      // 裏面用。少し時間がかかるので待たずに進め、取れたら差し替える。
-      // ignore: discarded_futures
-      ProfileSnapshotService.instance.build(uid: uid).then((s) {
-        if (mounted) setState(() => _snapshot = s);
-      });
       if (mounted) setState(() => _me = me);
     } catch (_) {}
   }
@@ -163,16 +136,6 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     } catch (_) {}
   }
 
-  void _doFlip() {
-    if (!mounted) return;
-    setState(() => _showFront = !_showFront);
-    if (_showFront) {
-      _flipCtrl.reverse();
-    } else {
-      _flipCtrl.forward();
-      _playPreview();
-    }
-  }
 
   /// 「投稿する」ボタン押下 → 気分投稿として保存。
   /// 画面はそのまま留まり、上部に「楽曲を追加しています...」を表示、
@@ -302,20 +265,9 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
                   child: SizedBox(
                     width: 363,
                     height: 645,
-                    child: AnimatedBuilder(
-                      animation: _flip,
-                      builder: (context, _) {
-                        final angle = _flip.value * pi;
-                        final isFront = angle < pi / 2;
-                        return Transform(
-                          alignment: Alignment.center,
-                          transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.001)
-                            ..rotateY(angle),
-                          child: isFront ? _buildFront() : _buildBack(),
-                        );
-                      },
-                    ),
+                    // 最終確認では裏返さない。投稿されるのは 1 枚のカードで、
+                    // ここで見せたいのは「どの曲を出すか」だけ。
+                    child: _buildFront(),
                   ),
                 ),
               ),
@@ -425,22 +377,4 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     );
   }
 
-  /// 裏面。写真ではなく「その時点の音楽の顔」を出す（Figma 5787-12995）。
-  /// 中身は投稿時に焼き込むスナップショットと同じものを、ここでは
-  /// 投稿前にその場で集計して見せている。
-  Widget _buildBack() {
-    return Transform(
-      alignment: Alignment.center,
-      // 反転後の裏面: 左右反転を戻すため rotateY(pi) をかける
-      transform: Matrix4.identity()..rotateY(pi),
-      child: PostCardBackProfile(
-        name: (_me?.name?.isNotEmpty ?? false)
-            ? _me!.name!
-            : (_me?.username ?? 'ユーザー'),
-        username: _me?.username,
-        avatarUrl: _me?.profileImageUrl,
-        snapshot: _snapshot ?? ProfileSnapshot.empty,
-      ),
-    );
-  }
 }

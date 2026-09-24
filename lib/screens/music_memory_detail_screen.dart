@@ -357,7 +357,10 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
                                   currentUserIconUrl: currentUserIconUrl,
                                   audioService: _audioService,
                                   isSaved: savedItems.isPostOrTrackSaved(post),
-                                  startFromBack: true, // 裏面(写真)がデフォルト
+                                  // 表面（アルバムアート）から。裏面は写真ではなく
+                                  // プロフィールになったので、最初に見せるのは
+                                  // タイムラインと同じく曲の方。
+                                  startFromBack: false,
                                   backSideEnabled: true, // タップでフリップ
                                   hideCommentBar: true, // 表裏ともコメントバー非表示
                                   // カード上の共有ボタンは非表示（共有はヘッダー右上）。

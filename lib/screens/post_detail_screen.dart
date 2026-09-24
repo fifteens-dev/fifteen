@@ -11,7 +11,6 @@ import '../widgets/post_card.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
-import '../services/user_service.dart';
 import 'comment_screen.dart';
 
 /// 投稿カード単体表示画面（通知タップ時など）
@@ -21,6 +20,7 @@ class PostDetailScreen extends StatefulWidget {
   final String? currentUserId;
   final bool autoFlipAfterDelay;
   final bool disableInteractions;
+
   /// true のとき hasUserPostedOnDate チェックをスキップして常にカード裏面を表示
   /// ※ 通知タップ時は false を渡し、通常の投稿チェックを行うこと
   final bool alwaysShowBack;
@@ -43,13 +43,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final AudioPlayerService _audioService = AudioPlayerService();
   final ITunesSearchService _itunesService = ITunesSearchService();
   final PostService _postService = PostService();
-  final UserService _userService = UserService();
 
   String? _previewUrl;
-
-  // 今日投稿済みかどうか（裏面表示制御用）
-  bool _hasPostedToday = false;
-  bool _hasPostedTodayLoaded = false;
 
   // 再生リクエストの競合防止
   bool _playRequested = false;
@@ -63,50 +58,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _loadHasPostedToday();
     // VibeTrackPostsScreen と同様に開いた瞬間に音楽取得＆自動再生
     _fetchAndPlayMusic();
   }
-
-  Future<void> _loadHasPostedToday() async {
-    // 通知からの遷移など alwaysShowBack が true の場合はチェック不要
-    if (widget.alwaysShowBack) {
-      setState(() {
-        _hasPostedToday = true;
-        _hasPostedTodayLoaded = true;
-      });
-      return;
-    }
-
-    final userId = _currentUserId;
-    if (userId.isEmpty) {
-      setState(() {
-        _hasPostedToday = false;
-        _hasPostedTodayLoaded = true;
-      });
-      return;
-    }
-
-    // 自分の投稿は常に閲覧可能
-    if (widget.post.userId == userId) {
-      setState(() {
-        _hasPostedToday = true;
-        _hasPostedTodayLoaded = true;
-      });
-      return;
-    }
-
-    // 他人の投稿: 自分が「今日」投稿していれば、過去の投稿の裏面も閲覧可能。
-    // （以前は同日投稿のみだったが、班アカウントの過去投稿が見られないため緩和）
-    final hasPosted = await _postService.hasUserPostedToday(_currentUserId);
-    if (mounted) {
-      setState(() {
-        _hasPostedToday = hasPosted;
-        _hasPostedTodayLoaded = true;
-      });
-    }
-  }
-
 
   /// VibeTrackPostsScreen._playMusicForPage と同パターンで音楽を取得＆自動再生
   Future<void> _fetchAndPlayMusic() async {
@@ -197,57 +151,52 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         ),
         centerTitle: true,
       ),
-      body: !_hasPostedTodayLoaded
-          // 投稿状態の確認が完了するまでローディング表示
-          ? const Center(
-              child: CupertinoActivityIndicator(
-                color: Colors.white54,
-                radius: 12,
-              ),
-            )
-          // VibeTrackPostsScreen と同じレイアウト
-          : Center(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: PostCard(
-                    post: context.watch<PostUIState>().getDisplayPost(
-                          widget.post,
-                          currentUserId: _currentUserId,
-                          currentUserIconUrl: _currentUserIconUrl,
-                        ),
+      body: Center(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: PostCard(
+              post: context.watch<PostUIState>().getDisplayPost(
+                    widget.post,
                     currentUserId: _currentUserId,
                     currentUserIconUrl: _currentUserIconUrl,
-                    audioService: _audioService,
-                    // VibeTrackPostsScreen と同様に画面側で音楽を管理
-                    audioManagedExternally: true,
-                    externalPreviewUrl: _previewUrl,
-                    startFromBack: _hasPostedToday,
-                    backSideEnabled: true, // 裏返し制限は廃止
-                    isSaved: context.watch<SavedItemsProvider>().isPostOrTrackSaved(widget.post),
-                    disableInteractions: widget.disableInteractions,
-                    onLike: _currentUserId.isEmpty
-                        ? () {}
-                        : () => PostUIState.handleLike(
-                              context: context,
-                              post: widget.post,
-                              userId: _currentUserId,
-                              postService: _postService,
-                            ),
-                    onReaction: _currentUserId.isEmpty
-                        ? null
-                        : (emoji) => PostUIState.handleReaction(
-                              postId: widget.post.postId,
-                              emoji: emoji,
-                              userId: _currentUserId,
-                              postService: _postService,
-                            ),
-                    onComment: _handleComment,
-                    onAdd: _handleSave,
                   ),
-                ),
-              ),
+              currentUserId: _currentUserId,
+              currentUserIconUrl: _currentUserIconUrl,
+              audioService: _audioService,
+              // VibeTrackPostsScreen と同様に画面側で音楽を管理
+              audioManagedExternally: true,
+              externalPreviewUrl: _previewUrl,
+              // 裏面は写真ではなくプロフィールになったので、投稿の
+              // 有無で出し分ける理由がない。常に表面から。
+              startFromBack: false,
+              backSideEnabled: true, // 裏返し制限は廃止
+              isSaved: context
+                  .watch<SavedItemsProvider>()
+                  .isPostOrTrackSaved(widget.post),
+              disableInteractions: widget.disableInteractions,
+              onLike: _currentUserId.isEmpty
+                  ? () {}
+                  : () => PostUIState.handleLike(
+                        context: context,
+                        post: widget.post,
+                        userId: _currentUserId,
+                        postService: _postService,
+                      ),
+              onReaction: _currentUserId.isEmpty
+                  ? null
+                  : (emoji) => PostUIState.handleReaction(
+                        postId: widget.post.postId,
+                        emoji: emoji,
+                        userId: _currentUserId,
+                        postService: _postService,
+                      ),
+              onComment: _handleComment,
+              onAdd: _handleSave,
             ),
+          ),
+        ),
+      ),
     );
   }
 }

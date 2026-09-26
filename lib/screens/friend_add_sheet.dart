@@ -450,8 +450,11 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
       children: [
         _inviteCard(),
         const SizedBox(height: 19),
-        _sectionHeader(Icons.add_circle_outline, '15sのリンクを共有',
-            emphasizeFirst: '15s'),
+        // Figma 5539:11197 の書き出し（虫眼鏡＋プラス）。実寸 21×21。
+        _sectionHeader(null, '15sのリンクを共有',
+            emphasizeFirst: '15s',
+            iconAsset: 'assets/icons/sheet/search_plus.svg',
+            iconSize: const Size(21, 21)),
         const SizedBox(height: 5),
         _shareRow(),
         const SizedBox(height: 22),

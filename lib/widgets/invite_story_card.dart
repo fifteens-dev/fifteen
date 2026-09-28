@@ -30,12 +30,16 @@ class InviteStoryCard extends StatelessWidget {
   /// 内容を縦にずらす量。Figma の座標に足す。
   final double contentShift;
 
+  /// CD ケースだけを描くか。背景・見出し・絵文字を出さない。
+  final bool caseOnly;
+
   const InviteStoryCard({
     super.key,
     required this.username,
     required this.qrData,
     this.height = storyHeight,
     this.contentShift = storyShift,
+    this.caseOnly = false,
   });
 
   /// Instagram ストーリーに流す用。9:16 に合わせ、内容を上下中央へ寄せる。
@@ -44,7 +48,8 @@ class InviteStoryCard extends StatelessWidget {
     required this.username,
     required this.qrData,
   })  : height = storyHeight,
-        contentShift = storyShift;
+        contentShift = storyShift,
+        caseOnly = false;
 
   /// アプリ内のシート用。Figma のフレーム（402×812）そのままの座標で描く。
   const InviteStoryCard.sheet({
@@ -52,7 +57,18 @@ class InviteStoryCard extends StatelessWidget {
     required this.username,
     required this.qrData,
   })  : height = sheetHeight,
-        contentShift = 0;
+        contentShift = 0,
+        caseOnly = false;
+
+  /// CD ケースだけを 378×334 で出す（登録時の招待画面）。
+  /// 背景・見出し・絵文字は付けない。
+  const InviteStoryCard.caseOnly({
+    super.key,
+    required this.username,
+    required this.qrData,
+  })  : height = 334,
+        contentShift = 0,
+        caseOnly = true;
 
   /// デザイン上の幅。書き出し時はこの比率で拡大する。
   static const double designWidth = 402;
@@ -92,6 +108,11 @@ class InviteStoryCard extends StatelessWidget {
   }
 
   Widget _build() {
+    // ケースだけ（登録時の招待画面）。グラデーション背景も見出しも要らない。
+    if (caseOnly) {
+      return SizedBox(width: 378, height: 334, child: _case());
+    }
+
     return SizedBox(
       width: designWidth,
       height: height,

@@ -10,6 +10,7 @@ import '../widgets/dialogs/bottom_sheet_dialog.dart';
 import '../services/friend_service.dart';
 import 'home_screen.dart';
 import 'onboarding_friends_screen.dart';
+import 'onboarding_invite_screen.dart';
 import '../widgets/common/app_toast.dart';
 // チュートリアルを表示しないため import を無効化
 // import '../tutorial/tutorial.dart';
@@ -394,11 +395,27 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen>
     }
     if (!mounted) return;
 
+    // 招待画面 → （候補が居れば）知り合いかも → ホーム の順。
+    // 15s は友達が居ないと何も起きないので、まず誘ってもらう。
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => OnboardingInviteScreen(
+          onDone: () => _afterInvite(candidates),
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+  }
+
+  /// 招待画面のあと。知り合いかもの候補が居れば 1 枚挟む。
+  void _afterInvite(List<FriendSuggestion> candidates) {
+    if (!mounted) return;
     if (candidates.isEmpty) {
       _replaceWithHome();
       return;
     }
-
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(

@@ -9,6 +9,8 @@ import '../../models/track_model.dart';
 import '../../models/user_model.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/friend_widget_service.dart';
+import 'add_photo_flow.dart';
+import 'post_complete_sheet.dart';
 import '../../services/live_activity_service.dart';
 import '../../services/post_service.dart';
 import '../../services/storage_service.dart';
@@ -233,10 +235,19 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       FriendWidgetService.instance.refresh(force: true);
 
       if (!mounted) return;
-      AppToast.show(context, '投稿しました');
       // このプレビュー画面はホームの上に opaque: false で載っているため、
       // pop すればそのままホームが表に出る。
       Navigator.of(context).pop();
+
+      // 完了シートはホームの上に出す。この画面を閉じたあとに出さないと、
+      // pop でシートごと消えてしまう。
+      final navigator = Navigator.of(context, rootNavigator: true);
+      final ctx = navigator.context;
+      if (!ctx.mounted) return;
+      final wantsPhoto = await PostCompleteSheet.show(ctx);
+      if (wantsPhoto && ctx.mounted) {
+        await AddPhotoFlow.start(ctx, postId: postId);
+      }
     } catch (e) {
       if (!mounted) return;
       AppToast.show(context, '投稿に失敗しました');

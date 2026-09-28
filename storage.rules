@@ -1,0 +1,59 @@
+rules_version = '2';
+
+// Firebase Storage のルール。
+//
+// これを入れる前は「ログイン済みなら全部読める」既定に近い状態だった。
+// 投稿に添える写真（private_photos）だけは本人しか見られない約束なので、
+// パスごとに分けて締めている。
+//
+// 既存の読み取りを壊さないよう、今アプリが使っているパスはすべて明示する。
+// ここに無いパスは既定で拒否になる点に注意（新しい置き場を足したら追記する）。
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // アップロードできる画像の上限。圧縮後は数百 KB に収まるので、
+    // 桁違いのものは弾く。
+    function isImageUnder(mb) {
+      return request.resource.size < mb * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // ── 投稿に添えた写真（本人のみ） ──
+    //
+    // カード裏面の写真は「自分のカレンダーからのみ閲覧可能」なので、
+    // URL を知られても他人には開けないようにする。
+    match /private_photos/{userId}/{file} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isImageUnder(12);
+    }
+
+    // ── 投稿画像（公開） ──
+    // Vibe ストーリーなど、タイムラインに出る画像。
+    match /post_images/{userId}/{file} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isImageUnder(12);
+    }
+
+    // ── プロフィール画像 ──
+    match /profile_images/{userId}/{file} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isImageUnder(12);
+    }
+
+    // ── ADL 班のアイコン ──
+    // 班員が班アカウントの画像を差し替えるため、書き込みは本人性で絞れない。
+    // Firestore 側（users/{teamId} の update ルール）で班員かどうかを見ている。
+    match /adl_team_images/{teamId}/{file} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isImageUnder(12);
+    }
+  }
+}

@@ -54,6 +54,7 @@ class PhotoHelper {
     required Uint8List imageBytes,
     required String userId,
     required StorageService storageService,
+    bool private = false,
   }) async {
     final (processed, w, h) = await _compressImage(imageBytes);
     if (kIsWeb) {
@@ -61,7 +62,8 @@ class PhotoHelper {
       throw UnsupportedError('uploadCompressedSplit is not supported on web');
     }
     final ref = await storageService
-        .uploadPostImageGetRef(userId: userId, imageBytes: processed)
+        .uploadPostImageGetRef(
+            userId: userId, imageBytes: processed, private: private)
         .timeout(
       const Duration(seconds: 30),
       onTimeout: () => throw Exception('アップロードがタイムアウトしました'),

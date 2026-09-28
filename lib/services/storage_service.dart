@@ -142,14 +142,20 @@ class StorageService {
 
   /// 投稿画像をアップロードし、Referenceを返す（getDownloadURLは呼ばない）
   ///
-  /// getDownloadURL()を後で並列実行するための分割アップロード用
+  /// getDownloadURL()を後で並列実行するための分割アップロード用。
+  ///
+  /// [private] を true にすると `private_photos/` 配下に置く。投稿に添える
+  /// 写真は本人しか見られない約束なので、公開画像（Vibe ストーリー等）と
+  /// パスを分け、Storage のルールで所有者に限定できるようにしている。
   Future<Reference> uploadPostImageGetRef({
     required String userId,
     required Uint8List imageBytes,
+    bool private = false,
   }) async {
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final storageRef = _storage.ref().child('post_images/$userId/$timestamp.jpg');
+      final folder = private ? 'private_photos' : 'post_images';
+      final storageRef = _storage.ref().child('$folder/$userId/$timestamp.jpg');
       final metadata = SettableMetadata(
         contentType: 'image/jpeg',
         cacheControl: _imageCacheControl,

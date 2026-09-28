@@ -16,9 +16,14 @@ class VibeStoryPhotoGridOverlay extends StatefulWidget {
   /// 写真選択時のコールバック（バイト列を返す）
   final ValueChanged<Uint8List> onPhotoSelected;
 
+  /// true のとき、今日撮った写真だけを並べる。
+  /// 投稿に添える写真は「その日撮ったもの」に限るため。
+  final bool todayOnly;
+
   const VibeStoryPhotoGridOverlay({
     super.key,
     required this.onPhotoSelected,
+    this.todayOnly = false,
   });
 
   /// 下からフェードイン + スライドアップで開く便利メソッド。
@@ -26,6 +31,7 @@ class VibeStoryPhotoGridOverlay extends StatefulWidget {
   static Future<T?> show<T>(
     BuildContext context, {
     required ValueChanged<Uint8List> onPhotoSelected,
+    bool todayOnly = false,
   }) {
     return Navigator.of(context).push<T>(
       PageRouteBuilder<T>(
@@ -36,6 +42,7 @@ class VibeStoryPhotoGridOverlay extends StatefulWidget {
         reverseTransitionDuration: const Duration(milliseconds: 200),
         pageBuilder: (_, __, ___) => VibeStoryPhotoGridOverlay(
           onPhotoSelected: onPhotoSelected,
+          todayOnly: todayOnly,
         ),
         transitionsBuilder: (_, anim, __, child) {
           final curved = CurvedAnimation(
@@ -208,7 +215,8 @@ class _VibeStoryPhotoGridOverlayState extends State<VibeStoryPhotoGridOverlay>
   }
 
   Future<void> _loadAlbumAssets(AssetPathEntity album) async {
-    final assets = await album.getAssetListRange(start: 0, end: _initialLoad);
+    final assets = _filterToday(
+        await album.getAssetListRange(start: 0, end: _initialLoad));
     final totalCount = await album.assetCountAsync;
     if (!mounted) return;
     setState(() {
@@ -217,6 +225,22 @@ class _VibeStoryPhotoGridOverlayState extends State<VibeStoryPhotoGridOverlay>
       _hasMorePhotos = _initialLoad < totalCount;
       _isLoading = false;
     });
+  }
+
+  /// [todayOnly] のとき、今日撮った写真だけに絞る。
+  ///
+  /// 判定は撮影日時（createDateTime）。保存日ではないので、
+  /// 昔の写真を今日インポートしても通らない。
+  List<AssetEntity> _filterToday(List<AssetEntity> assets) {
+    if (!widget.todayOnly) return assets;
+    final now = DateTime.now();
+    return [
+      for (final a in assets)
+        if (a.createDateTime.year == now.year &&
+            a.createDateTime.month == now.month &&
+            a.createDateTime.day == now.day)
+          a,
+    ];
   }
 
   void _onGridScroll() {
@@ -236,7 +260,7 @@ class _VibeStoryPhotoGridOverlayState extends State<VibeStoryPhotoGridOverlay>
         .getAssetListRange(start: _currentGalleryPage, end: end);
     if (mounted) {
       setState(() {
-        _galleryAssets.addAll(assets);
+        _galleryAssets.addAll(_filterToday(assets));
         _currentGalleryPage = end;
         _hasMorePhotos = end < totalCount;
       });
@@ -336,9 +360,11 @@ class _VibeStoryPhotoGridOverlayState extends State<VibeStoryPhotoGridOverlay>
 
   Widget _buildGrid() {
     if (_galleryAssets.isEmpty) {
-      return const Center(
-        child: Text('写真がありません',
-            style: TextStyle(color: Colors.white54, fontSize: 13)),
+      return Center(
+        child: Text(
+          widget.todayOnly ? '今日撮った写真がありません' : '写真がありません',
+          style: const TextStyle(color: Colors.white54, fontSize: 13),
+        ),
       );
     }
     // GridView は親 MediaQuery の padding.top（ステータスバー/ノッチ分）を

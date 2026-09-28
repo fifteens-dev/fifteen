@@ -61,6 +61,18 @@ service cloud.firestore {
       }
     }
 
+    // ── 投稿に添えた写真（本人のみ） ──
+    //
+    // posts は list が誰でも引けるので、photoUrl をそこに入れると
+    // 「非公開」にならない。別コレクションに分けて本人だけに絞る。
+    match /post_photos/{postId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid;
+    }
+
     // ── posts コレクション ───────────────────────────────────
     match /posts/{postId} {
       // ── Read 制限（公開範囲 audience の実装） ──

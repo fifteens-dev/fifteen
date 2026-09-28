@@ -118,16 +118,14 @@ class MusicMemoryCycleService {
     return _deadlineForCycleStart(start);
   }
 
-  /// 今が投稿できる時間帯か（通知 21:00 〜 24:00）。
+  /// 今が投稿できる時間帯か（通知 21:00 以降）。
   ///
-  /// 締切を過ぎたら投稿そのものができない仕様なので、Late 投稿は発生しない。
-  /// 通知がまだ来ていない（notifiedAt が無い）ときも投稿できない。
+  /// 24:00 を過ぎても投稿はできる。締切が効くのは写真の追加だけで、
+  /// そちらは [currentDeadline] を直接見る（[PostPhotoService]）。
   bool get canPostNow {
     final start = _notifiedAt;
-    final deadline = currentDeadline;
-    if (start == null || deadline == null) return false;
-    final now = DateTime.now();
-    return !now.isBefore(start) && now.isBefore(deadline);
+    if (start == null) return false;
+    return !DateTime.now().isBefore(start);
   }
 
   /// [canPostNow] と同じ判定。ただし通知時刻が未取得なら取りに行く。
@@ -140,10 +138,8 @@ class MusicMemoryCycleService {
     return canPostNow;
   }
 
-  /// [createdAt] が現サイクルの締切を過ぎているか。
-  ///
-  /// 21:00〜24:00 以外は投稿できないので、新しい投稿でこれが true になることは
-  /// ない。締切が 25:00 だった頃の投稿を判定するために残している。
+  /// [createdAt] が現サイクルの締切（24:00）を過ぎているか。
+  /// 24 時以降の投稿はこれが true になる（写真は足せない）。
   bool isLate(DateTime createdAt) {
     final deadline = currentDeadline;
     if (deadline == null) return false;

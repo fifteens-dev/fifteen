@@ -15,6 +15,7 @@ import '../services/post_service.dart';
 import '../widgets/dialogs/delete_post_dialog.dart';
 import '../widgets/post_card.dart';
 import 'card_share_screen.dart';
+import '../services/post_photo_service.dart';
 
 /// Music Memory（カレンダー）から開く投稿詳細画面。
 ///
@@ -103,6 +104,10 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
   final ITunesSearchService _itunes = ITunesSearchService();
   final PostService _postService = PostService();
   final Map<String, String> _previewCache = {}; // postId -> previewUrl
+
+  /// postId -> 写真の URL。自分の投稿に添えた写真（本人しか見られない）。
+  /// 写真がある日は裏面から開く。
+  Map<String, String> _photos = const {};
   int _playGen = 0;
 
   /// 表示中の日代表（新しい→古い）。端まで来たら古い方に追記していく。
@@ -113,6 +118,14 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
   late PageController _controller;
   late int _index;
   double _page = 0;
+
+  /// 表示中の投稿に添えた写真をまとめて引く。
+  /// 他人の投稿はルールで弾かれるので、結果に入るのは自分のぶんだけ。
+  Future<void> _loadPhotos() async {
+    final ids = [for (final p in _days) p.postId];
+    final photos = await PostPhotoService.instance.photoUrls(ids);
+    if (mounted && photos.isNotEmpty) setState(() => _photos = photos);
+  }
 
   int get _monthCount => widget.monthsNewToOld.length;
   bool get _hasMore =>
@@ -130,6 +143,8 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
     _controller =
         PageController(viewportFraction: _viewportFraction, initialPage: _index);
     _controller.addListener(_onScroll);
+    // ignore: discarded_futures
+    _loadPhotos();
     // 初期表示（中央）の曲を再生 + 端に近ければ先読み。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _playCurrent();
@@ -357,10 +372,10 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
                                   currentUserIconUrl: currentUserIconUrl,
                                   audioService: _audioService,
                                   isSaved: savedItems.isPostOrTrackSaved(post),
-                                  // 表面（アルバムアート）から。裏面は写真ではなく
-                                  // プロフィールになったので、最初に見せるのは
-                                  // タイムラインと同じく曲の方。
-                                  startFromBack: false,
+                                  // 写真がある日は裏面（写真）から開く。
+                                  // 無い日は表面（アルバムアート）から。
+                                  backPhotoUrl: _photos[post.postId],
+                                  startFromBack: _photos.containsKey(post.postId),
                                   backSideEnabled: true, // タップでフリップ
                                   hideCommentBar: true, // 表裏ともコメントバー非表示
                                   // カード上の共有ボタンは非表示（共有はヘッダー右上）。

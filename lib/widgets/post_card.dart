@@ -31,6 +31,7 @@ import '../utils/photo_helper.dart';
 import 'profile_widgets.dart';
 import 'post_creation/lyrics_card_layouts.dart';
 import 'post_card/post_card_constants.dart';
+import 'post_card/add_photo_bar.dart';
 import 'post_card/marquee_text.dart';
 import 'dialogs/restriction_notification.dart';
 import 'dialogs/report_dialog.dart';
@@ -83,6 +84,17 @@ class PostCard extends StatefulWidget {
 
   /// 同ピルに重ねるアイコン（先頭 2 人ぶん）。
   final List<String?> backPillAvatars;
+
+  /// 「写真を追加する」バーを押したとき。null なら出さない。
+  ///
+  /// 自分の投稿かつ 24:00 前のときだけ呼び出し側が渡す。
+  final VoidCallback? onAddPhoto;
+
+  /// 裏面に出す写真の URL。渡すとプロフィールの代わりに写真を全面に出す。
+  ///
+  /// 写真は本人しか見られないので、Music Memory のカレンダーから開いた
+  /// ときだけ渡す。タイムラインでは常に null（＝プロフィール）。
+  final String? backPhotoUrl;
   final bool disableInteractions; // trueの場合、いいね・コメント無効（カウントのみ表示）
   final bool autoPlay; // trueの場合、裏面スタート時に自動で音楽を再生
   final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
@@ -119,6 +131,8 @@ class PostCard extends StatefulWidget {
     this.backSideEnabled = true, // デフォルトは裏面反転可能
     this.backPillLabel,
     this.backPillAvatars = const [],
+    this.onAddPhoto,
+    this.backPhotoUrl,
     this.disableInteractions = false, // デフォルトはインタラクション有効
     this.autoPlay = false, // デフォルトは自動再生なし
     this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
@@ -618,6 +632,19 @@ class PostCardState extends State<PostCard>
                   ],
                 ),
               ),
+
+              // 「写真を追加する」バー（Figma 5858-11628）。
+              // 曲情報の下、カード下端に沿わせる。
+              if (widget.onAddPhoto != null)
+                Positioned(
+                  left: cardWidth * (13 / 363),
+                  right: cardWidth * (12 / 363),
+                  bottom: cardHeight * (12 / 645),
+                  child: AddPhotoBar(
+                    onTap: widget.onAddPhoto,
+                    background: theme.gradientStart,
+                  ),
+                ),
             ],
           ),
         ),
@@ -670,6 +697,32 @@ class PostCardState extends State<PostCard>
     //
     // リアクション・コメント・共有はこの面に置き場所が無くなったため、今は
     // 出していない（行き先が決まったら戻す）。
+    // 写真が渡されていればそちらを出す（自分のカレンダーから見たとき）。
+    final photoUrl = widget.backPhotoUrl;
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      return Container(
+        width: cardWidth,
+        height: cardHeight,
+        color: const Color(0xFF000000),
+        child: ClipRRect(
+          borderRadius:
+              BorderRadius.circular(PostCardConstants.cardBorderRadius),
+          child: Image(
+            image: albumImageProvider(photoUrl),
+            width: cardWidth,
+            height: cardHeight,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const ColoredBox(
+              color: Color(0xFF1F1F1F),
+              child: Center(
+                child: Icon(Icons.photo, color: Colors.white24, size: 40),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     final snapshot = widget.post.profileSnapshot;
     return Container(
       width: cardWidth,

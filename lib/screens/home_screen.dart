@@ -39,6 +39,8 @@ import 'profile_screen.dart';
 import 'friend_add_sheet.dart';
 import '../services/friend_match_service.dart';
 import '../services/friend_widget_service.dart';
+import '../services/post_photo_service.dart';
+import 'post_flow/add_photo_flow.dart';
 import 'music_selection_screen.dart';
 import 'music_memory_month_screen.dart';
 import 'post_flow/music_memory_modal.dart';
@@ -148,6 +150,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   // 現在のユーザーが今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
+
+  /// 自分の投稿のうち、既に写真が付いているもの。バーを出すかの判定に使う。
+  Set<String> _postsWithPhoto = {};
 
   @override
   void initState() {
@@ -353,6 +358,8 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     if (mounted) {
+      // ignore: discarded_futures
+      _loadPhotoFlags(postsResult.posts);
       setState(() {
         _cachedPosts = postsResult.posts;
         _hasPostedToday = postsResult.hasPostedToday;
@@ -684,6 +691,31 @@ class _HomeScreenState extends State<HomeScreen>
       // バックグラウンドでは無駄なポーリングを止める
       _storyRefreshTimer?.cancel();
       _storyRefreshTimer = null;
+    }
+  }
+
+  /// 自分の投稿に既に写真が付いているかを調べる。
+  /// 付いている投稿では「写真を追加する」バーを出さない。
+  Future<void> _loadPhotoFlags(List<PostModel> posts) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+    final mine = [
+      for (final p in posts)
+        if (p.userId == uid) p.postId,
+    ];
+    if (mine.isEmpty) return;
+    final photos = await PostPhotoService.instance.photoUrls(mine);
+    if (mounted && photos.isNotEmpty) {
+      setState(() => _postsWithPhoto = {..._postsWithPhoto, ...photos.keys});
+    }
+  }
+
+  /// 投稿カードのバーから写真を足す。
+  Future<void> _addPhoto(String postId) async {
+    final added = await AddPhotoFlow.start(context, postId: postId);
+    if (added && mounted) {
+      // 足したらバーを消す（1 投稿に 1 枚）。
+      setState(() => _postsWithPhoto = {..._postsWithPhoto, postId});
     }
   }
 
@@ -1097,17 +1129,16 @@ class _HomeScreenState extends State<HomeScreen>
   ///   曲決定で Apple と同じく最終確認(MoodPostFinalPreviewScreen)へ。
   /// 投稿フローを開く。投稿できるのは通知（21:00）から 24:00 までの間だけで、
   /// それ以外の時間は開かずに理由を出す。
+  /// 投稿フローを開く。
+  ///
+  /// 投稿できるのは 21:00 以降。24:00 を過ぎても投稿はできる（写真だけ足せない）。
   Future<void> _openPostFlow() async {
     final cycle = MusicMemoryCycleService();
-    if (!await cycle.ensureCanPostNow()) {
+    if (cycle.notifiedAt == null) await cycle.fetchNotifiedAt();
+    final start = cycle.notifiedAt;
+    if (start == null || DateTime.now().isBefore(start)) {
       if (!mounted) return;
-      // 通知がまだ来ていないのか、締切を過ぎたのかで文言を分ける。
-      final start = cycle.notifiedAt;
-      final beforeStart = start == null || DateTime.now().isBefore(start);
-      AppToast.show(
-        context,
-        beforeStart ? '21時から投稿できます' : '今日の投稿は24時で締め切りました',
-      );
+      AppToast.show(context, '21時から投稿できます');
       return;
     }
     _homeAudioService.stop();
@@ -1604,6 +1635,12 @@ class _HomeScreenState extends State<HomeScreen>
           : null,
       isSaved: savedItems.isPostOrTrackSaved(post),
       backSideEnabled: true,
+      // 写真は自分の投稿に、24:00 まで、まだ無いときだけ足せる。
+      onAddPhoto: (post.userId == currentUserId &&
+              PostPhotoService.instance.canAddPhotoNow &&
+              !_postsWithPhoto.contains(post.postId))
+          ? () => _addPhoto(post.postId)
+          : null,
       onPlayStarted: () {
         _playingPostId = post.postId;
         // 2列グリッドの拡大プレビューでは隣接プリロードをしない。

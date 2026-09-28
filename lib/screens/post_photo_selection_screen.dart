@@ -18,7 +18,8 @@ import 'post_flow/mood_post_final_preview_screen.dart';
 ///   - Page 0: アプリ内カメラプレビュー。シャッターで即撮影→PostCardEditScreen。
 ///   - Page 1: 3列写真グリッド。写真タップで拡大アニメーション→PostCardEditScreen。
 class PostPhotoSelectionScreen extends StatefulWidget {
-  final TrackModel track;
+  /// 投稿フローで使うときの曲。[onPhotoTaken] を渡す使い方では要らない。
+  final TrackModel? track;
   final LyricsData? lyricsData;
   final Future<LyricsData?>? lyricsFuture;
   final bool isVibe;
@@ -29,9 +30,17 @@ class PostPhotoSelectionScreen extends StatefulWidget {
   /// 経由せず、写真確定でそのまま [MoodPostFinalPreviewScreen] へ飛ばす。
   final bool isMoodPost;
 
+  /// 写真が決まったら呼ぶ。渡すとこの画面は投稿フローへ進まず、
+  /// 撮った / 選んだ写真を返して閉じるだけになる
+  /// （投稿済みのカードに後から写真を足す用途）。
+  final ValueChanged<XFile>? onPhotoTaken;
+
+  /// true のとき、その日撮った写真だけをグリッドに並べる。
+  final bool todayOnly;
+
   const PostPhotoSelectionScreen({
     super.key,
-    required this.track,
+    this.track,
     this.lyricsData,
     this.lyricsFuture,
     this.isVibe = false,
@@ -39,6 +48,8 @@ class PostPhotoSelectionScreen extends StatefulWidget {
     this.vibeTopicTitle,
     this.fromVibePlaylist = false,
     this.isMoodPost = false,
+    this.onPhotoTaken,
+    this.todayOnly = false,
   });
 
   @override
@@ -186,8 +197,9 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   // ---- track 事前キャッシュ ----
 
   Future<void> _prefetchTrackData() async {
+    // 写真を返すだけの使い方では曲を持たない（先読みするものが無い）。
     final track = widget.track;
-    if (track.trackId.isEmpty) return;
+    if (track == null || track.trackId.isEmpty) return;
     String? url = track.previewUrl;
     if (url == null || url.isEmpty) {
       url = await ITunesSearchService().getPreviewUrl(
@@ -235,8 +247,25 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     await _loadAlbumAssets(_selectedAlbum!);
   }
 
+  /// [PostPhotoSelectionScreen.todayOnly] のとき、今日撮った写真だけに絞る。
+  ///
+  /// 判定は撮影日時（createDateTime）。保存日ではないので、昔の写真を
+  /// 今日インポートしても通らない。
+  List<AssetEntity> _filterToday(List<AssetEntity> assets) {
+    if (!widget.todayOnly) return assets;
+    final now = DateTime.now();
+    return [
+      for (final a in assets)
+        if (a.createDateTime.year == now.year &&
+            a.createDateTime.month == now.month &&
+            a.createDateTime.day == now.day)
+          a,
+    ];
+  }
+
   Future<void> _loadAlbumAssets(AssetPathEntity album) async {
-    final assets = await album.getAssetListRange(start: 0, end: _initialLoad);
+    final assets = _filterToday(
+        await album.getAssetListRange(start: 0, end: _initialLoad));
     final totalCount = await album.assetCountAsync;
     if (mounted) {
       setState(() {
@@ -271,7 +300,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
         .getAssetListRange(start: _currentGalleryPage, end: end);
     if (mounted) {
       setState(() {
-        _galleryAssets.addAll(assets);
+        _galleryAssets.addAll(_filterToday(assets));
         _currentGalleryPage = end;
         _hasMorePhotos = end < totalCount;
       });
@@ -343,10 +372,17 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
   /// そこで先に /home を唯一のベースへ載せ替えてから、透明プレビューを push する。
   void _openMoodPreview(XFile photo) {
     // 遷移の作法（ホームの上に opaque:false で重ねる）は画面側に寄せてある。
-    MoodPostFinalPreviewScreen.open(context, widget.track, photo: photo);
+    MoodPostFinalPreviewScreen.open(context, widget.track!, photo: photo);
   }
 
   void _navigateToEdit(XFile photo) {
+    // 写真を返すだけの使い方（投稿済みカードへの追加）。
+    final onTaken = widget.onPhotoTaken;
+    if (onTaken != null) {
+      Navigator.of(context).pop();
+      onTaken(photo);
+      return;
+    }
     if (widget.isMoodPost) {
       // 気分投稿: 歌詞カード編集をスキップし、ホームの上に透明プレビューを載せる。
       _openMoodPreview(photo);
@@ -357,7 +393,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
       context,
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => PostCardEditScreen(
-          track: widget.track,
+          track: widget.track!,
           lyricsData: widget.lyricsData,
           lyricsFuture: widget.lyricsFuture,
           selectedImage: photo,
@@ -411,6 +447,13 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     await _cameraController?.pausePreview();
     if (!mounted) return;
 
+    final onTaken = widget.onPhotoTaken;
+    if (onTaken != null) {
+      Navigator.of(context).pop();
+      onTaken(XFile(file.path));
+      return;
+    }
+
     if (widget.isMoodPost) {
       // 気分投稿: グリッド選択 → 拡大アニメーションを省略し、ホームの上に
       // 透明プレビューを載せる（スタック最下部が phone-auth でも安全）。
@@ -423,7 +466,7 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
       _PhotoExpandRoute(
         sourceRect: sourceRect,
         child: PostCardEditScreen(
-          track: widget.track,
+          track: widget.track!,
           lyricsData: widget.lyricsData,
           lyricsFuture: widget.lyricsFuture,
           selectedImage: XFile(file.path),

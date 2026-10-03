@@ -11,6 +11,7 @@ import '../../widgets/primary_button.dart';
 import '../../widgets/common/app_toast.dart';
 import '../../services/live_activity_service.dart';
 import '../friend_match_screen.dart';
+import '../../services/friend_widget_service.dart';
 import '../../services/listening_history_service.dart';
 import '../../models/music_service_type.dart';
 import '../../services/spotify_service.dart';
@@ -168,6 +169,81 @@ class _DevToolsTabState extends State<DevToolsTab> {
       if (res['error'] != null) buf.writeln('error: ${res['error']}');
       _artworkDiag = buf.toString();
     });
+  }
+
+  String? _widgetDiag;
+  bool _widgetBusy = false;
+
+  /// ホーム画面ウィジェットに何が渡っているかを見る。
+  ///
+  /// ウィジェット側のプロセスはログを残せないので、アプリから同じファイルを
+  /// 読んで中身を確かめるしかない。
+  Future<void> _loadWidgetDiagnostics() async {
+    setState(() => _widgetBusy = true);
+    // 最新の状態にしてから読む。
+    await FriendWidgetService.instance.refresh(force: true);
+    final text = await FriendWidgetService.instance.diagnostics();
+    if (!mounted) return;
+    setState(() {
+      _widgetDiag = text;
+      _widgetBusy = false;
+    });
+  }
+
+  Widget _buildWidgetDiagnostics() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'ホーム画面ウィジェット',
+          style: TextStyle(
+              color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '「友達が今聴いてる曲」に渡っているデータを確認します。',
+          style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.5),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: _widgetBusy ? null : _loadWidgetDiagnostics,
+              icon: const Icon(Icons.widgets_outlined, size: 18),
+              label: Text(_widgetBusy ? '更新中...' : '更新して確認'),
+            ),
+            const SizedBox(width: 8),
+            if (_widgetDiag != null)
+              TextButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: _widgetDiag!));
+                  AppToast.show(context, 'コピーしました');
+                },
+                icon: const Icon(Icons.copy, size: 16),
+                label: const Text('コピー'),
+              ),
+          ],
+        ),
+        if (_widgetDiag != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: SelectableText(
+              _widgetDiag!,
+              style: const TextStyle(
+                  color: Colors.white70, fontSize: 11, height: 1.6),
+            ),
+          ),
+        ],
+        const SizedBox(height: 20),
+      ],
+    );
   }
 
   String? _historyDiag;
@@ -502,6 +578,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 20),
+            _buildWidgetDiagnostics(),
             _buildHistoryDiagnostics(),
             _buildFriendMatchPreview(),
             _buildArtworkDiagnostics(),

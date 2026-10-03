@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -8,7 +9,6 @@ import '../models/post_model.dart';
 import 'friend_service.dart';
 import 'live_activity_service.dart';
 import 'music_memory_cycle_service.dart';
-import 'post_service.dart';
 
 /// ホーム画面ウィジェット「友達が今聴いてる曲」へデータを渡す。
 ///
@@ -27,7 +27,6 @@ class FriendWidgetService {
   static const int _maxItems = 8;
 
   final FriendService _friendService = FriendService();
-  final PostService _postService = PostService();
 
   /// 短時間に何度も呼ばれても実際に走らせるのは 1 回だけ。
   DateTime? _lastRun;
@@ -47,41 +46,75 @@ class FriendWidgetService {
 
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) return;
+      if (uid == null) {
+        await _log('未ログイン');
+        return;
+      }
 
       final items = await _collect(uid);
       await _send(items);
     } catch (e) {
-      if (kDebugMode) print('FriendWidgetService.refresh error: $e');
+      await _log('失敗: $e');
     }
+  }
+
+  /// ウィジェットが読むファイルの中身を見る（開発者ツール用）。
+  Future<String> diagnostics() async {
+    final buf = StringBuffer();
+    try {
+      final res = await _channel
+          .invokeMethod<dynamic>('friendWidgetDiagnostics');
+      final map = (res as Map?) ?? {};
+      buf.writeln('保存件数   : ${map['count'] ?? 0}');
+      buf.writeln('ファイル   : ${map['file']}');
+      buf.writeln('存在       : ${map['fileExists']}');
+      final items = (map['items'] as List?) ?? const [];
+      if (items.isEmpty) {
+        buf.writeln('\n中身がありません。');
+      } else {
+        buf.writeln('\n中身:');
+        for (final i in items) {
+          buf.writeln('  $i');
+        }
+      }
+    } catch (e) {
+      buf.writeln('取得に失敗: $e');
+    }
+    return buf.toString();
+  }
+
+  /// Live Activity と同じログに残す。ウィジェットは実機でしか動かず、
+  /// 画面にも何も出ないので、どこで止まったかはこれでしか分からない。
+  Future<void> _log(String message) async {
+    if (kDebugMode) print('FriendWidget: $message');
+    try {
+      await _channel.invokeMethod('log', {
+        'tag': 'friendWidget',
+        'message': message,
+      });
+    } catch (_) {/* ログが出せなくても本体は続ける */}
   }
 
   /// 現在のサイクルに友達が投稿した曲を新しい順に集める。
   Future<List<_Item>> _collect(String uid) async {
     final friends = await _friendService.loadFriends(uid);
-    if (friends.isEmpty) return const [];
+    if (friends.isEmpty) {
+      await _log('友達が 0 人');
+      return const [];
+    }
 
     final cycleStart = MusicMemoryCycleService().currentCycleStart;
     final byUid = {for (final f in friends) f.user.uid: f.user};
 
-    final posts = await _postService.getRecentPostsGroupedByUser(
-      userIds: byUid.keys.toList(),
-      // 友達＝相互フォローなので、鍵投稿も見える。
-      viewerFollowsAuthor: (_) => true,
+    // ここで getRecentPostsGroupedByUser は使えない。あれは Vibe ストーリー
+    // バー用で isMoodPost を弾くが、今の投稿フローで作られる投稿は
+    // すべて isMoodPost。候補が常に 0 件になる。
+    final latest = await _latestPostPerFriend(
+      uids: byUid.keys.toList(),
+      since: cycleStart,
     );
-
-    // ユーザーごとの最新 1 件だけを見る。同じ人で埋まらないようにするため。
-    final latest = <PostModel>[];
-    for (final group in posts) {
-      for (final p in group) {
-        // タイムラインに載らない投稿は出さない（Vibe ストーリー等）。
-        if (p.isVibe) continue;
-        if (!p.createdAt.isAfter(cycleStart)) continue;
-        latest.add(p);
-        break;
-      }
-    }
-    latest.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    await _log('友達 ${friends.length} 人 / サイクル内の投稿 ${latest.length} 件'
+        '（開始 ${cycleStart.toIso8601String()}）');
 
     return [
       for (final p in latest.take(_maxItems))
@@ -105,9 +138,45 @@ class FriendWidgetService {
     ];
   }
 
+  /// 友達ごとの「現サイクルの最新 1 件」を新しい順に返す。
+  ///
+  /// 同じ人の投稿で埋まらないよう 1 人 1 件に絞る。
+  Future<List<PostModel>> _latestPostPerFriend({
+    required List<String> uids,
+    required DateTime since,
+  }) async {
+    final byUser = <String, PostModel>{};
+    // whereIn は 30 件まで。
+    for (var i = 0; i < uids.length; i += 30) {
+      final chunk = uids.skip(i).take(30).toList();
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('posts')
+            .where('userId', whereIn: chunk)
+            .where('createdAt', isGreaterThan: Timestamp.fromDate(since))
+            .orderBy('createdAt', descending: true)
+            .get();
+        for (final doc in snap.docs) {
+          final data = doc.data();
+          if (data['isDummyPost'] == true) continue;
+          final post = PostModel.fromFirestore(doc);
+          // Vibe ストーリーは「今日の 1 曲」ではないので出さない。
+          if (post.isVibe) continue;
+          byUser.putIfAbsent(post.userId, () => post);
+        }
+      } catch (e) {
+        await _log('投稿の取得に失敗: $e');
+      }
+    }
+    final list = byUser.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
+  }
+
   /// ネイティブへ渡す。未取得の画像だけダウンロードして同梱する。
   Future<void> _send(List<_Item> items) async {
     if (items.isEmpty) {
+      await _log('出すものが無いので空で送る');
       await _channel.invokeMethod('syncFriends', {'items': <dynamic>[]});
       return;
     }
@@ -148,6 +217,7 @@ class FriendWidgetService {
       payload.add(entry);
     }
 
+    await _log('送信 ${payload.length} 件 / 画像の新規取得 ${missing.length} 件');
     await _channel.invokeMethod('syncFriends', {'items': payload});
   }
 }

@@ -106,6 +106,9 @@ final class LiveActivityChannel: NSObject {
             syncDays(from: args)
             result(true)
 
+        case "friendWidgetDiagnostics":
+            result(friendWidgetDiagnostics())
+
         case "syncFriends":
             // ホーム画面ウィジェット用。アクティビティとは無関係に呼べる。
             syncFriends(from: args)
@@ -155,6 +158,34 @@ final class LiveActivityChannel: NSObject {
     ///
     /// 各要素: `{ label: String, isToday: Bool, imageBytes: Uint8List? , imageId: String? }`
     /// 画像は毎回書き直さず、`imageId` が同じファイルが既にあれば再利用する。
+    /// ウィジェットが読むファイルの中身を返す。
+    ///
+    /// ウィジェットのプロセスからは書き込みができず（Live Activity で確認済み）、
+    /// 向こう側の状態は観測できない。アプリ側から同じファイルを読んで、
+    /// 「何が入っているか」だけでも見えるようにしておく。
+    private func friendWidgetDiagnostics() -> [String: Any] {
+        let items = FriendNowPlayingShared.read()
+        var out: [String: Any] = [:]
+        out["count"] = items.count
+        out["items"] = items.map { item -> String in
+            let art = item.artworkId.map {
+                MusicMemoryShared.hasUsableArtwork(id: $0) ? "画像あり" : "画像なし"
+            } ?? "ID なし"
+            let avatar = item.avatarId.map {
+                MusicMemoryShared.hasUsableArtwork(id: $0) ? "アイコンあり" : "アイコンなし"
+            } ?? "ID なし"
+            return "\(item.friendName): \(item.trackName) / \(item.artistName) [\(art), \(avatar)]"
+        }
+        if let dir = MusicMemoryShared.sharedDirectory {
+            let path = dir.appendingPathComponent("friend_now_playing.json").path
+            out["file"] = path
+            out["fileExists"] = FileManager.default.fileExists(atPath: path)
+        } else {
+            out["file"] = "(共有ディレクトリが取れない)"
+        }
+        return out
+    }
+
     /// ホーム画面ウィジェット（友達が今聴いてる曲）のデータを書き出す。
     ///
     /// 画像は Live Activity と同じ置き場に `art_<id>.jpg` で入れる。

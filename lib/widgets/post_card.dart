@@ -676,28 +676,11 @@ class PostCardState extends State<PostCard>
 
   /// 裏面カード本文（トランスフォームなし）- キャプチャ・表示共用
   Widget _buildBackCardBody(double cardWidth, double cardHeight, PostTheme theme) {
-    // hideBackOverlays: 写真自体にプレビュー全体 (歌詞カード / ユーザー badge / 楽曲情報) が
-    // 焼き込まれているケース (Vibe ストーリー写真なし投稿)。二重描画を避けるため、
-    // ユーザー情報・歌詞カード・楽曲情報等の overlay を一切乗せず、写真だけ全面表示。
-    if (widget.post.hideBackOverlays) {
-      return Container(
-        width: cardWidth,
-        height: cardHeight,
-        color: const Color(0xFF121212),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
-          child: _buildPhotoArea(cardWidth, cardHeight),
-        ),
-      );
-    }
-
-    // 裏面は「その投稿時点の音楽の顔」を出す（Figma 5787-12995）。
-    // 以前は写真の上に曲情報とリアクションを重ねていたが、投稿フローから
-    // 写真の工程を外したので写真そのものが無い。
+    // 写真が渡されていればそれを最優先で出す（自分のカレンダーから見たとき）。
     //
-    // リアクション・コメント・共有はこの面に置き場所が無くなったため、今は
-    // 出していない（行き先が決まったら戻す）。
-    // 写真が渡されていればそちらを出す（自分のカレンダーから見たとき）。
+    // hideBackOverlays より先に見ること。写真が裏面だった頃の投稿は
+    // hideBackOverlays が立っており、そちらの分岐に入ると posts.photoUrl を
+    // 読んでしまう。移行先（post_photos）の写真は渡されたものにしか無い。
     final photoUrl = widget.backPhotoUrl;
     if (photoUrl != null && photoUrl.isNotEmpty) {
       return Container(
@@ -723,6 +706,27 @@ class PostCardState extends State<PostCard>
       );
     }
 
+    // hideBackOverlays: 写真自体にプレビュー全体 (歌詞カード / ユーザー badge / 楽曲情報) が
+    // 焼き込まれているケース (Vibe ストーリー写真なし投稿)。二重描画を避けるため、
+    // ユーザー情報・歌詞カード・楽曲情報等の overlay を一切乗せず、写真だけ全面表示。
+    if (widget.post.hideBackOverlays) {
+      return Container(
+        width: cardWidth,
+        height: cardHeight,
+        color: const Color(0xFF121212),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
+          child: _buildPhotoArea(cardWidth, cardHeight),
+        ),
+      );
+    }
+
+    // 裏面は「その投稿時点の音楽の顔」を出す（Figma 5787-12995）。
+    // 以前は写真の上に曲情報とリアクションを重ねていたが、投稿フローから
+    // 写真の工程を外したので写真そのものが無い。
+    //
+    // リアクション・コメント・共有はこの面に置き場所が無くなったため、今は
+    // 出していない（行き先が決まったら戻す）。
     final snapshot = widget.post.profileSnapshot;
     return Container(
       width: cardWidth,

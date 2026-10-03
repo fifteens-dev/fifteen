@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../utils/photo_helper.dart';
 import 'music_memory_cycle_service.dart';
@@ -116,10 +117,24 @@ class PostPhotoService {
           if (url is String && url.isNotEmpty) out[d.id] = url;
         }
       } catch (e) {
-        if (kDebugMode) print('PostPhotoService.photoUrls chunk failed: $e');
+        // 失敗を黙って捨てると「写真が無い」と見分けが付かない。
+        await _log('取得に失敗 (${chunk.length}件): $e');
       }
     }
+    await _log('照会 ${postIds.length} 件 → 見つかった ${out.length} 件');
     return out;
+  }
+
+  /// Live Activity と同じログに残す。写真が出ない原因は実機でしか追えない。
+  /// 画面側からも呼べるよう公開している。
+  Future<void> log(String message) => _log(message);
+
+  Future<void> _log(String message) async {
+    if (kDebugMode) print('PostPhoto: $message');
+    try {
+      await const MethodChannel('com.fifteen.liveactivity')
+          .invokeMethod('log', {'tag': 'postPhoto', 'message': message});
+    } catch (_) {/* ログが出せなくても本体は続ける */}
   }
 
   /// 写真を消す。投稿の削除に合わせて呼ぶ。

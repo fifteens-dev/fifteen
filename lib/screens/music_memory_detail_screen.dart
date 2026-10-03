@@ -124,7 +124,18 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
   Future<void> _loadPhotos() async {
     final ids = [for (final p in _days) p.postId];
     final photos = await PostPhotoService.instance.photoUrls(ids);
-    if (mounted && photos.isNotEmpty) setState(() => _photos = photos);
+    if (!mounted) return;
+    // 空でも setState する。前回の結果が残ると、無い日に古い写真が出る。
+    setState(() => _photos = photos);
+    // どの日に写真が付いたかを残す。出ないときの切り分け用。
+    final hit = [
+      for (final p in _days)
+        if (photos.containsKey(p.postId))
+          '${p.createdAt.month}/${p.createdAt.day}',
+    ];
+    await PostPhotoService.instance.log(
+        'カレンダー: ${_days.length} 日中 ${photos.length} 日に写真'
+        '${hit.isEmpty ? '' : ' [${hit.take(8).join(", ")}]'}');
   }
 
   int get _monthCount => widget.monthsNewToOld.length;
@@ -194,6 +205,9 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
         _days.sort((a, b) => b.createdAt.compareTo(a.createdAt)); // 新→古
         _loadedChunks++;
       });
+      // 日が増えたので写真も引き直す。
+      // ignore: discarded_futures
+      _loadPhotos();
     } finally {
       _loadingMore = false;
     }

@@ -104,9 +104,11 @@ class PostPhotoService {
     if (uid == null) return const {};
 
     final out = <String, String>{};
-    // whereIn は 30 件まで。
-    for (var i = 0; i < postIds.length; i += 30) {
-      final chunk = postIds.skip(i).take(30).toList();
+    // whereIn の上限は 30 だが、ここでは 20 ずつにする。
+    // userId 条件つきの whereIn はそれ以上だと permission-denied になる
+    // （21 件から落ちることを実機と同じクライアント SDK で確認）。
+    for (var i = 0; i < postIds.length; i += 20) {
+      final chunk = postIds.skip(i).take(20).toList();
       try {
         // userId を条件に含めるのはルールの都合。list では resource.data を
         // 見られないので、「自分のぶんだけを引くクエリ」であることを
@@ -115,7 +117,6 @@ class PostPhotoService {
             .collection(_collection)
             .where('userId', isEqualTo: uid)
             .where(FieldPath.documentId, whereIn: chunk)
-            .limit(chunk.length)
             .get();
         for (final d in snap.docs) {
           final url = d.data()['photoUrl'];

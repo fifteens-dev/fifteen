@@ -86,8 +86,11 @@ service cloud.firestore {
       //
       // 代わりに「自分の userId で絞ったクエリか」をリクエスト側で見る。
       // この書き方なら他人のぶんは引けない。
+      //
+      // limit の上限はここでは課さない。documentId の whereIn と併用すると、
+      // 件数が増えたとき（実測で 21 件以上）に limit の条件そのもので
+      // 落ちるため。件数はクライアント側で 20 件ずつに分けている。
       allow list: if isAuthenticated() &&
-        request.query.limit <= 100 &&
         resource.data.userId == request.auth.uid;
 
       allow create: if isAuthenticated() &&

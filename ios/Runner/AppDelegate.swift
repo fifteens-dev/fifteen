@@ -70,8 +70,17 @@ import ObjectiveC.runtime
     // FlutterTextInputView の paste を常に許可（SystemContextMenu でペーストを常時表示）
     swizzleFlutterPasteAction()
 
+    // PlatformView はここで登録する。
+    //
+    // チャンネルと違ってシーン接続を待てない。Flutter 側が UiKitView を
+    // 組み立てるのはシーン接続より早く、間に合わないと
+    // 「unregistered_view_type」で描画に失敗する（UIScene 移行で実際に踏んだ）。
+    // registrar は FlutterViewController ではなく FlutterPluginRegistry から
+    // 取るので、window がまだ無くても登録できる。
+    registerPlatformViews()
+
     // メソッドチャンネルの登録は SceneDelegate 側で行う。
-    // シーン方式では、この時点ではまだ window（＝FlutterViewController）が無い。
+    // こちらは window（＝FlutterViewController）の binaryMessenger が要るため。
 
     // FCM: Request notification permissions
     if #available(iOS 10.0, *) {
@@ -99,6 +108,30 @@ import ObjectiveC.runtime
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
+  // MARK: - PlatformView の登録
+
+  /// UiKitView として使うネイティブビューを登録する。
+  /// 起動直後に呼ぶこと（理由は呼び出し側のコメント参照）。
+  private func registerPlatformViews() {
+    // 上部連続ぼかし（UIVisualEffectView + グラデマスク）
+    if let registrar = self.registrar(forPlugin: "VariableBlurPlugin") {
+      registrar.register(
+        VariableBlurFactory(messenger: registrar.messenger()),
+        withId: "com.fifteen/variable_blur"
+      )
+    }
+
+    // 透明 UIButton + UIMenu（3 点メニュー）
+    if #available(iOS 14.0, *) {
+      if let registrar = self.registrar(forPlugin: "NativeMenuButtonPlugin") {
+        registrar.register(
+          NativeMenuButtonFactory(messenger: registrar.messenger()),
+          withId: "com.fifteen.nativemenu/button"
+        )
+      }
+    }
+  }
+
   // MARK: - Flutter チャンネルの登録
 
   private var _didSetupChannels = false
@@ -123,26 +156,10 @@ import ObjectiveC.runtime
     liveActivity.setup(controller: controller)
     liveActivityChannel = liveActivity  // ARC で解放されないよう保持
 
-    // PlatformView: 上部連続ぼかし（UIVisualEffectView + グラデマスク）
-    if let registrar = self.registrar(forPlugin: "VariableBlurPlugin") {
-      registrar.register(
-        VariableBlurFactory(messenger: registrar.messenger()),
-        withId: "com.fifteen/variable_blur"
-      )
-    }
-
     if #available(iOS 14.0, *) {
       let menuChannel = NativeMenuChannel()
       menuChannel.setup(controller: controller)
       nativeMenuChannel = menuChannel  // ARC で解放されないよう保持
-
-      // PlatformView: 透明 UIButton + UIMenu
-      if let registrar = self.registrar(forPlugin: "NativeMenuButtonPlugin") {
-        registrar.register(
-          NativeMenuButtonFactory(messenger: registrar.messenger()),
-          withId: "com.fifteen.nativemenu/button"
-        )
-      }
     }
 
     // ネイティブ絵文字リアクションピッカー（すりガラスの吹き出し）

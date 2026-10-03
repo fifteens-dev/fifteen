@@ -50,6 +50,11 @@ class PostCardBackPhoto extends StatelessWidget {
 
   static const Color _sub = Color(0xFFD4D0CF);
 
+  /// Figma の指定は SF Pro。アプリは iOS のシステム SF Pro を
+  /// FontService が 'SFPro' として読み込んでいる（[FontService.loadSFPro]）。
+  /// 指定しないと親から別の書体を継承してしまうので明示する。
+  static const String _font = 'SFPro';
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -123,7 +128,8 @@ class PostCardBackPhoto extends StatelessWidget {
                   color: Colors.white,
                   fontSize: 32 * _s,
                   height: 1.0,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w500, // Figma: SF Pro Medium (510)
+                  fontFamily: _font,
                 ),
               ),
             ),
@@ -153,7 +159,8 @@ class PostCardBackPhoto extends StatelessWidget {
               color: Colors.white,
               fontSize: 70 * _s,
               height: 1.0,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w500, // Figma: SF Pro Medium (510)
+              fontFamily: _font,
             ),
           ),
         ),
@@ -173,6 +180,8 @@ class PostCardBackPhoto extends StatelessWidget {
               color: _sub,
               fontSize: 32 * _s,
               height: 1.0,
+              fontWeight: FontWeight.w400, // Figma: SF Pro Regular
+              fontFamily: _font,
             ),
           ),
         ),
@@ -211,6 +220,8 @@ class PostCardBackPhoto extends StatelessWidget {
               color: _sub,
               fontSize: 30 * _s,
               height: 1.0,
+              fontWeight: FontWeight.w400, // Figma: SF Pro Regular
+              fontFamily: _font,
             ),
           ),
         ),

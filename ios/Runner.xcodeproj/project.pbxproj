@@ -10,6 +10,7 @@
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		1DAD70E679786C38E3E71B35 /* FifteensWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = EA96AAA5BB7DAFEEF7AAE797 /* FifteensWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2911D3C3E1B0FEFE3CF67564 /* MusicMemoryLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16B9E676277F76BAAA2D24BA /* MusicMemoryLiveActivity.swift */; };
+		2B9F54514A0534AF7D82DB7A /* NowPlayingBackgroundSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = E46B2CEAE73F8EC40B26A6A1 /* NowPlayingBackgroundSync.swift */; };
 		2C07C70D3DF7A9E0123B7F4A /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F9EC21B720C8FE97F9388280 /* Pods_Runner.framework */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -109,6 +110,7 @@
 		D838298B0A33A7F133ACD77B /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D9E5C30524C5EEC077F71CF3 /* LiveActivityChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityChannel.swift; sourceTree = "<group>"; };
 		E070BCAE9DF33B5986BD7A8E /* FriendNowPlayingShared.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FriendNowPlayingShared.swift; sourceTree = "<group>"; };
+		E46B2CEAE73F8EC40B26A6A1 /* NowPlayingBackgroundSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NowPlayingBackgroundSync.swift; sourceTree = "<group>"; };
 		EA96AAA5BB7DAFEEF7AAE797 /* FifteensWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FifteensWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		EF13ABF42F31DE5B00CA32D8 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		F9EC21B720C8FE97F9388280 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -233,6 +235,7 @@
 				FEEDDEADBEEF000000000A02 /* ReactionPickerChannel.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				D9E5C30524C5EEC077F71CF3 /* LiveActivityChannel.swift */,
+				E46B2CEAE73F8EC40B26A6A1 /* NowPlayingBackgroundSync.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -526,6 +529,7 @@
 				811256863EF5E08B475B73A5 /* MusicMemoryActivityAttributes.swift in Sources */,
 				B0A84DB6635CA9067628FD9C /* LiveActivityChannel.swift in Sources */,
 				67A91F78320DD7A890CB3F7F /* FriendNowPlayingShared.swift in Sources */,
+				2B9F54514A0534AF7D82DB7A /* NowPlayingBackgroundSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

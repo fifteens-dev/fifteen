@@ -39,6 +39,7 @@ import 'profile_screen.dart';
 import 'friend_add_sheet.dart';
 import '../services/friend_match_service.dart';
 import '../services/friend_widget_service.dart';
+import '../services/now_playing_share_service.dart';
 import '../services/post_photo_service.dart';
 import 'post_flow/add_photo_flow.dart';
 import 'music_selection_screen.dart';
@@ -178,6 +179,9 @@ class _HomeScreenState extends State<HomeScreen>
     // ignore: discarded_futures
     LiveActivityService().refresh();
     // ホーム画面ウィジェット（友達が今聴いてる曲）。
+    // 自分の再生状態も共有する（友達のウィジェットに出るのはこれ）。
+    // ignore: discarded_futures
+    NowPlayingShareService.instance.publish();
     // ignore: discarded_futures
     FriendWidgetService.instance.refresh();
     // ignore: discarded_futures
@@ -682,6 +686,8 @@ class _HomeScreenState extends State<HomeScreen>
       // （締切超過なら終了、フォロー中の投稿があれば「友達が待っています」へ）。
       // ignore: discarded_futures
       LiveActivityService().refresh();
+      // ignore: discarded_futures
+      NowPlayingShareService.instance.publish();
       // ignore: discarded_futures
       FriendWidgetService.instance.refresh();
       // ignore: discarded_futures

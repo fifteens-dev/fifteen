@@ -1,19 +1,22 @@
 import 'dart:io' show Platform;
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../models/post_model.dart';
 import 'friend_service.dart';
+import 'apple_music_service.dart';
 import 'live_activity_service.dart';
-import 'music_memory_cycle_service.dart';
+import 'now_playing_share_service.dart';
 
 /// ホーム画面ウィジェット「友達が今聴いてる曲」へデータを渡す。
 ///
-/// 現在のサイクル（15s Day）に友達が投稿した曲を新しい順に集め、App Group の
-/// ファイルへ書き出す。ウィジェット側は更新のたびに次の 1 件へ送る。
+/// 友達が**今 Apple Music で再生している曲**を集めて App Group のファイルへ
+/// 書き出す。ウィジェット側は更新のたびに次の 1 人へ送る。
+///
+/// 友達の端末の再生状態を直接知る API は無いので、各自が自分のぶんを
+/// Firestore に書いたものを読む（[NowPlayingShareService]）。
+/// 報告が古い人は「聴いていない」として出さない。
 ///
 /// 画像（アルバムアート・友達のアイコン）は Live Activity と同じ置き場に
 /// 入れる。既に持っているものは送らないので、毎回ダウンロードし直さない。
@@ -95,7 +98,7 @@ class FriendWidgetService {
     } catch (_) {/* ログが出せなくても本体は続ける */}
   }
 
-  /// 現在のサイクルに友達が投稿した曲を新しい順に集める。
+  /// 友達が今 Apple Music で聴いている曲を集める。
   Future<List<_Item>> _collect(String uid) async {
     final friends = await _friendService.loadFriends(uid);
     if (friends.isEmpty) {
@@ -103,27 +106,27 @@ class FriendWidgetService {
       return const [];
     }
 
-    final cycleStart = MusicMemoryCycleService().currentCycleStart;
     final byUid = {for (final f in friends) f.user.uid: f.user};
+    final playing = await NowPlayingShareService.instance
+        .fetch(byUid.keys.toList());
 
-    // ここで getRecentPostsGroupedByUser は使えない。あれは Vibe ストーリー
-    // バー用で isMoodPost を弾くが、今の投稿フローで作られる投稿は
-    // すべて isMoodPost。候補が常に 0 件になる。
-    final latest = await _latestPostPerFriend(
-      uids: byUid.keys.toList(),
-      since: cycleStart,
-    );
-    await _log('友達 ${friends.length} 人 / サイクル内の投稿 ${latest.length} 件'
-        '（開始 ${cycleStart.toIso8601String()}）');
+    // 報告が新しい順。「今」に近い人から見せる。
+    final entries = playing.entries.toList()
+      ..sort((a, b) => b.value.updatedAt.compareTo(a.value.updatedAt));
+
+    await _log('友達 ${friends.length} 人 / 再生中 ${entries.length} 人');
 
     return [
-      for (final p in latest.take(_maxItems))
-        if (byUid[p.userId] case final user?)
+      for (final e in entries.take(_maxItems))
+        if (byUid[e.key] case final user?)
           _Item(
-            trackName: p.track.trackName,
-            artistName: p.track.artistName,
-            artworkId: p.postId,
-            artworkUrl: p.track.albumImageUrl,
+            trackName: e.value.trackName,
+            artistName: e.value.artistName,
+            // アートワークは曲ごとに固定。同じ曲なら落とし直さない。
+            artworkId: e.value.storeId != null
+                ? 'track_${e.value.storeId}'
+                : 'track_${e.value.trackName.hashCode}',
+            artworkUrl: await _artworkUrl(e.value),
             // 同じ人のアイコンを何度も落とさないよう uid で固定する。
             // art_friend_ 始まりはウィジェット用として掃除の対象にしている。
             avatarId: 'friend_${user.uid}',
@@ -131,46 +134,22 @@ class FriendWidgetService {
             friendName: (user.name?.isNotEmpty == true)
                 ? user.name!
                 : (user.username ?? ''),
-            // 音楽サービスは投稿には入っていない。バッジは既定
-            // （Apple Music）で出す。出し分けが要るなら投稿に持たせる。
-            service: null,
+            // 共有しているのは Apple Music の再生状態だけ。
+            service: 'appleMusic',
           ),
     ];
   }
 
-  /// 友達ごとの「現サイクルの最新 1 件」を新しい順に返す。
-  ///
-  /// 同じ人の投稿で埋まらないよう 1 人 1 件に絞る。
-  Future<List<PostModel>> _latestPostPerFriend({
-    required List<String> uids,
-    required DateTime since,
-  }) async {
-    final byUser = <String, PostModel>{};
-    // whereIn は 30 件まで。
-    for (var i = 0; i < uids.length; i += 30) {
-      final chunk = uids.skip(i).take(30).toList();
-      try {
-        final snap = await FirebaseFirestore.instance
-            .collection('posts')
-            .where('userId', whereIn: chunk)
-            .where('createdAt', isGreaterThan: Timestamp.fromDate(since))
-            .orderBy('createdAt', descending: true)
-            .get();
-        for (final doc in snap.docs) {
-          final data = doc.data();
-          if (data['isDummyPost'] == true) continue;
-          final post = PostModel.fromFirestore(doc);
-          // Vibe ストーリーは「今日の 1 曲」ではないので出さない。
-          if (post.isVibe) continue;
-          byUser.putIfAbsent(post.userId, () => post);
-        }
-      } catch (e) {
-        await _log('投稿の取得に失敗: $e');
-      }
+  /// 曲のアートワーク URL。カタログ ID があればそこから引く。
+  Future<String> _artworkUrl(NowPlayingEntry entry) async {
+    final id = entry.storeId;
+    if (id == null || id.isEmpty) return '';
+    try {
+      final track = await AppleMusicService().getCatalogSongById(id);
+      return track?.albumImageUrl ?? '';
+    } catch (_) {
+      return '';
     }
-    final list = byUser.values.toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return list;
   }
 
   /// ネイティブへ渡す。未取得の画像だけダウンロードして同梱する。

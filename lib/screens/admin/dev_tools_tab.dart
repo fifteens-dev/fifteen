@@ -201,7 +201,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
         ),
         const SizedBox(height: 4),
         const Text(
-          '「友達が今聴いてる曲」に渡っているデータを確認します。',
+          '友達が今 Apple Music で聴いている曲。自分の再生状態も共有します。',
           style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.5),
         ),
         const SizedBox(height: 8),

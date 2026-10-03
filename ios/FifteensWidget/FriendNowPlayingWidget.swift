@@ -3,8 +3,8 @@ import WidgetKit
 
 /// ホーム画面ウィジェット「友達が今聴いてる曲」（Figma 5761-11798）。
 ///
-/// アプリが App Group に書いた [FriendNowPlaying] を読んで出す。1 件ずつ
-/// 表示し、更新のたびに次の友達へ送る。
+/// アプリが App Group に書いた [FriendNowPlaying] を読んで出す。1 人ずつ
+/// 表示し、更新のたびに次の友達へ送る。誰も聴いていなければその旨を出す。
 ///
 /// 背景はすりガラス。iOS 17 以降は `containerBackground` を付けないと
 /// ホーム画面のウィジェットが表示されないため、必ず指定する。
@@ -16,7 +16,7 @@ struct FriendNowPlayingWidget: Widget {
             FriendNowPlayingView(entry: entry)
         }
         .configurationDisplayName("友達の1曲")
-        .description("友達が今日えらんだ曲を表示します。")
+        .description("友達が今 Apple Music で聴いている曲を表示します。")
         .supportedFamilies([.systemSmall])
     }
 }
@@ -29,9 +29,11 @@ struct FriendNowPlayingEntry: TimelineEntry {
 }
 
 struct FriendNowPlayingProvider: TimelineProvider {
-    /// 1 件を見せている時間。短すぎると通信・電力の無駄になり、長すぎると
-    /// 友達が一巡しない。
-    private static let rotateInterval: TimeInterval = 30 * 60
+    /// 1 人を見せている時間。
+    ///
+    /// 「今聴いている曲」は入れ替わりが速いので、投稿を出していた頃より
+    /// 短くする。短すぎても OS が付き合ってくれないので 10 分。
+    private static let rotateInterval: TimeInterval = 10 * 60
 
     func placeholder(in context: Context) -> FriendNowPlayingEntry {
         FriendNowPlayingEntry(date: Date(), item: nil)
@@ -46,7 +48,7 @@ struct FriendNowPlayingProvider: TimelineProvider {
         guard !items.isEmpty else {
             // まだ何も無いときは少し待ってから取り直す。
             let entry = FriendNowPlayingEntry(date: Date(), item: nil)
-            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(15 * 60))))
+            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(10 * 60))))
             return
         }
 
@@ -130,7 +132,7 @@ struct FriendNowPlayingView: View {
             Image(systemName: "music.note")
                 .font(.system(size: 22))
                 .foregroundStyle(.secondary)
-            Text("友達の投稿を待っています")
+            Text("友達は音楽を聴いていません。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

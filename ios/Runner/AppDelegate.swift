@@ -90,6 +90,12 @@ import ObjectiveC.runtime
     // FCM: Register for remote notifications
     application.registerForRemoteNotifications()
 
+    // ホーム画面ウィジェット用。友達に「今 Apple Music で聴いている曲」を
+    // 見せるため、アプリを開いていない間も再生状態を共有する。
+    // 実際にいつ呼ばれるかは OS の裁量（最短 15 分、実際はもっと空く）。
+    application.setMinimumBackgroundFetchInterval(
+      UIApplication.backgroundFetchIntervalMinimum)
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -648,6 +654,20 @@ import ObjectiveC.runtime
     // Flutter が既に起動済みならすぐ通知（バックグラウンド復帰など）
     deepLinkFlutterChannel?.invokeMethod("onDeepLink", arguments: ["postId": postId])
     return true
+  }
+
+  /// Background App Refresh。再生状態を書き込むだけで、Flutter は起こさない。
+  ///
+  /// 持ち時間が短いので、エンジンの起動に使うと間に合わないことがある。
+  /// 詳細は [NowPlayingBackgroundSync] のコメント参照。
+  override func application(
+    _ application: UIApplication,
+    performFetchWithCompletionHandler completionHandler:
+      @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    NowPlayingBackgroundSync.publish { updated in
+      completionHandler(updated ? .newData : .noData)
+    }
   }
 
   // フォアグラウンドまたはバックグラウンドからURLで開かれたとき

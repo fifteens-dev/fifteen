@@ -61,6 +61,17 @@ service cloud.firestore {
       }
     }
 
+    // ── 今 Apple Music で聴いている曲（ウィジェット用） ──
+    //
+    // 各自が自分のぶんだけ書き、ログイン済みなら読める。
+    // 友達かどうかはクライアント側で絞る（相互フォローの判定を
+    // ルールでやると get が増えて重い）。
+    // 曲名だけで、位置や履歴のような重い情報は持たせない。
+    match /now_playing/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
     // ── 投稿に添えた写真（本人のみ） ──
     //
     // posts は list が誰でも引けるので、photoUrl をそこに入れると

@@ -77,7 +77,19 @@ service cloud.firestore {
     // posts は list が誰でも引けるので、photoUrl をそこに入れると
     // 「非公開」にならない。別コレクションに分けて本人だけに絞る。
     match /post_photos/{postId} {
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // 1 件取得は中身を見て本人か判定できる。
+      allow get: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // クエリでは resource.data を見られない（Firestore は結果を 1 件ずつ
+      // 評価せず、クエリの条件だけで可否を決める）。read に resource.data を
+      // 書くと documentId の whereIn が丸ごと permission-denied になる。
+      //
+      // 代わりに「自分の userId で絞ったクエリか」をリクエスト側で見る。
+      // この書き方なら他人のぶんは引けない。
+      allow list: if isAuthenticated() &&
+        request.query.limit <= 100 &&
+        resource.data.userId == request.auth.uid;
+
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAuthenticated() &&

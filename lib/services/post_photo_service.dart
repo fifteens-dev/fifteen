@@ -108,9 +108,14 @@ class PostPhotoService {
     for (var i = 0; i < postIds.length; i += 30) {
       final chunk = postIds.skip(i).take(30).toList();
       try {
+        // userId を条件に含めるのはルールの都合。list では resource.data を
+        // 見られないので、「自分のぶんだけを引くクエリ」であることを
+        // リクエスト側で示す必要がある（無いと permission-denied）。
         final snap = await _firestore
             .collection(_collection)
+            .where('userId', isEqualTo: uid)
             .where(FieldPath.documentId, whereIn: chunk)
+            .limit(chunk.length)
             .get();
         for (final d in snap.docs) {
           final url = d.data()['photoUrl'];

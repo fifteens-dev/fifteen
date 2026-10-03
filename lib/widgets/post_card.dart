@@ -17,6 +17,7 @@ import '../constants/adl_teams.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../models/profile_snapshot.dart';
+import 'post_card_back_photo.dart';
 import 'post_card_back_profile.dart';
 import '../screens/adl_team_playlist_screen.dart';
 import '../screens/artist_profile_screen.dart';
@@ -683,23 +684,25 @@ class PostCardState extends State<PostCard>
     // 読んでしまう。移行先（post_photos）の写真は渡されたものにしか無い。
     final photoUrl = widget.backPhotoUrl;
     if (photoUrl != null && photoUrl.isNotEmpty) {
-      return Container(
+      return SizedBox(
         width: cardWidth,
         height: cardHeight,
-        color: const Color(0xFF000000),
-        child: ClipRRect(
-          borderRadius:
-              BorderRadius.circular(PostCardConstants.cardBorderRadius),
-          child: Image(
-            image: albumImageProvider(photoUrl),
-            width: cardWidth,
-            height: cardHeight,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const ColoredBox(
-              color: Color(0xFF1F1F1F),
-              child: Center(
-                child: Icon(Icons.photo, color: Colors.white24, size: 40),
-              ),
+        child: FittedBox(
+          // 実寸 363×645 で組んであるので、枠が違うときは丸ごと拡縮する。
+          fit: BoxFit.contain,
+          // 絵文字ピッカーはボタンの位置に吹き出しを出すので、
+          // ボタン自身の context が要る。
+          child: Builder(
+            builder: (btnCtx) => PostCardBackPhoto(
+              photoUrl: photoUrl,
+              username: widget.post.username,
+              avatarUrl: widget.post.userIconUrl,
+              trackName: widget.post.track.trackName,
+              artistName: widget.post.track.artistName,
+              onReaction: widget.disableInteractions
+                  ? null
+                  : () => _showReactionPicker(btnCtx),
+              onAdd: widget.disableInteractions ? null : widget.onAdd,
             ),
           ),
         ),

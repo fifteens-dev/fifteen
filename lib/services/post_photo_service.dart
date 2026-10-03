@@ -77,6 +77,7 @@ class PostPhotoService {
         'height': height,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      _cache = null; // 次の取得で入れ直す
       return true;
     } catch (e) {
       if (kDebugMode) print('PostPhotoService.attach error: $e');
@@ -96,39 +97,62 @@ class PostPhotoService {
     }
   }
 
-  /// 複数の投稿ぶんまとめて引く（Music Memory のカレンダー用）。
-  /// 返すのは postId → URL。写真の無い投稿は含まれない。
+  /// 自分の写真をまとめて引く（Music Memory のカレンダー用）。
+  /// 返すのは postId → URL。
+  ///
+  /// postId で絞らず、自分のぶんを丸ごと取る。documentId の whereIn を使うと、
+  /// **存在しないドキュメント ID が 1 つでも混ざった時点でクエリ全体が
+  /// permission-denied になる**（実機と同じクライアント SDK で確認）。
+  /// カレンダーは写真の無い日も含めて問い合わせるので、必ずそこに当たる。
+  ///
+  /// 件数は 1 ユーザーの投稿数ぶんなので、まとめて引いても重くない。
+  /// 結果はキャッシュして、画面を開き直すたびに取り直さない。
   Future<Map<String, String>> photoUrls(List<String> postIds) async {
-    if (postIds.isEmpty) return const {};
+    final all = await _allPhotos();
+    if (postIds.isEmpty) return all;
+    return {
+      for (final id in postIds)
+        if (all[id] case final url?) id: url,
+    };
+  }
+
+  /// 自分の写真すべて。postId → URL。
+  Map<String, String>? _cache;
+  DateTime? _cachedAt;
+  static const Duration _cacheTtl = Duration(minutes: 5);
+
+  Future<Map<String, String>> _allPhotos({bool force = false}) async {
+    final cached = _cache;
+    final at = _cachedAt;
+    if (!force &&
+        cached != null &&
+        at != null &&
+        DateTime.now().difference(at) < _cacheTtl) {
+      return cached;
+    }
+
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return const {};
 
-    final out = <String, String>{};
-    // whereIn の上限は 30 だが、ここでは 20 ずつにする。
-    // userId 条件つきの whereIn はそれ以上だと permission-denied になる
-    // （21 件から落ちることを実機と同じクライアント SDK で確認）。
-    for (var i = 0; i < postIds.length; i += 20) {
-      final chunk = postIds.skip(i).take(20).toList();
-      try {
-        // userId を条件に含めるのはルールの都合。list では resource.data を
-        // 見られないので、「自分のぶんだけを引くクエリ」であることを
-        // リクエスト側で示す必要がある（無いと permission-denied）。
-        final snap = await _firestore
-            .collection(_collection)
-            .where('userId', isEqualTo: uid)
-            .where(FieldPath.documentId, whereIn: chunk)
-            .get();
-        for (final d in snap.docs) {
-          final url = d.data()['photoUrl'];
-          if (url is String && url.isNotEmpty) out[d.id] = url;
-        }
-      } catch (e) {
-        // 失敗を黙って捨てると「写真が無い」と見分けが付かない。
-        await _log('取得に失敗 (${chunk.length}件): $e');
+    try {
+      final snap = await _firestore
+          .collection(_collection)
+          .where('userId', isEqualTo: uid)
+          .get();
+      final out = <String, String>{};
+      for (final d in snap.docs) {
+        final url = d.data()['photoUrl'];
+        if (url is String && url.isNotEmpty) out[d.id] = url;
       }
+      _cache = out;
+      _cachedAt = DateTime.now();
+      await _log('自分の写真 ${out.length} 件を取得');
+      return out;
+    } catch (e) {
+      // 失敗を黙って捨てると「写真が無い」と見分けが付かない。
+      await _log('取得に失敗: $e');
+      return cached ?? const {};
     }
-    await _log('照会 ${postIds.length} 件 → 見つかった ${out.length} 件');
-    return out;
   }
 
   /// Live Activity と同じログに残す。写真が出ない原因は実機でしか追えない。
@@ -147,6 +171,7 @@ class PostPhotoService {
   Future<void> remove(String postId) async {
     try {
       await _firestore.collection(_collection).doc(postId).delete();
+      _cache = null;
     } catch (e) {
       if (kDebugMode) print('PostPhotoService.remove error: $e');
     }

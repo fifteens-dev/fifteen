@@ -8,6 +8,7 @@ import '../models/track_model.dart';
 import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/lyrics_service.dart';
+import '../services/music_memory_cycle_service.dart';
 import '../utils/color_extractor.dart';
 import 'post_card_edit_screen.dart';
 import 'post_flow/mood_post_final_preview_screen.dart';
@@ -247,18 +248,28 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     await _loadAlbumAssets(_selectedAlbum!);
   }
 
-  /// [PostPhotoSelectionScreen.todayOnly] のとき、今日撮った写真だけに絞る。
+  /// [PostPhotoSelectionScreen.todayOnly] のとき、その投稿の日に撮った
+  /// 写真だけに絞る。
   ///
   /// 判定は撮影日時（createDateTime）。保存日ではないので、昔の写真を
   /// 今日インポートしても通らない。
+  ///
+  /// 基準は「今日」ではなく**サイクルの開始日**（通知が来た日）。投稿は
+  /// 21:00〜24:00 なので普段は今日と同じだが、0 時を回ってから足せる場面では
+  /// 「今日」で見ると前夜に撮った当の写真が消えてしまう。
   List<AssetEntity> _filterToday(List<AssetEntity> assets) {
     if (!widget.todayOnly) return assets;
-    final now = DateTime.now();
+
+    // notifiedAt は端末ローカル（JST）に直してから暦日を見る。
+    // createDateTime もローカルなので揃う。未取得のときは今日で代替する。
+    final cycle = MusicMemoryCycleService();
+    final day = (cycle.notifiedAt ?? DateTime.now()).toLocal();
+
     return [
       for (final a in assets)
-        if (a.createDateTime.year == now.year &&
-            a.createDateTime.month == now.month &&
-            a.createDateTime.day == now.day)
+        if (a.createDateTime.year == day.year &&
+            a.createDateTime.month == day.month &&
+            a.createDateTime.day == day.day)
           a,
     ];
   }

@@ -37,7 +37,10 @@ class PostPhotoService {
   /// （実際にそれで写真追加のバーが出なかった）。
   Future<bool> canAddPhotoNow() async {
     final cycle = MusicMemoryCycleService();
+    // 延長の判定より先に取る。写真の絞り込み（どの日の写真を出すか）が
+    // notifiedAt を見るので、先に return すると null のままになる。
     if (cycle.notifiedAt == null) await cycle.fetchNotifiedAt();
+    if (_temporaryExtensionActive) return true;
     final deadline = cycle.currentDeadline;
     if (deadline == null) return false;
     return DateTime.now().isBefore(deadline);
@@ -46,10 +49,24 @@ class PostPhotoService {
   /// 取りに行かずに判定する。既に取得済みの前提で、描画のたびに
   /// 呼ばれる場所（カードのバーを出すか）で使う。
   bool get canAddPhotoNowSync {
+    if (_temporaryExtensionActive) return true;
     final deadline = MusicMemoryCycleService().currentDeadline;
     if (deadline == null) return false;
     return DateTime.now().isBefore(deadline);
   }
+
+  // ── 一時的な延長（動作確認用・2026-10-05 まで）──────────────
+  //
+  // 通常の締切は 24:00 だが、確認のため 10/5 の 12:00 JST まで足せるように
+  // している。**期限を過ぎれば自動で無効**になるので消し忘れても通常動作に
+  // 戻るが、不要になったらこのブロックと 2 つの呼び出しを消すこと。
+
+  /// 延長の期限（JST 2026-10-05 12:00）。
+  static final DateTime _temporaryExtensionUntil =
+      DateTime.utc(2026, 10, 5, 3); // JST 12:00 = UTC 03:00
+
+  static bool get _temporaryExtensionActive =>
+      DateTime.now().toUtc().isBefore(_temporaryExtensionUntil);
 
   /// その写真が「今日撮ったもの」か。
   ///

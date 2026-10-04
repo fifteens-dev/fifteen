@@ -25,6 +25,19 @@ class AddPhotoBar extends StatelessWidget {
     this.label,
   });
 
+  /// カード本体の色からバーの色を作る。
+  ///
+  /// Figma ではカードが #C9DD77、バーが #B0C266。同じ色相のまま明度を
+  /// 0.087 下げ、彩度を 0.72 倍したものにあたる（計算すると一致する）。
+  /// カードの色はアルバムごとに変わるので、色を直に持たずこの関係で作る。
+  static Color backgroundFor(Color cardColor) {
+    final hsl = HSLColor.fromColor(cardColor);
+    return hsl
+        .withLightness((hsl.lightness - 0.087).clamp(0.0, 1.0))
+        .withSaturation((hsl.saturation * 0.72).clamp(0.0, 1.0))
+        .toColor();
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(

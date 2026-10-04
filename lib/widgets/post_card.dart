@@ -165,7 +165,13 @@ class PostCardState extends State<PostCard>
 
   /// コメント機能を切っている間は「コメントバー無し」レイアウト（Figma 5111:10598）で
   /// 楽曲情報エリアを配置する（コメントバーの隙間分を詰めて波形などを正位置に）。
-  bool get _effHideCommentBar => widget.hideCommentBar || !kCommentsEnabled;
+  /// 下部を詰めて組むか。コメント入力欄が無いぶん、曲名・リアクション・波形を
+  /// 下へずらして間延びを防ぐ。
+  ///
+  /// 「写真を追加する」バーを出すときは詰めない。バーがコメント入力欄と同じ枠に
+  /// 入るので、Figma 5858-11628 もコメント欄がある側の配置で描かれている。
+  bool get _effHideCommentBar =>
+      (widget.hideCommentBar || !kCommentsEnabled) && widget.onAddPhoto == null;
 
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
@@ -622,6 +628,24 @@ class PostCardState extends State<PostCard>
                         child: _buildCommentButton(theme),
                       ),
 
+                    // 「写真を追加する」バー（Figma 5858-11628）。
+                    // コメント入力欄と同じ枠（top 211px, left 13 / right 12）。
+                    // カード下端に置くと著作表示に重なる。
+                    if (widget.onAddPhoto != null)
+                      Positioned(
+                        left: cardWidth * (13 / 363),
+                        right: cardWidth * (12 / 363),
+                        top: contentHeight * (211 / 294),
+                        child: AddPhotoBar(
+                          // 色の元はカード本体（グラデーションの終端）。
+                          background:
+                              AddPhotoBar.backgroundFor(theme.gradientEnd),
+                          foreground: theme.textColor,
+                          onTap: widget.onAddPhoto,
+                          label: widget.addPhotoLabel,
+                        ),
+                      ),
+
                     // "Provided courtesy of Apple Music" - Figma: bottom: 12px → top: 282px (294-12), left: 17px
                     Positioned(
                       left: cardWidth * (17 / 363),
@@ -638,19 +662,6 @@ class PostCardState extends State<PostCard>
                 ),
               ),
 
-              // 「写真を追加する」バー（Figma 5858-11628）。
-              // 曲情報の下、カード下端に沿わせる。
-              if (widget.onAddPhoto != null)
-                Positioned(
-                  left: cardWidth * (13 / 363),
-                  right: cardWidth * (12 / 363),
-                  bottom: cardHeight * (12 / 645),
-                  child: AddPhotoBar(
-                    onTap: widget.onAddPhoto,
-                    background: theme.gradientStart,
-                    label: widget.addPhotoLabel,
-                  ),
-                ),
             ],
           ),
         ),

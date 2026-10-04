@@ -27,6 +27,19 @@ class AddPhotoFlow {
     }
     if (!context.mounted) return false;
 
+    final photo = await pick(context);
+    if (photo == null || !context.mounted) return false;
+
+    final ok = await attach(postId: postId, photo: photo);
+    if (!context.mounted) return ok;
+    AppToast.show(context, ok ? '写真を追加しました' : '写真の追加に失敗しました');
+    return ok;
+  }
+
+  /// 写真を選ばせるだけ（保存はしない）。
+  ///
+  /// 投稿前の最終確認画面のように、まだ postId が無い場面で使う。
+  static Future<XFile?> pick(BuildContext context) async {
     // 投稿フローで使っていたのと同じ画面（カメラ + 写真グリッド）。
     // 「その場で撮る」が要るので、グリッドだけのオーバーレイでは足りない。
     XFile? photo;
@@ -39,24 +52,19 @@ class AddPhotoFlow {
         ),
       ),
     );
-    if (photo == null || !context.mounted) return false;
+    return photo;
+  }
 
-    final picked = await photo!.readAsBytes();
-    if (!context.mounted) return false;
-
-    // 選んでいる間に日付をまたぐことがあるので、保存の直前にもう一度見る。
-    if (!PostPhotoService.instance.canAddPhotoNowSync) {
-      AppToast.show(context, '写真を追加できるのは24:00までです');
-      return false;
-    }
-
-    final ok = await PostPhotoService.instance
-        .attach(postId: postId, imageBytes: picked);
-    if (!context.mounted) return ok;
-    AppToast.show(
-      context,
-      ok ? '写真を追加しました' : '写真の追加に失敗しました',
-    );
-    return ok;
+  /// 選んだ写真を投稿に紐づける。
+  ///
+  /// 選んでいる間に日付をまたぐことがあるので、保存の直前にもう一度
+  /// 時間帯を見る。
+  static Future<bool> attach({
+    required String postId,
+    required XFile photo,
+  }) async {
+    if (!PostPhotoService.instance.canAddPhotoNowSync) return false;
+    final bytes = await photo.readAsBytes();
+    return PostPhotoService.instance.attach(postId: postId, imageBytes: bytes);
   }
 }

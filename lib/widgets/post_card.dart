@@ -86,6 +86,9 @@ class PostCard extends StatefulWidget {
   /// 同ピルに重ねるアイコン（先頭 2 人ぶん）。
   final List<String?> backPillAvatars;
 
+  /// 「写真を追加する」バーの文言。null なら既定（「写真を追加する」）。
+  final String? addPhotoLabel;
+
   /// 「写真を追加する」バーを押したとき。null なら出さない。
   ///
   /// 自分の投稿かつ 24:00 前のときだけ呼び出し側が渡す。
@@ -132,6 +135,7 @@ class PostCard extends StatefulWidget {
     this.backSideEnabled = true, // デフォルトは裏面反転可能
     this.backPillLabel,
     this.backPillAvatars = const [],
+    this.addPhotoLabel,
     this.onAddPhoto,
     this.backPhotoUrl,
     this.disableInteractions = false, // デフォルトはインタラクション有効
@@ -644,6 +648,7 @@ class PostCardState extends State<PostCard>
                   child: AddPhotoBar(
                     onTap: widget.onAddPhoto,
                     background: theme.gradientStart,
+                    label: widget.addPhotoLabel,
                   ),
                 ),
             ],

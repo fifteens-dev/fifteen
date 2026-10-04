@@ -13,11 +13,16 @@ class AddPhotoBar extends StatelessWidget {
   /// 文字色。
   final Color foreground;
 
+  /// 文言。null なら「写真を追加する」。
+  /// 既に選んだあとは「写真を変更する」などに差し替える。
+  final String? label;
+
   const AddPhotoBar({
     super.key,
     required this.onTap,
     this.background = const Color(0xFFB0C266),
     this.foreground = Colors.black,
+    this.label,
   });
 
   @override
@@ -33,7 +38,7 @@ class AddPhotoBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(29),
         ),
         child: Text(
-          '写真を追加する',
+          label ?? '写真を追加する',
           style: TextStyle(
             color: foreground,
             fontSize: 15,

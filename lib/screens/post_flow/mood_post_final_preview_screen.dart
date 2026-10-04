@@ -9,6 +9,8 @@ import '../../models/track_model.dart';
 import '../../models/user_model.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/friend_widget_service.dart';
+
+import '../../services/post_photo_service.dart';
 import 'add_photo_flow.dart';
 import 'post_complete_sheet.dart';
 import '../../services/live_activity_service.dart';
@@ -94,10 +96,19 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   // ── 投稿状態 ──
   bool _isPosting = false;
 
+  /// 投稿前に選んでおいた写真。投稿が終わってから紐づける
+  /// （この時点では postId がまだ無い）。
+  XFile? _pendingPhoto;
+
+  /// 今が写真を足せる時間帯か（24:00 まで）。
+  bool _canAddPhoto = false;
+
   @override
   void initState() {
     super.initState();
     _loadMe();
+    // ignore: discarded_futures
+    _loadCanAddPhoto();
     _extractColors();
     WidgetsBinding.instance.addPostFrameCallback((_) => _playPreview());
   }
@@ -106,6 +117,17 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   void dispose() {
     _audioService.stopIfOwner(this);
     super.dispose();
+  }
+
+  Future<void> _loadCanAddPhoto() async {
+    final can = await PostPhotoService.instance.canAddPhotoNow();
+    if (mounted) setState(() => _canAddPhoto = can);
+  }
+
+  /// 投稿前に写真を選んでおく。実際の保存は投稿が終わってから。
+  Future<void> _pickPhoto() async {
+    final photo = await AddPhotoFlow.pick(context);
+    if (photo != null && mounted) setState(() => _pendingPhoto = photo);
   }
 
   Future<void> _loadMe() async {
@@ -244,6 +266,13 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       final navigator = Navigator.of(context, rootNavigator: true);
       final ctx = navigator.context;
       if (!ctx.mounted) return;
+      // 投稿前に選んでおいた写真があれば、完了シートを出さずに紐づける。
+      final chosen = _pendingPhoto;
+      if (chosen != null) {
+        await AddPhotoFlow.attach(postId: postId, photo: chosen);
+        return;
+      }
+
       final wantsPhoto = await PostCompleteSheet.show(ctx);
       if (wantsPhoto && ctx.mounted) {
         await AddPhotoFlow.start(ctx, postId: postId);
@@ -390,6 +419,9 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       hideAudienceBadge: true,
       preExtractedGradientStart: _gradientStart,
       preExtractedGradientEnd: _gradientEnd,
+      // 24:00 までなら写真を選べる。投稿が終わってから紐づける。
+      onAddPhoto: (_canAddPhoto && !_isPosting) ? _pickPhoto : null,
+      addPhotoLabel: _pendingPhoto != null ? '写真を変更する' : null,
     );
   }
 

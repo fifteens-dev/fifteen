@@ -31,7 +31,21 @@ class PostPhotoService {
   ///
   /// 24 時を過ぎたら投稿はできても写真は足せない。境界は投稿と同じ
   /// [MusicMemoryCycleService] の締切を使う。
-  bool get canAddPhotoNow {
+  ///
+  /// 通知時刻が未取得なら取りに行く。アプリを開いた直後は未取得で、
+  /// そのまま見ると締切が不明＝「追加できない」になってしまう
+  /// （実際にそれで写真追加のバーが出なかった）。
+  Future<bool> canAddPhotoNow() async {
+    final cycle = MusicMemoryCycleService();
+    if (cycle.notifiedAt == null) await cycle.fetchNotifiedAt();
+    final deadline = cycle.currentDeadline;
+    if (deadline == null) return false;
+    return DateTime.now().isBefore(deadline);
+  }
+
+  /// 取りに行かずに判定する。既に取得済みの前提で、描画のたびに
+  /// 呼ばれる場所（カードのバーを出すか）で使う。
+  bool get canAddPhotoNowSync {
     final deadline = MusicMemoryCycleService().currentDeadline;
     if (deadline == null) return false;
     return DateTime.now().isBefore(deadline);

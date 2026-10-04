@@ -155,6 +155,10 @@ class _HomeScreenState extends State<HomeScreen>
   /// 自分の投稿のうち、既に写真が付いているもの。バーを出すかの判定に使う。
   Set<String> _postsWithPhoto = {};
 
+  /// 今が写真を足せる時間帯か（24:00 まで）。
+  /// 判定には通知時刻が要るので、取得できてから立てる。
+  bool _canAddPhoto = false;
+
   @override
   void initState() {
     super.initState();
@@ -180,6 +184,8 @@ class _HomeScreenState extends State<HomeScreen>
     LiveActivityService().refresh();
     // ホーム画面ウィジェット（友達が今聴いてる曲）。
     // 自分の再生状態も共有する（友達のウィジェットに出るのはこれ）。
+    // ignore: discarded_futures
+    _loadCanAddPhoto();
     // ignore: discarded_futures
     NowPlayingShareService.instance.publish();
     // ignore: discarded_futures
@@ -686,6 +692,9 @@ class _HomeScreenState extends State<HomeScreen>
       // （締切超過なら終了、フォロー中の投稿があれば「友達が待っています」へ）。
       // ignore: discarded_futures
       LiveActivityService().refresh();
+      // 日付をまたいでいることがあるので取り直す。
+      // ignore: discarded_futures
+      _loadCanAddPhoto();
       // ignore: discarded_futures
       NowPlayingShareService.instance.publish();
       // ignore: discarded_futures
@@ -698,6 +707,12 @@ class _HomeScreenState extends State<HomeScreen>
       _storyRefreshTimer?.cancel();
       _storyRefreshTimer = null;
     }
+  }
+
+  /// 写真を足せる時間帯かを調べる。通知時刻の取得を含むので非同期。
+  Future<void> _loadCanAddPhoto() async {
+    final can = await PostPhotoService.instance.canAddPhotoNow();
+    if (mounted && can != _canAddPhoto) setState(() => _canAddPhoto = can);
   }
 
   /// 自分の投稿に既に写真が付いているかを調べる。
@@ -1643,7 +1658,7 @@ class _HomeScreenState extends State<HomeScreen>
       backSideEnabled: true,
       // 写真は自分の投稿に、24:00 まで、まだ無いときだけ足せる。
       onAddPhoto: (post.userId == currentUserId &&
-              PostPhotoService.instance.canAddPhotoNow &&
+              _canAddPhoto &&
               !_postsWithPhoto.contains(post.postId))
           ? () => _addPhoto(post.postId)
           : null,

@@ -20,10 +20,12 @@ class AddPhotoFlow {
   ///
   /// 時間外のときは理由を出して何もしない。
   static Future<bool> start(BuildContext context, {required String postId}) async {
-    if (!PostPhotoService.instance.canAddPhotoNow) {
+    if (!await PostPhotoService.instance.canAddPhotoNow()) {
+      if (!context.mounted) return false;
       AppToast.show(context, '写真を追加できるのは24:00までです');
       return false;
     }
+    if (!context.mounted) return false;
 
     // 投稿フローで使っていたのと同じ画面（カメラ + 写真グリッド）。
     // 「その場で撮る」が要るので、グリッドだけのオーバーレイでは足りない。
@@ -43,7 +45,7 @@ class AddPhotoFlow {
     if (!context.mounted) return false;
 
     // 選んでいる間に日付をまたぐことがあるので、保存の直前にもう一度見る。
-    if (!PostPhotoService.instance.canAddPhotoNow) {
+    if (!PostPhotoService.instance.canAddPhotoNowSync) {
       AppToast.show(context, '写真を追加できるのは24:00までです');
       return false;
     }

@@ -40,31 +40,43 @@ class PostFetchService {
       }
     }
 
-    // ② 未取得分を whereIn で 10件単位にバッチ取得
+    // ② 未取得分を whereIn で 10件単位にバッチ取得。
+    //
+    // バッチは互いに独立なので同時に投げる。直列に await していた頃は、
+    // タイムライン 50 件＋いいねした人を合わせて数十人になると、10 人ごとの
+    // 往復がそのまま待ち時間として積み上がっていた。
     if (missing.isNotEmpty) {
       const chunkSize = 10; // Firestore whereIn の上限
-      for (var i = 0; i < missing.length; i += chunkSize) {
-        final chunk = missing.sublist(
-            i, i + chunkSize > missing.length ? missing.length : i + chunkSize);
-        try {
-          final snapshot = await _firestore
+      final chunks = [
+        for (var i = 0; i < missing.length; i += chunkSize)
+          missing.sublist(
+              i, i + chunkSize > missing.length ? missing.length : i + chunkSize),
+      ];
+      final snapshots = await Future.wait([
+        for (final chunk in chunks)
+          _firestore
               .collection('users')
               .where(FieldPath.documentId, whereIn: chunk)
-              .get();
-          for (final doc in snapshot.docs) {
-            final data = doc.data();
-            final uid = doc.id;
-            final username = data['username'] as String?;
-            final iconUrl = data['profileImageUrl'] as String?;
-            _userInfoCache[uid] = (
-              username: username,
-              iconUrl: iconUrl,
-              fetchedAt: DateTime.now(),
-            );
-            userMap[uid] = (username: username, iconUrl: iconUrl);
-          }
-        } catch (e) {
-          if (kDebugMode) print('applyLatestUserInfo whereIn batch error: $e');
+              .get()
+              .then<QuerySnapshot<Map<String, dynamic>>?>((s) => s)
+              .catchError((Object e) {
+            if (kDebugMode) print('applyLatestUserInfo whereIn batch error: $e');
+            return null;
+          }),
+      ]);
+      for (final snapshot in snapshots) {
+        if (snapshot == null) continue;
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          final uid = doc.id;
+          final username = data['username'] as String?;
+          final iconUrl = data['profileImageUrl'] as String?;
+          _userInfoCache[uid] = (
+            username: username,
+            iconUrl: iconUrl,
+            fetchedAt: DateTime.now(),
+          );
+          userMap[uid] = (username: username, iconUrl: iconUrl);
         }
       }
     }

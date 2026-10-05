@@ -552,6 +552,7 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
               imageBytes: compressed!.$1,
               userId: currentUser.uid,
               storageService: _storageService,
+              alreadyCompressed: true,
             )
           : null;
 

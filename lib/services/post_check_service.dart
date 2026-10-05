@@ -79,10 +79,18 @@ class PostCheckService {
     }
   }
 
-  /// 現在の Music Memory サイクルで「期限内（Late でない）投稿」をしているか。
-  /// これが true のユーザーだけが、他人の投稿の裏側閲覧＋リアクションを許可される。
-  /// （Late 投稿者・未投稿者は表面のみ = false）
-  Future<bool> hasOnTimePostInCurrentCycle(String userId) async {
+  /// 現サイクルの自分の投稿状況を 1 回の問い合わせで返す。
+  ///
+  /// [onTime] は期限内（Late でない）投稿があるか。これが true の人だけが
+  /// 他人の投稿の裏側閲覧＋リアクションを許可される（Late 投稿者・未投稿者は
+  /// 表面のみ）。[any] は Late を含めて投稿しているか（投稿フローの
+  /// 「初回 / 次回以降」の出し分けに使う）。
+  ///
+  /// 以前は [hasOnTimePostInCurrentCycle] と [hasAnyPostInCurrentCycle] が
+  /// **まったく同じクエリ**を別々に投げ、判定だけ変えていた。ホームを開く
+  /// たびに往復が 1 回無駄になるので 1 本にまとめた。
+  Future<({bool onTime, bool any})> postStatusInCurrentCycle(
+      String userId) async {
     try {
       final cutoff = MusicMemoryCycleService().currentCycleStart;
       final snapshot = await _firestore
@@ -92,38 +100,30 @@ class PostCheckService {
           .orderBy('createdAt', descending: true)
           .limit(10)
           .get();
-      return snapshot.docs.any((d) {
+      var onTime = false;
+      var any = false;
+      for (final d in snapshot.docs) {
         final m = d.data();
-        return m['isMoodPost'] == true && m['isLate'] != true;
-      });
+        if (m['isMoodPost'] != true) continue;
+        any = true;
+        if (m['isLate'] != true) onTime = true;
+      }
+      return (onTime: onTime, any: any);
     } catch (e) {
       if (kDebugMode) {
-        print('Error checking on-time post in cycle: $e');
+        print('Error checking post status in cycle: $e');
       }
-      return false;
+      return (onTime: false, any: false);
     }
   }
 
+  /// 現在の Music Memory サイクルで「期限内（Late でない）投稿」をしているか。
+  Future<bool> hasOnTimePostInCurrentCycle(String userId) async =>
+      (await postStatusInCurrentCycle(userId)).onTime;
+
   /// 現在の Music Memory サイクルで既に（Late 含む）投稿しているか。
-  /// 投稿フローの「初回 / 次回以降」出し分けに使う（未投稿=初回）。
-  Future<bool> hasAnyPostInCurrentCycle(String userId) async {
-    try {
-      final cutoff = MusicMemoryCycleService().currentCycleStart;
-      final snapshot = await _firestore
-          .collection(_postsCollection)
-          .where('userId', isEqualTo: userId)
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(cutoff))
-          .orderBy('createdAt', descending: true)
-          .limit(10)
-          .get();
-      return snapshot.docs.any((d) => d.data()['isMoodPost'] == true);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error checking any post in cycle: $e');
-      }
-      return false;
-    }
-  }
+  Future<bool> hasAnyPostInCurrentCycle(String userId) async =>
+      (await postStatusInCurrentCycle(userId)).any;
 
   /// フォロー中のユーザーの誰かが、現サイクルで投稿しているか。
   ///

@@ -452,30 +452,37 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       final currentUser = _auth.currentUser;
 
-      // 今日投稿済みかチェック
+      // 自分の投稿状況とユーザー情報。
+      //
+      // 以前はこの 4 つを 1 つずつ await しており、タイムラインが出るまでに
+      // 往復が 4 回直列に並んでいた。互いに依存していないので同時に投げる。
+      // サイクル内の「期限内投稿」と「Late 含む投稿」は同じクエリだったので
+      // [postStatusInCurrentCycle] で 1 回にまとめてある。
+      //   hasPostedToday    … 今日投稿済みか
+      //   postedOnTime…     … 期限内投稿済みか（リアクション可否）
+      //   postedAny…        … Late 含め投稿済みか（裏面閲覧可否）
       bool hasPostedToday = false;
-      // 現サイクルで期限内投稿済みか（リアクション可否のゲーティング用）
       bool postedOnTimeThisCycle = false;
-      // 現サイクルで（Late 含む）投稿済みか（裏面閲覧のゲーティング用）
       bool postedAnyThisCycle = false;
-      if (currentUser != null) {
-        hasPostedToday = await _postService.hasUserPostedToday(currentUser.uid);
-        postedOnTimeThisCycle =
-            await _postService.hasOnTimePostInCurrentCycle(currentUser.uid);
-        postedAnyThisCycle =
-            await _postService.hasAnyPostInCurrentCycle(currentUser.uid);
-      }
-
-      // フォロー中のユーザーIDと保存済み情報を取得
       List<String> followingIds = [];
       UserModel? userModel;
+
       if (currentUser != null) {
-        try {
-          userModel = await _userService.getUser(currentUser.uid);
-          followingIds = userModel?.following ?? [];
-        } catch (e) {
-          print('⚠️ フォロー一覧取得エラー: $e');
-        }
+        final uid = currentUser.uid;
+        final results = await Future.wait([
+          _postService.hasUserPostedToday(uid),
+          _postService.postStatusInCurrentCycle(uid),
+          _userService.getUser(uid).catchError((Object e) {
+            print('⚠️ フォロー一覧取得エラー: $e');
+            return null;
+          }),
+        ]);
+        hasPostedToday = results[0] as bool;
+        final cycle = results[1] as ({bool onTime, bool any});
+        postedOnTimeThisCycle = cycle.onTime;
+        postedAnyThisCycle = cycle.any;
+        userModel = results[2] as UserModel?;
+        followingIds = userModel?.following ?? [];
       }
       final allTargetIds = currentUser != null
           ? [...followingIds, currentUser.uid]

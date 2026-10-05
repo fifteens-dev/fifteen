@@ -55,8 +55,14 @@ class PhotoHelper {
     required String userId,
     required StorageService storageService,
     bool private = false,
+    /// [imageBytes] が [compressForUpload] を通した後のものなら true。
+    /// 圧縮は decode→resize→encode と重く、二度掛けると倍かかるうえ
+    /// 画質も落ちる。呼び出し側は既に通していることが多い。
+    bool alreadyCompressed = false,
   }) async {
-    final (processed, w, h) = await _compressImage(imageBytes);
+    final (processed, w, h) = alreadyCompressed
+        ? (imageBytes, 0, 0)
+        : await _compressImage(imageBytes);
     if (kIsWeb) {
       // Web は base64 で returnImmediateUrl 想定なのでここでは未対応
       throw UnsupportedError('uploadCompressedSplit is not supported on web');
@@ -74,7 +80,16 @@ class PhotoHelper {
   /// リサイズ + JPEG 再エンコード（クロップなしの共通ロジック）。
   /// [PhotoConstants.maxImageWidth] / [maxImageHeight] を超えていれば縮小し、
   /// quality 85 → 大きすぎたら 70 に下げる。
-  static Future<(Uint8List, int, int)> _compressImage(Uint8List bytes) async {
+  /// 画像を縮めて JPEG にする。重いので**別 isolate で**走らせる。
+  ///
+  /// decode → resize → encode は数百ミリ秒〜秒単位かかる。UI スレッドで
+  /// 回すとその間アニメーションが止まり、投稿ボタンを押した直後に固まって
+  /// 見える（実際に写真付き投稿でそうなっていた）。
+  static Future<(Uint8List, int, int)> _compressImage(Uint8List bytes) =>
+      compute(_compressImageSync, bytes);
+
+  /// [_compressImage] の中身。compute に渡すので静的で引数 1 つ。
+  static (Uint8List, int, int) _compressImageSync(Uint8List bytes) {
     final src = img.decodeImage(bytes);
     if (src == null) return (bytes, 0, 0);
 

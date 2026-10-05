@@ -98,6 +98,7 @@ class PostPhotoService {
         storageService: _storage,
         // 本人しか見られない写真なので、公開画像とは別のパスに置く。
         private: true,
+        alreadyCompressed: true,
       );
       final url = await result.storageRef?.getDownloadURL();
       if (url == null) return false;

@@ -227,6 +227,11 @@ class PostService {
   Future<bool> hasAnyPostInCurrentCycle(String userId) =>
       _checkService.hasAnyPostInCurrentCycle(userId);
 
+  /// 現サイクルの投稿状況（期限内 / Late 含む）を 1 回の問い合わせで返す。
+  /// 両方要るときはこちらを使う（上の 2 つは内部でこれを呼んでいる）。
+  Future<({bool onTime, bool any})> postStatusInCurrentCycle(String userId) =>
+      _checkService.postStatusInCurrentCycle(userId);
+
   /// フォロー中の誰かが現サイクルで投稿しているか（Live Activity の状態判定）。
   Future<bool> hasFollowingPostedInCurrentCycle(List<String> followingIds) =>
       _checkService.hasFollowingPostedInCurrentCycle(followingIds);

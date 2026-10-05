@@ -227,6 +227,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
           imageBytes: processedBytes,
           userId: user.uid,
           storageService: _storageService,
+          alreadyCompressed: true,
         );
         urlFuture = uploadResult.storageRef!
             .getDownloadURL()
@@ -234,12 +235,9 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
             .catchError((_) => null);
       }
 
-      // 画面を開いた時点で走らせてある集計。まだなら here で待つ。
-
-      // 投稿のあとに追いかけて書くと、書き込み直後に読み直すホームで
-
-      // 裏面が空のまま出てしまう。
-
+      // 画面を開いた時点で走らせてある集計。まだ終わっていなければここで待つ。
+      // 投稿のあとに追いかけて書くと、書き込み直後に読み直すホームで裏面が
+      // 空のまま出てしまう。
       final snapshot = await _snapshot;
 
       final postIdFuture = _postService.createPost(

@@ -73,6 +73,15 @@ class PostPhotoService {
   }
 
   /// 写真を保存する。成功したら true。
+  /// 写真が付いた投稿の postId。付くたびに増える。
+  ///
+  /// 「写真を追加する」バーを出している画面が見張って、付いた時点で消す。
+  /// 追加の経路はバー・投稿完了シート・投稿前の選択と複数あり、どれも
+  /// ホーム画面の状態とは別の場所から呼ばれる。黙って書くだけだと、
+  /// 画面を作り直すまでバーが残ってしまう。
+  final ValueNotifier<Set<String>> photoAdded =
+      ValueNotifier<Set<String>>(const {});
+
   Future<bool> attach({
     required String postId,
     required Uint8List imageBytes,
@@ -101,6 +110,7 @@ class PostPhotoService {
         'createdAt': FieldValue.serverTimestamp(),
       });
       _cache = null; // 次の取得で入れ直す
+      photoAdded.value = {...photoAdded.value, postId};
       return true;
     } catch (e) {
       if (kDebugMode) print('PostPhotoService.attach error: $e');

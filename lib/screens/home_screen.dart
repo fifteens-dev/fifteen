@@ -163,6 +163,7 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     print('🏠 ホーム画面: initState()が呼ばれました');
+    PostPhotoService.instance.photoAdded.addListener(_onPhotoAdded);
     _vibeDataFuture = widget.initialVibeData != null
         ? Future.value(widget.initialVibeData)
         : _loadVibeData();
@@ -670,6 +671,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    PostPhotoService.instance.photoAdded.removeListener(_onPhotoAdded);
     PostingState.instance.removeListener(_onPostingStateChanged);
     WidgetsBinding.instance.removeObserver(this);
     _storyRefreshTimer?.cancel();
@@ -732,12 +734,19 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// 投稿カードのバーから写真を足す。
+  ///
+  /// バーを消すのは [_onPhotoAdded] に任せる。追加の経路はここだけでなく
+  /// 投稿完了シートからもあるので、消す側を一本にしておく。
   Future<void> _addPhoto(String postId) async {
-    final added = await AddPhotoFlow.start(context, postId: postId);
-    if (added && mounted) {
-      // 足したらバーを消す（1 投稿に 1 枚）。
-      setState(() => _postsWithPhoto = {..._postsWithPhoto, postId});
-    }
+    await AddPhotoFlow.start(context, postId: postId);
+  }
+
+  /// 写真が付いた投稿を覚えて「写真を追加する」バーを消す（1 投稿に 1 枚）。
+  void _onPhotoAdded() {
+    final added = PostPhotoService.instance.photoAdded.value;
+    if (!mounted || added.isEmpty) return;
+    if (added.every(_postsWithPhoto.contains)) return;
+    setState(() => _postsWithPhoto = {..._postsWithPhoto, ...added});
   }
 
   /// 起動時・フォアグラウンド復帰時に画面へ割り込む処理を順番に走らせる。

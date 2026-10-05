@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import '../utils/app_log.dart';
 
 /// Firebase Storageサービス
 ///
@@ -40,13 +41,13 @@ class StorageService {
       final downloadUrl = await uploadTask.ref.getDownloadURL();
 
       if (kDebugMode) {
-        print('Profile image uploaded successfully: $downloadUrl');
+        AppLog.debug('Profile image uploaded successfully: $downloadUrl');
       }
 
       return downloadUrl;
     } catch (e) {
       if (kDebugMode) {
-        print('Error uploading profile image: $e');
+        AppLog.debug('Error uploading profile image: $e');
       }
       rethrow;
     }
@@ -68,11 +69,11 @@ class StorageService {
       final uploadTask = await storageRef.putData(imageBytes, metadata);
       final downloadUrl = await uploadTask.ref.getDownloadURL();
       if (kDebugMode) {
-        print('ADL team image uploaded successfully: $downloadUrl');
+        AppLog.debug('ADL team image uploaded successfully: $downloadUrl');
       }
       return downloadUrl;
     } catch (e) {
-      if (kDebugMode) print('Error uploading ADL team image: $e');
+      if (kDebugMode) AppLog.debug('Error uploading ADL team image: $e');
       rethrow;
     }
   }
@@ -86,11 +87,11 @@ class StorageService {
       await storageRef.delete();
 
       if (kDebugMode) {
-        print('Profile image deleted successfully');
+        AppLog.debug('Profile image deleted successfully');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error deleting profile image: $e');
+        AppLog.debug('Error deleting profile image: $e');
       }
       // 画像が存在しない場合のエラーは無視
       if (e is FirebaseException && e.code == 'object-not-found') {
@@ -128,13 +129,13 @@ class StorageService {
       final downloadUrl = await uploadTask.ref.getDownloadURL();
 
       if (kDebugMode) {
-        print('Post image uploaded successfully: $downloadUrl');
+        AppLog.debug('Post image uploaded successfully: $downloadUrl');
       }
 
       return downloadUrl;
     } catch (e) {
       if (kDebugMode) {
-        print('Error uploading post image: $e');
+        AppLog.debug('Error uploading post image: $e');
       }
       rethrow;
     }
@@ -163,12 +164,12 @@ class StorageService {
       );
       final taskSnapshot = await storageRef.putData(imageBytes, metadata);
       if (kDebugMode) {
-        print('Post image uploaded, ref: ${taskSnapshot.ref.fullPath}');
+        AppLog.debug('Post image uploaded, ref: ${taskSnapshot.ref.fullPath}');
       }
       return taskSnapshot.ref;
     } catch (e) {
       if (kDebugMode) {
-        print('Error uploading post image (get ref): $e');
+        AppLog.debug('Error uploading post image (get ref): $e');
       }
       rethrow;
     }

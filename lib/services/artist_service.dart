@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/artist_model.dart';
+import '../utils/app_log.dart';
 
 class ArtistService {
   static final ArtistService _instance = ArtistService._internal();
@@ -19,7 +20,7 @@ class ArtistService {
       if (!doc.exists) return null;
       return ArtistModel.fromFirestore(doc);
     } catch (e) {
-      if (kDebugMode) print('ArtistService.getArtist error: $e');
+      if (kDebugMode) AppLog.debug('ArtistService.getArtist error: $e');
       return null;
     }
   }
@@ -47,7 +48,7 @@ class ArtistService {
       _followerCountCache[artistName] = count;
       return count;
     } catch (e) {
-      if (kDebugMode) print('ArtistService.getFollowerCountByName error: $e');
+      if (kDebugMode) AppLog.debug('ArtistService.getFollowerCountByName error: $e');
       return 0;
     }
   }
@@ -99,7 +100,7 @@ class ArtistService {
           .get();
       return snap.docs.map(ArtistModel.fromFirestore).toList();
     } catch (e) {
-      if (kDebugMode) print('ArtistService.getFollowedArtists error: $e');
+      if (kDebugMode) AppLog.debug('ArtistService.getFollowedArtists error: $e');
       return const [];
     }
   }
@@ -113,7 +114,7 @@ class ArtistService {
         'followerIds': FieldValue.arrayRemove([userId]),
       });
     } catch (e) {
-      if (kDebugMode) print('ArtistService.unfollowArtist error: $e');
+      if (kDebugMode) AppLog.debug('ArtistService.unfollowArtist error: $e');
     }
   }
 }

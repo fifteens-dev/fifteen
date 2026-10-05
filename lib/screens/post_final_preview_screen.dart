@@ -38,6 +38,7 @@ import '../widgets/shared/team_handle_label.dart';
 import '../widgets/shared/user_info_badge.dart';
 import '../services/posting_state.dart';
 import '../widgets/post_creation/posting_card_overlay.dart';
+import '../utils/app_log.dart';
 
 /// 投稿カード最終プレビュー画面
 /// PostPreviewScreenと同じカード仕様（フリップ・音楽再生）で表示する
@@ -395,7 +396,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
           durationSeconds: widget.audioDurationSec,
         );
       } catch (e) {
-        print('❌ 音楽プレビュー再生エラー: $e');
+        AppLog.debug('❌ 音楽プレビュー再生エラー: $e');
       }
     }
   }
@@ -412,7 +413,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
         return tracks.first.previewUrl;
       }
     } catch (e) {
-      print('❌ iTunes API取得エラー: $e');
+      AppLog.debug('❌ iTunes API取得エラー: $e');
     }
     return null;
   }
@@ -843,7 +844,7 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
                   imageScale: imageScale,
                   imageNaturalSize: imageNaturalSize,
                 ).catchError((dynamic e) {
-                  print('⚠️ 写真のアップロードに失敗: $e');
+                  AppLog.debug('⚠️ 写真のアップロードに失敗: $e');
                   return (
                     immediateUrl: null as String?,
                     storageRef: null as Reference?,
@@ -942,11 +943,11 @@ class _PostFinalPreviewScreenState extends State<PostFinalPreviewScreen>
       // willCountForAdl=true（初回投稿）→ countsForAdl=true、false（2投稿目以降）→ false
       PostUIState.setCountsForAdlOverrideStatic(postId, willCountForAdl);
 
-      print('✅ 投稿を作成しました: $postId');
+      AppLog.debug('✅ 投稿を作成しました: $postId');
 
       PostingState.instance.finishPosting();
     } catch (e) {
-      print('投稿作成エラー: $e');
+      AppLog.debug('投稿作成エラー: $e');
       PostingState.instance.finishPosting();
     }
   }

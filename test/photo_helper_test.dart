@@ -16,6 +16,7 @@ void main() {
     final (bytes, w, h) = await PhotoHelper.compressForUpload(png);
     sw.stop();
 
+    // ignore: avoid_print  実測を目で見たいのでテストでは出す
     print('元 ${png.length} B → ${bytes.length} B / ${w}x$h / ${sw.elapsedMilliseconds}ms');
     expect(bytes.isNotEmpty, true);
     expect(w, greaterThan(0));

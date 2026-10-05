@@ -43,12 +43,13 @@ import 'services/live_activity_service.dart';
 import 'services/music_memory_cycle_service.dart';
 import 'services/playback_history_service.dart';
 import 'models/post_model.dart';
+import 'utils/app_log.dart';
 
 /// バックグラウンドFCMハンドラー（top-level 必須・runApp前に登録する）
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (kDebugMode) {
-    print('🔔 バックグラウンドメッセージ受信: ${message.messageId}');
+    AppLog.debug('🔔 バックグラウンドメッセージ受信: ${message.messageId}');
   }
 }
 
@@ -145,16 +146,16 @@ Future<void> _initializePostLaunch() async {
       final fcmHandler = FCMHandlerService();
       await fcmHandler.initialize(currentUser.uid, navigatorKey: navigatorKey);
       if (kDebugMode) {
-        print('✅ FCM初期化完了: userId=${currentUser.uid}');
+        AppLog.debug('✅ FCM初期化完了: userId=${currentUser.uid}');
       }
     } else {
       if (kDebugMode) {
-        print('⏭️ FCM初期化スキップ: ユーザー未ログイン');
+        AppLog.debug('⏭️ FCM初期化スキップ: ユーザー未ログイン');
       }
     }
   } catch (e) {
     if (kDebugMode) {
-      print('⚠️ FCM初期化エラー: $e');
+      AppLog.debug('⚠️ FCM初期化エラー: $e');
     }
   }
 }
@@ -377,7 +378,7 @@ class _AuthGateState extends State<AuthGate> {
           } else {
             // 登録未完了 → 認証フロー先頭（電話番号入力）から開始
             if (kDebugMode) {
-              print('🔐 AuthGate→phone-auth: doc有だが username 空 '
+              AppLog.debug('🔐 AuthGate→phone-auth: doc有だが username 空 '
                   '(uid=${user.uid}, username="${userModel.username}")');
             }
             await _waitForMinSplash();
@@ -388,7 +389,7 @@ class _AuthGateState extends State<AuthGate> {
           // サーバーが確定で「ドキュメント無し」と応答（＝未登録）。
           // createUser 失敗などで認証だけ通ったケース。オンボーディング先頭へ。
           if (kDebugMode) {
-            print('🔐 AuthGate→phone-auth: userDoc が存在しない '
+            AppLog.debug('🔐 AuthGate→phone-auth: userDoc が存在しない '
                 '(uid=${user.uid})');
           }
           await _waitForMinSplash();
@@ -410,7 +411,7 @@ class _AuthGateState extends State<AuthGate> {
     } else {
       // 未ログイン → 認証画面へ
       if (kDebugMode) {
-        print('🔐 AuthGate→phone-auth: currentUser が null（復元待ち後も未認証）');
+        AppLog.debug('🔐 AuthGate→phone-auth: currentUser が null（復元待ち後も未認証）');
       }
       await _waitForMinSplash();
       if (!mounted) return;

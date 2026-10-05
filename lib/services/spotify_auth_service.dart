@@ -4,6 +4,7 @@ import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../utils/app_log.dart';
 
 /// Spotify OAuth認証サービス
 class SpotifyAuthService {
@@ -117,10 +118,10 @@ class SpotifyAuthService {
       });
 
       // ブラウザで認証ページを開く
-      print('🎵 Starting Spotify OAuth authentication...');
-      print('🔗 Auth URL: ${authUrl.toString()}');
-      print('🔑 Callback scheme: $_callbackUrlScheme');
-      print('🔙 Redirect URI: $_redirectUri');
+      AppLog.debug('🎵 Starting Spotify OAuth authentication...');
+      AppLog.debug('🔗 Auth URL: ${authUrl.toString()}');
+      AppLog.debug('🔑 Callback scheme: $_callbackUrlScheme');
+      AppLog.debug('🔙 Redirect URI: $_redirectUri');
 
       final result = await FlutterWebAuth2.authenticate(
         url: authUrl.toString(),
@@ -130,20 +131,20 @@ class SpotifyAuthService {
         ),
       );
 
-      print('✅ Got callback result: $result');
+      AppLog.debug('✅ Got callback result: $result');
 
       // 認証コードを抽出
       final code = Uri.parse(result).queryParameters['code'];
       if (code == null) {
-        print('❌ 認証コードが取得できませんでした');
+        AppLog.debug('❌ 認証コードが取得できませんでした');
         return false;
       }
 
-      print('✅ 認証コード取得成功');
+      AppLog.debug('✅ 認証コード取得成功');
       // アクセストークンを取得
       return await _getAccessTokenFromCode(code);
     } catch (e) {
-      print('Spotify login error: $e');
+      AppLog.debug('Spotify login error: $e');
       return false;
     }
   }
@@ -177,11 +178,11 @@ class SpotifyAuthService {
         await _saveTokensToStorage();
         return true;
       } else {
-        print('Token error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Token error: ${response.statusCode} ${response.body}');
         return false;
       }
     } catch (e) {
-      print('Error getting access token: $e');
+      AppLog.debug('Error getting access token: $e');
       return false;
     }
   }
@@ -220,11 +221,11 @@ class SpotifyAuthService {
         await _saveTokensToStorage();
         return true;
       } else {
-        print('Refresh token error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Refresh token error: ${response.statusCode} ${response.body}');
         return false;
       }
     } catch (e) {
-      print('Error refreshing token: $e');
+      AppLog.debug('Error refreshing token: $e');
       return false;
     }
   }

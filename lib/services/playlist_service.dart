@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/playlist_model.dart';
+import '../utils/app_log.dart';
 
 /// プレイリストの作成・取得を担当するサービス（Firestore `playlists`）。
 class PlaylistService {
@@ -39,7 +40,7 @@ class PlaylistService {
       list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return list;
     } catch (e) {
-      if (kDebugMode) print('getPlaylistsByUserId error: $e');
+      if (kDebugMode) AppLog.debug('getPlaylistsByUserId error: $e');
       return [];
     }
   }

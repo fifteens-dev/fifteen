@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../utils/photo_helper.dart';
 import 'music_memory_cycle_service.dart';
 import 'storage_service.dart';
+import '../utils/app_log.dart';
 
 /// 投稿に添える写真。**本人しか見られない**。
 ///
@@ -105,7 +106,7 @@ class PostPhotoService {
       photoAdded.value = {...photoAdded.value, postId};
       return true;
     } catch (e) {
-      if (kDebugMode) print('PostPhotoService.attach error: $e');
+      if (kDebugMode) AppLog.debug('PostPhotoService.attach error: $e');
       return false;
     }
   }
@@ -185,7 +186,7 @@ class PostPhotoService {
   Future<void> log(String message) => _log(message);
 
   Future<void> _log(String message) async {
-    if (kDebugMode) print('PostPhoto: $message');
+    if (kDebugMode) AppLog.debug('PostPhoto: $message');
     try {
       await const MethodChannel('com.fifteen.liveactivity')
           .invokeMethod('log', {'tag': 'postPhoto', 'message': message});
@@ -206,7 +207,7 @@ class PostPhotoService {
       await _firestore.collection(_collection).doc(postId).delete();
       _cache = null;
     } catch (e) {
-      if (kDebugMode) print('PostPhotoService.remove error: $e');
+      if (kDebugMode) AppLog.debug('PostPhotoService.remove error: $e');
     }
   }
 }

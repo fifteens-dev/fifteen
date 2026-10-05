@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/post_model.dart';
 import 'music_memory_cycle_service.dart';
+import '../utils/app_log.dart';
 
 /// 投稿データの取得を担当するサービス
 class PostFetchService {
@@ -60,7 +61,7 @@ class PostFetchService {
               .get()
               .then<QuerySnapshot<Map<String, dynamic>>?>((s) => s)
               .catchError((Object e) {
-            if (kDebugMode) print('applyLatestUserInfo whereIn batch error: $e');
+            if (kDebugMode) AppLog.debug('applyLatestUserInfo whereIn batch error: $e');
             return null;
           }),
       ]);
@@ -130,7 +131,7 @@ class PostFetchService {
       return await applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting posts: $e');
+        AppLog.debug('Error getting posts: $e');
       }
       return [];
     }
@@ -177,7 +178,7 @@ class PostFetchService {
       return await applyLatestUserInfo(limited);
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting posts for following: $e');
+        AppLog.debug('Error getting posts for following: $e');
       }
       return [];
     }
@@ -249,7 +250,7 @@ class PostFetchService {
       return result;
     } catch (e) {
       if (kDebugMode) {
-        print('Error getRecentPostsGroupedByUser: $e');
+        AppLog.debug('Error getRecentPostsGroupedByUser: $e');
       }
       return [];
     }
@@ -271,7 +272,7 @@ class PostFetchService {
       return await applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting posts by userId: $e');
+        AppLog.debug('Error getting posts by userId: $e');
       }
       return [];
     }
@@ -299,7 +300,7 @@ class PostFetchService {
       return await applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting user posts in range: $e');
+        AppLog.debug('Error getting user posts in range: $e');
       }
       return [];
     }
@@ -335,7 +336,7 @@ class PostFetchService {
       );
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting posts with pagination: $e');
+        AppLog.debug('Error getting posts with pagination: $e');
       }
       return (posts: <PostModel>[], lastDoc: null, hasMore: false);
     }
@@ -372,7 +373,7 @@ class PostFetchService {
       return await applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting saved posts by userId: $e');
+        AppLog.debug('Error getting saved posts by userId: $e');
       }
       return [];
     }
@@ -389,7 +390,7 @@ class PostFetchService {
       return null;
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting post: $e');
+        AppLog.debug('Error getting post: $e');
       }
       return null;
     }
@@ -420,7 +421,7 @@ class PostFetchService {
         hasMore: snapshot.docs.length == limit,
       );
     } catch (e) {
-      if (kDebugMode) print('getPostsByTrackIdPaged error: $e');
+      if (kDebugMode) AppLog.debug('getPostsByTrackIdPaged error: $e');
       return (posts: <PostModel>[], lastDoc: null, hasMore: false);
     }
   }

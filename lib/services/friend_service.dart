@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
 import 'music_memory_cycle_service.dart';
 import 'user_service.dart';
+import '../utils/app_log.dart';
 
 /// 友達 1 人分の表示データ。
 class FriendEntry {
@@ -101,7 +102,7 @@ class FriendService {
       });
       return entries;
     } catch (e) {
-      if (kDebugMode) print('FriendService.loadFriends error: $e');
+      if (kDebugMode) AppLog.debug('FriendService.loadFriends error: $e');
       return const [];
     }
   }
@@ -190,7 +191,7 @@ class FriendService {
             ),
       ];
     } catch (e) {
-      if (kDebugMode) print('FriendService.loadSuggestions error: $e');
+      if (kDebugMode) AppLog.debug('FriendService.loadSuggestions error: $e');
       return const [];
     }
   }
@@ -222,7 +223,7 @@ class FriendService {
           ),
       ];
     } catch (e) {
-      if (kDebugMode) print('FriendService.loadSameInviterSuggestions error: $e');
+      if (kDebugMode) AppLog.debug('FriendService.loadSameInviterSuggestions error: $e');
       return const [];
     }
   }
@@ -253,7 +254,7 @@ class FriendService {
           if (d.data()['usedBy'] is String) d.data()['usedBy'] as String,
       }..removeWhere(exclude.contains);
     } catch (e) {
-      if (kDebugMode) print('FriendService._sameInviterUids error: $e');
+      if (kDebugMode) AppLog.debug('FriendService._sameInviterUids error: $e');
       return const {};
     }
   }
@@ -298,7 +299,7 @@ class FriendService {
             .get();
         out.addAll(snap.docs.map(UserModel.fromFirestore));
       } catch (e) {
-        if (kDebugMode) print('FriendService._fetchUsers chunk failed: $e');
+        if (kDebugMode) AppLog.debug('FriendService._fetchUsers chunk failed: $e');
       }
     }
     return out;
@@ -325,7 +326,7 @@ class FriendService {
           if (uid != null) posted.add(uid);
         }
       } catch (e) {
-        if (kDebugMode) print('FriendService._uidsPosted chunk failed: $e');
+        if (kDebugMode) AppLog.debug('FriendService._uidsPosted chunk failed: $e');
       }
     }
     return posted;

@@ -3,6 +3,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
+import '../utils/app_log.dart';
 
 /// 音楽再生を管理するサービス（Singleton）
 class AudioPlayerService {
@@ -76,7 +77,7 @@ class AudioPlayerService {
         _player.seek(_startFrom).then((_) {
           if (_currentUrl != null) {
             _player.play().catchError((e) {
-              if (kDebugMode) print('❌ Loop re-play error: $e');
+              if (kDebugMode) AppLog.debug('❌ Loop re-play error: $e');
             });
           }
         });
@@ -95,11 +96,11 @@ class AudioPlayerService {
     Object? owner,
   }) async {
     try {
-      if (kDebugMode) print('🎵 Attempting to play: $url');
+      if (kDebugMode) AppLog.debug('🎵 Attempting to play: $url');
 
       // URLの妥当性チェック
       if (url.isEmpty) {
-        if (kDebugMode) print('❌ Empty URL provided');
+        if (kDebugMode) AppLog.debug('❌ Empty URL provided');
         return;
       }
 
@@ -113,16 +114,16 @@ class AudioPlayerService {
         if (_player.playing ||
             ps == ProcessingState.loading ||
             ps == ProcessingState.buffering) {
-          if (kDebugMode) print('⏭️ Already playing/loading this URL');
+          if (kDebugMode) AppLog.debug('⏭️ Already playing/loading this URL');
           return;
         }
       }
 
       // プリローダーが該当URLを既にsetUrl済みなら、スワップして即再生（最速パス）
       if (_promotePreloadedIfMatch(url, startFrom, durationSeconds)) {
-        if (kDebugMode) print('⚡ Swapped from preloader, starting playback');
+        if (kDebugMode) AppLog.debug('⚡ Swapped from preloader, starting playback');
         _audioPlayer!.play().catchError((e) {
-          if (kDebugMode) print('❌ Play error: $e');
+          if (kDebugMode) AppLog.debug('❌ Play error: $e');
         });
         return;
       }
@@ -135,7 +136,7 @@ class AudioPlayerService {
       _durationSeconds = durationSeconds;
 
       if (oldUrl != null && oldUrl != url && _player.playing) {
-        if (kDebugMode) print('⏹️ Stopping current playback (fire-and-forget)');
+        if (kDebugMode) AppLog.debug('⏹️ Stopping current playback (fire-and-forget)');
         // 既存サブスクリプションは setUrl 後に再構築されるため先にキャンセル
         _positionSubscription?.cancel();
         _positionSubscription = null;
@@ -145,7 +146,7 @@ class AudioPlayerService {
       }
 
       // 新しいURLをセット
-      if (kDebugMode) print('📥 Loading audio from URL...');
+      if (kDebugMode) AppLog.debug('📥 Loading audio from URL...');
       await _player.setUrl(url);
 
       // ループモードはoff（手動でループを制御）
@@ -161,23 +162,23 @@ class AudioPlayerService {
 
       // 再生開始（awaitしない: ループはモニター内で管理するため、
       // play()の完了を待つ必要はなく、即座にreturnして呼び出し元をブロックしない）
-      if (kDebugMode) print('▶️ Starting playback...');
+      if (kDebugMode) AppLog.debug('▶️ Starting playback...');
       _player.play().catchError((e) {
-        if (kDebugMode) print('❌ Play error: $e');
+        if (kDebugMode) AppLog.debug('❌ Play error: $e');
       });
 
-      if (kDebugMode) print('✅ Successfully playing preview');
+      if (kDebugMode) AppLog.debug('✅ Successfully playing preview');
     } catch (e, stackTrace) {
       // 別の再生に切り替えた際の中断（abort / Loading interrupted）は無害なので
       // エラー扱いせず握りつぶす（呼び出し側でトーストを出さない）。
       if (e is PlatformException && e.code == 'abort') {
-        if (kDebugMode) print('⏭️ playPreview aborted (interrupted by newer play)');
+        if (kDebugMode) AppLog.debug('⏭️ playPreview aborted (interrupted by newer play)');
         return;
       }
       if (kDebugMode) {
-        print('❌ Error playing preview: $e');
-        print('Stack trace: $stackTrace');
-        print('Failed URL: $url');
+        AppLog.debug('❌ Error playing preview: $e');
+        AppLog.debug('Stack trace: $stackTrace');
+        AppLog.debug('Failed URL: $url');
       }
 
       // ユーザーにもエラーを通知
@@ -222,9 +223,9 @@ class AudioPlayerService {
       if (startFrom > Duration.zero) {
         await p.seek(startFrom);
       }
-      if (kDebugMode) print('🧊 Preloaded: $url');
+      if (kDebugMode) AppLog.debug('🧊 Preloaded: $url');
     } catch (e) {
-      if (kDebugMode) print('⚠️ Preload failed: $e');
+      if (kDebugMode) AppLog.debug('⚠️ Preload failed: $e');
       // 失敗時は破棄。次回 playPreview は通常パスで取得する
       if (identical(_preloader, p)) {
         _preloader = null;
@@ -287,9 +288,9 @@ class AudioPlayerService {
   Future<void> pause() async {
     try {
       await _player.pause();
-      if (kDebugMode) print('Paused playback');
+      if (kDebugMode) AppLog.debug('Paused playback');
     } catch (e) {
-      if (kDebugMode) print('Error pausing playback: $e');
+      if (kDebugMode) AppLog.debug('Error pausing playback: $e');
     }
   }
 
@@ -297,9 +298,9 @@ class AudioPlayerService {
   Future<void> resume() async {
     try {
       await _player.play();
-      if (kDebugMode) print('Resumed playback');
+      if (kDebugMode) AppLog.debug('Resumed playback');
     } catch (e) {
-      if (kDebugMode) print('Error resuming playback: $e');
+      if (kDebugMode) AppLog.debug('Error resuming playback: $e');
     }
   }
 
@@ -320,9 +321,9 @@ class AudioPlayerService {
       _startFrom = Duration.zero;
       _durationSeconds = 15;
       await _player.stop();
-      if (kDebugMode) print('Stopped playback');
+      if (kDebugMode) AppLog.debug('Stopped playback');
     } catch (e) {
-      if (kDebugMode) print('Error stopping playback: $e');
+      if (kDebugMode) AppLog.debug('Error stopping playback: $e');
     }
   }
 
@@ -336,7 +337,7 @@ class AudioPlayerService {
   Future<void> stopIfOwner(Object owner) async {
     if (_currentOwner != null && !identical(_currentOwner, owner)) {
       if (kDebugMode) {
-        print('⏭️ stopIfOwner skipped: not the owner');
+        AppLog.debug('⏭️ stopIfOwner skipped: not the owner');
       }
       return;
     }

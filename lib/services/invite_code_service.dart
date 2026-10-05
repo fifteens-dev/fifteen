@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import '../utils/app_log.dart';
 
 /// 招待コード検証結果
 enum InviteCodeValidationResult {
@@ -60,7 +61,7 @@ class InviteCodeService {
       return InviteCodeValidationResult.valid;
     } catch (e) {
       if (kDebugMode) {
-        print('Error validating invite code: $e');
+        AppLog.debug('Error validating invite code: $e');
       }
       return InviteCodeValidationResult.error;
     }
@@ -116,7 +117,7 @@ class InviteCodeService {
       return ownerUid;
     } catch (e) {
       if (kDebugMode) {
-        print('Error marking invite code as used: $e');
+        AppLog.debug('Error marking invite code as used: $e');
       }
       rethrow;
     }
@@ -132,7 +133,7 @@ class InviteCodeService {
       });
     } catch (e) {
       if (kDebugMode) {
-        print('Error creating test invite code: $e');
+        AppLog.debug('Error creating test invite code: $e');
       }
       rethrow;
     }
@@ -149,7 +150,7 @@ class InviteCodeService {
       });
     } catch (e) {
       if (kDebugMode) {
-        print('Error creating invite code: $e');
+        AppLog.debug('Error creating invite code: $e');
       }
       rethrow;
     }

@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/track_model.dart';
 import 'spotify_auth_service.dart';
+import '../utils/app_log.dart';
 
 /// Spotify Web API サービス
 class SpotifyService {
@@ -34,7 +35,7 @@ class SpotifyService {
     if (await _authService.isAuthenticated()) {
       final oauthToken = await _authService.getAccessToken();
       if (oauthToken != null) {
-        print('✅ Spotify OAuth トークンを使用');
+        AppLog.debug('✅ Spotify OAuth トークンを使用');
         return oauthToken;
       }
     }
@@ -49,14 +50,14 @@ class SpotifyService {
     if (_clientCredentialsToken != null &&
         _tokenExpiry != null &&
         DateTime.now().isBefore(_tokenExpiry!)) {
-      print('✅ Spotify キャッシュされたClient Credentialsトークンを使用');
+      AppLog.debug('✅ Spotify キャッシュされたClient Credentialsトークンを使用');
       return _clientCredentialsToken;
     }
 
-    print('🔑 Spotify Client Credentials トークンを取得中...');
+    AppLog.debug('🔑 Spotify Client Credentials トークンを取得中...');
     try {
       if (_clientId.isEmpty || _clientSecret.isEmpty) {
-        print('❌ Spotify認証情報が.envファイルに設定されていません');
+        AppLog.debug('❌ Spotify認証情報が.envファイルに設定されていません');
         return null;
       }
 
@@ -79,14 +80,14 @@ class SpotifyService {
         _clientCredentialsToken = data['access_token'];
         final expiresIn = data['expires_in'] as int;
         _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn - 60));
-        print('✅ Spotify Client Credentials トークン取得成功');
+        AppLog.debug('✅ Spotify Client Credentials トークン取得成功');
         return _clientCredentialsToken;
       } else {
-        print('❌ Spotify token error: ${response.statusCode} ${response.body}');
+        AppLog.debug('❌ Spotify token error: ${response.statusCode} ${response.body}');
         return null;
       }
     } catch (e) {
-      print('❌ Error getting Spotify access token: $e');
+      AppLog.debug('❌ Error getting Spotify access token: $e');
       return null;
     }
   }
@@ -108,11 +109,11 @@ class SpotifyService {
     final tracks = data['tracks']['items'] as List;
 
     if (tracks.isEmpty) {
-      print('🎵 Spotify: No results found for "$query"');
+      AppLog.debug('🎵 Spotify: No results found for "$query"');
       return [];
     }
 
-    print('🎵 Spotify: Found ${tracks.length} results, filtering for original versions...');
+    AppLog.debug('🎵 Spotify: Found ${tracks.length} results, filtering for original versions...');
 
     final scoredTracks = _scoreAndFilterTracks(tracks, query);
 
@@ -145,7 +146,7 @@ class SpotifyService {
       );
     }).toList();
 
-    print('✅ Spotify: Returning ${results.length} filtered tracks');
+    AppLog.debug('✅ Spotify: Returning ${results.length} filtered tracks');
     return results;
   }
 
@@ -155,7 +156,7 @@ class SpotifyService {
 
     final token = await _getAccessToken();
     if (token == null) {
-      print('❌ Spotifyトークン取得失敗');
+      AppLog.debug('❌ Spotifyトークン取得失敗');
       throw Exception('Spotifyトークンを取得できません');
     }
 
@@ -169,18 +170,18 @@ class SpotifyService {
 
     // 403エラー: OAuthトークンがDevelopment mode制限 → Client Credentialsで再試行
     if (response.statusCode == 403) {
-      print('⚠️ Spotify OAuth 403エラー - Client Credentialsトークンで再試行');
+      AppLog.debug('⚠️ Spotify OAuth 403エラー - Client Credentialsトークンで再試行');
       final ccToken = await _getClientCredentialsToken();
       if (ccToken != null) {
         final retryResponse = await _executeSearch(ccToken, encodedQuery, searchLimit);
         if (retryResponse.statusCode == 200) {
           return _parseSearchResponse(retryResponse, query, limit);
         }
-        print('❌ Spotify Client Credentials再試行も失敗: ${retryResponse.statusCode}');
+        AppLog.debug('❌ Spotify Client Credentials再試行も失敗: ${retryResponse.statusCode}');
       }
     }
 
-    print('❌ Spotify search error: ${response.statusCode} ${response.body}');
+    AppLog.debug('❌ Spotify search error: ${response.statusCode} ${response.body}');
     throw Exception('Spotify API error: ${response.statusCode}');
   }
 
@@ -334,11 +335,11 @@ class SpotifyService {
 
       final bestVersion = versions.first;
 
-      print('📊 Group "$groupName" has ${versions.length} version(s):');
+      AppLog.debug('📊 Group "$groupName" has ${versions.length} version(s):');
       for (int i = 0; i < versions.length && i < 3; i++) {
         final v = versions[i];
         final marker = i == 0 ? '✅' : '  ';
-        print('   $marker "${v['trackName']}" by ${v['artistName']} - Score: ${v['score']} (Pop: ${v['popularity']}, Rel: ${v['relevanceScore']})');
+        AppLog.debug('   $marker "${v['trackName']}" by ${v['artistName']} - Score: ${v['score']} (Pop: ${v['popularity']}, Rel: ${v['relevanceScore']})');
       }
 
       bestVersions.add(bestVersion);
@@ -391,7 +392,7 @@ class SpotifyService {
       _artistImageCache[artistName] = url;
       return url;
     } catch (e) {
-      print('❌ Spotify getArtistImageUrl error: $e');
+      AppLog.debug('❌ Spotify getArtistImageUrl error: $e');
       _artistImageCache[artistName] = null;
       return null;
     }
@@ -431,7 +432,7 @@ class SpotifyService {
       _artistByIdCache[artistId] = result;
       return result;
     } catch (e) {
-      print('❌ Spotify getArtistById error: $e');
+      AppLog.debug('❌ Spotify getArtistById error: $e');
       final result = (imageUrl: null, followerCount: 0);
       _artistByIdCache[artistId] = result;
       return result;
@@ -461,11 +462,11 @@ class SpotifyService {
         final trackData = json.decode(response.body);
         return _parseTrackData(trackData);
       } else {
-        print('Spotify get track error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Spotify get track error: ${response.statusCode} ${response.body}');
         return null;
       }
     } catch (e) {
-      print('Error getting track: $e');
+      AppLog.debug('Error getting track: $e');
       return null;
     }
   }
@@ -522,7 +523,7 @@ class SpotifyService {
       }
       return null;
     } catch (e) {
-      print('❌ Error searching track ID: $e');
+      AppLog.debug('❌ Error searching track ID: $e');
       return null;
     }
   }
@@ -532,7 +533,7 @@ class SpotifyService {
       {int limit = 50}) async {
     final token = await _getAccessToken();
     if (token == null) {
-      print('Failed to get access token for playlist');
+      AppLog.debug('Failed to get access token for playlist');
       return [];
     }
 
@@ -553,11 +554,11 @@ class SpotifyService {
             .map((item) => _parseTrackData(item['track']))
             .toList();
       } else {
-        print('Spotify playlist error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Spotify playlist error: ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {
-      print('Error getting playlist tracks: $e');
+      AppLog.debug('Error getting playlist tracks: $e');
       return [];
     }
   }
@@ -585,7 +586,7 @@ class SpotifyService {
       }
       return [];
     } catch (e) {
-      print('Error searching Spotify playlist: $e');
+      AppLog.debug('Error searching Spotify playlist: $e');
       return [];
     }
   }
@@ -691,17 +692,17 @@ class SpotifyService {
     bool deduplicate = true,
   }) async {
     if (!await _authService.isAuthenticated()) {
-      print('❌ OAuth authentication required for recently played');
+      AppLog.debug('❌ OAuth authentication required for recently played');
       return [];
     }
 
     final token = await _authService.getAccessToken();
     if (token == null) {
-      print('❌ Failed to get OAuth access token for recently played');
+      AppLog.debug('❌ Failed to get OAuth access token for recently played');
       return [];
     }
 
-    print('🎵 Spotify getRecentlyPlayedTracks: 最近再生した曲を取得中...');
+    AppLog.debug('🎵 Spotify getRecentlyPlayedTracks: 最近再生した曲を取得中...');
 
     try {
       final response = await http.get(
@@ -727,11 +728,11 @@ class SpotifyService {
         }
         return unique.values.toList();
       } else {
-        print('Spotify recently played error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Spotify recently played error: ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {
-      print('Error getting recently played tracks: $e');
+      AppLog.debug('Error getting recently played tracks: $e');
       return [];
     }
   }
@@ -741,18 +742,18 @@ class SpotifyService {
   Future<List<TrackModel>> getSavedTracks({int limit = 50}) async {
     // OAuth認証トークンが必要（Client Credentialsでは不可）
     if (!await _authService.isAuthenticated()) {
-      print('❌ OAuth authentication required for saved tracks');
+      AppLog.debug('❌ OAuth authentication required for saved tracks');
       return [];
     }
 
     // OAuthトークンを直接取得（Client Credentialsではなく）
     final token = await _authService.getAccessToken();
     if (token == null) {
-      print('❌ Failed to get OAuth access token for saved tracks');
+      AppLog.debug('❌ Failed to get OAuth access token for saved tracks');
       return [];
     }
 
-    print('🎵 Spotify getSavedTracks: OAuthトークンでライブラリ取得中...');
+    AppLog.debug('🎵 Spotify getSavedTracks: OAuthトークンでライブラリ取得中...');
 
     try {
       final response = await http.get(
@@ -770,11 +771,11 @@ class SpotifyService {
             .map((item) => _parseTrackData(item['track']))
             .toList();
       } else {
-        print('Spotify saved tracks error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Spotify saved tracks error: ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {
-      print('Error getting saved tracks: $e');
+      AppLog.debug('Error getting saved tracks: $e');
       return [];
     }
   }

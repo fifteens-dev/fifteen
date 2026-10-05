@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../utils/app_log.dart';
 import 'package:http/http.dart' as http;
 
 /// 歌詞の取得元
@@ -58,7 +59,7 @@ class LyricsService {
     int? durationSeconds,
     String? appleDevToken,
   }) async {
-    print('🎵 歌詞取得開始: $trackName by $artistName');
+    AppLog.debug('🎵 歌詞取得開始: $trackName by $artistName');
 
     // Step 1: LRCLIB APIで取得
     final lrclibLyrics = await _getLyricsFromLRCLIB(
@@ -68,7 +69,7 @@ class LyricsService {
     );
 
     if (lrclibLyrics != null) {
-      print('✅ LRCLIB APIで歌詞取得成功');
+      AppLog.debug('✅ LRCLIB APIで歌詞取得成功');
       return lrclibLyrics;
     }
 
@@ -81,12 +82,12 @@ class LyricsService {
       );
 
       if (snippetLyrics != null) {
-        print('⚪ Apple Music Snippetで歌詞の一部を取得');
+        AppLog.debug('⚪ Apple Music Snippetで歌詞の一部を取得');
         return snippetLyrics;
       }
     }
 
-    print('❌ 歌詞取得失敗（すべてのソースで見つからず）');
+    AppLog.debug('❌ 歌詞取得失敗（すべてのソースで見つからず）');
     return null;
   }
 
@@ -102,7 +103,7 @@ class LyricsService {
           'artist_name=${Uri.encodeComponent(artistName)}'
           '${duration != null ? "&duration=$duration" : ""}';
 
-      print('  → LRCLIB URL: $url');
+      AppLog.debug('  → LRCLIB URL: $url');
 
       final response = await http.get(Uri.parse(url));
 
@@ -116,7 +117,7 @@ class LyricsService {
           List<LyricLine>? lines;
           if (syncedLyrics != null && syncedLyrics.isNotEmpty) {
             lines = _parseLRCLyrics(syncedLyrics);
-            print('  → タイムスタンプ付き歌詞: ${lines.length}行');
+            AppLog.debug('  → タイムスタンプ付き歌詞: ${lines.length}行');
           }
 
           return LyricsData(
@@ -127,12 +128,12 @@ class LyricsService {
           );
         }
       } else if (response.statusCode == 404) {
-        print('  → LRCLIB: 404 Not Found');
+        AppLog.debug('  → LRCLIB: 404 Not Found');
       } else {
-        print('  → LRCLIB: Error ${response.statusCode}');
+        AppLog.debug('  → LRCLIB: Error ${response.statusCode}');
       }
     } catch (e) {
-      print('  → LRCLIB: Exception - $e');
+      AppLog.debug('  → LRCLIB: Exception - $e');
     }
     return null;
   }
@@ -148,7 +149,7 @@ class LyricsService {
       final url = 'https://api.music.apple.com/v1/catalog/jp/search?'
           'term=$query&types=songs&limit=1&with=lyrics';
 
-      print('  → Apple Music Snippet URL: $url');
+      AppLog.debug('  → Apple Music Snippet URL: $url');
 
       final response = await http.get(
         Uri.parse(url),
@@ -169,7 +170,7 @@ class LyricsService {
             for (final snippet in snippets) {
               if (snippet['kind'] == 'lyric') {
                 final lyricText = snippet['text'] as String;
-                print('  → スニペット取得: ${lyricText.length}文字');
+                AppLog.debug('  → スニペット取得: ${lyricText.length}文字');
 
                 return LyricsData(
                   plainLyrics: lyricText,
@@ -183,9 +184,9 @@ class LyricsService {
         }
       }
 
-      print('  → Apple Music Snippet: 歌詞なし');
+      AppLog.debug('  → Apple Music Snippet: 歌詞なし');
     } catch (e) {
-      print('  → Apple Music Snippet: Exception - $e');
+      AppLog.debug('  → Apple Music Snippet: Exception - $e');
     }
     return null;
   }

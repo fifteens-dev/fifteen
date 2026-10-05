@@ -8,6 +8,7 @@ import 'friend_service.dart';
 import 'apple_music_service.dart';
 import 'live_activity_service.dart';
 import 'now_playing_share_service.dart';
+import '../utils/app_log.dart';
 
 /// ホーム画面ウィジェット「友達が今聴いてる曲」へデータを渡す。
 ///
@@ -89,7 +90,7 @@ class FriendWidgetService {
   /// Live Activity と同じログに残す。ウィジェットは実機でしか動かず、
   /// 画面にも何も出ないので、どこで止まったかはこれでしか分からない。
   Future<void> _log(String message) async {
-    if (kDebugMode) print('FriendWidget: $message');
+    if (kDebugMode) AppLog.debug('FriendWidget: $message');
     try {
       await _channel.invokeMethod('log', {
         'tag': 'friendWidget',

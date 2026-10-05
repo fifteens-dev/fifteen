@@ -17,6 +17,7 @@ import '../widgets/shared/user_info_badge.dart';
 import 'package:image_picker/image_picker.dart';
 import 'post_final_preview_screen.dart';
 import 'vibe_story_edit_result.dart';
+import '../utils/app_log.dart';
 
 /// 歌詞カード選択画面
 class LyricsCardSelectionScreen extends StatefulWidget {
@@ -106,10 +107,10 @@ class _LyricsCardSelectionScreenState
 
     // 歌詞がまだ取得されていない場合はバックグラウンドで取得
     if (_lyricsData == null) {
-      print('⚠️ 歌詞が未取得のため、歌詞カード画面で取得を開始します');
+      AppLog.debug('⚠️ 歌詞が未取得のため、歌詞カード画面で取得を開始します');
       _fetchLyrics();
     } else {
-      print('✅ 既に取得済みの歌詞を使用します (${_lyricsData!.source})');
+      AppLog.debug('✅ 既に取得済みの歌詞を使用します (${_lyricsData!.source})');
     }
   }
 
@@ -120,7 +121,7 @@ class _LyricsCardSelectionScreenState
     });
 
     try {
-      print('🎵 歌詞カード画面で歌詞取得を開始...');
+      AppLog.debug('🎵 歌詞カード画面で歌詞取得を開始...');
       final lyricsService = LyricsService();
       final appleDevToken = dotenv.env['APPLE_MUSIC_DEVELOPER_TOKEN'] ?? '';
 
@@ -138,13 +139,13 @@ class _LyricsCardSelectionScreenState
         });
 
         if (lyricsData != null) {
-          print('✅ 歌詞取得完了: ${lyricsData.source}');
+          AppLog.debug('✅ 歌詞取得完了: ${lyricsData.source}');
         } else {
-          print('⚠️ 歌詞が見つかりませんでした');
+          AppLog.debug('⚠️ 歌詞が見つかりませんでした');
         }
       }
     } catch (e) {
-      print('⚠️ 歌詞取得エラー: $e');
+      AppLog.debug('⚠️ 歌詞取得エラー: $e');
       if (mounted) {
         setState(() {
           _isLoadingLyrics = false;

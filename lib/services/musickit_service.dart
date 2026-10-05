@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
+import '../utils/app_log.dart';
 
 /// MusicKit認証サービス（iOS/Android/Web対応）
 class MusicKitService {
@@ -14,7 +15,7 @@ class MusicKitService {
   bool get isSupported {
     if (kIsWeb) {
       // WebではMusicKit JSを使用（別途実装が必要）
-      print('⚠️ MusicKit JS support is not yet implemented for Web');
+      AppLog.debug('⚠️ MusicKit JS support is not yet implemented for Web');
       return false; // Web版は未実装のためfalseに変更
     }
     // iOSのみサポート（iOS 15+が必要）
@@ -31,9 +32,9 @@ class MusicKitService {
   Future<String> requestAuthorization() async {
     if (!isSupported) {
       if (kIsWeb) {
-        print('⚠️ MusicKit is not supported on Web (MusicKit JS not implemented)');
+        AppLog.debug('⚠️ MusicKit is not supported on Web (MusicKit JS not implemented)');
       } else {
-        print('⚠️ MusicKit is only supported on iOS');
+        AppLog.debug('⚠️ MusicKit is only supported on iOS');
       }
       return 'denied';
     }
@@ -45,17 +46,17 @@ class MusicKitService {
 
     try {
       final String result = await _channel.invokeMethod('requestAuthorization');
-      print('✅ MusicKit authorization result: $result');
+      AppLog.debug('✅ MusicKit authorization result: $result');
       return result;
     } on PlatformException catch (e) {
       if (e.code == 'UNAVAILABLE') {
-        print('❌ ${e.message ?? "MusicKit requires iOS 15.0 or later"}');
+        AppLog.debug('❌ ${e.message ?? "MusicKit requires iOS 15.0 or later"}');
       } else {
-        print('❌ MusicKit authorization error: ${e.message}');
+        AppLog.debug('❌ MusicKit authorization error: ${e.message}');
       }
       return 'denied';
     } catch (e) {
-      print('❌ Unexpected error during MusicKit authorization: $e');
+      AppLog.debug('❌ Unexpected error during MusicKit authorization: $e');
       return 'denied';
     }
   }
@@ -74,7 +75,7 @@ class MusicKitService {
       final String status = await _channel.invokeMethod('getAuthorizationStatus');
       return status;
     } on PlatformException catch (e) {
-      print('❌ Failed to get authorization status: ${e.message}');
+      AppLog.debug('❌ Failed to get authorization status: ${e.message}');
       return 'denied';
     }
   }
@@ -92,9 +93,9 @@ class MusicKitService {
   Future<String?> getUserToken({String? developerToken}) async {
     if (!isSupported) {
       if (kIsWeb) {
-        print('⚠️ MusicKit is not supported on Web (MusicKit JS not implemented)');
+        AppLog.debug('⚠️ MusicKit is not supported on Web (MusicKit JS not implemented)');
       } else {
-        print('⚠️ MusicKit is only supported on iOS');
+        AppLog.debug('⚠️ MusicKit is only supported on iOS');
       }
       return null;
     }
@@ -107,18 +108,18 @@ class MusicKitService {
       final String token = await _channel.invokeMethod('getUserToken', {
         'developerToken': developerToken,
       });
-      print('✅ Got user token (length: ${token.length})');
+      AppLog.debug('✅ Got user token (length: ${token.length})');
       return token;
     } on PlatformException catch (e) {
       // ネイティブが分類したコード（NOT_AUTHORIZED / PRIVACY_ACK_REQUIRED /
       // NETWORK_ERROR / TOKEN_ERROR / UNAVAILABLE）をそのまま型付き例外で伝播する。
       // 旧実装は失敗を一律 NO_SUBSCRIPTION に丸めており、加入済みでも「サブスク必要」と
       // 誤表示していた。真のサブスク判定は API 側の 403 で行う。
-      print('❌ getUserToken failed: ${e.code} ${e.message}');
+      AppLog.debug('❌ getUserToken failed: ${e.code} ${e.message}');
       throw AppleMusicTokenException(
           e.code, e.message ?? 'Apple Music トークンの取得に失敗しました');
     } catch (e) {
-      print('❌ Unexpected error getting user token: $e');
+      AppLog.debug('❌ Unexpected error getting user token: $e');
       throw AppleMusicTokenException('UNKNOWN', 'Apple Music トークンの取得に失敗しました');
     }
   }
@@ -126,17 +127,17 @@ class MusicKitService {
   // Web用のメソッド（MusicKit JS）
   // TODO: 実装が必要
   Future<String> _requestAuthorizationWeb() async {
-    print('⚠️ MusicKit JS authorization not implemented yet');
+    AppLog.debug('⚠️ MusicKit JS authorization not implemented yet');
     return 'denied';
   }
 
   Future<String> _getAuthorizationStatusWeb() async {
-    print('⚠️ MusicKit JS status check not implemented yet');
+    AppLog.debug('⚠️ MusicKit JS status check not implemented yet');
     return 'denied';
   }
 
   Future<String?> _getUserTokenWeb() async {
-    print('⚠️ MusicKit JS getUserToken not implemented yet');
+    AppLog.debug('⚠️ MusicKit JS getUserToken not implemented yet');
     return null;
   }
 }

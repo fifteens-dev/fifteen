@@ -7,6 +7,7 @@ import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../widgets/dialogs/confirm_dialog.dart';
 import '../widgets/common/app_toast.dart';
+import '../utils/app_log.dart';
 
 /// ログイン情報画面
 class LoginInfoScreen extends StatefulWidget {
@@ -72,7 +73,7 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
     try {
       await _userService.deleteUserData(userId);
     } catch (e) {
-      if (kDebugMode) print('⚠️ Firestoreデータ削除エラー（Auth削除は続行）: $e');
+      if (kDebugMode) AppLog.debug('⚠️ Firestoreデータ削除エラー（Auth削除は続行）: $e');
     }
 
     // Step 2: Firebase Auth アカウント削除
@@ -80,13 +81,13 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
     try {
       await _authService.deleteAccount();
     } on FirebaseAuthException catch (e) {
-      if (kDebugMode) print('❌ deleteAccount FirebaseAuthException: code=${e.code} msg=${e.message}');
+      if (kDebugMode) AppLog.debug('❌ deleteAccount FirebaseAuthException: code=${e.code} msg=${e.message}');
       if (e.code == 'requires-recent-login') {
         // Admin SDK 経由で削除（requires-recent-login 制約なし）
         try {
           await _authService.deleteAccountViaFunction();
         } catch (funcErr) {
-          if (kDebugMode) print('❌ deleteAccountViaFunction error: $funcErr');
+          if (kDebugMode) AppLog.debug('❌ deleteAccountViaFunction error: $funcErr');
           if (!mounted) return;
           setState(() => _isDeleting = false);
           AppToast.show(context, 'アカウントの削除に失敗しました');
@@ -100,19 +101,19 @@ class _LoginInfoScreenState extends State<LoginInfoScreen> {
         return;
       }
     } on FirebaseException catch (e) {
-      if (kDebugMode) print('❌ deleteAccount FirebaseException: code=${e.code} msg=${e.message}');
+      if (kDebugMode) AppLog.debug('❌ deleteAccount FirebaseException: code=${e.code} msg=${e.message}');
       if (!mounted) return;
       setState(() => _isDeleting = false);
       AppToast.show(context, '削除に失敗しました: ${e.message}');
       return;
     } on PlatformException catch (e) {
-      if (kDebugMode) print('❌ deleteAccount PlatformException: code=${e.code} msg=${e.message}');
+      if (kDebugMode) AppLog.debug('❌ deleteAccount PlatformException: code=${e.code} msg=${e.message}');
       if (!mounted) return;
       setState(() => _isDeleting = false);
       AppToast.show(context, 'アカウントの削除に失敗しました (${e.code})');
       return;
     } catch (e) {
-      if (kDebugMode) print('❌ deleteAccount unexpected error (${e.runtimeType}): $e');
+      if (kDebugMode) AppLog.debug('❌ deleteAccount unexpected error (${e.runtimeType}): $e');
       if (!mounted) return;
       setState(() => _isDeleting = false);
       AppToast.show(context, 'アカウントの削除に失敗しました');

@@ -8,6 +8,7 @@ import 'live_activity_service.dart';
 import 'notification_service.dart';
 import 'post_service.dart';
 import 'auth_service.dart';
+import '../utils/app_log.dart';
 
 /// FCMハンドラーサービス
 /// - FCMの初期化
@@ -32,7 +33,7 @@ class FCMHandlerService {
 
     try {
       if (kDebugMode) {
-        print('🔔 FCM初期化開始: userId=$userId');
+        AppLog.debug('🔔 FCM初期化開始: userId=$userId');
       }
 
       // 通知権限をリクエスト
@@ -44,12 +45,12 @@ class FCMHandlerService {
       );
 
       if (kDebugMode) {
-        print('📱 通知権限: ${settings.authorizationStatus}');
+        AppLog.debug('📱 通知権限: ${settings.authorizationStatus}');
       }
 
       if (settings.authorizationStatus == AuthorizationStatus.denied) {
         if (kDebugMode) {
-          print('⚠️ 通知権限が拒否されました');
+          AppLog.debug('⚠️ 通知権限が拒否されました');
         }
         return;
       }
@@ -76,7 +77,7 @@ class FCMHandlerService {
         await _notificationService.saveFCMToken(userId, token, platform);
 
         if (kDebugMode) {
-          print('🔑 FCMトークン取得: ${token.substring(0, 20)}...');
+          AppLog.debug('🔑 FCMトークン取得: ${token.substring(0, 20)}...');
         }
       }
 
@@ -86,7 +87,7 @@ class FCMHandlerService {
         _notificationService.saveFCMToken(userId, newToken, platform);
 
         if (kDebugMode) {
-          print('🔄 FCMトークンリフレッシュ: ${newToken.substring(0, 20)}...');
+          AppLog.debug('🔄 FCMトークンリフレッシュ: ${newToken.substring(0, 20)}...');
         }
       });
 
@@ -94,12 +95,12 @@ class FCMHandlerService {
       await _messaging.subscribeToTopic('all_users');
 
       if (kDebugMode) {
-        print('📢 トピック購読: all_users');
-        print('✅ FCM初期化完了');
+        AppLog.debug('📢 トピック購読: all_users');
+        AppLog.debug('✅ FCM初期化完了');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ FCM初期化エラー: $e');
+        AppLog.debug('❌ FCM初期化エラー: $e');
       }
     }
   }
@@ -107,9 +108,9 @@ class FCMHandlerService {
   /// フォアグラウンド時のアプリ内通知バナーを表示
   void _handleForegroundMessage(RemoteMessage message) {
     if (kDebugMode) {
-      print('🔔 フォアグラウンドメッセージ受信: ${message.messageId}');
-      print('   タイトル: ${message.notification?.title}');
-      print('   本文: ${message.notification?.body}');
+      AppLog.debug('🔔 フォアグラウンドメッセージ受信: ${message.messageId}');
+      AppLog.debug('   タイトル: ${message.notification?.title}');
+      AppLog.debug('   本文: ${message.notification?.body}');
     }
 
     // Music Memory の通知＝新しいサイクルの開始。ロック画面の Live Activity を
@@ -149,8 +150,8 @@ class FCMHandlerService {
   /// 通知タップ時の画面遷移
   void _handleMessageOpenedApp(RemoteMessage message) {
     if (kDebugMode) {
-      print('👆 通知タップ: ${message.messageId}');
-      print('   データ: ${message.data}');
+      AppLog.debug('👆 通知タップ: ${message.messageId}');
+      AppLog.debug('   データ: ${message.data}');
     }
 
     final notificationType = message.data['notificationType'] as String?
@@ -191,7 +192,7 @@ class FCMHandlerService {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 投稿詳細への遷移エラー: $e');
+        AppLog.debug('❌ 投稿詳細への遷移エラー: $e');
       }
     }
   }
@@ -205,7 +206,7 @@ class FCMHandlerService {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ URL起動エラー: $e');
+        AppLog.debug('❌ URL起動エラー: $e');
       }
     }
   }
@@ -224,7 +225,7 @@ class FCMHandlerService {
       return await _messaging.getToken();
     } catch (e) {
       if (kDebugMode) {
-        print('FCMトークン取得エラー: $e');
+        AppLog.debug('FCMトークン取得エラー: $e');
       }
       return null;
     }
@@ -239,12 +240,12 @@ class FCMHandlerService {
         await _messaging.deleteToken();
 
         if (kDebugMode) {
-          print('🗑️ FCMトークン削除: $userId');
+          AppLog.debug('🗑️ FCMトークン削除: $userId');
         }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('FCMトークン削除エラー: $e');
+        AppLog.debug('FCMトークン削除エラー: $e');
       }
     }
   }
@@ -255,11 +256,11 @@ class FCMHandlerService {
       await _messaging.unsubscribeFromTopic(topic);
 
       if (kDebugMode) {
-        print('📢 トピック購読解除: $topic');
+        AppLog.debug('📢 トピック購読解除: $topic');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('トピック購読解除エラー: $e');
+        AppLog.debug('トピック購読解除エラー: $e');
       }
     }
   }

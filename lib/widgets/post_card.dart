@@ -40,6 +40,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'common/app_toast.dart';
 import 'reaction_overlay.dart';
 import '../services/reaction_picker_service.dart';
+import '../utils/app_log.dart';
 
 part 'post_card/post_card_front.dart';
 part 'post_card/mixins/post_card_color_mixin.dart';
@@ -707,7 +708,7 @@ class PostCardState extends State<PostCard>
                 fit: fit,
                 errorBuilder: (context, error, stackTrace) {
                   if (kDebugMode) {
-                    print('❌ Failed to decode Base64 photo: $error');
+                    AppLog.debug('❌ Failed to decode Base64 photo: $error');
                   }
                   return _displayAlbumArtUrl.isNotEmpty
                       ? _buildAlbumArt(
@@ -720,7 +721,7 @@ class PostCardState extends State<PostCard>
               );
             } catch (e) {
               if (kDebugMode) {
-                print('❌ Error parsing Base64: $e');
+                AppLog.debug('❌ Error parsing Base64: $e');
               }
               return _buildPhotoPlaceholder();
             }
@@ -756,8 +757,8 @@ class PostCardState extends State<PostCard>
           },
           errorWidget: (context, url, error) {
             if (kDebugMode) {
-              print('❌ Failed to load photo: $error');
-              print('   URL: ${PhotoHelper.formatPhotoUrlForLog(widget.post.photoUrl)}');
+              AppLog.debug('❌ Failed to load photo: $error');
+              AppLog.debug('   URL: ${PhotoHelper.formatPhotoUrlForLog(widget.post.photoUrl)}');
             }
             return _displayAlbumArtUrl.isNotEmpty
                 ? _buildAlbumArt(
@@ -1355,7 +1356,7 @@ class PostCardState extends State<PostCard>
       if (!ctx.mounted) return;
       AppToast.show(ctx, '写真に保存しました');
     } catch (e) {
-      if (kDebugMode) print('❌ Save error: $e');
+      if (kDebugMode) AppLog.debug('❌ Save error: $e');
       if (ctx.mounted) AppToast.show(ctx, '保存に失敗しました');
     }
   }

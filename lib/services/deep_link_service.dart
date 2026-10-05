@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../screens/other_user_profile_screen.dart';
 import '../screens/post_detail_screen.dart';
 import 'post_service.dart';
+import '../utils/app_log.dart';
 
 /// Instagram Stories などの外部リンクから起動されたディープリンクを処理する
 ///
@@ -70,33 +71,33 @@ class DeepLinkService {
       try {
         final postId = await _nativeChannel.invokeMethod<String>('getInitialPostId');
         if (postId != null && postId.isNotEmpty) {
-          if (kDebugMode) print('DeepLinkService cold-start postId: $postId');
+          if (kDebugMode) AppLog.debug('DeepLinkService cold-start postId: $postId');
           WidgetsBinding.instance.addPostFrameCallback((_) => _openPost(postId));
         }
       } catch (e) {
-        if (kDebugMode) print('DeepLinkService getInitialPostId error: $e');
+        if (kDebugMode) AppLog.debug('DeepLinkService getInitialPostId error: $e');
       }
 
       // 同上: QR から起動されたときのプロフィール。
       try {
         final uid = await _nativeChannel.invokeMethod<String>('getInitialUserId');
         if (uid != null && uid.isNotEmpty) {
-          if (kDebugMode) print('DeepLinkService cold-start userId: $uid');
+          if (kDebugMode) AppLog.debug('DeepLinkService cold-start userId: $uid');
           WidgetsBinding.instance.addPostFrameCallback((_) => _openProfile(uid));
         }
       } catch (e) {
-        if (kDebugMode) print('DeepLinkService getInitialUserId error: $e');
+        if (kDebugMode) AppLog.debug('DeepLinkService getInitialUserId error: $e');
       }
 
       // 同上: Live Activity から起動されたときのアクション。
       try {
         final action = await _nativeChannel.invokeMethod<String>('getInitialAction');
         if (action == 'compose') {
-          if (kDebugMode) print('DeepLinkService cold-start action: compose');
+          if (kDebugMode) AppLog.debug('DeepLinkService cold-start action: compose');
           WidgetsBinding.instance.addPostFrameCallback((_) => _requestCompose());
         }
       } catch (e) {
-        if (kDebugMode) print('DeepLinkService getInitialAction error: $e');
+        if (kDebugMode) AppLog.debug('DeepLinkService getInitialAction error: $e');
       }
     } else {
       // Android: app_links でストリームを監視
@@ -104,17 +105,17 @@ class DeepLinkService {
       try {
         final initial = await appLinks.getInitialLink();
         if (initial != null) {
-          if (kDebugMode) print('DeepLinkService Android initial: $initial');
+          if (kDebugMode) AppLog.debug('DeepLinkService Android initial: $initial');
           WidgetsBinding.instance.addPostFrameCallback((_) => _handleUri(initial));
         }
       } catch (e) {
-        if (kDebugMode) print('DeepLinkService Android initial error: $e');
+        if (kDebugMode) AppLog.debug('DeepLinkService Android initial error: $e');
       }
 
       _androidSub = appLinks.uriLinkStream.listen(
         _handleUri,
         onError: (e) {
-          if (kDebugMode) print('DeepLinkService Android stream error: $e');
+          if (kDebugMode) AppLog.debug('DeepLinkService Android stream error: $e');
         },
       );
     }
@@ -130,19 +131,19 @@ class DeepLinkService {
     if (call.method == 'onDeepLink') {
       final args = call.arguments as Map?;
       if (args?['action'] == 'compose') {
-        if (kDebugMode) print('DeepLinkService iOS onDeepLink: compose');
+        if (kDebugMode) AppLog.debug('DeepLinkService iOS onDeepLink: compose');
         _requestCompose();
         return;
       }
       final userId = args?['userId'] as String?;
       if (userId != null && userId.isNotEmpty) {
-        if (kDebugMode) print('DeepLinkService iOS onDeepLink user: $userId');
+        if (kDebugMode) AppLog.debug('DeepLinkService iOS onDeepLink user: $userId');
         await _openProfile(userId);
         return;
       }
       final postId = args?['postId'] as String?;
       if (postId != null && postId.isNotEmpty) {
-        if (kDebugMode) print('DeepLinkService iOS onDeepLink: $postId');
+        if (kDebugMode) AppLog.debug('DeepLinkService iOS onDeepLink: $postId');
         await _openPost(postId);
       }
     }
@@ -150,7 +151,7 @@ class DeepLinkService {
 
   // Android: app_links から
   void _handleUri(Uri uri) {
-    if (kDebugMode) print('DeepLinkService Android uri: $uri');
+    if (kDebugMode) AppLog.debug('DeepLinkService Android uri: $uri');
     if (uri.scheme != 'fifteenapp') return;
     if (uri.host == 'compose') {
       _requestCompose();
@@ -174,7 +175,7 @@ class DeepLinkService {
     _lastHandledUserId = userId;
 
     if (userId == FirebaseAuth.instance.currentUser?.uid) {
-      if (kDebugMode) print('DeepLinkService: 自分の QR なので開かない');
+      if (kDebugMode) AppLog.debug('DeepLinkService: 自分の QR なので開かない');
       return;
     }
 
@@ -195,7 +196,7 @@ class DeepLinkService {
       if (navigator != null) return navigator;
       await Future.delayed(const Duration(milliseconds: 200));
     }
-    if (kDebugMode) print('DeepLinkService: navigator not ready');
+    if (kDebugMode) AppLog.debug('DeepLinkService: navigator not ready');
     return null;
   }
 
@@ -212,7 +213,7 @@ class DeepLinkService {
       await Future.delayed(const Duration(milliseconds: 200));
     }
     if (navigator == null) {
-      if (kDebugMode) print('DeepLinkService: navigator not ready');
+      if (kDebugMode) AppLog.debug('DeepLinkService: navigator not ready');
       _lastHandledPostId = null; // リセットして再試行を許容
       return;
     }
@@ -220,7 +221,7 @@ class DeepLinkService {
     try {
       final post = await _postService.getPost(postId);
       if (post == null) {
-        if (kDebugMode) print('DeepLinkService: post not found: $postId');
+        if (kDebugMode) AppLog.debug('DeepLinkService: post not found: $postId');
         _lastHandledPostId = null;
         return;
       }
@@ -233,7 +234,7 @@ class DeepLinkService {
         ),
       ));
     } catch (e) {
-      if (kDebugMode) print('DeepLinkService _openPost error: $e');
+      if (kDebugMode) AppLog.debug('DeepLinkService _openPost error: $e');
       _lastHandledPostId = null;
     }
   }

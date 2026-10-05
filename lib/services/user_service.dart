@@ -6,6 +6,7 @@ import '../models/notification_model.dart';
 import 'notification_service.dart';
 import 'milfolha_service.dart';
 import 'music_memory_cycle_service.dart';
+import '../utils/app_log.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -65,7 +66,7 @@ class UserService {
       await batch.commit();
     } catch (e) {
       if (kDebugMode) {
-        print('Error creating user: $e');
+        AppLog.debug('Error creating user: $e');
       }
       rethrow;
     }
@@ -104,7 +105,7 @@ class UserService {
       return code;
     } catch (e) {
       if (kDebugMode) {
-        print('Error ensuring invite code: $e');
+        AppLog.debug('Error ensuring invite code: $e');
       }
       rethrow;
     }
@@ -183,7 +184,7 @@ class UserService {
       await userDoc.set(updates, SetOptions(merge: true));
     } catch (e) {
       if (kDebugMode) {
-        print('Error updating user: $e');
+        AppLog.debug('Error updating user: $e');
       }
       rethrow;
     }
@@ -200,7 +201,7 @@ class UserService {
       return null;
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting user: $e');
+        AppLog.debug('Error getting user: $e');
       }
       return null;
     }
@@ -230,7 +231,7 @@ class UserService {
       return query.docs.isEmpty;
     } catch (e) {
       if (kDebugMode) {
-        print('Error checking username: $e');
+        AppLog.debug('Error checking username: $e');
       }
       return false;
     }
@@ -269,7 +270,7 @@ class UserService {
       }..removeWhere((v) => v.isEmpty);
 
       if (kDebugMode) {
-        print('🔍 Searching users with variants: $variants');
+        AppLog.debug('🔍 Searching users with variants: $variants');
       }
 
       final merged = <String, UserModel>{};
@@ -290,14 +291,14 @@ class UserService {
             }
           } catch (e) {
             if (kDebugMode) {
-              print('⚠️ $field query for "$v" failed: $e');
+              AppLog.debug('⚠️ $field query for "$v" failed: $e');
             }
           }
         }
       }
 
       if (kDebugMode) {
-        print('📥 Merged ${merged.length} unique users across variants');
+        AppLog.debug('📥 Merged ${merged.length} unique users across variants');
       }
 
       // クライアント側の case-insensitive contains フィルタで再確認。
@@ -327,13 +328,13 @@ class UserService {
       final users = matched.take(limit).toList();
 
       if (kDebugMode) {
-        print('✅ Filtered to ${users.length} matching users');
+        AppLog.debug('✅ Filtered to ${users.length} matching users');
       }
 
       return users;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error searching users: $e');
+        AppLog.debug('❌ Error searching users: $e');
       }
       return [];
     }
@@ -376,7 +377,7 @@ class UserService {
           .map((d) => UserModel.fromFirestore(d))
           .toList();
     } catch (e) {
-      if (kDebugMode) print('getFollowingUsers error: $e');
+      if (kDebugMode) AppLog.debug('getFollowingUsers error: $e');
       return [];
     }
   }
@@ -396,7 +397,7 @@ class UserService {
           .map((d) => UserModel.fromFirestore(d))
           .toList();
     } catch (e) {
-      if (kDebugMode) print('getFollowerUsers error: $e');
+      if (kDebugMode) AppLog.debug('getFollowerUsers error: $e');
       return [];
     }
   }
@@ -444,12 +445,12 @@ class UserService {
         );
 
         if (kDebugMode) {
-          print('✅ フォロー通知作成: follower=$currentUserId, followee=$targetUserId');
+          AppLog.debug('✅ フォロー通知作成: follower=$currentUserId, followee=$targetUserId');
         }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error following user: $e');
+        AppLog.debug('Error following user: $e');
       }
       rethrow;
     }
@@ -480,7 +481,7 @@ class UserService {
       await batch.commit();
     } catch (e) {
       if (kDebugMode) {
-        print('Error unfollowing user: $e');
+        AppLog.debug('Error unfollowing user: $e');
       }
       rethrow;
     }
@@ -511,7 +512,7 @@ class UserService {
       await batch.commit();
     } catch (e) {
       if (kDebugMode) {
-        print('Error removing follower: $e');
+        AppLog.debug('Error removing follower: $e');
       }
       rethrow;
     }
@@ -532,7 +533,7 @@ class UserService {
       return results.whereType<UserModel>().toList();
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting followers: $e');
+        AppLog.debug('Error getting followers: $e');
       }
       return [];
     }
@@ -553,7 +554,7 @@ class UserService {
       return results.whereType<UserModel>().toList();
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting following: $e');
+        AppLog.debug('Error getting following: $e');
       }
       return [];
     }
@@ -602,7 +603,7 @@ class UserService {
 
     } catch (e) {
       if (kDebugMode) {
-        print('Error deleting user data: $e');
+        AppLog.debug('Error deleting user data: $e');
       }
       rethrow;
     }

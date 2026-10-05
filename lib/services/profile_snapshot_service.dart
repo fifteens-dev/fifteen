@@ -7,6 +7,7 @@ import 'listening_history_service.dart';
 import 'music_service_manager.dart';
 import 'post_service.dart';
 import 'spotify_service.dart';
+import '../utils/app_log.dart';
 
 /// top artists / recent choice の集計。
 ///
@@ -57,7 +58,7 @@ class ProfileSnapshotService {
             .recentArtistNames(limit: appleMusicHistorySize);
       }
     } catch (e) {
-      if (kDebugMode) print('ProfileSnapshot: history failed: $e');
+      if (kDebugMode) AppLog.debug('ProfileSnapshot: history failed: $e');
     }
 
     if (names.isEmpty) {
@@ -143,7 +144,7 @@ class ProfileSnapshotService {
         ].take(limit).toList(),
       );
     } catch (e) {
-      if (kDebugMode) print('ProfileSnapshot.build error: $e');
+      if (kDebugMode) AppLog.debug('ProfileSnapshot.build error: $e');
       return ProfileSnapshot.empty;
     }
   }
@@ -196,7 +197,7 @@ class ProfileSnapshotService {
       final result = await _postService.getPostsByUserIdPaged(uid, limit: 60);
       return result.posts;
     } catch (e) {
-      if (kDebugMode) print('ProfileSnapshot: posts failed: $e');
+      if (kDebugMode) AppLog.debug('ProfileSnapshot: posts failed: $e');
       return const [];
     }
   }

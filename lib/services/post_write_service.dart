@@ -9,6 +9,7 @@ import 'user_service.dart';
 import 'music_memory_cycle_service.dart';
 import '../models/profile_snapshot.dart';
 import 'profile_snapshot_service.dart';
+import '../utils/app_log.dart';
 
 /// 投稿データの書き込み（作成・更新・削除）を担当するサービス
 class PostWriteService {
@@ -40,7 +41,7 @@ class PostWriteService {
       if (update.isEmpty) return;
       await _firestore.collection(_postsCollection).doc(postId).update(update);
     } catch (e) {
-      if (kDebugMode) print('_writeProfileSnapshot error: $e');
+      if (kDebugMode) AppLog.debug('_writeProfileSnapshot error: $e');
     }
   }
 
@@ -158,7 +159,7 @@ class PostWriteService {
       return postRef.id;
     } catch (e) {
       if (kDebugMode) {
-        print('Error creating post: $e');
+        AppLog.debug('Error creating post: $e');
       }
       rethrow;
     }
@@ -170,7 +171,7 @@ class PostWriteService {
       await _firestore.collection(_postsCollection).doc(postId).delete();
     } catch (e) {
       if (kDebugMode) {
-        print('Error deleting post: $e');
+        AppLog.debug('Error deleting post: $e');
       }
       rethrow;
     }
@@ -187,7 +188,7 @@ class PostWriteService {
       });
     } catch (e) {
       if (kDebugMode) {
-        print('Error updating post photoUrl: $e');
+        AppLog.debug('Error updating post photoUrl: $e');
       }
       rethrow;
     }
@@ -203,11 +204,11 @@ class PostWriteService {
         'lyricsText': lyricsText,
       });
       if (kDebugMode) {
-        print('✅ 歌詞をFirebaseに保存しました: postId=$postId');
+        AppLog.debug('✅ 歌詞をFirebaseに保存しました: postId=$postId');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 歌詞の保存エラー: $e');
+        AppLog.debug('❌ 歌詞の保存エラー: $e');
       }
       // エラーは無視（次回また取得すればいい）
     }
@@ -283,12 +284,12 @@ class PostWriteService {
         );
 
         if (kDebugMode) {
-          print('✅ いいね通知作成: postId=$postId, recipient=$postOwnerId');
+          AppLog.debug('✅ いいね通知作成: postId=$postId, recipient=$postOwnerId');
         }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error toggling like: $e');
+        AppLog.debug('Error toggling like: $e');
       }
       rethrow;
     }
@@ -366,12 +367,12 @@ class PostWriteService {
           body: '「$emoji」でリアクションしました',
         );
         if (kDebugMode) {
-          print('✅ リアクション通知作成: postId=$postId, emoji=$emoji, recipient=$postOwnerId');
+          AppLog.debug('✅ リアクション通知作成: postId=$postId, emoji=$emoji, recipient=$postOwnerId');
         }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error setting reaction: $e');
+        AppLog.debug('Error setting reaction: $e');
       }
       rethrow;
     }
@@ -386,7 +387,7 @@ class PostWriteService {
       });
     } catch (e) {
       if (kDebugMode) {
-        print('Error updating comment count: $e');
+        AppLog.debug('Error updating comment count: $e');
       }
       rethrow;
     }

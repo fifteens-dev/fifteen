@@ -22,6 +22,7 @@ import '../../utils/color_extractor.dart';
 import '../../widgets/post_card.dart';
 import '../../widgets/native_pull_down_button.dart';
 import 'mood_post_final_preview_screen.dart';
+import '../../utils/app_log.dart';
 
 /// アルバムアートから抽出したグラデーション色の**プロセス寿命**キャッシュ。
 ///
@@ -362,7 +363,7 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
       final best = _pickBestCatalogMatch(found, np);
       if (best != null) return best;
     } catch (e) {
-      print('[MM nowPlaying] catalog search failed: $e');
+      AppLog.debug('[MM nowPlaying] catalog search failed: $e');
     }
 
     // 3) 適切なカタログ曲が見つからない（ローカル/取り込み曲など）ときは、

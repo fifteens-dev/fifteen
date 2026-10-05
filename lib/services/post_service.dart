@@ -9,6 +9,7 @@ import 'post_fetch_service.dart';
 import 'post_write_service.dart';
 import 'post_check_service.dart';
 import '../models/profile_snapshot.dart';
+import '../utils/app_log.dart';
 
 /// 投稿データを管理するサービス（ファサード）
 /// 各責務は PostFetchService / PostWriteService / PostCheckService に委譲
@@ -88,7 +89,7 @@ class PostService {
           .get();
       return snapshot.count ?? 0;
     } catch (e) {
-      if (kDebugMode) print('getPostCountByUserId error: $e');
+      if (kDebugMode) AppLog.debug('getPostCountByUserId error: $e');
       return 0;
     }
   }
@@ -101,7 +102,7 @@ class PostService {
       final results = await Future.wait(futures);
       return results.whereType<PostModel>().toList();
     } catch (e) {
-      if (kDebugMode) print('getPostsByIds error: $e');
+      if (kDebugMode) AppLog.debug('getPostsByIds error: $e');
       return [];
     }
   }
@@ -327,7 +328,7 @@ class PostService {
       return await _fetchService.applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting vibe posts by topic: $e');
+        AppLog.debug('Error getting vibe posts by topic: $e');
       }
       return [];
     }
@@ -402,7 +403,7 @@ class PostService {
       return ranking;
     } catch (e) {
       if (kDebugMode) {
-        print('Error calculating vibe ranking: $e');
+        AppLog.debug('Error calculating vibe ranking: $e');
       }
       return [];
     }
@@ -430,7 +431,7 @@ class PostService {
           .toList();
       return posts;
     } catch (e) {
-      if (kDebugMode) print('getCampusVibePosts error: $e');
+      if (kDebugMode) AppLog.debug('getCampusVibePosts error: $e');
       return [];
     }
   }
@@ -456,10 +457,10 @@ class PostService {
       }
       await batch.commit();
       if (kDebugMode) {
-        print('🗂 Campus Vibe 旧投稿アーカイブ: ${snapshot.docs.length}件');
+        AppLog.debug('🗂 Campus Vibe 旧投稿アーカイブ: ${snapshot.docs.length}件');
       }
     } catch (e) {
-      if (kDebugMode) print('archiveOldCampusVibePosts error: $e');
+      if (kDebugMode) AppLog.debug('archiveOldCampusVibePosts error: $e');
     }
   }
 
@@ -505,7 +506,7 @@ class PostService {
         ..sort((a, b) => b.date.compareTo(a.date));
       return result;
     } catch (e) {
-      if (kDebugMode) print('getPastVibeTopics error: $e');
+      if (kDebugMode) AppLog.debug('getPastVibeTopics error: $e');
       return [];
     }
   }
@@ -542,7 +543,7 @@ class PostService {
 
       return groups.values.toList()..sort((a, b) => b.date.compareTo(a.date));
     } catch (e) {
-      if (kDebugMode) print('getVibeTopicsByDateRange error: $e');
+      if (kDebugMode) AppLog.debug('getVibeTopicsByDateRange error: $e');
       return [];
     }
   }
@@ -706,7 +707,7 @@ class PostService {
 
       return trimmed;
     } catch (e) {
-      if (kDebugMode) print('getVibeTopicsWithThumbnails error: $e');
+      if (kDebugMode) AppLog.debug('getVibeTopicsWithThumbnails error: $e');
       return [];
     }
   }
@@ -731,7 +732,7 @@ class PostService {
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return posts;
     } catch (e) {
-      if (kDebugMode) print('getVibePostsByTopicAndDate error: $e');
+      if (kDebugMode) AppLog.debug('getVibePostsByTopicAndDate error: $e');
       return [];
     }
   }
@@ -769,7 +770,7 @@ class PostService {
         ..sort((a, b) => b.weekStart.compareTo(a.weekStart));
       return result;
     } catch (e) {
-      if (kDebugMode) print('getPastCampusVibeEntries error: $e');
+      if (kDebugMode) AppLog.debug('getPastCampusVibeEntries error: $e');
       return [];
     }
   }
@@ -793,7 +794,7 @@ class PostService {
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return posts;
     } catch (e) {
-      if (kDebugMode) print('getCampusVibePostsByWeekAndUniversity error: $e');
+      if (kDebugMode) AppLog.debug('getCampusVibePostsByWeekAndUniversity error: $e');
       return [];
     }
   }

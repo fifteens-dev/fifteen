@@ -24,6 +24,7 @@ import '../providers/current_user_provider.dart';
 import '../widgets/shared/team_handle_label.dart';
 import '../widgets/shared/user_info_badge.dart';
 import 'post_photo_selection_screen.dart';
+import '../utils/app_log.dart';
 
 /// 投稿プレビュー画面
 class PostPreviewScreen extends StatefulWidget {
@@ -114,8 +115,8 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
   @override
   void initState() {
     super.initState();
-    print('🎬 PostPreviewScreen initState()');
-    print('  - track: ${widget.track.trackName} by ${widget.track.artistName}');
+    AppLog.debug('🎬 PostPreviewScreen initState()');
+    AppLog.debug('  - track: ${widget.track.trackName} by ${widget.track.artistName}');
 
     _loadHasPostedToday();
 
@@ -125,14 +126,14 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
     // バックグラウンドで取得中の歌詞があれば、それを待つ
     if (_lyricsFuture != null) {
-      print('🎵 バックグラウンドで歌詞取得中... 完了を待機します');
+      AppLog.debug('🎵 バックグラウンドで歌詞取得中... 完了を待機します');
       _lyricsFuture!.then((lyricsData) {
         if (mounted) {
           setState(() {
             _lyricsData = lyricsData;
           });
           if (lyricsData != null) {
-            print('✅ バックグラウンド歌詞取得完了: ${lyricsData.source}');
+            AppLog.debug('✅ バックグラウンド歌詞取得完了: ${lyricsData.source}');
           }
         }
       });
@@ -178,18 +179,18 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
     // 事前抽出された色があれば使用、なければ色抽出を実行
     if (widget.preExtractedGradientStart != null && widget.preExtractedGradientEnd != null) {
-      print('✅ 事前抽出された色を使用します');
+      AppLog.debug('✅ 事前抽出された色を使用します');
       _extractedGradientStart = widget.preExtractedGradientStart;
       _extractedGradientEnd = widget.preExtractedGradientEnd;
     } else {
-      print('⚠️ 色が未抽出のため、バックグラウンドで抽出を開始します');
+      AppLog.debug('⚠️ 色が未抽出のため、バックグラウンドで抽出を開始します');
       _extractColorsFromAlbumArt();
     }
 
     // 1秒後に自動的にカードを裏返す（裏面で音楽再生開始）
     _autoFlipTimer = Timer(const Duration(seconds: 1), () {
       if (mounted && _showFront) {
-        print('⏰ 1秒経過：カードを自動的に裏返します');
+        AppLog.debug('⏰ 1秒経過：カードを自動的に裏返します');
         _flipCard();
       }
     });
@@ -202,24 +203,24 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
     // previewURLが空の場合、iTunesから取得
     if (previewUrl == null || previewUrl.isEmpty) {
-      print('⚠️ Spotify previewURLが空のため、iTunesから取得します');
+      AppLog.debug('⚠️ Spotify previewURLが空のため、iTunesから取得します');
       previewUrl = await _getPreviewUrlFromItunes();
     }
 
     if (previewUrl != null && previewUrl.isNotEmpty) {
       _cachedPreviewUrl = previewUrl; // 再生ボタン用にキャッシュ
       try {
-        print('🎵 音楽プレビューを再生開始: ${widget.track.trackName}');
+        AppLog.debug('🎵 音楽プレビューを再生開始: ${widget.track.trackName}');
         await _audioService.playPreview(
           previewUrl,
           startFrom: Duration(milliseconds: _audioStartMs),
           durationSeconds: _audioDurationSec,
         );
       } catch (e) {
-        print('❌ 音楽プレビュー再生エラー: $e');
+        AppLog.debug('❌ 音楽プレビュー再生エラー: $e');
       }
     } else {
-      print('⚠️ プレビューURLが取得できませんでした');
+      AppLog.debug('⚠️ プレビューURLが取得できませんでした');
     }
   }
 
@@ -230,7 +231,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
       final trackName = widget.track.trackName;
       final artistName = widget.track.artistName;
 
-      print('🍎 iTunes APIからプレビューURL取得: $trackName - $artistName');
+      AppLog.debug('🍎 iTunes APIからプレビューURL取得: $trackName - $artistName');
 
       final result = await itunesService.getPreviewUrlWithArt(
         trackName: trackName,
@@ -238,14 +239,14 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
       );
 
       if (result?['previewUrl'] != null) {
-        print('✅ iTunes APIからプレビューURL取得成功');
+        AppLog.debug('✅ iTunes APIからプレビューURL取得成功');
         return result!['previewUrl'];
       } else {
-        print('❌ iTunes APIでプレビューURLが見つかりませんでした');
+        AppLog.debug('❌ iTunes APIでプレビューURLが見つかりませんでした');
         return null;
       }
     } catch (e) {
-      print('❌ iTunes API取得エラー: $e');
+      AppLog.debug('❌ iTunes API取得エラー: $e');
       return null;
     }
   }
@@ -346,7 +347,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
   /// 写真を追加
   Future<void> _pickImage() async {
-    print('📷 写真選択画面へ遷移');
+    AppLog.debug('📷 写真選択画面へ遷移');
 
     // 写真選択フロー（PostPhotoSelectionScreen → MusicTrimScreen → LyricsCardSelectionScreen → PostFinalPreviewScreen）
     await Navigator.push(
@@ -372,7 +373,7 @@ class _PostPreviewScreenState extends State<PostPreviewScreen> with TickerProvid
 
   @override
   Widget build(BuildContext context) {
-    print('🎨 PostPreviewScreen build()呼び出し');
+    AppLog.debug('🎨 PostPreviewScreen build()呼び出し');
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),

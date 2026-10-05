@@ -25,6 +25,7 @@ import '../widgets/music/music_search_bar.dart';
 import '../widgets/music/music_track_list_item.dart';
 import 'home/home_bottom_nav.dart';
 import '../widgets/common/app_toast.dart';
+import '../utils/app_log.dart';
 
 /// 投稿用楽曲選択画面
 class MusicSelectionScreen extends StatefulWidget {
@@ -246,7 +247,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         });
       }
     } catch (e) {
-      print('Error loading recently played tracks: $e');
+      AppLog.debug('Error loading recently played tracks: $e');
       if (mounted) {
         setState(() {
           _tracks = [];
@@ -265,7 +266,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       List<TrackModel> tracks = await _musicServiceManager.getRecommendedTracks(limit: 50);
 
       if (tracks.isEmpty) {
-        print('⚠️ おすすめ取得が空。検索にフォールバック...');
+        AppLog.debug('⚠️ おすすめ取得が空。検索にフォールバック...');
         tracks = await _musicServiceManager.searchTracks('J-POP 人気', limit: 25);
       }
 
@@ -276,7 +277,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         });
       }
     } catch (e) {
-      print('Error loading initial tracks: $e');
+      AppLog.debug('Error loading initial tracks: $e');
       if (mounted) {
         setState(() {
           _tracks = [];
@@ -299,7 +300,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         _loadRecommendedTracks();
       }
     } catch (e) {
-      print('Error loading today\'s topic: $e');
+      AppLog.debug('Error loading today\'s topic: $e');
     }
   }
 
@@ -361,7 +362,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         });
       }
     } catch (e) {
-      print('Error loading my playlist tracks: $e');
+      AppLog.debug('Error loading my playlist tracks: $e');
       if (mounted) {
         setState(() {
           _tracks = [];
@@ -401,7 +402,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
         });
       }
     } catch (e) {
-      print('Error searching tracks: $e');
+      AppLog.debug('Error searching tracks: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -526,7 +527,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       try {
         await _audioService.playPreview(previewUrl, durationSeconds: 15);
       } catch (e) {
-        print('Preview playback error: $e');
+        AppLog.debug('Preview playback error: $e');
       }
     } else {
       if (mounted) {
@@ -554,21 +555,21 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
     Color? gradientEnd;
 
     try {
-      print('🎨 楽曲選択時に色抽出を開始...');
+      AppLog.debug('🎨 楽曲選択時に色抽出を開始...');
       final imageUrl = _selectedTrack!.albumImageUrl;
       if (imageUrl.isNotEmpty) {
         final extractedColors = await ColorExtractor.extractGradientColors(imageUrl);
         gradientStart = extractedColors.$1;
         gradientEnd = extractedColors.$2;
-        print('✅ 色抽出完了！投稿プレビュー画面に渡します');
+        AppLog.debug('✅ 色抽出完了！投稿プレビュー画面に渡します');
       }
     } catch (e) {
-      print('⚠️ 色抽出エラー: $e');
+      AppLog.debug('⚠️ 色抽出エラー: $e');
       // エラーが発生しても続行（PostPreviewScreenで再抽出）
     }
 
     // 歌詞を取得（バックグラウンドで開始、完了を待たない）
-    print('🎵 楽曲選択時に歌詞取得をバックグラウンドで開始...');
+    AppLog.debug('🎵 楽曲選択時に歌詞取得をバックグラウンドで開始...');
     final lyricsService = LyricsService();
     final appleDevToken = dotenv.env['APPLE_MUSIC_DEVELOPER_TOKEN'] ?? '';
 
@@ -579,13 +580,13 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
       appleDevToken: appleDevToken,
     ).then((lyricsData) {
       if (lyricsData != null) {
-        print('✅ 歌詞取得完了: ${lyricsData.source}');
+        AppLog.debug('✅ 歌詞取得完了: ${lyricsData.source}');
       } else {
-        print('⚠️ 歌詞が見つかりませんでした');
+        AppLog.debug('⚠️ 歌詞が見つかりませんでした');
       }
       return lyricsData;
     }).catchError((e) {
-      print('⚠️ 歌詞取得エラー: $e');
+      AppLog.debug('⚠️ 歌詞取得エラー: $e');
       return null;
     });
 

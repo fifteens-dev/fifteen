@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../screens/friend_match_screen.dart';
 import 'friend_service.dart';
+import '../utils/app_log.dart';
 
 /// 「最初の N 人と友達になった」瞬間を検出して、お祝いアニメーションを出す。
 ///
@@ -51,7 +52,7 @@ class FriendMatchService {
     try {
       pending = await _consumePending(uid);
     } catch (e) {
-      if (kDebugMode) print('FriendMatchService.maybeCelebrate error: $e');
+      if (kDebugMode) AppLog.debug('FriendMatchService.maybeCelebrate error: $e');
       return;
     }
     if (pending == null || !context.mounted) return;

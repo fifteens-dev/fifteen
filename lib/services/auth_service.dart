@@ -2,6 +2,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'live_activity_service.dart';
+import '../utils/app_log.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -39,7 +40,7 @@ class AuthService {
           }
 
           if (kDebugMode) {
-            print('FirebaseAuthException: ${e.code} - ${e.message}');
+            AppLog.debug('FirebaseAuthException: ${e.code} - ${e.message}');
           }
 
           onError(errorMessage);
@@ -52,7 +53,7 @@ class AuthService {
       return true;
     } catch (e) {
       if (kDebugMode) {
-        print('Error in verifyPhoneNumber: $e');
+        AppLog.debug('Error in verifyPhoneNumber: $e');
       }
       onError('予期しないエラーが発生しました');
       return false;
@@ -73,7 +74,7 @@ class AuthService {
       return await _auth.signInWithCredential(credential);
     } on FirebaseAuthException catch (e) {
       if (kDebugMode) {
-        print('FirebaseAuthException in signIn: ${e.code} - ${e.message}');
+        AppLog.debug('FirebaseAuthException in signIn: ${e.code} - ${e.message}');
       }
 
       if (e.code == 'invalid-verification-code') {
@@ -85,7 +86,7 @@ class AuthService {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error in signInWithVerificationCode: $e');
+        AppLog.debug('Error in signInWithVerificationCode: $e');
       }
       throw Exception('予期しないエラーが発生しました');
     }
@@ -98,8 +99,8 @@ class AuthService {
       final currentUser = _auth.currentUser;
       if (currentUser != null) {
         if (kDebugMode) {
-          print('✅ Using existing user for invite code: ${currentUser.uid}');
-          print('   Invite code: $inviteCode');
+          AppLog.debug('✅ Using existing user for invite code: ${currentUser.uid}');
+          AppLog.debug('   Invite code: $inviteCode');
         }
         // 既存のユーザーをUserCredentialとして返す
         // Note: この場合、実際のUserCredentialオブジェクトは作成されないため、
@@ -110,18 +111,18 @@ class AuthService {
       // ユーザーがいない場合は匿名認証でFirebaseユーザーを作成
       final userCredential = await _auth.signInAnonymously();
       if (kDebugMode) {
-        print('✅ User signed in with invite code: ${userCredential.user?.uid}');
-        print('   Invite code: $inviteCode');
+        AppLog.debug('✅ User signed in with invite code: ${userCredential.user?.uid}');
+        AppLog.debug('   Invite code: $inviteCode');
       }
       return userCredential;
     } on FirebaseAuthException catch (e) {
       if (kDebugMode) {
-        print('FirebaseAuthException in signInWithInviteCode: ${e.code} - ${e.message}');
+        AppLog.debug('FirebaseAuthException in signInWithInviteCode: ${e.code} - ${e.message}');
       }
       throw Exception('認証に失敗しました');
     } catch (e) {
       if (kDebugMode) {
-        print('Error in signInWithInviteCode: $e');
+        AppLog.debug('Error in signInWithInviteCode: $e');
       }
       throw Exception('予期しないエラーが発生しました');
     }
@@ -139,7 +140,7 @@ class AuthService {
       );
     } on FirebaseAuthException catch (e) {
       if (kDebugMode) {
-        print('FirebaseAuthException in signInWithEmail: ${e.code} - ${e.message}');
+        AppLog.debug('FirebaseAuthException in signInWithEmail: ${e.code} - ${e.message}');
       }
       switch (e.code) {
         case 'user-not-found':
@@ -169,7 +170,7 @@ class AuthService {
       );
     } on FirebaseAuthException catch (e) {
       if (kDebugMode) {
-        print('FirebaseAuthException in createUser: ${e.code} - ${e.message}');
+        AppLog.debug('FirebaseAuthException in createUser: ${e.code} - ${e.message}');
       }
       switch (e.code) {
         case 'email-already-in-use':
@@ -200,7 +201,7 @@ class AuthService {
       try {
         await user.getIdToken(true);
       } catch (e) {
-        if (kDebugMode) print('⚠️ getIdToken(force) failed (continuing): $e');
+        if (kDebugMode) AppLog.debug('⚠️ getIdToken(force) failed (continuing): $e');
       }
       await user.delete();
     }

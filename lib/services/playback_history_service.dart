@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track_model.dart';
 import 'apple_music_service.dart';
 import 'now_playing_service.dart';
+import '../utils/app_log.dart';
 
 /// アプリ起動時から、システムミュージックプレイヤーで再生された曲を
 /// 「手動で」履歴化するサービス（Apple Music の Web API 履歴が遅い・購入曲以外を
@@ -98,7 +99,7 @@ class PlaybackHistoryService {
       _prune();
       await _save();
     } catch (e) {
-      if (kDebugMode) print('[PlaybackHistory] tick error: $e');
+      if (kDebugMode) AppLog.debug('[PlaybackHistory] tick error: $e');
     }
   }
 

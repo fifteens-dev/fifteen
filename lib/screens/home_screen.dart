@@ -59,6 +59,7 @@ import '../services/posting_state.dart';
 import '../models/track_model.dart';
 import '../tutorial/tutorial.dart';
 import 'post_flow/mood_post_final_preview_screen.dart';
+import '../utils/app_log.dart';
 
 /// ホーム画面（タイムライン）
 class HomeScreen extends StatefulWidget {
@@ -162,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    print('🏠 ホーム画面: initState()が呼ばれました');
+    AppLog.debug('🏠 ホーム画面: initState()が呼ばれました');
     PostPhotoService.instance.photoAdded.addListener(_onPhotoAdded);
     _vibeDataFuture = widget.initialVibeData != null
         ? Future.value(widget.initialVibeData)
@@ -442,7 +443,7 @@ class _HomeScreenState extends State<HomeScreen>
           })
           .toList();
     } catch (e) {
-      print('⚠️ ストーリーアイテム取得エラー: $e');
+      AppLog.debug('⚠️ ストーリーアイテム取得エラー: $e');
       return const [];
     }
   }
@@ -470,7 +471,7 @@ class _HomeScreenState extends State<HomeScreen>
         final results = await Future.wait([
           _postService.hasUserPostedToday(uid),
           _userService.getUser(uid).catchError((Object e) {
-            print('⚠️ フォロー一覧取得エラー: $e');
+            AppLog.debug('⚠️ フォロー一覧取得エラー: $e');
             return null;
           }),
         ]);
@@ -487,9 +488,9 @@ class _HomeScreenState extends State<HomeScreen>
         firestorePosts = allTargetIds.isEmpty
             ? []
             : await _postService.getPostsForFollowing(allTargetIds, limit: 50);
-        print('📥 Firestoreから取得した投稿数: ${firestorePosts.length}');
+        AppLog.debug('📥 Firestoreから取得した投稿数: ${firestorePosts.length}');
       } catch (e) {
-        print('⚠️ Firestore取得エラー（権限エラーの可能性）: $e');
+        AppLog.debug('⚠️ Firestore取得エラー（権限エラーの可能性）: $e');
       }
 
       // 【重要】Vibe ストーリーバーは現在非表示のため、その取得（_fetchStoryItems=
@@ -499,7 +500,7 @@ class _HomeScreenState extends State<HomeScreen>
       // ストーリーバー復活時は、タイムライン表示をブロックしない別 Future で取得すること。
 
       final postsToUse = firestorePosts;
-      print('📊 表示する投稿数: ${postsToUse.length} (Firestore)');
+      AppLog.debug('📊 表示する投稿数: ${postsToUse.length} (Firestore)');
 
       // アルバムアートワークが空の投稿はSpotifyで補完（並列実行）
       final postsNeedingArt = <int>[];
@@ -523,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen>
               return MapEntry(i, post.copyWith(track: updatedTrack));
             }
           } catch (e) {
-            print('⚠️ Spotifyアルバムアートワーク取得エラー: $e');
+            AppLog.debug('⚠️ Spotifyアルバムアートワーク取得エラー: $e');
           }
           return MapEntry(i, post);
         }).toList();
@@ -536,17 +537,17 @@ class _HomeScreenState extends State<HomeScreen>
 
       return (posts: updatedPosts, hasPostedToday: hasPostedToday, user: userModel);
     } catch (e) {
-      print('❌ 投稿読み込みエラー: $e');
+      AppLog.debug('❌ 投稿読み込みエラー: $e');
       return (posts: <PostModel>[], hasPostedToday: false, user: null);
     }
   }
 
   /// 投稿リストを読み込み（Firestoreから取得）
   Future<void> _loadPosts() async {
-    print('📥 _loadPosts()開始');
+    AppLog.debug('📥 _loadPosts()開始');
     final result = await _fetchPostsData();
     if (mounted) {
-      print('✅ 投稿読み込み完了: ${result.posts.length}件の投稿をセット');
+      AppLog.debug('✅ 投稿読み込み完了: ${result.posts.length}件の投稿をセット');
       // 新しい投稿リストに存在しないキー・キャッシュを削除してメモリ節約
       final newPostIds = result.posts.map((p) => p.postId).toSet();
       _postCardKeys.removeWhere((id, _) => !newPostIds.contains(id));
@@ -555,7 +556,7 @@ class _HomeScreenState extends State<HomeScreen>
         _cachedPosts = result.posts;
         _hasPostedToday = result.hasPostedToday;
       });
-      print('🔄 setState()完了');
+      AppLog.debug('🔄 setState()完了');
       final uid = _auth.currentUser?.uid ?? '';
       context.read<PostUIState>().resetAndInitialize(
         posts: result.posts,
@@ -570,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen>
       _prefetchBacksideImages(result.posts);
       _prefetchPreviewUrls(result.posts);
     } else {
-      print('⚠️ mountedがfalseのため、setStateをスキップ');
+      AppLog.debug('⚠️ mountedがfalseのため、setStateをスキップ');
     }
   }
 
@@ -813,7 +814,7 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (e) {
       // 静かに失敗させる。次回ティックで再試行。
       if (kDebugMode) {
-        print('⚠️ ストーリー自動更新エラー: $e');
+        AppLog.debug('⚠️ ストーリー自動更新エラー: $e');
       }
     }
   }
@@ -1149,7 +1150,7 @@ class _HomeScreenState extends State<HomeScreen>
       });
       return true;
     } catch (e) {
-      if (kDebugMode) print('_maybeOpenPostFlowForCycle error: $e');
+      if (kDebugMode) AppLog.debug('_maybeOpenPostFlowForCycle error: $e');
       return false;
     }
   }
@@ -1565,7 +1566,7 @@ class _HomeScreenState extends State<HomeScreen>
 
       return {'topic': topic, 'ranking': ranking};
     } catch (e) {
-      print('Error loading vibe data: $e');
+      AppLog.debug('Error loading vibe data: $e');
       return {'topic': null, 'ranking': []};
     }
   }
@@ -1623,7 +1624,7 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
     } catch (e) {
-      print('Error handling ranking item tap: $e');
+      AppLog.debug('Error handling ranking item tap: $e');
       _showMessage('投稿の読み込みに失敗しました');
     }
   }

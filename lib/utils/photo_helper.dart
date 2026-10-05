@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
 import '../constants/photo_constants.dart';
 import '../services/storage_service.dart';
+import '../utils/app_log.dart';
 
 /// 写真処理のヘルパークラス
 class PhotoHelper {
@@ -30,7 +31,7 @@ class PhotoHelper {
         return await _uploadToFirebase(processedBytes, userId, storageService);
       }
     } catch (e) {
-      if (kDebugMode) print('❌ 写真処理エラー: $e');
+      if (kDebugMode) AppLog.debug('❌ 写真処理エラー: $e');
       rethrow;
     }
   }
@@ -155,7 +156,7 @@ class PhotoHelper {
         return (immediateUrl: null, storageRef: ref, croppedWidth: croppedWidth, croppedHeight: croppedHeight);
       }
     } catch (e) {
-      if (kDebugMode) print('❌ 写真分割アップロードエラー: $e');
+      if (kDebugMode) AppLog.debug('❌ 写真分割アップロードエラー: $e');
       rethrow;
     }
   }

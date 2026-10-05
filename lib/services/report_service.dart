@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import '../utils/app_log.dart';
 
 class ReportService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -23,7 +24,7 @@ class ReportService {
         'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      if (kDebugMode) print('Error reporting post: $e');
+      if (kDebugMode) AppLog.debug('Error reporting post: $e');
       rethrow;
     }
   }
@@ -48,7 +49,7 @@ class ReportService {
         'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      if (kDebugMode) print('Error reporting comment: $e');
+      if (kDebugMode) AppLog.debug('Error reporting comment: $e');
       rethrow;
     }
   }

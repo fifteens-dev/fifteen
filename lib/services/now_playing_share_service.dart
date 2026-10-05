@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import 'now_playing_service.dart';
+import '../utils/app_log.dart';
 
 /// 「今 Apple Music で聴いている曲」を友達に見せるための共有。
 ///
@@ -52,7 +53,7 @@ class NowPlayingShareService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      if (kDebugMode) print('NowPlayingShare.publish error: $e');
+      if (kDebugMode) AppLog.debug('NowPlayingShare.publish error: $e');
     }
   }
 
@@ -91,7 +92,7 @@ class NowPlayingShareService {
           );
         }
       } catch (e) {
-        if (kDebugMode) print('NowPlayingShare.fetch chunk failed: $e');
+        if (kDebugMode) AppLog.debug('NowPlayingShare.fetch chunk failed: $e');
       }
     }
     return out;

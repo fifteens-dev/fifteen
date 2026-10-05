@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/track_model.dart';
+import '../utils/app_log.dart';
 
 /// iTunes Search API サービス
 class ITunesSearchService {
@@ -22,14 +23,14 @@ class ITunesSearchService {
     if (result1 != null) return result1;
 
     // Step2: 曲名のみで検索（アーティスト名フィルターは維持）
-    print('🍎 Step2: 曲名のみで検索 "$trackName"');
+    AppLog.debug('🍎 Step2: 曲名のみで検索 "$trackName"');
     final result2 = await _searchAndMatch(trackName, trackName, artistName: artistName);
     if (result2 != null) return result2;
 
     // Step3: サブタイトル（括弧・バージョン情報等）を除去して再検索
     final baseName = _stripSubtitle(trackName);
     if (baseName != null) {
-      print('🍎 Step3: サブタイトル除去して再検索 "$baseName $artistName"');
+      AppLog.debug('🍎 Step3: サブタイトル除去して再検索 "$baseName $artistName"');
       return await _searchAndMatch('$baseName $artistName', baseName, artistName: artistName);
     }
 
@@ -50,7 +51,7 @@ class ITunesSearchService {
     for (final pattern in patterns) {
       final cleaned = trackName.replaceFirst(pattern, '').trim();
       if (cleaned.isNotEmpty && cleaned != trackName) {
-        print('🍎 サブタイトル除去: "$trackName" → "$cleaned"');
+        AppLog.debug('🍎 サブタイトル除去: "$trackName" → "$cleaned"');
         return cleaned;
       }
     }
@@ -69,17 +70,17 @@ class ITunesSearchService {
         'https://itunes.apple.com/search?term=$encodedQuery&country=JP&lang=ja_JP&media=music&entity=song&limit=30'
       );
 
-      print('🍎 iTunes Search API request: $query');
+      AppLog.debug('🍎 iTunes Search API request: $query');
       final response = await http.get(url);
 
       if (response.statusCode != 200) {
-        print('🍎 iTunes Search API error: ${response.statusCode}');
+        AppLog.debug('🍎 iTunes Search API error: ${response.statusCode}');
         return null;
       }
 
       final results = json.decode(response.body)['results'] as List;
       if (results.isEmpty) {
-        print('🍎 iTunes: No results found for "$query"');
+        AppLog.debug('🍎 iTunes: No results found for "$query"');
         return null;
       }
 
@@ -91,7 +92,7 @@ class ITunesSearchService {
       }).toList();
 
       if (matches.isEmpty) {
-        print('🍎 iTunes: 曲名一致なし for "$trackName" in "$query" results');
+        AppLog.debug('🍎 iTunes: 曲名一致なし for "$trackName" in "$query" results');
         return null;
       }
 
@@ -112,7 +113,7 @@ class ITunesSearchService {
         orElse: () => candidates.first,
       );
 
-      print('✅ iTunes: "${best['trackName']}" を選択');
+      AppLog.debug('✅ iTunes: "${best['trackName']}" を選択');
 
       final previewUrl = best['previewUrl']?.toString();
       final artLarge = best['artworkUrl600']?.toString();
@@ -124,7 +125,7 @@ class ITunesSearchService {
         'albumArtUrl': albumArtUrl?.replaceFirst('http://', 'https://'),
       };
     } catch (e) {
-      print('🍎 iTunes Search API exception: $e');
+      AppLog.debug('🍎 iTunes Search API exception: $e');
       return null;
     }
   }
@@ -256,7 +257,7 @@ class ITunesSearchService {
         'https://itunes.apple.com/search?term=$encodedQuery&country=JP&lang=ja_JP&media=music&entity=song&limit=${limit * 2}'
       );
 
-      print('🍎 iTunes Search API: $query');
+      AppLog.debug('🍎 iTunes Search API: $query');
 
       final response = await http.get(url);
 
@@ -265,7 +266,7 @@ class ITunesSearchService {
         final results = data['results'] as List;
 
         if (results.isEmpty) {
-          print('🍎 iTunes: No results found for "$query"');
+          AppLog.debug('🍎 iTunes: No results found for "$query"');
           return [];
         }
 
@@ -320,7 +321,7 @@ class ITunesSearchService {
               previewUrl: securePreviewUrl,
             ));
             seenTracks.add(trackKey);
-            print('🍎 iTunes: Added track "$trackName" by $artistName');
+            AppLog.debug('🍎 iTunes: Added track "$trackName" by $artistName');
           }
 
           // 指定された件数に達したら終了
@@ -329,14 +330,14 @@ class ITunesSearchService {
           }
         }
 
-        print('🍎 iTunes: Found ${trackModels.length} tracks (filtered from ${results.length})');
+        AppLog.debug('🍎 iTunes: Found ${trackModels.length} tracks (filtered from ${results.length})');
         return trackModels;
       } else {
-        print('🍎 iTunes Search API error: ${response.statusCode}');
+        AppLog.debug('🍎 iTunes Search API error: ${response.statusCode}');
         return [];
       }
     } catch (e) {
-      print('🍎 iTunes Search API exception: $e');
+      AppLog.debug('🍎 iTunes Search API exception: $e');
       return [];
     }
   }

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/notification_model.dart';
 import 'settings_service.dart';
+import '../utils/app_log.dart';
 
 /// 通知サービス
 /// - 通知のCRUD操作
@@ -35,7 +36,7 @@ class NotificationService {
       // 自分自身へのアクションはスキップ
       if (recipientId == senderId) {
         if (kDebugMode) {
-          print('通知スキップ: 自分自身へのアクション');
+          AppLog.debug('通知スキップ: 自分自身へのアクション');
         }
         return;
       }
@@ -43,7 +44,7 @@ class NotificationService {
       // テスト投稿（test_post_プレフィックス）の場合はスキップ
       if (postId != null && postId.startsWith('test_post_')) {
         if (kDebugMode) {
-          print('通知スキップ: テスト投稿');
+          AppLog.debug('通知スキップ: テスト投稿');
         }
         return;
       }
@@ -52,7 +53,7 @@ class NotificationService {
       final shouldNotify = await _checkUserNotificationSettings(type);
       if (!shouldNotify) {
         if (kDebugMode) {
-          print('通知スキップ: ユーザー設定で無効化 (type: $type)');
+          AppLog.debug('通知スキップ: ユーザー設定で無効化 (type: $type)');
         }
         return;
       }
@@ -87,11 +88,11 @@ class NotificationService {
       );
 
       if (kDebugMode) {
-        print('通知作成成功: ${docRef.id} (type: $type)');
+        AppLog.debug('通知作成成功: ${docRef.id} (type: $type)');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('通知作成エラー: $e');
+        AppLog.debug('通知作成エラー: $e');
       }
       rethrow;
     }
@@ -117,7 +118,7 @@ class NotificationService {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('通知設定チェックエラー: $e');
+        AppLog.debug('通知設定チェックエラー: $e');
       }
       // エラー時はデフォルトで通知を送る
       return true;
@@ -188,11 +189,11 @@ class NotificationService {
       });
 
       if (kDebugMode) {
-        print('通知を既読にしました: $notificationId');
+        AppLog.debug('通知を既読にしました: $notificationId');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('既読マークエラー: $e');
+        AppLog.debug('既読マークエラー: $e');
       }
       rethrow;
     }
@@ -217,11 +218,11 @@ class NotificationService {
       await batch.commit();
 
       if (kDebugMode) {
-        print('${snapshot.docs.length}件の通知を既読にしました');
+        AppLog.debug('${snapshot.docs.length}件の通知を既読にしました');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('一括既読マークエラー: $e');
+        AppLog.debug('一括既読マークエラー: $e');
       }
       rethrow;
     }
@@ -236,11 +237,11 @@ class NotificationService {
           .delete();
 
       if (kDebugMode) {
-        print('通知を削除しました: $notificationId');
+        AppLog.debug('通知を削除しました: $notificationId');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('通知削除エラー: $e');
+        AppLog.debug('通知削除エラー: $e');
       }
       rethrow;
     }
@@ -284,11 +285,11 @@ class NotificationService {
       }
 
       if (kDebugMode) {
-        print('FCMトークンを保存しました: $userId ($platform)');
+        AppLog.debug('FCMトークンを保存しました: $userId ($platform)');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('FCMトークン保存エラー: $e');
+        AppLog.debug('FCMトークン保存エラー: $e');
       }
       rethrow;
     }
@@ -306,11 +307,11 @@ class NotificationService {
       });
 
       if (kDebugMode) {
-        print('FCMトークンを削除しました: $userId');
+        AppLog.debug('FCMトークンを削除しました: $userId');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('FCMトークン削除エラー: $e');
+        AppLog.debug('FCMトークン削除エラー: $e');
       }
       // トークン削除の失敗は致命的ではないため、エラーを飲み込む
     }
@@ -340,11 +341,11 @@ class NotificationService {
       });
 
       if (kDebugMode) {
-        print('プッシュ通知リクエストを作成しました: $recipientId');
+        AppLog.debug('プッシュ通知リクエストを作成しました: $recipientId');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('プッシュ通知リクエスト作成エラー: $e');
+        AppLog.debug('プッシュ通知リクエスト作成エラー: $e');
       }
       // プッシュ通知失敗は致命的エラーではないため、続行
     }

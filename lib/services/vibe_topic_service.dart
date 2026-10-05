@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/vibe_topic_model.dart';
+import '../utils/app_log.dart';
 
 /// Vibeお題データを管理するサービス
 class VibeTopicService {
@@ -53,7 +54,7 @@ class VibeTopicService {
       return pickFrom(general);
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting today\'s topic: $e');
+        AppLog.debug('Error getting today\'s topic: $e');
       }
       return null;
     }
@@ -76,7 +77,7 @@ class VibeTopicService {
           .map((doc) => VibeTopicModel.fromFirestore(doc))
           .toList();
     } catch (e) {
-      if (kDebugMode) print('Error getting voting topics: $e');
+      if (kDebugMode) AppLog.debug('Error getting voting topics: $e');
       return [];
     }
   }
@@ -92,7 +93,7 @@ class VibeTopicService {
       if (snapshot.docs.isEmpty) return null;
       return snapshot.docs.first.data()['topicId'] as String?;
     } catch (e) {
-      if (kDebugMode) print('Error getting user vote: $e');
+      if (kDebugMode) AppLog.debug('Error getting user vote: $e');
       return null;
     }
   }
@@ -180,11 +181,11 @@ class VibeTopicService {
       }
 
       if (kDebugMode) {
-        print('Topic statuses updated successfully');
+        AppLog.debug('Topic statuses updated successfully');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error updating topic statuses: $e');
+        AppLog.debug('Error updating topic statuses: $e');
       }
       rethrow;
     }

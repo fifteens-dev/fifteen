@@ -26,6 +26,7 @@ import 'artist_profile_screen.dart';
 import 'follow_list_screen.dart';
 import 'music_memory_month_screen.dart';
 import 'music_memory_detail_screen.dart';
+import '../utils/app_log.dart';
 
 /// 他人プロフィールのタブ
 enum _OtherProfileTab { memories, saved }
@@ -278,7 +279,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
       }
     } catch (e) {
       if (kDebugMode) {
-        print('保存済み投稿の読み込みエラー: $e');
+        AppLog.debug('保存済み投稿の読み込みエラー: $e');
       }
     }
   }

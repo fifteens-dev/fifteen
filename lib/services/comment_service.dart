@@ -5,6 +5,7 @@ import '../models/notification_model.dart';
 import 'notification_service.dart';
 import 'post_service.dart';
 import 'user_service.dart';
+import '../utils/app_log.dart';
 
 /// コメント管理サービス
 class CommentService {
@@ -60,7 +61,7 @@ class CommentService {
         );
 
         if (kDebugMode) {
-          print('✅ コメント通知作成: postId=$postId, recipient=${post.userId}');
+          AppLog.debug('✅ コメント通知作成: postId=$postId, recipient=${post.userId}');
         }
 
         // @メンション検出・通知
@@ -121,10 +122,10 @@ class CommentService {
         );
 
         if (kDebugMode) {
-          print('✅ メンション通知: @$username → ${target.uid}');
+          AppLog.debug('✅ メンション通知: @$username → ${target.uid}');
         }
       } catch (e) {
-        if (kDebugMode) print('メンション通知エラー (@$username): $e');
+        if (kDebugMode) AppLog.debug('メンション通知エラー (@$username): $e');
       }
     }
   }
@@ -138,7 +139,7 @@ class CommentService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      print('コメント数の更新に失敗しました: $e');
+      AppLog.debug('コメント数の更新に失敗しました: $e');
     }
   }
 
@@ -151,7 +152,7 @@ class CommentService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      print('コメント数の更新に失敗しました: $e');
+      AppLog.debug('コメント数の更新に失敗しました: $e');
     }
   }
 

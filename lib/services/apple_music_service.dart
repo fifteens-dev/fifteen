@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/track_model.dart';
 import 'musickit_service.dart';
+import '../utils/app_log.dart';
 
 /// Apple Music API サービス
 class AppleMusicService {
@@ -59,7 +60,7 @@ class AppleMusicService {
       final token = (data is Map) ? data['token'] as String? : null;
       if (token != null && token.isNotEmpty) return token;
     } catch (e) {
-      print('⚠️ Developer Token のバックエンド取得に失敗: $e');
+      AppLog.debug('⚠️ Developer Token のバックエンド取得に失敗: $e');
     }
     return null;
   }
@@ -117,7 +118,7 @@ class AppleMusicService {
     try {
       // iOSでのみUser Token認証を試みる
       if (_musicKit.isSupported) {
-        print('📱 iOS環境: MusicKit User Token認証を試みます');
+        AppLog.debug('📱 iOS環境: MusicKit User Token認証を試みます');
         // MusicKit認証をリクエスト
         final status = await _musicKit.requestAuthorization();
 
@@ -125,7 +126,7 @@ class AppleMusicService {
           // Developer Tokenを確認（User Token取得に必要）
           await _ensureDeveloperToken();
           if (_developerToken == null || _developerToken!.isEmpty) {
-            print('❌ Developer Tokenが設定されていないため、User Token取得不可');
+            AppLog.debug('❌ Developer Tokenが設定されていないため、User Token取得不可');
             lastLinkErrorCode = 'TOKEN_ERROR';
             lastLinkErrorMessage =
                 'Apple Music の設定情報を取得できませんでした。時間をおいて再度お試しください。';
@@ -140,7 +141,7 @@ class AppleMusicService {
             if (userToken != null && userToken.isNotEmpty) {
               _userToken = userToken;
               await _storage.write(key: _userTokenKey, value: userToken);
-              print('✅ Apple Music User Token取得成功');
+              AppLog.debug('✅ Apple Music User Token取得成功');
               return true;
             }
             lastLinkErrorCode = 'TOKEN_ERROR';
@@ -152,14 +153,14 @@ class AppleMusicService {
             // キャッシュを破棄してバックエンドから再取得し、1 回だけ再試行する。
             if ((e.code == 'TOKEN_ERROR' || e.code == 'UNKNOWN') &&
                 await _forceRefreshDeveloperToken()) {
-              print('🔁 Developer Token を再取得して User Token 取得を再試行 (${e.code})');
+              AppLog.debug('🔁 Developer Token を再取得して User Token 取得を再試行 (${e.code})');
               try {
                 final retry = await _musicKit.getUserToken(
                     developerToken: _developerToken);
                 if (retry != null && retry.isNotEmpty) {
                   _userToken = retry;
                   await _storage.write(key: _userTokenKey, value: retry);
-                  print('✅ 再試行で Apple Music User Token取得成功');
+                  AppLog.debug('✅ 再試行で Apple Music User Token取得成功');
                   return true;
                 }
               } on AppleMusicTokenException catch (e2) {
@@ -170,11 +171,11 @@ class AppleMusicService {
             }
             lastLinkErrorCode = e.code;
             lastLinkErrorMessage = e.message;
-            print('❌ User Token取得失敗: ${e.code} ${e.message}');
+            AppLog.debug('❌ User Token取得失敗: ${e.code} ${e.message}');
             return false;
           }
         } else {
-          print('❌ MusicKit認証が拒否されました: $status');
+          AppLog.debug('❌ MusicKit認証が拒否されました: $status');
           lastLinkErrorCode = 'NOT_AUTHORIZED';
           lastLinkErrorMessage =
               'Apple Music へのアクセスが許可されていません。設定から許可してください。';
@@ -182,23 +183,23 @@ class AppleMusicService {
         }
       } else {
         // Android/WebではDeveloper Tokenのみで動作
-        print('🌐 Android/Web環境: Developer Tokenのみで動作します');
+        AppLog.debug('🌐 Android/Web環境: Developer Tokenのみで動作します');
 
         // Developer Tokenの確認（バックエンド発行を優先）
         await _ensureDeveloperToken();
 
         if (_developerToken != null && _developerToken!.isNotEmpty) {
-          print('✅ Apple Music Developer Token確認成功');
+          AppLog.debug('✅ Apple Music Developer Token確認成功');
           return true;
         } else {
-          print('❌ Apple Music Developer Tokenが設定されていません');
+          AppLog.debug('❌ Apple Music Developer Tokenが設定されていません');
           return false;
         }
       }
     } on AppleMusicNoSubscriptionException {
       rethrow;
     } catch (e) {
-      print('❌ Apple Music login error: $e');
+      AppLog.debug('❌ Apple Music login error: $e');
       return false;
     }
   }
@@ -239,7 +240,7 @@ class AppleMusicService {
         headers: {'Authorization': 'Bearer $_developerToken'},
       );
       if (response.statusCode != 200) {
-        print('getCatalogSongById error: ${response.statusCode}');
+        AppLog.debug('getCatalogSongById error: ${response.statusCode}');
         return null;
       }
       final data = json.decode(response.body);
@@ -269,7 +270,7 @@ class AppleMusicService {
         previewUrl: previewUrl,
       );
     } catch (e) {
-      print('Error getCatalogSongById: $e');
+      AppLog.debug('Error getCatalogSongById: $e');
       return null;
     }
   }
@@ -295,12 +296,12 @@ class AppleMusicService {
       );
       // 403はサブスクリプション未加入
       final hasSubscription = response.statusCode != 403;
-      print(hasSubscription
+      AppLog.debug(hasSubscription
           ? '✅ Apple Music サブスクリプション確認: 加入済み'
           : '⚠️ Apple Music サブスクリプション確認: 未加入 (${response.statusCode})');
       return hasSubscription;
     } catch (e) {
-      print('❌ Subscription check error: $e');
+      AppLog.debug('❌ Subscription check error: $e');
       return false;
     }
   }
@@ -310,7 +311,7 @@ class AppleMusicService {
     if (query.isEmpty) return [];
 
     if (!await _checkDeveloperToken()) {
-      print('Apple Music Developer Tokenが設定されていません');
+      AppLog.debug('Apple Music Developer Tokenが設定されていません');
       return [];
     }
 
@@ -364,11 +365,11 @@ class AppleMusicService {
           );
         }).toList();
       } else {
-        print('Apple Music search error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Apple Music search error: ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {
-      print('Error searching Apple Music tracks: $e');
+      AppLog.debug('Error searching Apple Music tracks: $e');
       return [];
     }
   }
@@ -377,7 +378,7 @@ class AppleMusicService {
   Future<List<TrackModel>> getPlaylistTracks(String playlistId,
       {int limit = 50}) async {
     if (!await _checkDeveloperToken()) {
-      print('Apple Music Developer Tokenが設定されていません');
+      AppLog.debug('Apple Music Developer Tokenが設定されていません');
       return [];
     }
 
@@ -426,11 +427,11 @@ class AppleMusicService {
           );
         }).toList();
       } else {
-        print('Apple Music playlist error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Apple Music playlist error: ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {
-      print('Error getting Apple Music playlist: $e');
+      AppLog.debug('Error getting Apple Music playlist: $e');
       return [];
     }
   }
@@ -459,14 +460,14 @@ class AppleMusicService {
       }
       return [];
     } catch (e) {
-      print('Error searching Apple Music playlist: $e');
+      AppLog.debug('Error searching Apple Music playlist: $e');
       return [];
     }
   }
 
   Future<List<TrackModel>> getTopCharts({int limit = 50}) async {
     if (!await _checkDeveloperToken()) {
-      print('Apple Music Developer Tokenが設定されていません');
+      AppLog.debug('Apple Music Developer Tokenが設定されていません');
       return [];
     }
 
@@ -490,11 +491,11 @@ class AppleMusicService {
         final charts = results['songs'][0]['data'] as List;
         return charts.map((d) => _trackFromChartData(d)).toList();
       } else {
-        print('Apple Music charts error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Apple Music charts error: ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {
-      print('Error getting Apple Music charts: $e');
+      AppLog.debug('Error getting Apple Music charts: $e');
       return [];
     }
   }
@@ -510,18 +511,18 @@ class AppleMusicService {
         headers: {'Authorization': 'Bearer $_developerToken'},
       );
       if (response.statusCode != 200) {
-        print('getHotHitsJapan error: ${response.statusCode}');
+        AppLog.debug('getHotHitsJapan error: ${response.statusCode}');
         return [];
       }
       final data = json.decode(response.body);
       final playlists = data['results']?['playlists'] as List?;
       if (playlists == null || playlists.isEmpty) return [];
       final playlistId = playlists[0]['data']?[0]?['id'] as String?;
-      print('📊 急上昇プレイリストID: $playlistId (${playlists[0]['name']})');
+      AppLog.debug('📊 急上昇プレイリストID: $playlistId (${playlists[0]['name']})');
       if (playlistId == null) return [];
       return await getPlaylistTracks(playlistId, limit: limit);
     } catch (e) {
-      print('Error getHotHitsJapan: $e');
+      AppLog.debug('Error getHotHitsJapan: $e');
       return [];
     }
   }
@@ -543,10 +544,10 @@ class AppleMusicService {
         final charts = songs[0]['data'] as List;
         return charts.map((d) => _trackFromChartData(d)).toList();
       }
-      print('getTopChartsByGenre error: ${response.statusCode}');
+      AppLog.debug('getTopChartsByGenre error: ${response.statusCode}');
       return [];
     } catch (e) {
-      print('Error getTopChartsByGenre: $e');
+      AppLog.debug('Error getTopChartsByGenre: $e');
       return [];
     }
   }
@@ -562,7 +563,7 @@ class AppleMusicService {
         headers: {'Authorization': 'Bearer $_developerToken'},
       );
       if (response.statusCode != 200) {
-        print('getDailyTopChartTracks step1 error: ${response.statusCode} ${response.body}');
+        AppLog.debug('getDailyTopChartTracks step1 error: ${response.statusCode} ${response.body}');
         return [];
       }
       final data = json.decode(response.body);
@@ -570,14 +571,14 @@ class AppleMusicService {
       if (results == null) return [];
 
       // with=dailyGlobalTopCharts の場合、レスポンスキーを確認
-      print('📊 getDailyTopChartTracks results keys: ${results.keys.toList()}');
+      AppLog.debug('📊 getDailyTopChartTracks results keys: ${results.keys.toList()}');
 
       // dailyGlobalTopCharts キーを優先して探す
       String? playlistId;
       final dailyCharts = results['dailyGlobalTopCharts'] as List?;
       if (dailyCharts != null && dailyCharts.isNotEmpty) {
         playlistId = dailyCharts[0]['data']?[0]?['id'] as String?;
-        print('📊 dailyGlobalTopCharts playlist id: $playlistId');
+        AppLog.debug('📊 dailyGlobalTopCharts playlist id: $playlistId');
       }
 
       // フォールバック: playlists キーから探す
@@ -585,19 +586,19 @@ class AppleMusicService {
         final playlists = results['playlists'] as List?;
         if (playlists != null && playlists.isNotEmpty) {
           playlistId = playlists[0]['data']?[0]?['id'] as String?;
-          print('📊 playlists fallback playlist id: $playlistId');
+          AppLog.debug('📊 playlists fallback playlist id: $playlistId');
         }
       }
 
       if (playlistId == null) {
-        print('⚠️ getDailyTopChartTracks: playlist id not found');
+        AppLog.debug('⚠️ getDailyTopChartTracks: playlist id not found');
         return [];
       }
 
       // Step2: プレイリストから楽曲を取得
       return await getPlaylistTracks(playlistId, limit: limit);
     } catch (e) {
-      print('Error getDailyTopChartTracks: $e');
+      AppLog.debug('Error getDailyTopChartTracks: $e');
       return [];
     }
   }
@@ -639,12 +640,12 @@ class AppleMusicService {
       _userToken = await _storage.read(key: _userTokenKey);
     }
     if (_userToken == null) {
-      print('❌ User Token not found for recently played.');
+      AppLog.debug('❌ User Token not found for recently played.');
       return [];
     }
     await _ensureDeveloperToken();
     if (_developerToken == null || _developerToken!.isEmpty) {
-      print('❌ Developer Token not found for recently played.');
+      AppLog.debug('❌ Developer Token not found for recently played.');
       return [];
     }
 
@@ -666,7 +667,7 @@ class AppleMusicService {
         );
 
         if (response.statusCode != 200) {
-          print('❌ Apple Music recently played error: ${response.statusCode}');
+          AppLog.debug('❌ Apple Music recently played error: ${response.statusCode}');
           break;
         }
 
@@ -698,7 +699,7 @@ class AppleMusicService {
         if (data['next'] == null) break; // 最後のページ
       }
 
-      if (played.isEmpty) print('⚠️ No recently played tracks found');
+      if (played.isEmpty) AppLog.debug('⚠️ No recently played tracks found');
       if (!deduplicate) return played;
 
       final unique = <String, TrackModel>{};
@@ -707,7 +708,7 @@ class AppleMusicService {
       }
       return unique.values.toList();
     } catch (e) {
-      print('❌ Error getting Apple Music recently played: $e');
+      AppLog.debug('❌ Error getting Apple Music recently played: $e');
       return [];
     }
   }
@@ -720,7 +721,7 @@ class AppleMusicService {
     }
 
     if (_userToken == null) {
-      print('❌ User Token not found. Please login first.');
+      AppLog.debug('❌ User Token not found. Please login first.');
       return [];
     }
 
@@ -728,7 +729,7 @@ class AppleMusicService {
     await _ensureDeveloperToken();
 
     if (_developerToken == null || _developerToken!.isEmpty) {
-      print('❌ Developer Token not found.');
+      AppLog.debug('❌ Developer Token not found.');
       return [];
     }
 
@@ -746,7 +747,7 @@ class AppleMusicService {
         final data = json.decode(response.body);
 
         if (data['data'] == null || (data['data'] as List).isEmpty) {
-          print('⚠️ No saved tracks found in user library');
+          AppLog.debug('⚠️ No saved tracks found in user library');
           return [];
         }
 
@@ -779,17 +780,17 @@ class AppleMusicService {
           );
         }).toList();
       } else if (response.statusCode == 401) {
-        print('❌ Authentication failed. User Token may be expired.');
+        AppLog.debug('❌ Authentication failed. User Token may be expired.');
         // User Tokenをクリア
         _userToken = null;
         await _storage.delete(key: _userTokenKey);
         return [];
       } else {
-        print('❌ Apple Music library error: ${response.statusCode} ${response.body}');
+        AppLog.debug('❌ Apple Music library error: ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {
-      print('❌ Error getting Apple Music saved tracks: $e');
+      AppLog.debug('❌ Error getting Apple Music saved tracks: $e');
       return [];
     }
   }
@@ -799,12 +800,12 @@ class AppleMusicService {
   /// storefront: ストアフロント（デフォルト: "jp"）
   Future<String?> getLyrics(String trackId, {String storefront = 'jp'}) async {
     if (trackId.isEmpty) {
-      print('Track ID is empty');
+      AppLog.debug('Track ID is empty');
       return null;
     }
 
     if (!await _checkDeveloperToken()) {
-      print('Apple Music Developer Tokenが設定されていません');
+      AppLog.debug('Apple Music Developer Tokenが設定されていません');
       return null;
     }
 
@@ -834,17 +835,17 @@ class AppleMusicService {
           }
         }
 
-        print('歌詞が見つかりませんでした（Track ID: $trackId）');
+        AppLog.debug('歌詞が見つかりませんでした（Track ID: $trackId）');
         return null;
       } else if (response.statusCode == 404) {
-        print('この楽曲には歌詞がありません（Track ID: $trackId）');
+        AppLog.debug('この楽曲には歌詞がありません（Track ID: $trackId）');
         return null;
       } else {
-        print('Apple Music lyrics error: ${response.statusCode} ${response.body}');
+        AppLog.debug('Apple Music lyrics error: ${response.statusCode} ${response.body}');
         return null;
       }
     } catch (e) {
-      print('Error fetching Apple Music lyrics: $e');
+      AppLog.debug('Error fetching Apple Music lyrics: $e');
       return null;
     }
   }

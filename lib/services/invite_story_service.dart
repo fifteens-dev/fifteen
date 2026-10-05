@@ -9,6 +9,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../widgets/invite_story_card.dart';
 import 'instagram_stories_service.dart';
+import '../utils/app_log.dart';
 
 /// 招待カードを画像にして Instagram ストーリーへ渡す。
 ///
@@ -122,7 +123,7 @@ class InviteStoryService {
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       return data?.buffer.asUint8List();
     } catch (e) {
-      if (kDebugMode) print('InviteStoryService._render error: $e');
+      if (kDebugMode) AppLog.debug('InviteStoryService._render error: $e');
       return null;
     } finally {
       entry.remove();

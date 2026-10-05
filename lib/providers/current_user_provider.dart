@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
 import '../services/user_service.dart';
+import '../utils/app_log.dart';
 
 /// アプリ全体で共有する現在のユーザー情報。
 ///
@@ -88,7 +89,7 @@ class CurrentUserProvider extends ChangeNotifier {
       _loaded = true;
       notifyListeners();
     } catch (e) {
-      if (kDebugMode) print('CurrentUserProvider load error: $e');
+      if (kDebugMode) AppLog.debug('CurrentUserProvider load error: $e');
       _uid = currentUser.uid;
       _loaded = true;
       notifyListeners();

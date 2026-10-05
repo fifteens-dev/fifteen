@@ -12,6 +12,7 @@ import '../models/post_model.dart';
 import 'music_memory_cycle_service.dart';
 import 'post_service.dart';
 import 'user_service.dart';
+import '../utils/app_log.dart';
 
 /// Live Activity の 3 パターン（Figma 5305:12537 / 12623 / 12685）。
 enum LiveActivityPhase {
@@ -164,7 +165,7 @@ class LiveActivityService {
       );
     } catch (e) {
       await _log('refresh', 'エラー: $e');
-      if (kDebugMode) print('LiveActivity refresh error: $e');
+      if (kDebugMode) AppLog.debug('LiveActivity refresh error: $e');
     } finally {
       _refreshing = false;
     }
@@ -193,7 +194,7 @@ class LiveActivityService {
       );
       _lastRefreshAt = DateTime.now();
     } catch (e) {
-      if (kDebugMode) print('LiveActivity markPosted error: $e');
+      if (kDebugMode) AppLog.debug('LiveActivity markPosted error: $e');
     }
   }
 
@@ -257,7 +258,7 @@ class LiveActivityService {
         'days': await _daysPayload(days),
       });
     } catch (e) {
-      if (kDebugMode) print('LiveActivity syncDays failed: $e');
+      if (kDebugMode) AppLog.debug('LiveActivity syncDays failed: $e');
     }
   }
 
@@ -297,7 +298,7 @@ class LiveActivityService {
       );
     } on PlatformException catch (e) {
       // ユーザーが Live Activity をオフにしている場合など。静かに諦める。
-      if (kDebugMode) print('LiveActivity start failed: ${e.code} ${e.message}');
+      if (kDebugMode) AppLog.debug('LiveActivity start failed: ${e.code} ${e.message}');
     }
   }
 
@@ -341,7 +342,7 @@ class LiveActivityService {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (e) {
-      if (kDebugMode) print('LiveActivity state write failed: $e');
+      if (kDebugMode) AppLog.debug('LiveActivity state write failed: $e');
     }
   }
 
@@ -368,7 +369,7 @@ class LiveActivityService {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (e) {
-      if (kDebugMode) print('LiveActivity token save failed: $e');
+      if (kDebugMode) AppLog.debug('LiveActivity token save failed: $e');
     }
   }
 
@@ -387,7 +388,7 @@ class LiveActivityService {
         'liveActivityTokenUpdatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (e) {
-      if (kDebugMode) print('LiveActivity push-to-start token save failed: $e');
+      if (kDebugMode) AppLog.debug('LiveActivity push-to-start token save failed: $e');
     }
   }
 

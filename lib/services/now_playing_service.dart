@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../models/track_model.dart';
+import '../utils/app_log.dart';
 
 /// 端末の音楽ライブラリ / 再生状態（iOS ネイティブ）から
 /// 「今聞いている曲」「最後に再生した時刻」を取得し、TrackModel を補強する。
@@ -38,7 +39,7 @@ class NowPlayingService {
           'getNowPlaying', {'includeArtwork': includeArtwork});
       if (includeArtwork) {
         // 【診断ログ】ネイティブから返った now playing の中身（ポーリング時は抑制）。
-        print('[MM nowPlaying] raw=$np');
+        AppLog.debug('[MM nowPlaying] raw=$np');
       }
       if (np == null) return null;
       final title = (np['title'] as String?)?.trim() ?? '';
@@ -56,7 +57,7 @@ class NowPlayingService {
         artworkDataUri: (art != null && art.isNotEmpty) ? art : null,
       );
     } catch (e) {
-      print('[MM nowPlaying] error=$e');
+      AppLog.debug('[MM nowPlaying] error=$e');
       return null;
     }
   }

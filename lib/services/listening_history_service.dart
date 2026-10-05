@@ -4,6 +4,7 @@ import '../models/music_service_type.dart';
 import 'music_service_manager.dart';
 import 'now_playing_service.dart';
 import 'playback_history_service.dart';
+import '../utils/app_log.dart';
 
 /// 「最近よく聴いている」を集計するための再生履歴。
 ///
@@ -60,7 +61,7 @@ class ListeningHistoryService {
         countedSongs.add(songKey(t.trackName, t.artistName));
       }
     } catch (e) {
-      if (kDebugMode) print('ListeningHistory: web api failed: $e');
+      if (kDebugMode) AppLog.debug('ListeningHistory: web api failed: $e');
     }
 
     // Spotify はここで打ち切り。以降の 2 つは iOS のミュージックプレイヤーの
@@ -76,7 +77,7 @@ class ListeningHistoryService {
         names.add(t.artistName.trim());
       }
     } catch (e) {
-      if (kDebugMode) print('ListeningHistory: playback history failed: $e');
+      if (kDebugMode) AppLog.debug('ListeningHistory: playback history failed: $e');
     }
 
     // 3) 端末ライブラリの再生ログ（lastPlayedDate の新しい順）
@@ -90,7 +91,7 @@ class ListeningHistoryService {
         names.add(e.artist.trim());
       }
     } catch (e) {
-      if (kDebugMode) print('ListeningHistory: device history failed: $e');
+      if (kDebugMode) AppLog.debug('ListeningHistory: device history failed: $e');
     }
 
     return names.take(limit).toList();

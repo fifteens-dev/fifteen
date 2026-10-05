@@ -4,6 +4,7 @@ import '../models/post_model.dart';
 import '../utils/campus_vibe_utils.dart';
 import 'post_fetch_service.dart';
 import 'music_memory_cycle_service.dart';
+import '../utils/app_log.dart';
 
 /// 投稿の存在チェックと日付フィルタリングを担当するサービス
 class PostCheckService {
@@ -29,7 +30,7 @@ class PostCheckService {
       return snapshot.docs.isNotEmpty;
     } catch (e) {
       if (kDebugMode) {
-        print('Error checking if user posted on date: $e');
+        AppLog.debug('Error checking if user posted on date: $e');
       }
       return false;
     }
@@ -49,7 +50,7 @@ class PostCheckService {
           .get();
       return snapshot.docs.isNotEmpty;
     } catch (e) {
-      if (kDebugMode) print('Error checking weekend post: $e');
+      if (kDebugMode) AppLog.debug('Error checking weekend post: $e');
       return false;
     }
   }
@@ -73,7 +74,7 @@ class PostCheckService {
       return snapshot.docs.isNotEmpty;
     } catch (e) {
       if (kDebugMode) {
-        print('Error checking if user posted today: $e');
+        AppLog.debug('Error checking if user posted today: $e');
       }
       return false;
     }
@@ -111,7 +112,7 @@ class PostCheckService {
       return (onTime: onTime, any: any);
     } catch (e) {
       if (kDebugMode) {
-        print('Error checking post status in cycle: $e');
+        AppLog.debug('Error checking post status in cycle: $e');
       }
       return (onTime: false, any: false);
     }
@@ -150,7 +151,7 @@ class PostCheckService {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error checking following posts in cycle: $e');
+        AppLog.debug('Error checking following posts in cycle: $e');
       }
     }
     return false;
@@ -177,7 +178,7 @@ class PostCheckService {
       return await _fetchService.applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting today\'s posts: $e');
+        AppLog.debug('Error getting today\'s posts: $e');
       }
       return [];
     }
@@ -203,7 +204,7 @@ class PostCheckService {
       return await _fetchService.applyLatestUserInfo(posts);
     } catch (e) {
       if (kDebugMode) {
-        print('Error getting posts excluding today: $e');
+        AppLog.debug('Error getting posts excluding today: $e');
       }
       return [];
     }

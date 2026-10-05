@@ -7,6 +7,7 @@ import '../models/music_service_type.dart';
 import 'spotify_service.dart';
 import 'spotify_auth_service.dart';
 import 'apple_music_service.dart';
+import '../utils/app_log.dart';
 
 /// 音楽サービスの統一管理クラス
 class MusicServiceManager {
@@ -172,32 +173,32 @@ class MusicServiceManager {
   /// 楽曲を検索
   Future<List<TrackModel>> searchTracks(String query, {int limit = 20}) async {
     final service = await getSelectedService();
-    print('🎵 MusicServiceManager.searchTracks: service=$service, query="$query"');
+    AppLog.debug('🎵 MusicServiceManager.searchTracks: service=$service, query="$query"');
 
     switch (service) {
       case MusicServiceType.spotify:
         try {
           return await _spotifyService.searchTracks(query, limit: limit);
         } catch (e) {
-          print('⚠️ Spotify検索失敗: $e');
+          AppLog.debug('⚠️ Spotify検索失敗: $e');
           return [];
         }
       case MusicServiceType.appleMusic:
         final results = await _appleMusicService.searchTracks(query, limit: limit);
         if (results.isNotEmpty) return results;
         // Apple Musicで結果が空の場合、Spotifyにフォールバック
-        print('⚠️ Apple Music検索失敗 - Spotifyにフォールバック');
+        AppLog.debug('⚠️ Apple Music検索失敗 - Spotifyにフォールバック');
         try {
           return await _spotifyService.searchTracks(query, limit: limit);
         } catch (e) {
-          print('⚠️ Spotifyフォールバックも失敗: $e');
+          AppLog.debug('⚠️ Spotifyフォールバックも失敗: $e');
           return [];
         }
       case MusicServiceType.none:
         try {
           return await _spotifyService.searchTracks(query, limit: limit);
         } catch (e) {
-          print('⚠️ Spotify検索失敗: $e');
+          AppLog.debug('⚠️ Spotify検索失敗: $e');
           return [];
         }
     }
@@ -213,7 +214,7 @@ class MusicServiceManager {
   ];
 
   Future<List<TrackModel>> getRecommendedTracks({int limit = 50}) async {
-    print('🎵 MusicServiceManager.getRecommendedTracks: ランダム選択');
+    AppLog.debug('🎵 MusicServiceManager.getRecommendedTracks: ランダム選択');
 
     // ソースをシャッフルして順番に試す
     final sources = List<_ChartSource>.from(_chartSources)..shuffle(Random());
@@ -222,11 +223,11 @@ class MusicServiceManager {
       try {
         final tracks = await _fetchChartSource(source, limit: limit);
         if (tracks.isNotEmpty) {
-          print('📊 ${source.label}から${tracks.length}曲取得');
+          AppLog.debug('📊 ${source.label}から${tracks.length}曲取得');
           return tracks;
         }
       } catch (e) {
-        print('⚠️ ${source.label}取得失敗: $e');
+        AppLog.debug('⚠️ ${source.label}取得失敗: $e');
       }
     }
 
@@ -234,7 +235,7 @@ class MusicServiceManager {
     try {
       return await _spotifyService.searchTracks('J-POP 人気', limit: limit);
     } catch (e) {
-      print('⚠️ 最終フォールバックも失敗: $e');
+      AppLog.debug('⚠️ 最終フォールバックも失敗: $e');
       return [];
     }
   }
@@ -304,7 +305,7 @@ class MusicServiceManager {
               deduplicate: deduplicate,
             );
           } catch (e) {
-            print('⚠️ Spotify最近再生した曲の取得失敗: $e');
+            AppLog.debug('⚠️ Spotify最近再生した曲の取得失敗: $e');
             return [];
           }
         }
@@ -316,7 +317,7 @@ class MusicServiceManager {
             deduplicate: deduplicate,
           );
         } catch (e) {
-          print('⚠️ Apple Music最近再生した曲の取得失敗: $e');
+          AppLog.debug('⚠️ Apple Music最近再生した曲の取得失敗: $e');
           return [];
         }
       case MusicServiceType.none:
@@ -335,7 +336,7 @@ class MusicServiceManager {
           try {
             return await _spotifyService.getSavedTracks(limit: limit);
           } catch (e) {
-            print('⚠️ Spotifyライブラリ取得失敗: $e');
+            AppLog.debug('⚠️ Spotifyライブラリ取得失敗: $e');
             return [];
           }
         }
@@ -345,7 +346,7 @@ class MusicServiceManager {
         try {
           return await _appleMusicService.getSavedTracks(limit: limit);
         } catch (e) {
-          print('⚠️ Apple Musicライブラリ取得失敗: $e');
+          AppLog.debug('⚠️ Apple Musicライブラリ取得失敗: $e');
           return [];
         }
       case MusicServiceType.none:
@@ -362,7 +363,7 @@ class MusicServiceManager {
       case MusicServiceType.spotify:
         // Spotify APIは公式に歌詞APIを提供していない
         // サードパーティAPIやスクレイピングが必要
-        print('Spotify歌詞取得は未実装です');
+        AppLog.debug('Spotify歌詞取得は未実装です');
         return null;
       case MusicServiceType.appleMusic:
         return await _appleMusicService.getLyrics(trackId);

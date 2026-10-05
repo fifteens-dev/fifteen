@@ -17,7 +17,7 @@ extension PostCardAudioMethods on PostCardState {
 
       // どちらもない場合、iTunes APIから取得
       if (previewUrl == null) {
-        if (kDebugMode) print('🍎 Fetching preview URL from iTunes...');
+        if (kDebugMode) AppLog.debug('🍎 Fetching preview URL from iTunes...');
         final result = await _itunesService.getPreviewUrlWithArt(
           trackName: widget.post.track.trackName,
           artistName: widget.post.track.artistName,
@@ -28,21 +28,21 @@ extension PostCardAudioMethods on PostCardState {
           previewUrl = result['previewUrl'];
           // setState で更新し、波形ウィジェットにURLを反映
           setState(() { _cachedPreviewUrl = previewUrl; });
-          if (kDebugMode) print('✅ iTunes preview URL obtained and cached');
+          if (kDebugMode) AppLog.debug('✅ iTunes preview URL obtained and cached');
         } else {
           // 1回目失敗 → リトライはバックグラウンド（初回タップは待たない）
-          if (kDebugMode) print('⚠️ iTunes returned null, retry in background');
+          if (kDebugMode) AppLog.debug('⚠️ iTunes returned null, retry in background');
           unawaited(_retryItunesInBackground());
         }
       } else {
-        if (kDebugMode) print('📦 Using cached preview URL');
+        if (kDebugMode) AppLog.debug('📦 Using cached preview URL');
       }
 
       if (!mounted) return;
 
       // プレビューURLがあれば再生
       if (previewUrl != null && previewUrl.isNotEmpty) {
-        if (kDebugMode) print('▶️  Starting playback...');
+        if (kDebugMode) AppLog.debug('▶️  Starting playback...');
         try {
           // playPreview はプリロード済みなら即スワップ→play、無ければ通常パス
           await widget.audioService.playPreview(
@@ -51,13 +51,13 @@ extension PostCardAudioMethods on PostCardState {
             durationSeconds: widget.post.audioDurationSec,
           );
         } catch (e) {
-          if (kDebugMode) print('❌ Playback error: $e');
+          if (kDebugMode) AppLog.debug('❌ Playback error: $e');
           if (mounted) {
             AppToast.show(context, '音楽の再生に失敗しました: ${e.toString()}');
           }
         }
       } else {
-        if (kDebugMode) print('⚠️  No preview URL available (retry in background)');
+        if (kDebugMode) AppLog.debug('⚠️  No preview URL available (retry in background)');
       }
     } finally {
       _isPlayAudioInProgress = false;
@@ -79,11 +79,11 @@ extension PostCardAudioMethods on PostCardState {
         final url = retryResult['previewUrl'];
         if (url != null && url.isNotEmpty) {
           setState(() { _cachedPreviewUrl = url; });
-          if (kDebugMode) print('✅ iTunes background retry succeeded');
+          if (kDebugMode) AppLog.debug('✅ iTunes background retry succeeded');
         }
       }
     } catch (e) {
-      if (kDebugMode) print('❌ Background retry error: $e');
+      if (kDebugMode) AppLog.debug('❌ Background retry error: $e');
     }
   }
 }

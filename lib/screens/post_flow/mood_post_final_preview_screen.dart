@@ -35,14 +35,22 @@ import '../../widgets/post_card.dart';
 /// isVibe: false, vibeTopicId/Title: null で気分投稿として保存する。
 class MoodPostFinalPreviewScreen extends StatefulWidget {
   final TrackModel track;
-  /// 写真。投稿フローから写真の工程を外したので通常は null。
-  /// 旧フローから来たときのために受け取れる形は残してある。
+  /// 投稿に添える**公開**画像。旧フロー（写真を選んでから確認へ来る）で
+  /// 使っていたもので、通常は null。
   final XFile? selectedImage;
+
+  /// 投稿に紐づける**非公開**の写真。曲を選んだ直後のカメラで撮ったもの。
+  ///
+  /// [selectedImage] と違い、投稿そのものには載らない。本人の
+  /// カレンダーから開いたカードの裏面にだけ出る（[AddPhotoFlow]）。
+  /// この時点では postId がまだ無いので、投稿が済んでから紐づける。
+  final XFile? initialPhoto;
 
   const MoodPostFinalPreviewScreen({
     super.key,
     required this.track,
     this.selectedImage,
+    this.initialPhoto,
   });
 
   /// ホーム画面の上にシートとして重ねて開く。
@@ -54,7 +62,14 @@ class MoodPostFinalPreviewScreen extends StatefulWidget {
   /// 遷移の作法をここに閉じ込めて呼び出し側が間違えられないようにしている。
   ///
   /// 曲選択のモーダル等はスタックから外し、ホームの直上に置く。
-  static void open(BuildContext context, TrackModel track, {XFile? photo}) {
+  /// [photo] は公開画像（旧フロー）、[initialPhoto] は非公開の写真。
+  /// 混ざらないよう分けてある。
+  static void open(
+    BuildContext context,
+    TrackModel track, {
+    XFile? photo,
+    XFile? initialPhoto,
+  }) {
     final nav = Navigator.of(context);
     nav.pushNamedAndRemoveUntil('/home', (route) => false);
     nav.push(
@@ -63,7 +78,11 @@ class MoodPostFinalPreviewScreen extends StatefulWidget {
         barrierDismissible: false,
         transitionDuration: const Duration(milliseconds: 400),
         pageBuilder: (_, __, ___) =>
-            MoodPostFinalPreviewScreen(track: track, selectedImage: photo),
+            MoodPostFinalPreviewScreen(
+          track: track,
+          selectedImage: photo,
+          initialPhoto: initialPhoto,
+        ),
         transitionsBuilder: (_, animation, __, child) => FadeTransition(
           opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
           child: child,
@@ -100,12 +119,16 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   /// （この時点では postId がまだ無い）。
   XFile? _pendingPhoto;
 
+  /// 曲を選んだ直後のカメラで撮ってあれば、それを初期値にする。
+  void _seedPendingPhoto() => _pendingPhoto = widget.initialPhoto;
+
   /// 今が写真を足せる時間帯か（24:00 まで）。
   bool _canAddPhoto = false;
 
   @override
   void initState() {
     super.initState();
+    _seedPendingPhoto();
     _loadMe();
     // ignore: discarded_futures
     _loadCanAddPhoto();

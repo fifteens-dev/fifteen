@@ -22,6 +22,9 @@ import '../../utils/color_extractor.dart';
 import '../../widgets/post_card.dart';
 import '../../widgets/native_pull_down_button.dart';
 import 'mood_post_final_preview_screen.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../services/post_photo_service.dart';
+import 'add_photo_flow.dart';
 
 /// アルバムアートから抽出したグラデーション色の**プロセス寿命**キャッシュ。
 ///
@@ -496,17 +499,41 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
     } catch (_) {}
   }
 
-  /// 白ボタン「この曲で続ける」→ そのまま最終確認へ。
+  /// 白ボタン「この曲で続ける」→ カメラ → 最終確認へ。
   ///
-  /// 以前は写真を撮る画面を挟んでいたが、カード裏面が写真ではなく
-  /// プロフィール（top artists / recent choice）になったので写真を使わない。
+  /// 写真を足せる時間帯（通常は 21:00〜24:00）のときだけカメラを挟む。
+  /// 時間外は撮っても紐づけられないので、そのまま確認画面へ進む。
+  ///
+  /// 撮らずに閉じても止めない。確認画面の「写真を追加する」バーから
+  /// 撮り直せるので、ここは通り道であって関門ではない。
   ///
   /// 確認画面はホームの上にシートとして重なる（[MoodPostFinalPreviewScreen.open]）。
   /// このモーダルはそこでスタックから外れるので、閉じるとホームに戻る。
-  void _confirmAndProceed(TrackModel track) {
+  /// カメラを開くまでの間に二度押しされると、カメラが二重に乗る。
+  bool _proceeding = false;
+
+  Future<void> _confirmAndProceed(TrackModel track) async {
+    if (_proceeding) return;
+    _proceeding = true;
+
     // 次へ進む前にプレビュー再生を停止（モーダルはスタックに残るため）。
     _audioService.stop();
-    MoodPostFinalPreviewScreen.open(context, track);
+
+    XFile? photo;
+    if (await PostPhotoService.instance.canAddPhotoNow()) {
+      if (!mounted) {
+        _proceeding = false;
+        return;
+      }
+      photo = await AddPhotoFlow.pick(context);
+    }
+
+    if (!mounted) {
+      _proceeding = false;
+      return;
+    }
+    MoodPostFinalPreviewScreen.open(context, track, initialPhoto: photo);
+    _proceeding = false;
   }
 
   /// 中央カードのサブタイトル。再生中は "Now Playing"、24時間以内は "○分前/○時間前"。

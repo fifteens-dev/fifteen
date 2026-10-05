@@ -11,13 +11,17 @@ import '../services/lyrics_service.dart';
 import '../services/music_memory_cycle_service.dart';
 import '../utils/color_extractor.dart';
 import 'post_card_edit_screen.dart';
-import 'post_flow/mood_post_final_preview_screen.dart';
 
-/// 投稿フローの写真選択画面（通常フロー専用）
+/// 写真を撮る / 選ぶ画面。
 ///
 /// 上下 2 ページの垂直 PageView 構造:
-///   - Page 0: アプリ内カメラプレビュー。シャッターで即撮影→PostCardEditScreen。
-///   - Page 1: 3列写真グリッド。写真タップで拡大アニメーション→PostCardEditScreen。
+///   - Page 0: アプリ内カメラプレビュー。シャッターで即撮影。
+///   - Page 1: 3列写真グリッド。写真タップで拡大アニメーション。
+///
+/// 使い方は 2 通り。
+///   - [onPhotoTaken] を渡す: 写真を返して閉じるだけ。投稿に後から写真を
+///     足すときに使う（[AddPhotoFlow]）。今の投稿フローはこちら。
+///   - 渡さない: [track] を持って歌詞カードの編集画面へ進む（旧フロー）。
 class PostPhotoSelectionScreen extends StatefulWidget {
   /// 投稿フローで使うときの曲。[onPhotoTaken] を渡す使い方では要らない。
   final TrackModel? track;
@@ -27,9 +31,6 @@ class PostPhotoSelectionScreen extends StatefulWidget {
   final String? vibeTopicId;
   final String? vibeTopicTitle;
   final bool fromVibePlaylist;
-  /// 気分投稿フロー (Music Memory 起点) では PostCardEditScreen / 歌詞カード選択を
-  /// 経由せず、写真確定でそのまま [MoodPostFinalPreviewScreen] へ飛ばす。
-  final bool isMoodPost;
 
   /// 写真が決まったら呼ぶ。渡すとこの画面は投稿フローへ進まず、
   /// 撮った / 選んだ写真を返して閉じるだけになる
@@ -48,7 +49,6 @@ class PostPhotoSelectionScreen extends StatefulWidget {
     this.vibeTopicId,
     this.vibeTopicTitle,
     this.fromVibePlaylist = false,
-    this.isMoodPost = false,
     this.onPhotoTaken,
     this.todayOnly = false,
   });
@@ -374,17 +374,6 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     }
   }
 
-  /// 気分投稿の透明プレビューを「必ずホームの上」に載せる。
-  ///
-  /// 以前は pushAndRemoveUntil(..., (route) => route.isFirst) で「スタック最下部＝ホーム」を
-  /// 前提にしていたが、新規登録直後/ログアウト→再ログイン直後はスタック最下部が
-  /// phone-auth（AuthGate が pushReplacementNamed('/phone-auth') で作ったベース）になっており、
-  /// 投稿後の pop 先が phone-auth になってしまう不具合があった。
-  /// そこで先に /home を唯一のベースへ載せ替えてから、透明プレビューを push する。
-  void _openMoodPreview(XFile photo) {
-    // 遷移の作法（ホームの上に opaque:false で重ねる）は画面側に寄せてある。
-    MoodPostFinalPreviewScreen.open(context, widget.track!, photo: photo);
-  }
 
   void _navigateToEdit(XFile photo) {
     // 写真を返すだけの使い方（投稿済みカードへの追加）。
@@ -394,12 +383,6 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
       onTaken(photo);
       return;
     }
-    if (widget.isMoodPost) {
-      // 気分投稿: 歌詞カード編集をスキップし、ホームの上に透明プレビューを載せる。
-      _openMoodPreview(photo);
-      return;
-    }
-
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
@@ -462,13 +445,6 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     if (onTaken != null) {
       Navigator.of(context).pop();
       onTaken(XFile(file.path));
-      return;
-    }
-
-    if (widget.isMoodPost) {
-      // 気分投稿: グリッド選択 → 拡大アニメーションを省略し、ホームの上に
-      // 透明プレビューを載せる（スタック最下部が phone-auth でも安全）。
-      _openMoodPreview(XFile(file.path));
       return;
     }
 

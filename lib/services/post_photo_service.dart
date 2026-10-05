@@ -40,7 +40,6 @@ class PostPhotoService {
     // 延長の判定より先に取る。写真の絞り込み（どの日の写真を出すか）が
     // notifiedAt を見るので、先に return すると null のままになる。
     if (cycle.notifiedAt == null) await cycle.fetchNotifiedAt();
-    if (_temporaryExtensionActive) return true;
     final deadline = cycle.currentDeadline;
     if (deadline == null) return false;
     return DateTime.now().isBefore(deadline);
@@ -49,16 +48,10 @@ class PostPhotoService {
   /// 取りに行かずに判定する。既に取得済みの前提で、描画のたびに
   /// 呼ばれる場所（カードのバーを出すか）で使う。
   bool get canAddPhotoNowSync {
-    if (_temporaryExtensionActive) return true;
     final deadline = MusicMemoryCycleService().currentDeadline;
     if (deadline == null) return false;
     return DateTime.now().isBefore(deadline);
   }
-
-  /// 一時的な制限解除中か（動作確認用・2026-10-05 中）。
-  /// 期限や意図は [MusicMemoryCycleService.limitsLifted] に書いてある。
-  static bool get _temporaryExtensionActive =>
-      MusicMemoryCycleService.limitsLifted;
 
   /// その写真が「今日撮ったもの」か。
   ///

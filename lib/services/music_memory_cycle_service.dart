@@ -141,28 +141,11 @@ class MusicMemoryCycleService {
   /// [createdAt] が現サイクルの締切（24:00）を過ぎているか。
   /// 24 時以降の投稿はこれが true になる（写真は足せない）。
   bool isLate(DateTime createdAt) {
-    if (limitsLifted) return false;
     final deadline = currentDeadline;
     if (deadline == null) return false;
     return createdAt.toUtc().isAfter(deadline);
   }
 
-  // ── 一時的な制限解除（動作確認用・2026-10-05 中）───────────────
-  //
-  // 24 時を過ぎると投稿が Late 扱いになり、裏面が見られない・写真も足せない。
-  // 夜まで待たないと一通り試せないので、10/5 いっぱいはこれらを外す。
-  //
-  // **期限を過ぎれば自動で通常に戻る**ので、消し忘れても本番の挙動は
-  // 変わらない。不要になったらこのブロックと [isLate] の 1 行、
-  // PostPhotoService 側の 2 箇所を消すこと。
-
-  /// 解除の期限（JST 2026-10-06 00:00）。
-  static final DateTime _limitsLiftedUntil =
-      DateTime.utc(2026, 10, 5, 15); // JST 翌 00:00 = UTC 15:00
-
-  /// 今が解除中か。Late 判定と写真の締切の両方がこれを見る。
-  static bool get limitsLifted =>
-      DateTime.now().toUtc().isBefore(_limitsLiftedUntil);
 
   /// サイクル開始（通知時刻）に対する投稿締切の instant を返す。
   /// JST 固定: notifiedAt の JST 暦日の 24:00（＝翌日 0:00 JST）。

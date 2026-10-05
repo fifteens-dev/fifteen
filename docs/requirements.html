@@ -1,0 +1,673 @@
+<title>15s 要件定義</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<style>
+  :root {
+    --paper:      #FAF9F2;
+    --paper-sunk: #F0EFE4;
+    --card:       #FFFFFF;
+    --ink:        #1B1D15;
+    --ink-soft:   #5C6052;
+    --ink-faint:  #8A8E7D;
+    --accent:     #6F7F3A;
+    --accent-bg:  #E8EDD2;
+    --line:       #DFDFD0;
+    --warn:       #9A6A1E;
+    --warn-bg:    #F6ECD6;
+    --hold:       #6B6E7A;
+    --hold-bg:    #E8E8EC;
+
+    --measure: 34rem;
+    --radius: 10px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #14160F;
+      --paper-sunk: #1B1E15;
+      --card:       #1E2118;
+      --ink:        #EFEFE4;
+      --ink-soft:   #A8AC9A;
+      --ink-faint:  #777B6B;
+      --accent:     #B0C266;
+      --accent-bg:  #2C3320;
+      --line:       #2F3328;
+      --warn:       #D7AC63;
+      --warn-bg:    #352B18;
+      --hold:       #9B9EAA;
+      --hold-bg:    #26272D;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #14160F;
+    --paper-sunk: #1B1E15;
+    --card:       #1E2118;
+    --ink:        #EFEFE4;
+    --ink-soft:   #A8AC9A;
+    --ink-faint:  #777B6B;
+    --accent:     #B0C266;
+    --accent-bg:  #2C3320;
+    --line:       #2F3328;
+    --warn:       #D7AC63;
+    --warn-bg:    #352B18;
+    --hold:       #9B9EAA;
+    --hold-bg:    #26272D;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Zen Kaku Gothic New", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 16px;
+    line-height: 1.85;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: 4rem 1.5rem 7rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+  }
+
+  @media (min-width: 62rem) {
+    .wrap {
+      grid-template-columns: 11rem minmax(0, 1fr);
+      gap: 4rem;
+      padding-top: 5.5rem;
+    }
+  }
+
+  /* ── 索引 ───────────────────────────────── */
+  .index { display: none; }
+  @media (min-width: 62rem) {
+    .index {
+      display: block;
+      position: sticky;
+      top: 3rem;
+      align-self: start;
+      font-size: 0.8rem;
+      line-height: 1.6;
+    }
+  }
+  .index ol { list-style: none; display: flex; flex-direction: column; gap: 0.45rem; }
+  .index a {
+    color: var(--ink-faint);
+    text-decoration: none;
+    display: flex;
+    gap: 0.6rem;
+    border-left: 2px solid transparent;
+    padding-left: 0.7rem;
+  }
+  .index a:hover, .index a:focus-visible { color: var(--accent); border-left-color: var(--accent); }
+  .index .n {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.72rem;
+    opacity: 0.75;
+  }
+
+  main { min-width: 0; display: flex; flex-direction: column; gap: 3.5rem; }
+
+  /* ── 冒頭 ───────────────────────────────── */
+  .masthead { display: flex; flex-direction: column; gap: 1rem; }
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    font-family: "Shippori Mincho", serif;
+    font-weight: 700;
+    font-size: clamp(2.1rem, 6vw, 3.1rem);
+    line-height: 1.25;
+    text-wrap: balance;
+    letter-spacing: 0.01em;
+  }
+  .standfirst {
+    max-width: var(--measure);
+    color: var(--ink-soft);
+    font-size: 1.02rem;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.6rem;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.74rem;
+    color: var(--ink-faint);
+    border-top: 1px solid var(--line);
+    padding-top: 0.9rem;
+    margin-top: 0.5rem;
+  }
+
+  /* ── 節 ─────────────────────────────────── */
+  section { display: flex; flex-direction: column; gap: 1.1rem; scroll-margin-top: 2rem; }
+  h2 {
+    font-family: "Shippori Mincho", serif;
+    font-weight: 700;
+    font-size: 1.45rem;
+    line-height: 1.4;
+    display: flex;
+    align-items: baseline;
+    gap: 0.8rem;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--line);
+  }
+  h2 .n {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.78rem;
+    color: var(--accent);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  h3 {
+    font-family: "Zen Kaku Gothic New", sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+    margin-top: 0.6rem;
+  }
+  p { max-width: var(--measure); }
+  main ul { max-width: var(--measure); display: flex; flex-direction: column; gap: 0.5rem; padding-left: 1.1rem; }
+  main li { padding-left: 0.2rem; }
+  main li::marker { color: var(--accent); }
+  strong { font-weight: 700; }
+  code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.84em;
+    background: var(--paper-sunk);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.08em 0.36em;
+  }
+
+  /* ── サイクルの帯 ───────────────────────── */
+  .cycle {
+    display: grid;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    grid-template-columns: 1fr;
+  }
+  @media (min-width: 40rem) { .cycle { grid-template-columns: repeat(3, 1fr); } }
+  .phase { background: var(--card); padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .phase .t {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 1.05rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+  }
+  .phase .h { font-weight: 700; font-size: 0.92rem; }
+  .phase .d { font-size: 0.84rem; color: var(--ink-soft); line-height: 1.7; }
+
+  /* ── ルールカード ───────────────────────── */
+  .rules { display: flex; flex-direction: column; gap: 0.5rem; }
+  .rule {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 0.85rem 1.1rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.3rem 0.9rem;
+  }
+  .rule .k { font-weight: 700; font-size: 0.9rem; min-width: 9rem; }
+  .rule .v { color: var(--ink-soft); font-size: 0.89rem; flex: 1 1 16rem; line-height: 1.7; }
+  .rule.is-warn { border-left-color: var(--warn); }
+  .rule.is-hold { border-left-color: var(--hold); }
+
+  /* ── 状態チップ ─────────────────────────── */
+  .chip {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    padding: 0.18em 0.6em;
+    border-radius: 999px;
+    white-space: nowrap;
+    background: var(--accent-bg);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .chip.warn { background: var(--warn-bg); color: var(--warn); }
+  .chip.hold { background: var(--hold-bg); color: var(--hold); }
+
+  /* ── 表 ─────────────────────────────────── */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; min-width: 30rem; }
+  th, td { text-align: left; padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    background: var(--paper-sunk);
+    font-weight: 700;
+    font-size: 0.74rem;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.8rem; white-space: nowrap; }
+
+  /* ── 注記 ───────────────────────────────── */
+  .note {
+    background: var(--paper-sunk);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1rem 1.2rem;
+    font-size: 0.88rem;
+    color: var(--ink-soft);
+    line-height: 1.75;
+    max-width: var(--measure);
+  }
+  .note b { color: var(--ink); }
+  .note.is-warn { background: var(--warn-bg); border-color: var(--warn); }
+  .note.is-warn b { color: var(--warn); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 1.2rem;
+    font-size: 0.78rem;
+    color: var(--ink-faint);
+    max-width: var(--measure);
+    line-height: 1.8;
+  }
+
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <nav class="index" aria-label="目次">
+    <ol>
+      <li><a href="#s1"><span class="n">01</span><span>サービスの骨子</span></a></li>
+      <li><a href="#s2"><span class="n">02</span><span>1日のサイクル</span></a></li>
+      <li><a href="#s3"><span class="n">03</span><span>投稿</span></a></li>
+      <li><a href="#s4"><span class="n">04</span><span>投稿カード</span></a></li>
+      <li><a href="#s5"><span class="n">05</span><span>写真</span></a></li>
+      <li><a href="#s6"><span class="n">06</span><span>Music Memory</span></a></li>
+      <li><a href="#s7"><span class="n">07</span><span>公開範囲</span></a></li>
+      <li><a href="#s8"><span class="n">08</span><span>音楽サービス</span></a></li>
+      <li><a href="#s9"><span class="n">09</span><span>招待</span></a></li>
+      <li><a href="#s10"><span class="n">10</span><span>ウィジェット</span></a></li>
+      <li><a href="#s11"><span class="n">11</span><span>未適用・保留</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <header class="masthead">
+      <div class="eyebrow">Fifteens / 15s</div>
+      <h1>15s 要件定義</h1>
+      <p class="standfirst">
+        夜に通知が来て、友達と「今日の1曲」を出し合う音楽SNS。
+        この文書は、現在コードに入っている仕様をそのまま書き起こしたものです。
+        構想ではなく、動いているものを記述しています。
+      </p>
+      <div class="meta">
+        <span>2026-10-06 時点</span>
+        <span>v1.7.0 (69)</span>
+        <span>iOS / Flutter + Firebase</span>
+      </div>
+    </header>
+
+    <!-- 01 ─────────────────────────────────── -->
+    <section id="s1">
+      <h2><span class="n">01</span>サービスの骨子</h2>
+      <p>
+        1日1回、全員に同じ時刻の通知が届く。受け取った人はその日聴いた曲から1曲を選んで投稿する。
+        投稿はカードの形で友達のタイムラインに並び、裏返すとその人の「今の音楽の顔」が見える。
+      </p>
+      <p>
+        設計上の軸は <strong>同時性</strong> です。いつでも投稿できるのではなく、
+        毎晩決まった時刻から始まる限られた窓の中で全員が投稿する。
+        この窓を <strong>15s Day</strong>（＝1サイクル）と呼びます。
+      </p>
+    </section>
+
+    <!-- 02 ─────────────────────────────────── -->
+    <section id="s2">
+      <h2><span class="n">02</span>1日のサイクル</h2>
+      <p>
+        サイクルの境界は、サーバーが通知を実際に発火した時刻
+        （<code>music_memory_state/current.notifiedAt</code>）です。
+        端末の時計ではなくこの値を基準にするので、全員のサイクルが揃います。
+      </p>
+
+      <div class="cycle">
+        <div class="phase">
+          <div class="t">21:00</div>
+          <div class="h">通知が届く</div>
+          <div class="d">JST 固定。5分おきに走る定期処理が、その日まだ送っていなければ送る。発火時刻を記録し、ここがサイクルの開始になる。</div>
+        </div>
+        <div class="phase">
+          <div class="t">21:00 – 24:00</div>
+          <div class="h">投稿できる</div>
+          <div class="d">曲を選んで投稿する。この窓の中で投稿したものが「期限内投稿」。写真を足せるのもこの間だけ。</div>
+        </div>
+        <div class="phase">
+          <div class="t">24:00 以降</div>
+          <div class="h">Late 投稿</div>
+          <div class="d">投稿自体は翌日の通知までできるが <code>isLate</code> が付く。写真は足せない。</div>
+        </div>
+      </div>
+
+      <div class="rules">
+        <div class="rule">
+          <span class="k">通知時刻</span>
+          <span class="v">21:00 JST 固定。以前は 19:00–23:30 のランダムだった。</span>
+        </div>
+        <div class="rule">
+          <span class="k">締切</span>
+          <span class="v"><code>notifiedAt</code> の JST 暦日の 24:00（＝翌 0:00）。</span>
+        </div>
+        <div class="rule">
+          <span class="k">投稿の上限</span>
+          <span class="v">無し。1サイクルに何度でも投稿できる。<br>（WATERFALLS のようなイベントでは別途 1日1投稿に制限する）</span>
+        </div>
+        <div class="rule">
+          <span class="k">自動で開く</span>
+          <span class="v">21:00〜24:00 に未投稿のままアプリを開くと、投稿フローが自動で開く。1サイクルにつき1回だけ。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 ─────────────────────────────────── -->
+    <section id="s3">
+      <h2><span class="n">03</span>投稿</h2>
+
+      <h3>曲の選び方</h3>
+      <p>連携している音楽サービスで入口が分かれ、そこから先は同じ最終確認画面に合流します。</p>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>サービス</th><th>入口</th><th>選べる曲</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Apple Music</td>
+              <td>Music Memory カルーセル</td>
+              <td>再生履歴から。カードを横に送って選ぶ</td>
+            </tr>
+            <tr>
+              <td>Spotify ほか</td>
+              <td>Vibe シート</td>
+              <td>検索して選ぶ</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>投稿までの流れ</h3>
+      <ul>
+        <li>曲を選び「この曲で続ける」を押すと、最終確認画面がホームの上に重なって開く</li>
+        <li>最終確認画面では曲が15秒プレビュー再生される</li>
+        <li>写真を足す場合は、カード上の「写真を追加する」バーから</li>
+        <li>投稿すると完了シートが出る（写真を選んでいた場合は出さずにそのまま紐づける）</li>
+      </ul>
+
+      <div class="note">
+        <b>裏面の集計は投稿前に走らせています。</b>
+        top artists の集計は再生履歴や Spotify を叩くので時間がかかります。
+        投稿してから追いかけて書くと、直後に読み直すホームで裏面が空のまま出てしまうため、
+        最終確認画面を開いた時点で集計を始め、投稿データに最初から入れています。
+      </div>
+    </section>
+
+    <!-- 04 ─────────────────────────────────── -->
+    <section id="s4">
+      <h2><span class="n">04</span>投稿カード</h2>
+      <p>
+        カードは 363×645 を基準寸法として組み、枠が違うときは丸ごと拡縮します。
+        表面はアルバムアートの上に下 294px ぶんのグラデーションを敷く構成。裏面は中身が3種類あります。
+      </p>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>裏面</th><th>出る場所</th><th>中身</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>プロフィール</td>
+              <td>ホームのタイムライン</td>
+              <td>top artists 3人 / recent choice 3曲。投稿時点の値を焼き込んである</td>
+            </tr>
+            <tr>
+              <td>写真</td>
+              <td>自分の Music Memory のみ</td>
+              <td>全面に写真。上に投稿者・曲名・リアクション</td>
+            </tr>
+            <tr>
+              <td>曲情報</td>
+              <td>旧フロー由来の投稿</td>
+              <td>歌詞カードを使っていた頃の裏面</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        写真がある投稿は<strong>写真の裏面が最優先</strong>で、プロフィールより先に判定されます。
+        また写真がある日は、カードが裏面から開きます。
+      </p>
+    </section>
+
+    <!-- 05 ─────────────────────────────────── -->
+    <section id="s5">
+      <h2><span class="n">05</span>写真</h2>
+      <p>
+        投稿に1枚だけ添えられます。<strong>写真は公開しません。</strong>
+        本人が自分の Music Memory から開いたときにだけ見えます。
+      </p>
+
+      <div class="rules">
+        <div class="rule">
+          <span class="k">足せる期間</span>
+          <span class="v">その日の 24:00 まで。締切は投稿と同じ <code>notifiedAt</code> 基準。</span>
+        </div>
+        <div class="rule">
+          <span class="k">使える写真</span>
+          <span class="v">その場で撮るか、サイクルの開始日に撮った写真のみ。昔の写真を当日インポートしても通らない（判定は保存日ではなく撮影日時）。</span>
+        </div>
+        <div class="rule">
+          <span class="k">置き場</span>
+          <span class="v">Storage は <code>private_photos/{uid}/</code>、メタ情報は <code>post_photos/{postId}</code>。公開画像とは完全に別系統。</span>
+        </div>
+        <div class="rule">
+          <span class="k">枚数</span>
+          <span class="v">1投稿につき1枚。付いた投稿には追加のバーを出さない。</span>
+        </div>
+      </div>
+
+      <div class="note is-warn">
+        <b>Storage のルールだけでは非公開になりません。</b>
+        ダウンロード URL に付く <code>?token=</code> はセキュリティルールを迂回するため、
+        URL を知っている人はルールに関係なく閲覧できます。URL そのものを
+        <code>post_photos</code> 経由でしか配らないことで守っています。
+      </div>
+    </section>
+
+    <!-- 06 ─────────────────────────────────── -->
+    <section id="s6">
+      <h2><span class="n">06</span>Music Memory</h2>
+      <p>
+        自分の投稿をカレンダーで振り返る画面。月ごとに、新しい順に3ヶ月ずつ読み込みます。
+        日付のグルーピングは投稿の <code>createdAt</code> の暦日です。
+      </p>
+      <ul>
+        <li>日をタップすると、その日の投稿カードが開く</li>
+        <li>写真がある日は裏面（写真）から開く</li>
+        <li>タブに入るたびカレンダーを読み直す（投稿した直後に戻ってきても最新が出るように）</li>
+      </ul>
+    </section>
+
+    <!-- 07 ─────────────────────────────────── -->
+    <section id="s7">
+      <h2><span class="n">07</span>公開範囲</h2>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>対象</th><th>見える人</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>投稿カードの表面</td><td>フォロワー</td></tr>
+            <tr><td>裏面（プロフィール）</td><td>フォロワー</td></tr>
+            <tr><td>添えた写真</td><td>本人のみ</td></tr>
+            <tr><td>Music Memory カレンダー</td><td>本人のみ</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <b>「期限内に投稿した人だけが他人の裏面を見られる」というゲートは、現在かかっていません。</b>
+        判定そのもの（<code>postStatusInCurrentCycle</code>）は実装されていますが、
+        ホームのタイムラインは裏返しを無条件に許可しています。
+        仕様として戻すかどうかは未決です。
+      </div>
+    </section>
+
+    <!-- 08 ─────────────────────────────────── -->
+    <section id="s8">
+      <h2><span class="n">08</span>音楽サービス</h2>
+      <p>top artists / recent choice の集計元は、連携しているサービスで変わります。</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>サービス</th><th>top artists の集計元</th><th>理由</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Apple Music</td>
+              <td class="mono">再生履歴 直近100曲</td>
+              <td>履歴 API が全ユーザーで使える</td>
+            </tr>
+            <tr>
+              <td>Spotify</td>
+              <td class="mono">直近7日の自分の投稿</td>
+              <td>履歴 API が一般ユーザーで使えない</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <b>Spotify で再生履歴を使えない理由。</b>
+        Development Mode では許可リストに入れた5人（かつ Premium）しか Web API を叩けません。
+        制限を外す Extended Quota Mode は法人であることと月間25万アクティブユーザーが条件で、
+        当面申請できないため、投稿ベースの集計で代替しています。
+      </div>
+
+      <p>
+        Apple Music の Developer Token はバックエンドで <code>.p8</code> から都度署名して発行します。
+        失効してもアプリの再配信は不要で、関数の再デプロイだけで済みます。
+      </p>
+    </section>
+
+    <!-- 09 ─────────────────────────────────── -->
+    <section id="s9">
+      <h2><span class="n">09</span>招待</h2>
+      <p>
+        友達が居ないと何も起きないサービスなので、登録の最後に招待画面を1枚挟みます。
+        招待カードは QR 付きで、Instagram のストーリーにそのまま流せます。
+      </p>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>経路</th><th>URL</th><th>遷移先</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>プロフィール QR</td><td class="mono">/u/{uid}</td><td>そのユーザーのプロフィール</td></tr>
+            <tr><td>招待コード</td><td class="mono">/invite/{code}</td><td>招待ページ</td></tr>
+            <tr><td>アプリ未所持</td><td class="mono">App Store id6758916042</td><td>ダウンロード後、招待情報を引き継ぐ</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <ul>
+        <li>招待リンク経由でインストールした場合、招待コードの入力をスキップして自動で招待済み扱いにする</li>
+        <li>App Store へ送るときも招待コードを保持する（戻ってきた人向け）</li>
+      </ul>
+    </section>
+
+    <!-- 10 ─────────────────────────────────── -->
+    <section id="s10">
+      <h2><span class="n">10</span>ウィジェット</h2>
+      <p>
+        ホーム画面に置く小ウィジェットで、<strong>友達が今 Apple Music で聴いている曲</strong>を表示します。
+        誰も聴いていなければ「友達は音楽を聴いていません。」と出します。
+      </p>
+
+      <div class="rules">
+        <div class="rule">
+          <span class="k">仕組み</span>
+          <span class="v">他人の端末の再生状態を直接知る API は無い。各自が自分の再生状態を <code>now_playing/{uid}</code> に書き、友達はそれを読む。</span>
+        </div>
+        <div class="rule">
+          <span class="k">更新</span>
+          <span class="v">アプリを開いたときと、iOS のバックグラウンド更新から。間隔は OS の裁量。</span>
+        </div>
+        <div class="rule">
+          <span class="k">鮮度</span>
+          <span class="v">30分より古い報告は「聴いていない」とみなす。何時間も前の曲を「今」と言わないため。</span>
+        </div>
+        <div class="rule">
+          <span class="k">表示</span>
+          <span class="v">10分ごとに友達を切り替えて表示。背景はすりガラス。</span>
+        </div>
+      </div>
+
+      <p>
+        書き込みは Swift 側で完結させています。バックグラウンド更新の持ち時間は短く、
+        Flutter エンジンを起こすと起動だけで使い切ってしまうためです。
+      </p>
+    </section>
+
+    <!-- 11 ─────────────────────────────────── -->
+    <section id="s11">
+      <h2><span class="n">11</span>未適用・保留</h2>
+      <p>実装はあるが効いていないもの、意図的に止めているもの、着手していないものの一覧です。</p>
+
+      <div class="rules">
+        <div class="rule is-warn">
+          <span class="k">裏面閲覧のゲート <span class="chip warn">未適用</span></span>
+          <span class="v">期限内投稿者だけに裏返しを許す判定は実装済みだが、タイムラインに適用されていない。</span>
+        </div>
+        <div class="rule is-hold">
+          <span class="k">いいね・コメント <span class="chip hold">停止中</span></span>
+          <span class="v"><code>kCommentsEnabled = false</code> で切っている。UI のコードは残してあり、true に戻せば復活する。</span>
+        </div>
+        <div class="rule is-hold">
+          <span class="k">Vibe <span class="chip hold">非表示</span></span>
+          <span class="v">ストーリーバーもトピック投票も全面非表示。過去の Vibe 投稿は投稿カード形式で表示している。</span>
+        </div>
+        <div class="rule is-hold">
+          <span class="k">チュートリアル <span class="chip hold">保留</span></span>
+          <span class="v">画面一式は残してあるが導線が無い。文言待ち。</span>
+        </div>
+        <div class="rule is-hold">
+          <span class="k">歌詞カード <span class="chip hold">旧フロー</span></span>
+          <span class="v">投稿フローからは外れている。過去の投稿を表示するために描画側は残っている。</span>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      この文書はコードを読んで書き起こしたものです。実装を変えたら、ここも合わせて更新してください。<br>
+      置き場所: <code>docs/requirements.html</code>
+    </footer>
+
+  </main>
+</div>

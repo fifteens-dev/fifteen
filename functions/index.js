@@ -149,7 +149,7 @@ async function broadcastPush(db, userIds, { title, body, data }) {
 /**
  * Music Memory 投稿通知。
  *
- * - 毎日 19:00〜23:30 JST の「ランダムな 5 分刻みの時刻」に 1 回だけ全ユーザーへ送る。
+ * - 毎日 21:00 JST（固定）に 1 回だけ全ユーザーへ送る。
  * - 実際に発火した時刻を `music_memory_state/current.notifiedAt` に記録し、
  *   これがクライアントの「投稿サイクル境界（＝この時刻以降がその日の投稿）」になる。
  * - 5分間隔で走り、(1) 当日の発火時刻を未決なら決定、(2) 到来していれば発火。
@@ -1114,7 +1114,7 @@ exports.dailyVibeTopicRotation = onSchedule(
 );
 
 // 旧 dailyVibeNotification(20:00固定) は削除。
-// Music Memory 投稿通知は musicMemoryDailyNotification（19:00-23:30 ランダム）に統合。
+// Music Memory 投稿通知は musicMemoryDailyNotification（21:00 固定）に統合。
 
 /**
  * FCMトークン重複除去の共通ロジック

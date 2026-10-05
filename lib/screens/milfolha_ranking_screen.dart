@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import '../constants/app_colors.dart';
 import '../models/milfolha_team_score.dart';
 import '../services/milfolha_service.dart';
 import 'milfolha_team_profile_screen.dart';

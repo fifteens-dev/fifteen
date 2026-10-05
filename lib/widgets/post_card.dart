@@ -12,7 +12,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'animated_waveform.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:just_audio/just_audio.dart';
 import '../constants/adl_teams.dart';
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
@@ -769,6 +768,8 @@ class PostCardState extends State<PostCard>
   }
 
   /// 裏面用コメントボタン（半透明黒背景・白テキスト）
+  // コメント機能を切っている間だけ出番が無い（kCommentsEnabled=true で戻る）。
+  // ignore: unused_element
   Widget _buildCommentButtonBack() {
     if (widget.disableInteractions) {
       return GestureDetector(
@@ -1047,6 +1048,8 @@ class PostCardState extends State<PostCard>
   }
 
   /// ユーザー情報（裏面の左上）
+  // 歌詞カード時代の配置。今の裏面では使っていないが、戻す案があるため残す。
+  // ignore: unused_element
   Widget _buildUserInfoTopLeft(PostTheme theme) {
     // Vibeの場合は「Vibe【お題名】」または「Vibe」、それ以外は感情タグを表示
     String? displayText;
@@ -1128,6 +1131,8 @@ class PostCardState extends State<PostCard>
   /// 裏面・右上の班ハンドル（@◯◯）
   /// 左のユーザー情報と同じ高さに揃え、右端に配置する。
   /// 同日2投稿目以降（countsForAdl == false）はハンドル非表示。
+  // 歌詞カード時代の配置。今の裏面では使っていないが、戻す案があるため残す。
+  // ignore: unused_element
   Widget _buildTeamHandleTopRight() {
     if (!_showAdlTeamHandle) return const SizedBox.shrink();
     final teamId = widget.post.adlTeamId;
@@ -1154,6 +1159,8 @@ class PostCardState extends State<PostCard>
   }
 
   /// 歌詞カードオーバーレイ（裏面の写真上）
+  // 歌詞カードを選ぶ工程を外したため出番が無い。工程を戻すときに使う。
+  // ignore: unused_element
   Widget _buildLyricsCardOverlay() {
     // 投稿時に保存されたレイアウト情報を取得
     final layoutIndex = widget.post.selectedLayoutIndex;
@@ -1224,6 +1231,8 @@ class PostCardState extends State<PostCard>
   }
 
   /// リアクションボタン（いいね、コメント、追加）
+  // コメント機能を切っている間だけ出番が無い（kCommentsEnabled=true で戻る）。
+  // ignore: unused_element
   Widget _buildReactionButton({
     required IconData icon,
     required Color color,
@@ -1257,6 +1266,8 @@ class PostCardState extends State<PostCard>
   }
 
   /// コメントリアクションボタン（裏面用・SVGアイコン使用）
+  // コメント機能を切っている間だけ出番が無い（kCommentsEnabled=true で戻る）。
+  // ignore: unused_element
   Widget _buildCommentReactionBack({
     required int count,
     required VoidCallback? onTap,
@@ -1440,6 +1451,8 @@ class PostCardState extends State<PostCard>
   }
 
   /// リアクションアイテム
+  // いいね表示を切っている間だけ出番が無い。復活させるときに使う。
+  // ignore: unused_element
   Widget _buildReactionItem({
     required IconData icon,
     required int count,
@@ -1509,6 +1522,8 @@ class PostCardState extends State<PostCard>
 
 
   /// いいねしたユーザーのアイコン（裏面用 - 固定サイズ）
+  // いいね表示を切っている間だけ出番が無い。復活させるときに使う。
+  // ignore: unused_element
   Widget _buildLikedUsersIcons() {
     return _buildLikedUsersIconsCommon(
       iconSize: PostCardConstants.likedUserIconSize,
@@ -1517,6 +1532,8 @@ class PostCardState extends State<PostCard>
   }
 
   /// いいねしたユーザーのアイコン（表面用 - 相対サイズ）
+  // いいね表示を切っている間だけ出番が無い。復活させるときに使う。
+  // ignore: unused_element
   Widget _buildLikedUsersIconsFront(double cardWidth, double cardHeight) {
     return _buildLikedUsersIconsCommon(
       iconSize: cardWidth * (PostCardConstants.likedUserIconSize / PostCardConstants.cardBaseWidth),
@@ -1644,6 +1661,8 @@ class PostCardState extends State<PostCard>
   }
 
   /// リアクションアバター（表面用 - 相対サイズ 32/363）
+  // いいね表示を切っている間だけ出番が無い。復活させるときに使う。
+  // ignore: unused_element
   Widget _buildReactorAvatarsFront(double cardWidth, double cardHeight) {
     return _buildReactorAvatarsCommon(
       iconSize: cardWidth * (32 / PostCardConstants.cardBaseWidth),
@@ -1892,8 +1911,8 @@ class PostCardState extends State<PostCard>
         return;
       }
 
-      // ギャラリーに保存
-      final asset = await PhotoManager.editor.saveImage(
+      // ギャラリーに保存（戻り値の AssetEntity は使わない）
+      await PhotoManager.editor.saveImage(
         bytes,
         filename: 'fifteen_card_${DateTime.now().millisecondsSinceEpoch}.png',
       );

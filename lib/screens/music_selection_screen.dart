@@ -21,7 +21,6 @@ import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import 'post_preview_screen.dart';
 import 'home_screen.dart';
-import '../widgets/common/common.dart';
 import '../widgets/music/music_search_bar.dart';
 import '../widgets/music/music_track_list_item.dart';
 import 'home/home_bottom_nav.dart';
@@ -1356,6 +1355,7 @@ class _MusicSelectionScreenState extends State<MusicSelectionScreen> {
   }
 
   /// プレースホルダー画像（リスト用）
+  // ignore: unused_element
   Widget _buildPlaceholderImage() {
     return Container(
       width: 47,

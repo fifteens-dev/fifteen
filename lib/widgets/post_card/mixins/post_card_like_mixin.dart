@@ -2,6 +2,8 @@ part of '../../post_card.dart';
 
 extension PostCardLikeMethods on PostCardState {
   /// いいねボタンが押された時の処理（楽観的UI更新）
+  // いいねを切っている間だけ出番が無い。復活させるときに使う。
+  // ignore: unused_element
   void _handleLikeTap() {
     if (widget.disableInteractions) {
       RestrictionNotification.show(context, message: 'いいねができません');

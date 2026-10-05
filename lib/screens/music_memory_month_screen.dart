@@ -254,6 +254,9 @@ class MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
     _openPostCard(post);
   }
 
+  // Vibe を全面非表示にしている間だけ出番が無い（_openPost が投稿カード形式に
+  // 固定しているため）。Vibe を戻すときに使う。
+  // ignore: unused_element
   void _openVibeStory(PostModel post) {
     final uid = widget.userId ?? '';
     bool sameDay(DateTime a, DateTime b) =>

@@ -169,6 +169,8 @@ class PostCardBackInfo extends StatelessWidget {
     );
   }
 
+  // コメント機能を切っている間だけ出番が無い（kCommentsEnabled=true で戻る）。
+  // ignore: unused_element
   Widget _buildReactionButton({
     required IconData icon,
     required Color color,
@@ -197,6 +199,8 @@ class PostCardBackInfo extends StatelessWidget {
     );
   }
 
+  // コメント機能を切っている間だけ出番が無い（kCommentsEnabled=true で戻る）。
+  // ignore: unused_element
   Widget _buildCommentReaction({required int? count, VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
@@ -235,6 +239,8 @@ class PostCardBackInfo extends StatelessWidget {
     );
   }
 
+  // コメント機能を切っている間だけ出番が無い（kCommentsEnabled=true で戻る）。
+  // ignore: unused_element
   Widget _buildCommentButton() {
     return GestureDetector(
       onTap: onComment,

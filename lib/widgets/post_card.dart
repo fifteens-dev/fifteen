@@ -81,9 +81,15 @@ class PostCard extends StatefulWidget {
 
   /// 裏面のピルに出す文言（「2人の共通」「友達 5人」など）。
   /// 見る人との関係で変わるので、投稿には焼き込まず呼び出し側が渡す。
+  /// 裏面（プロフィール）の上に出すピルの文言。
+  ///
+  /// **今はどこからも渡していない**ので、ピルは描かれない
+  /// （[PostCardBackProfile] 側も pillLabel が null なら出さない）。
+  /// 作り自体は残してあるので、出すときはここに値を流せばよい。
   final String? backPillLabel;
 
   /// 同ピルに重ねるアイコン（先頭 2 人ぶん）。
+  /// ピルに並べるアイコン。[backPillLabel] と同じく今は渡していない。
   final List<String?> backPillAvatars;
 
   /// 「写真を追加する」バーの文言。null なら既定（「写真を追加する」）。
@@ -100,9 +106,13 @@ class PostCard extends StatefulWidget {
   /// ときだけ渡す。タイムラインでは常に null（＝プロフィール）。
   final String? backPhotoUrl;
   final bool disableInteractions; // trueの場合、いいね・コメント無効（カウントのみ表示）
-  final bool autoPlay; // trueの場合、裏面スタート時に自動で音楽を再生
   final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
-  final VoidCallback? onFlipToBack; // 初めて裏面に反転したときのコールバック（閲覧済み記録用）
+  /// 初めて裏面に反転したときに呼ぶ（閲覧済みの記録用）。
+  ///
+  /// **今はどこからも渡していない**ため、裏面を見たことは記録されていない。
+  /// 呼ぶ側（反転処理）は 2 箇所とも生きているので、記録を始めるときは
+  /// 渡すだけでよい。
+  final VoidCallback? onFlipToBack;
   final VoidCallback? onShare; // 共有ボタンタップ時のコールバック（未指定時はPNG保存）
   // trueの場合、カードタップで内部反転せず onCardTap を呼ぶだけにする。
   // 反転は親が flipToBack()/flipToFront() で制御する（ホーム2列グリッド用）。
@@ -139,7 +149,6 @@ class PostCard extends StatefulWidget {
     this.onAddPhoto,
     this.backPhotoUrl,
     this.disableInteractions = false, // デフォルトはインタラクション有効
-    this.autoPlay = false, // デフォルトは自動再生なし
     this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
     this.onFlipToBack, // 裏面反転コールバック（オプション）
     this.onShare, // 共有コールバック（オプション）
@@ -255,17 +264,6 @@ class PostCardState extends State<PostCard>
     if (widget.startFromBack) {
       _showFront = false;
       _flipController.value = 1.0; // アニメーションなしで裏面を表示
-    }
-
-    // 自動再生が有効な場合、裏面スタートでビルド後に音楽を再生
-    // （外部制御モードの場合はPostCardが音楽を再生しない）
-    if (widget.startFromBack && widget.autoPlay && !widget.audioManagedExternally) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          widget.onPlayStarted?.call(); // 再生開始を親に通知（スクロール管理用）
-          _playAudioAsync();
-        }
-      });
     }
 
     // 自動反転が有効な場合、0.5秒後に裏返す

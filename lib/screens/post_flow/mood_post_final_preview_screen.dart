@@ -210,21 +210,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       final adlTeamId = me?.adlTeamId;
       final university = me?.university;
 
-      // 写真は通常の投稿フローでは選ばない（カード裏面がプロフィールに
-      // 変わったので出す場所が無い）。旧フローから写真付きで来たときだけ
-      // 圧縮して持っていく。アップロードの段取りは [PostSubmission]。
-      final photo = widget.selectedImage;
-      var width = 0;
-      var height = 0;
-      Uint8List? photoBytes;
-
-      if (photo != null) {
-        final (processed, w, h) =
-            await PhotoHelper.compressForUpload(await photo.readAsBytes());
-        photoBytes = processed;
-        width = w;
-        height = h;
-      }
+      final publicPhoto = await _compressPublicPhoto();
 
       // 画面を開いた時点で走らせてある集計。まだ終わっていなければここで待つ。
       // 投稿のあとに追いかけて書くと、書き込み直後に読み直すホームで裏面が
@@ -233,7 +219,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
 
       final postId = await PostSubmission.submit(
         userId: user.uid,
-        photoBytes: photoBytes,
+        photoBytes: publicPhoto?.bytes,
         storage: _storageService,
         postService: _postService,
         createPost: () => _postService.createPost(
@@ -245,8 +231,8 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
           imageOffsetX: 0.0,
           imageOffsetY: 0.0,
           imageScale: 1.0,
-          imageNaturalWidth: width.toDouble(),
-          imageNaturalHeight: height.toDouble(),
+          imageNaturalWidth: (publicPhoto?.width ?? 0).toDouble(),
+          imageNaturalHeight: (publicPhoto?.height ?? 0).toDouble(),
           // 歌詞カードは非表示 → PostCard 側は selectedLayoutIndex=1 の
           //   largeAlbumArt レイアウトを使うと詞なしでもアルバム丸配置になり
           //   気分投稿らしい表現になる。
@@ -268,40 +254,66 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
         ),
       );
 
-      // ロック画面の Live Activity を「投稿が完了しました🎉」へ切り替え、
-      // 今日の枠に今の投稿のジャケットを入れる。
-      // ignore: unawaited_futures
-      LiveActivityService().markPosted();
-      // 自分の投稿は友達側のウィジェットに出るものなので、ここでは
-      // 自分のウィジェットを更新するだけ（友達の最新を取り直す）。
-      // ignore: unawaited_futures
-      FriendWidgetService.instance.refresh(force: true);
+      _notifyPosted();
 
       if (!mounted) return;
-      // このプレビュー画面はホームの上に opaque: false で載っているため、
-      // pop すればそのままホームが表に出る。
-      Navigator.of(context).pop();
-
-      // 完了シートはホームの上に出す。この画面を閉じたあとに出さないと、
-      // pop でシートごと消えてしまう。
-      final navigator = Navigator.of(context, rootNavigator: true);
-      final ctx = navigator.context;
-      if (!ctx.mounted) return;
-      // 投稿前に選んでおいた写真があれば、完了シートを出さずに紐づける。
-      final chosen = _pendingPhoto;
-      if (chosen != null) {
-        await AddPhotoFlow.attach(postId: postId, photo: chosen);
-        return;
-      }
-
-      final wantsPhoto = await PostCompleteSheet.show(ctx);
-      if (wantsPhoto && ctx.mounted) {
-        await AddPhotoFlow.start(ctx, postId: postId);
-      }
+      await _closeAndOfferPhoto(postId);
     } catch (e) {
       if (!mounted) return;
       AppToast.show(context, '投稿に失敗しました');
       setState(() => _isPosting = false);
+    }
+  }
+
+  /// 旧フローから写真付きで来たときだけ、公開画像を圧縮して渡す。
+  ///
+  /// 今の投稿フローでは写真を選ばない（カード裏面がプロフィールに変わり、
+  /// 出す場所が無くなったため）。カードに添える非公開の写真は別物で、
+  /// そちらは投稿が済んでから [AddPhotoFlow.attach] で紐づける。
+  Future<({Uint8List bytes, int width, int height})?>
+      _compressPublicPhoto() async {
+    final photo = widget.selectedImage;
+    if (photo == null) return null;
+    final (bytes, w, h) =
+        await PhotoHelper.compressForUpload(await photo.readAsBytes());
+    return (bytes: bytes, width: w, height: h);
+  }
+
+  /// 投稿できたことを、画面の外へ知らせる。待たない。
+  void _notifyPosted() {
+    // ロック画面の Live Activity を「投稿が完了しました🎉」へ切り替え、
+    // 今日の枠に今の投稿のジャケットを入れる。
+    // Music Memory のサイクルに紐づく処理なので、Vibe 投稿では呼ばない。
+    // ignore: discarded_futures
+    LiveActivityService().markPosted();
+    // 自分の投稿は友達側のウィジェットに出るものなので、ここでは
+    // 自分のウィジェットを更新するだけ（友達の最新を取り直す）。
+    // ignore: discarded_futures
+    FriendWidgetService.instance.refresh(force: true);
+  }
+
+  /// この画面を閉じて、写真を足す導線を出す。
+  ///
+  /// 完了シートはホームの上に出す。この画面を閉じる前に出すと、pop で
+  /// シートごと消えてしまうため、閉じたあとに root の navigator から出す。
+  Future<void> _closeAndOfferPhoto(String postId) async {
+    // この画面はホームの上に opaque: false で載っているため、
+    // pop すればそのままホームが表に出る。
+    Navigator.of(context).pop();
+
+    final ctx = Navigator.of(context, rootNavigator: true).context;
+    if (!ctx.mounted) return;
+
+    // 投稿前に選んでおいた写真があれば、二度聞かずにそのまま紐づける。
+    final chosen = _pendingPhoto;
+    if (chosen != null) {
+      await AddPhotoFlow.attach(postId: postId, photo: chosen);
+      return;
+    }
+
+    final wantsPhoto = await PostCompleteSheet.show(ctx);
+    if (wantsPhoto && ctx.mounted) {
+      await AddPhotoFlow.start(ctx, postId: postId);
     }
   }
 

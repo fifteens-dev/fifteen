@@ -62,10 +62,18 @@ class PostModel {
   final double imageScale; // 写真のスケール
   final double imageNaturalWidth; // 写真の元の幅
   final double imageNaturalHeight; // 写真の元の高さ
-  final int selectedLayoutIndex; // 選択された歌詞カードレイアウト
+  // ── 歌詞カードの配置（旧フロー）────────────────────────────
+  //
+  // 歌詞カードを置く工程は投稿フローから外したので、今の投稿（気分投稿）
+  // では使われない。読んでいるのは PostCard の _buildLyricsCardOverlay
+  // だけで、そちらも今は呼ばれていない。
+  //
+  // 過去の投稿を正しく描くために残してある。気分投稿は cardScale を 0 で
+  // 保存しており、工程を戻しても歌詞カードが生えないようにしてある。
+  final int selectedLayoutIndex; // 歌詞カードのレイアウト
   final double cardPositionX; // 歌詞カードのX位置
   final double cardPositionY; // 歌詞カードのY位置
-  final double cardScale; // 歌詞カードのスケール
+  final double cardScale; // 歌詞カードのスケール（0 = 描かない）
   final double cardRotation; // 歌詞カードの回転角度（ラジアン）
   final bool isVibe; // Vibe投稿かどうか
   /// ナビバー投稿ボタン → Music Memory モーダル経由で作成された

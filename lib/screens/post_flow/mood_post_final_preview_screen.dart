@@ -228,19 +228,15 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
           userIconUrl: userIconUrl,
           trackData: widget.track.toMap(),
           photoUrl: null, // 後追い update
-          imageOffsetX: 0.0,
-          imageOffsetY: 0.0,
-          imageScale: 1.0,
           imageNaturalWidth: (publicPhoto?.width ?? 0).toDouble(),
           imageNaturalHeight: (publicPhoto?.height ?? 0).toDouble(),
-          // 歌詞カードは非表示 → PostCard 側は selectedLayoutIndex=1 の
-          //   largeAlbumArt レイアウトを使うと詞なしでもアルバム丸配置になり
-          //   気分投稿らしい表現になる。
-          selectedLayoutIndex: 1,
-          cardPositionX: 0,
-          cardPositionY: 0,
-          cardScale: 0, // 0 にしてカード自体を実質非表示に
-          cardRotation: 0,
+          // 歌詞カードの配置。気分投稿に歌詞カードは無いので、本来どれも
+          // 要らない。ただし描画側（PostCard の _buildLyricsCardOverlay）は
+          // 残してあり、工程を戻すと動き出す。そのとき過去の気分投稿に
+          // 歌詞カードが生えないよう、縮尺 0＝描かれない状態で保存しておく。
+          // 他の値（位置・回転・写真のオフセット）は既定のままでよい。
+          selectedLayoutIndex: 1, // largeAlbumArt
+          cardScale: 0,
           isVibe: false,
           // 気分投稿マーカー。ストーリーバー等の集約先ではこのフラグを見て
           // 明示的にスキップする。

@@ -55,18 +55,10 @@ class PostPhotoService {
     return DateTime.now().isBefore(deadline);
   }
 
-  // ── 一時的な延長（動作確認用・2026-10-05 まで）──────────────
-  //
-  // 通常の締切は 24:00 だが、確認のため 10/5 の 12:00 JST まで足せるように
-  // している。**期限を過ぎれば自動で無効**になるので消し忘れても通常動作に
-  // 戻るが、不要になったらこのブロックと 2 つの呼び出しを消すこと。
-
-  /// 延長の期限（JST 2026-10-05 12:00）。
-  static final DateTime _temporaryExtensionUntil =
-      DateTime.utc(2026, 10, 5, 3); // JST 12:00 = UTC 03:00
-
+  /// 一時的な制限解除中か（動作確認用・2026-10-05 中）。
+  /// 期限や意図は [MusicMemoryCycleService.limitsLifted] に書いてある。
   static bool get _temporaryExtensionActive =>
-      DateTime.now().toUtc().isBefore(_temporaryExtensionUntil);
+      MusicMemoryCycleService.limitsLifted;
 
   /// その写真が「今日撮ったもの」か。
   ///
@@ -196,6 +188,14 @@ class PostPhotoService {
       await const MethodChannel('com.fifteen.liveactivity')
           .invokeMethod('log', {'tag': 'postPhoto', 'message': message});
     } catch (_) {/* ログが出せなくても本体は続ける */}
+  }
+
+  /// 取得済みの写真を捨てる。次に見るとき取り直す。
+  ///
+  /// 投稿したあとにカレンダーへ戻るような、裏で増えている場面で呼ぶ。
+  void invalidate() {
+    _cache = null;
+    _cachedAt = null;
   }
 
   /// 写真を消す。投稿の削除に合わせて呼ぶ。

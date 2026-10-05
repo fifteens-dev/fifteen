@@ -9,6 +9,7 @@ import '../widgets/variable_blur.dart';
 import 'vibe_user_story_screen.dart';
 import 'home/vibe_story_bar_section.dart';
 import 'music_memory_detail_screen.dart';
+import '../services/post_photo_service.dart';
 
 /// Music Memory - Month 画面。
 ///
@@ -71,10 +72,10 @@ class MusicMemoryMonthScreen extends StatefulWidget {
 
   @override
   State<MusicMemoryMonthScreen> createState() =>
-      _MusicMemoryMonthScreenState();
+      MusicMemoryMonthScreenState();
 }
 
-class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
+class MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
   final ScrollController _scrollController = ScrollController();
   final PostService _postService = PostService();
 
@@ -178,6 +179,22 @@ class _MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
     if (pos.pixels >= pos.maxScrollExtent - 400) {
       _loadNextChunk();
     }
+  }
+
+  /// 読み直す。
+  ///
+  /// このカレンダーはタブとして生かされたままなので initState が二度と
+  /// 走らない。投稿してから戻ってきても、前に読んだ内容のままになる
+  /// （新しい投稿も、それに付けた写真も出ない）。タブに入るたびここを通す。
+  Future<void> reload() async {
+    if (!_lazy) return;
+    PostPhotoService.instance.invalidate();
+    setState(() {
+      _postsByMonth.clear();
+      _loadedChunks = 0;
+      _isLoading = false;
+    });
+    await _loadNextChunk();
   }
 
   Future<void> _loadNextChunk() async {

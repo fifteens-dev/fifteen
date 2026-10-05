@@ -1178,12 +1178,17 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  /// カレンダーを読み直させるための持ち手。タブは生かされたままで
+  /// initState が二度と走らないので、外から呼べるようにしておく。
+  final GlobalKey<MusicMemoryMonthScreenState> _musicMemoryKey =
+      GlobalKey<MusicMemoryMonthScreenState>();
+
   /// Music Memory タブ（カレンダー）。プロフィールから開く月画面を
   /// ルートタブとして埋め込む（戻るボタンは非表示）。
   Widget _buildMusicMemoryTab() {
     final user = _auth.currentUser;
     return MusicMemoryMonthScreen(
-      key: const ValueKey('music_memory_tab'),
+      key: _musicMemoryKey,
       embedded: true,
       userId: user?.uid,
       accountCreatedAt: user?.metadata.creationTime,
@@ -1215,6 +1220,12 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _selectedIndex = index;
       });
+      // Music Memory は投稿したあとに見に来るので、入るたび読み直す。
+      // 生かされたままのタブなので、黙っていると前に読んだ内容が残る。
+      if (index == 0) {
+        // ignore: unawaited_futures
+        _musicMemoryKey.currentState?.reload();
+      }
     }
   }
 

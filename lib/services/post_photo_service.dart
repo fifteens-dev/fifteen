@@ -37,8 +37,6 @@ class PostPhotoService {
   /// （実際にそれで写真追加のバーが出なかった）。
   Future<bool> canAddPhotoNow() async {
     final cycle = MusicMemoryCycleService();
-    // 延長の判定より先に取る。写真の絞り込み（どの日の写真を出すか）が
-    // notifiedAt を見るので、先に return すると null のままになる。
     if (cycle.notifiedAt == null) await cycle.fetchNotifiedAt();
     final deadline = cycle.currentDeadline;
     if (deadline == null) return false;

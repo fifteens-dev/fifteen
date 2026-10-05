@@ -24,6 +24,7 @@ import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../services/user_service.dart';
 import '../services/vibe_topic_service.dart';
+import '../services/post_submission.dart';
 import '../utils/photo_helper.dart';
 import '../utils/two_finger_rotation_tracker.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
@@ -159,12 +160,18 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
   /// 選択中レイアウトのベースサイズ (LyricsCardLayout / PostCardBackView と一致)。
   Size _cardBaseSizeFor(int layoutIdx) {
     switch (layoutIdx) {
-      case 0: return const Size(196, 126);
-      case 1: return const Size(105, 147);
-      case 2: return const Size(172, 42);
-      case 3: return const Size(140, 152);
-      case 4: return const Size(130, 61);
-      default: return const Size(105, 147);
+      case 0:
+        return const Size(196, 126);
+      case 1:
+        return const Size(105, 147);
+      case 2:
+        return const Size(172, 42);
+      case 3:
+        return const Size(140, 152);
+      case 4:
+        return const Size(130, 61);
+      default:
+        return const Size(105, 147);
     }
   }
 
@@ -185,6 +192,7 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
   int _selectedLayoutIndex = 1; // largeAlbumArt (投稿フロー既定と同じ)
   int _audioStartMs = 0;
   int _audioDurationSec = 15;
+
   /// 音楽トリムを 1 度でも編集したか。false のうちは MusicTrimScreen 側で
   /// サビ推定の初期値を使わせる (前回値の 0ms を強制しない)。
   bool _didEditAudio = false;
@@ -533,10 +541,8 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
         _userService.getUser(currentUser.uid),
         widget.isMoodPost
             ? Future.value(null)
-            : AdlService()
-                .isCurrentUserAdlParticipant()
-                .then((forAdl) =>
-                    _vibeTopicService.getTodaysTopic(forAdl: forAdl)),
+            : AdlService().isCurrentUserAdlParticipant().then(
+                (forAdl) => _vibeTopicService.getTodaysTopic(forAdl: forAdl)),
       ]);
       final compressed = results[0] as (Uint8List, int, int)?;
       final me = results[1] as dynamic;
@@ -546,23 +552,6 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
       final iconUrl = me?.profileImageUrl as String?;
       final adlTeamId = me?.adlTeamId as String?;
 
-      // Phase 2: 写真バイトを Storage にアップロード。
-      final uploadResult = hasPhoto
-          ? await PhotoHelper.uploadCompressedSplit(
-              imageBytes: compressed!.$1,
-              userId: currentUser.uid,
-              storageService: _storageService,
-              alreadyCompressed: true,
-            )
-          : null;
-
-      // Phase 3: URL 取得と posts への書き込みを並列。
-      final Future<String?> urlFuture = uploadResult != null
-          ? uploadResult.storageRef!
-              .getDownloadURL()
-              .then<String?>((url) => url)
-              .catchError((_) => null)
-          : Future.value(null);
       // ── 写真とカードの編集状態を PostCard 裏面 (363×645) 座標系に変換 ──
       // フレーム 402×715 → カード 363×645、縮尺は約 0.903（横）/ 0.902（縦）。
       const sx = 363.0 / 402.0;
@@ -592,54 +581,53 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
       // sx ≈ sy なので片方の縮尺で十分（横基準で揃える）。
       final savedCardScale = _cardScale * sx;
 
-      final postIdFuture = _postService.createPost(
+      // Phase 2: 写真のアップロードと投稿の作成。段取りは [PostSubmission]。
+      // postId は使わない（写真 URL の後追いは PostSubmission が面倒を見る）。
+      await PostSubmission.submit(
         userId: currentUser.uid,
-        username: username,
-        userIconUrl: iconUrl,
-        trackData: widget.track.toMap(),
-        // photoUrl は後追いで update する
-        photoUrl: null,
-        // 写真: 旧方式パスで描画させる（BoxFit.cover + translate + scale）
-        imageOffsetX: savedImageOffsetX,
-        imageOffsetY: savedImageOffsetY,
-        imageScale: savedImageScale,
-        imageNaturalWidth: 0,
-        imageNaturalHeight: 0,
-        // 歌詞カード: MusicTrim → LyricsCardSelection で編集した結果を反映。
-        // 未編集なら初期値 (largeAlbumArt = 1) のまま。
-        selectedLayoutIndex: _selectedLayoutIndex,
-        cardPositionX: savedCardPositionX,
-        cardPositionY: savedCardPositionY,
-        cardScale: savedCardScale,
-        cardRotation: _cardRotation,
-        // 写真は「プレビュー背景そのもの」or「ユーザー差し替え画像」を素で保存し、
-        // PostCard 裏面は通常通り overlay を重ねる (歌詞カード / 曲情報 / ユーザー badge)。
-        // 「今の気分」モードは Vibe 投稿ではない
-        isVibe: !widget.isMoodPost && topic != null,
-        vibeTopicId:
-            widget.isMoodPost ? null : (topic as dynamic)?.topicId as String?,
-        vibeTopicTitle:
-            widget.isMoodPost ? null : (topic as dynamic)?.title as String?,
-        adlTeamId: adlTeamId,
-        audience: audience,
-        audioStartMs: _audioStartMs,
-        audioDurationSec: _audioDurationSec,
-        lyricsText: _lyricsData == null
-            ? null
-            : LyricsService().truncateLyrics(
-                _lyricsData!.plainLyrics,
-                maxLines: 4,
-              ),
+        photoBytes: hasPhoto ? compressed!.$1 : null,
+        storage: _storageService,
+        postService: _postService,
+        createPost: () => _postService.createPost(
+          userId: currentUser.uid,
+          username: username,
+          userIconUrl: iconUrl,
+          trackData: widget.track.toMap(),
+          // photoUrl は後追いで update する
+          photoUrl: null,
+          // 写真: 旧方式パスで描画させる（BoxFit.cover + translate + scale）
+          imageOffsetX: savedImageOffsetX,
+          imageOffsetY: savedImageOffsetY,
+          imageScale: savedImageScale,
+          imageNaturalWidth: 0,
+          imageNaturalHeight: 0,
+          // 歌詞カード: MusicTrim → LyricsCardSelection で編集した結果を反映。
+          // 未編集なら初期値 (largeAlbumArt = 1) のまま。
+          selectedLayoutIndex: _selectedLayoutIndex,
+          cardPositionX: savedCardPositionX,
+          cardPositionY: savedCardPositionY,
+          cardScale: savedCardScale,
+          cardRotation: _cardRotation,
+          // 写真は「プレビュー背景そのもの」or「ユーザー差し替え画像」を素で保存し、
+          // PostCard 裏面は通常通り overlay を重ねる (歌詞カード / 曲情報 / ユーザー badge)。
+          // 「今の気分」モードは Vibe 投稿ではない
+          isVibe: !widget.isMoodPost && topic != null,
+          vibeTopicId:
+              widget.isMoodPost ? null : (topic as dynamic)?.topicId as String?,
+          vibeTopicTitle:
+              widget.isMoodPost ? null : (topic as dynamic)?.title as String?,
+          adlTeamId: adlTeamId,
+          audience: audience,
+          audioStartMs: _audioStartMs,
+          audioDurationSec: _audioDurationSec,
+          lyricsText: _lyricsData == null
+              ? null
+              : LyricsService().truncateLyrics(
+                  _lyricsData!.plainLyrics,
+                  maxLines: 4,
+                ),
+        ),
       );
-
-      final phaseResults = await Future.wait<dynamic>([urlFuture, postIdFuture]);
-      final photoUrl = phaseResults[0] as String?;
-      final postId = phaseResults[1] as String;
-
-      if (photoUrl != null) {
-        // ignore: unawaited_futures
-        _postService.updatePostPhotoUrl(postId: postId, photoUrl: photoUrl);
-      }
 
       if (!mounted) return;
       AppToast.show(
@@ -741,8 +729,8 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
         _startRotation = _cardRotation;
       }
       if (_isTwoFingerAccepted) {
-        newScale = (_startScale * (1.0 + (details.scale - 1.0) * 0.6))
-            .clamp(0.3, 3.0);
+        newScale =
+            (_startScale * (1.0 + (details.scale - 1.0) * 0.6)).clamp(0.3, 3.0);
 
         // 回転計算: 初期 10° ロック + 解除後の damping 0.6 適用
         newRotation = _rotationLock.computeRotation(
@@ -780,7 +768,6 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
       }
     });
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -998,7 +985,8 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
   ///   - 権限なし等: 投稿者アイコン
   Widget _buildAuthorAvatar(double scale) {
     final Widget inner = _selectedPhoto != null
-        ? Image.memory(_selectedPhoto!, fit: BoxFit.cover, gaplessPlayback: true)
+        ? Image.memory(_selectedPhoto!,
+            fit: BoxFit.cover, gaplessPlayback: true)
         : _latestGalleryThumb != null
             ? Image.memory(_latestGalleryThumb!,
                 fit: BoxFit.cover, gaplessPlayback: true)
@@ -1107,8 +1095,7 @@ class _VibeStoryPreviewScreenState extends State<VibeStoryPreviewScreen> {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                                color: Colors.white,
-                                width: 3 * scale * 0.5),
+                                color: Colors.white, width: 3 * scale * 0.5),
                           ),
                           child: ClipOval(
                             child: (authorIconUrl != null &&

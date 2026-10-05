@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -19,6 +20,7 @@ import '../../services/post_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/user_service.dart';
 import '../../services/profile_snapshot_service.dart';
+import '../../services/post_submission.dart';
 import '../../utils/color_extractor.dart';
 import '../../utils/photo_helper.dart';
 import '../../widgets/common/app_toast.dart';
@@ -37,6 +39,7 @@ import '../../widgets/post_card.dart';
 /// isVibe: false, vibeTopicId/Title: null で気分投稿として保存する。
 class MoodPostFinalPreviewScreen extends StatefulWidget {
   final TrackModel track;
+
   /// 投稿に添える**公開**画像。旧フロー（写真を選んでから確認へ来る）で
   /// 使っていたもので、通常は null。
   final XFile? selectedImage;
@@ -168,8 +171,8 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   Future<void> _extractColors() async {
     if (widget.track.albumImageUrl.isEmpty) return;
     try {
-      final (start, end) =
-          await ColorExtractor.extractGradientColors(widget.track.albumImageUrl);
+      final (start, end) = await ColorExtractor.extractGradientColors(
+          widget.track.albumImageUrl);
       if (mounted) {
         setState(() {
           _gradientStart = start;
@@ -187,7 +190,6 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     } catch (_) {}
   }
 
-
   /// 「投稿する」ボタン押下 → 気分投稿として保存。
   /// 画面はそのまま留まり、上部に「楽曲を追加しています...」を表示、
   /// 完了後にホームへ pushNamedAndRemoveUntil する。
@@ -203,36 +205,25 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     try {
       // 表示に必要な値をキャプチャ
       final me = _me;
-      final username =
-          me?.username ?? user.displayName ?? 'ユーザー';
+      final username = me?.username ?? user.displayName ?? 'ユーザー';
       final userIconUrl = me?.profileImageUrl;
       final adlTeamId = me?.adlTeamId;
       final university = me?.university;
 
       // 写真は通常の投稿フローでは選ばない（カード裏面がプロフィールに
       // 変わったので出す場所が無い）。旧フローから写真付きで来たときだけ
-      // 従来通り圧縮してアップロードする。
+      // 圧縮して持っていく。アップロードの段取りは [PostSubmission]。
       final photo = widget.selectedImage;
       var width = 0;
       var height = 0;
-      Future<String?> urlFuture = Future.value(null);
+      Uint8List? photoBytes;
 
       if (photo != null) {
-        final imgBytes = await photo.readAsBytes();
-        final (processedBytes, w, h) =
-            await PhotoHelper.compressForUpload(imgBytes);
+        final (processed, w, h) =
+            await PhotoHelper.compressForUpload(await photo.readAsBytes());
+        photoBytes = processed;
         width = w;
         height = h;
-        final uploadResult = await PhotoHelper.uploadCompressedSplit(
-          imageBytes: processedBytes,
-          userId: user.uid,
-          storageService: _storageService,
-          alreadyCompressed: true,
-        );
-        urlFuture = uploadResult.storageRef!
-            .getDownloadURL()
-            .then<String?>((u) => u)
-            .catchError((_) => null);
       }
 
       // 画面を開いた時点で走らせてある集計。まだ終わっていなければここで待つ。
@@ -240,45 +231,42 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       // 空のまま出てしまう。
       final snapshot = await _snapshot;
 
-      final postIdFuture = _postService.createPost(
+      final postId = await PostSubmission.submit(
         userId: user.uid,
-        username: username,
-        userIconUrl: userIconUrl,
-        trackData: widget.track.toMap(),
-        photoUrl: null, // 後追い update
-        imageOffsetX: 0.0,
-        imageOffsetY: 0.0,
-        imageScale: 1.0,
-        imageNaturalWidth: width.toDouble(),
-        imageNaturalHeight: height.toDouble(),
-        // 歌詞カードは非表示 → PostCard 側は selectedLayoutIndex=1 の
-        //   largeAlbumArt レイアウトを使うと詞なしでもアルバム丸配置になり
-        //   気分投稿らしい表現になる。
-        selectedLayoutIndex: 1,
-        cardPositionX: 0,
-        cardPositionY: 0,
-        cardScale: 0, // 0 にしてカード自体を実質非表示に
-        cardRotation: 0,
-        isVibe: false,
-        // 気分投稿マーカー。ストーリーバー等の集約先ではこのフラグを見て
-        // 明示的にスキップする。
-        isMoodPost: true,
-        adlTeamId: adlTeamId,
-        audience: 'public',
-        audioStartMs: 0,
-        audioDurationSec: 15,
-        university: university,
-        profileSnapshot: snapshot,
+        photoBytes: photoBytes,
+        storage: _storageService,
+        postService: _postService,
+        createPost: () => _postService.createPost(
+          userId: user.uid,
+          username: username,
+          userIconUrl: userIconUrl,
+          trackData: widget.track.toMap(),
+          photoUrl: null, // 後追い update
+          imageOffsetX: 0.0,
+          imageOffsetY: 0.0,
+          imageScale: 1.0,
+          imageNaturalWidth: width.toDouble(),
+          imageNaturalHeight: height.toDouble(),
+          // 歌詞カードは非表示 → PostCard 側は selectedLayoutIndex=1 の
+          //   largeAlbumArt レイアウトを使うと詞なしでもアルバム丸配置になり
+          //   気分投稿らしい表現になる。
+          selectedLayoutIndex: 1,
+          cardPositionX: 0,
+          cardPositionY: 0,
+          cardScale: 0, // 0 にしてカード自体を実質非表示に
+          cardRotation: 0,
+          isVibe: false,
+          // 気分投稿マーカー。ストーリーバー等の集約先ではこのフラグを見て
+          // 明示的にスキップする。
+          isMoodPost: true,
+          adlTeamId: adlTeamId,
+          audience: 'public',
+          audioStartMs: 0,
+          audioDurationSec: 15,
+          university: university,
+          profileSnapshot: snapshot,
+        ),
       );
-
-      final results = await Future.wait<dynamic>([urlFuture, postIdFuture]);
-      final photoUrl = results[0] as String?;
-      final postId = results[1] as String;
-
-      if (photoUrl != null) {
-        // ignore: unawaited_futures
-        _postService.updatePostPhotoUrl(postId: postId, photoUrl: photoUrl);
-      }
 
       // ロック画面の Live Activity を「投稿が完了しました🎉」へ切り替え、
       // 今日の枠に今の投稿のジャケットを入れる。
@@ -434,9 +422,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     final post = PostModel(
       postId: '__mood_preview__',
       userId: _me?.uid ?? '__preview__',
-      username: (_me?.username?.isNotEmpty ?? false)
-          ? _me!.username!
-          : 'ユーザー',
+      username: (_me?.username?.isNotEmpty ?? false) ? _me!.username! : 'ユーザー',
       userIconUrl: _me?.profileImageUrl,
       track: widget.track,
       likeCount: 3,
@@ -457,5 +443,4 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       addPhotoLabel: _pendingPhoto != null ? '写真を変更する' : null,
     );
   }
-
 }

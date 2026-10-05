@@ -448,22 +448,20 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
 /// 投稿データをFirestoreから取得して返す（setState なし・_loadPosts/_onRefresh 共用）
-  Future<({List<PostModel> posts, bool hasPostedToday, bool postedOnTimeThisCycle, bool postedAnyThisCycle, UserModel? user})> _fetchPostsData() async {
+  Future<({List<PostModel> posts, bool hasPostedToday, UserModel? user})>
+      _fetchPostsData() async {
     try {
       final currentUser = _auth.currentUser;
 
-      // 自分の投稿状況とユーザー情報。
+      // 自分の投稿状況とユーザー情報。互いに依存しないので同時に投げる
+      // （1 つずつ await していた頃は、タイムラインが出るまでに往復が
+      //  直列に並んでいた）。
       //
-      // 以前はこの 4 つを 1 つずつ await しており、タイムラインが出るまでに
-      // 往復が 4 回直列に並んでいた。互いに依存していないので同時に投げる。
-      // サイクル内の「期限内投稿」と「Late 含む投稿」は同じクエリだったので
-      // [postStatusInCurrentCycle] で 1 回にまとめてある。
-      //   hasPostedToday    … 今日投稿済みか
-      //   postedOnTime…     … 期限内投稿済みか（リアクション可否）
-      //   postedAny…        … Late 含め投稿済みか（裏面閲覧可否）
+      // 以前はここで「期限内投稿済みか（リアクション可否）」「Late 含め
+      // 投稿済みか（裏面閲覧可否）」も引いていたが、**戻り値を誰も読んで
+      // いなかった**ので外した。ゲートを効かせるときは
+      // [PostService.postStatusInCurrentCycle] を呼んで PostCard へ渡す。
       bool hasPostedToday = false;
-      bool postedOnTimeThisCycle = false;
-      bool postedAnyThisCycle = false;
       List<String> followingIds = [];
       UserModel? userModel;
 
@@ -471,17 +469,13 @@ class _HomeScreenState extends State<HomeScreen>
         final uid = currentUser.uid;
         final results = await Future.wait([
           _postService.hasUserPostedToday(uid),
-          _postService.postStatusInCurrentCycle(uid),
           _userService.getUser(uid).catchError((Object e) {
             print('⚠️ フォロー一覧取得エラー: $e');
             return null;
           }),
         ]);
         hasPostedToday = results[0] as bool;
-        final cycle = results[1] as ({bool onTime, bool any});
-        postedOnTimeThisCycle = cycle.onTime;
-        postedAnyThisCycle = cycle.any;
-        userModel = results[2] as UserModel?;
+        userModel = results[1] as UserModel?;
         followingIds = userModel?.following ?? [];
       }
       final allTargetIds = currentUser != null
@@ -540,10 +534,10 @@ class _HomeScreenState extends State<HomeScreen>
         }
       }
 
-      return (posts: updatedPosts, hasPostedToday: hasPostedToday, postedOnTimeThisCycle: postedOnTimeThisCycle, postedAnyThisCycle: postedAnyThisCycle, user: userModel);
+      return (posts: updatedPosts, hasPostedToday: hasPostedToday, user: userModel);
     } catch (e) {
       print('❌ 投稿読み込みエラー: $e');
-      return (posts: <PostModel>[], hasPostedToday: false, postedOnTimeThisCycle: false, postedAnyThisCycle: false, user: null);
+      return (posts: <PostModel>[], hasPostedToday: false, user: null);
     }
   }
 

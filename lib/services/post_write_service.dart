@@ -7,6 +7,7 @@ import '../models/notification_model.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
 import 'music_memory_cycle_service.dart';
+import '../models/profile_snapshot.dart';
 import 'profile_snapshot_service.dart';
 
 /// 投稿データの書き込み（作成・更新・削除）を担当するサービス
@@ -20,10 +21,17 @@ class PostWriteService {
   ///
   /// 失敗しても投稿自体は成立しているので握りつぶす（裏面が空になるだけ）。
   /// 直近の投稿を材料にするため、作成した投稿自身も recent choice に入る。
-  Future<void> _writeProfileSnapshot(String postId, String userId) async {
+  /// [skipSnapshot] のときは集計せず、authorName だけ入れる。
+  /// 投稿を書き込むときに既にスナップショットを入れてある場合に使う。
+  Future<void> _writeProfileSnapshot(
+    String postId,
+    String userId, {
+    bool skipSnapshot = false,
+  }) async {
     try {
-      final snapshot =
-          await ProfileSnapshotService.instance.build(uid: userId);
+      final snapshot = skipSnapshot
+          ? ProfileSnapshot.empty
+          : await ProfileSnapshotService.instance.build(uid: userId);
       final user = await _userService.getUser(userId);
       final update = <String, dynamic>{
         if (!snapshot.isEmpty) 'profileSnapshot': snapshot.toMap(),
@@ -67,6 +75,7 @@ class PostWriteService {
     bool campusVibeParticipating = true,
     String? adlTeamId,
     String audience = 'public',
+    ProfileSnapshot? profileSnapshot,
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
@@ -125,13 +134,26 @@ class PostWriteService {
         'campusVibePost': campusVibeParticipating == true && university != null,
         'adlTeamId': adlTeamId,
         'audience': audience,
+        // 投稿前に用意できていれば最初から入れる。入れずに後追いすると、
+        // 書き込み直後に読み直す画面（ホーム）で裏面が空のまま出る。
+        if (profileSnapshot != null && !profileSnapshot.isEmpty)
+          'profileSnapshot': profileSnapshot.toMap(),
       };
 
       await postRef.set(postData);
 
-      // カード裏面に出す「その時点の音楽の顔」。集計に Spotify を叩くので、
-      // 投稿の完了を待たせないよう書き込んだあとに追いかけて入れる。
-      unawaited(_writeProfileSnapshot(postRef.id, userId));
+      // カード裏面に出す「その時点の音楽の顔」。
+      //
+      // 呼び出し側が用意していればそれを使い（上の postData に入っている）、
+      // 名前だけ追いかけて入れる。用意が無い経路では従来どおりここで集計する。
+      // 集計は Spotify を叩くので、投稿の完了は待たせない。
+      unawaited(
+        _writeProfileSnapshot(
+          postRef.id,
+          userId,
+          skipSnapshot: profileSnapshot != null && !profileSnapshot.isEmpty,
+        ),
+      );
 
       return postRef.id;
     } catch (e) {

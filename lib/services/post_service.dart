@@ -8,6 +8,7 @@ import '../utils/campus_vibe_utils.dart';
 import 'post_fetch_service.dart';
 import 'post_write_service.dart';
 import 'post_check_service.dart';
+import '../models/profile_snapshot.dart';
 
 /// 投稿データを管理するサービス（ファサード）
 /// 各責務は PostFetchService / PostWriteService / PostCheckService に委譲
@@ -138,6 +139,7 @@ class PostService {
     bool campusVibeParticipating = true,
     String? adlTeamId,
     String audience = 'public',
+    ProfileSnapshot? profileSnapshot,
   }) => _writeService.createPost(
     userId: userId,
     username: username,
@@ -168,6 +170,7 @@ class PostService {
     campusVibeParticipating: campusVibeParticipating,
     adlTeamId: adlTeamId,
     audience: audience,
+    profileSnapshot: profileSnapshot,
   );
 
   /// 投稿を削除

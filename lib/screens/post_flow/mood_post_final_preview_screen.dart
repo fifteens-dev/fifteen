@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../models/post_model.dart';
+import '../../models/profile_snapshot.dart';
 import '../../models/track_model.dart';
 import '../../models/user_model.dart';
 import '../../services/audio_player_service.dart';
@@ -17,6 +18,7 @@ import '../../services/live_activity_service.dart';
 import '../../services/post_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/user_service.dart';
+import '../../services/profile_snapshot_service.dart';
 import '../../utils/color_extractor.dart';
 import '../../utils/photo_helper.dart';
 import '../../widgets/common/app_toast.dart';
@@ -103,9 +105,33 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   /// 今が写真を足せる時間帯か（24:00 まで）。
   bool _canAddPhoto = false;
 
+  /// カード裏面に焼き込む top artists / recent choice。
+  ///
+  /// 集計は Spotify や再生履歴を叩くので時間がかかる。投稿してから追いかけて
+  /// 書くと、書き込み直後に読み直すホームでは裏面が空のまま出てしまう。
+  /// この画面を開いた時点で走らせておき、投稿のときには出来上がっている
+  /// 状態にする。間に合わなければそこで待つ。
+  Future<ProfileSnapshot>? _snapshot;
+
+  void _startSnapshot() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    _snapshot = ProfileSnapshotService.instance.build(
+      uid: uid,
+      // 今まさに投稿する曲も「直近に選んだ曲」に入れる。投稿のあとに
+      // 集計していた頃は自分の投稿も材料に入っていたので、それに揃える。
+      pendingTrack: SnapshotTrack(
+        trackName: widget.track.trackName,
+        artistName: widget.track.artistName,
+        albumImageUrl: widget.track.albumImageUrl,
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _startSnapshot();
     _loadMe();
     // ignore: discarded_futures
     _loadCanAddPhoto();
@@ -208,6 +234,14 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
             .catchError((_) => null);
       }
 
+      // 画面を開いた時点で走らせてある集計。まだなら here で待つ。
+
+      // 投稿のあとに追いかけて書くと、書き込み直後に読み直すホームで
+
+      // 裏面が空のまま出てしまう。
+
+      final snapshot = await _snapshot;
+
       final postIdFuture = _postService.createPost(
         userId: user.uid,
         username: username,
@@ -236,6 +270,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
         audioStartMs: 0,
         audioDurationSec: 15,
         university: university,
+        profileSnapshot: snapshot,
       );
 
       final results = await Future.wait<dynamic>([urlFuture, postIdFuture]);

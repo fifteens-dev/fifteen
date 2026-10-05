@@ -40,9 +40,14 @@ class ProfileSnapshotService {
   ///
   /// [posts] は投稿ベースに落ちたときの材料。呼び出し側が既に持っていれば
   /// 渡す（渡さなければここで取りに行く）。
+  /// [pendingArtistName] は、まだ保存されていない「今まさに投稿する曲」の
+  /// アーティスト。投稿前に集計するときに渡す（投稿後に集計していた頃は
+  /// 自分の投稿も材料に入っていたので、それを揃えるため）。
+  /// Apple Music の再生履歴から集計できたときは使わない。
   Future<List<String>> topArtistNames({
     required String uid,
     List<PostModel>? posts,
+    String? pendingArtistName,
   }) async {
     List<String> names = const [];
     try {
@@ -57,7 +62,11 @@ class ProfileSnapshotService {
 
     if (names.isEmpty) {
       final source = posts ?? await _recentPosts(uid);
-      names = artistNamesFromPosts(source);
+      names = [
+        if (pendingArtistName != null && pendingArtistName.trim().isNotEmpty)
+          pendingArtistName.trim(),
+        ...artistNamesFromPosts(source),
+      ];
     }
     return rankByCount(names);
   }
@@ -96,13 +105,21 @@ class ProfileSnapshotService {
   /// アーティスト画像もここで解決しておく。カードを見るたびに Spotify を
   /// 叩くとタイムラインが重くなるため。取れなければ null のままにして、
   /// 表示側でプレースホルダに落とす。
+  /// [pendingTrack] は、まだ保存されていない「今まさに投稿する曲」。
+  /// 投稿を書き込む前に作るときに渡す。渡すと recent choice の先頭に入り、
+  /// top artists の集計（投稿ベースに落ちたとき）にも数えられる。
   Future<ProfileSnapshot> build({
     required String uid,
     List<PostModel>? posts,
+    SnapshotTrack? pendingTrack,
   }) async {
     try {
       final source = posts ?? await _recentPosts(uid);
-      final names = await topArtistNames(uid: uid, posts: source);
+      final names = await topArtistNames(
+        uid: uid,
+        posts: source,
+        pendingArtistName: pendingTrack?.artistName,
+      );
 
       // 画像は 3 人ぶんまとめて取る。直列だと回線が細いとき 3 往復ぶん待つ。
       final images = await Future.wait(
@@ -116,13 +133,14 @@ class ProfileSnapshotService {
       return ProfileSnapshot(
         topArtists: artists,
         recentTracks: [
+          if (pendingTrack != null) pendingTrack,
           for (final p in source.take(limit))
             SnapshotTrack(
               trackName: p.track.trackName,
               artistName: p.track.artistName,
               albumImageUrl: p.track.albumImageUrl,
             ),
-        ],
+        ].take(limit).toList(),
       );
     } catch (e) {
       if (kDebugMode) print('ProfileSnapshot.build error: $e');

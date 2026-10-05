@@ -107,12 +107,6 @@ class PostCard extends StatefulWidget {
   final String? backPhotoUrl;
   final bool disableInteractions; // trueの場合、いいね・コメント無効（カウントのみ表示）
   final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
-  /// 初めて裏面に反転したときに呼ぶ（閲覧済みの記録用）。
-  ///
-  /// **今はどこからも渡していない**ため、裏面を見たことは記録されていない。
-  /// 呼ぶ側（反転処理）は 2 箇所とも生きているので、記録を始めるときは
-  /// 渡すだけでよい。
-  final VoidCallback? onFlipToBack;
   final VoidCallback? onShare; // 共有ボタンタップ時のコールバック（未指定時はPNG保存）
   // trueの場合、カードタップで内部反転せず onCardTap を呼ぶだけにする。
   // 反転は親が flipToBack()/flipToFront() で制御する（ホーム2列グリッド用）。
@@ -150,7 +144,6 @@ class PostCard extends StatefulWidget {
     this.backPhotoUrl,
     this.disableInteractions = false, // デフォルトはインタラクション有効
     this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
-    this.onFlipToBack, // 裏面反転コールバック（オプション）
     this.onShare, // 共有コールバック（オプション）
     this.externalFlipControl = false, // デフォルトは内部で反転制御
   });
@@ -336,19 +329,16 @@ class PostCardState extends State<PostCard>
   }
 
   /// 裏面に戻す（外部から呼び出し可能）。
-  /// [playAudio] が true の場合、裏面反転と同時に音楽を再生し、裏面閲覧記録
-  /// （onFlipToBack）も通知する（ホーム2列グリッドのタップ拡大用）。
+  /// [playAudio] が true なら、裏返すと同時に音楽も鳴らす
+  /// （ホーム 2 列グリッドのタップ拡大用）。
   /// 既存の呼び出し元（音楽を外部管理する画面）は playAudio=false のまま影響を受けない。
   void flipToBack({bool playAudio = false}) {
     if (!mounted || !_showFront) return;
     setState(() { _showFront = false; });
     _flipController.forward();
-    if (playAudio) {
-      widget.onFlipToBack?.call();
-      if (!widget.audioManagedExternally) {
-        widget.onPlayStarted?.call();
-        _playAudioAsync();
-      }
+    if (playAudio && !widget.audioManagedExternally) {
+      widget.onPlayStarted?.call();
+      _playAudioAsync();
     }
   }
 
@@ -388,9 +378,6 @@ class PostCardState extends State<PostCard>
     });
 
     if (!_showFront) {
-      // 裏面に反転 → 閲覧済みとして記録
-      widget.onFlipToBack?.call();
-
       _flipController.forward();
 
       // 外部制御モードでない場合のみPostCardが音楽を再生

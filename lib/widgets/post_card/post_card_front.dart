@@ -368,7 +368,7 @@ extension PostCardFront on PostCardState {
         _buildSmileyButton(size: 32, color: theme.iconColor),
         const SizedBox(width: 38),
 
-        // コメント（接続を切っている。PostCardState.kCommentsEnabled=false で復活可）
+        // コメント（接続を切っている。kCommentsEnabled=false で復活可）
         if (PostCardState.kCommentsEnabled) ...[
           _buildCommentReaction(
             count: widget.post.commentCount,

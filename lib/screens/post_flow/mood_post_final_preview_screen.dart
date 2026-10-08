@@ -116,6 +116,12 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   /// 状態にする。間に合わなければそこで待つ。
   Future<ProfileSnapshot>? _snapshot;
 
+  /// 投稿ボタンを押してから、集計を待つ上限。
+  ///
+  /// 画面を開いてから押すまでに普通は終わっている。終わっていないのは
+  /// 回線が遅いときなので、そこで投稿を止めない方がよい。
+  static const Duration _snapshotWait = Duration(seconds: 3);
+
   void _startSnapshot() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -212,10 +218,17 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
 
       final publicPhoto = await _compressPublicPhoto();
 
-      // 画面を開いた時点で走らせてある集計。まだ終わっていなければここで待つ。
+      // 画面を開いた時点で走らせてある集計。まだ終わっていなければ少し待つ。
       // 投稿のあとに追いかけて書くと、書き込み直後に読み直すホームで裏面が
       // 空のまま出てしまう。
-      final snapshot = await _snapshot;
+      //
+      // ただし無期限には待たない。集計は再生履歴のページングと Spotify の
+      // 画像取得を伴い、回線が詰まると終わらないことがある。投稿そのものを
+      // 人質に取らせないため上限を切り、間に合わなければ空で進める。
+      // 空で渡すと createPost 側が従来どおり後追いで集計して入れてくれる
+      // （[PostWriteService._writeProfileSnapshot]）。
+      final snapshot = await _snapshot
+          ?.timeout(_snapshotWait, onTimeout: () => ProfileSnapshot.empty);
 
       final postId = await PostSubmission.submit(
         userId: user.uid,

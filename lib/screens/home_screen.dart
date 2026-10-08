@@ -70,6 +70,8 @@ part 'home/home_stories.dart';
 part 'home/home_post_actions.dart';
 part 'home/home_post_flow.dart';
 part 'home/home_build.dart';
+part 'home/home_playback.dart';
+part 'home/home_startup.dart';
 class HomeScreen extends StatefulWidget {
   final List<PostModel>? initialPosts;
   final Map<String, dynamic>? initialVibeData;
@@ -244,67 +246,6 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didPop() {}
 
-  /// 招待コードによる自動フォローの通知を遅延送信（認証フロー完了後）
-  Future<void> _processPendingFollowNotification() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final ownerUid = prefs.getString('pending_follow_owner_uid');
-      if (ownerUid == null || ownerUid.isEmpty) return;
-
-      final currentUser = _auth.currentUser;
-      if (currentUser == null) return;
-
-      // ユーザー情報が揃ってから通知を送信
-      final senderUser = await _userService.getUser(currentUser.uid);
-      if (senderUser == null) return;
-
-      final username = senderUser.username;
-      if (username == null || username.isEmpty || username == 'unknown') return;
-
-      // 通知を送信
-      final notificationService = NotificationService();
-      await notificationService.createNotification(
-        type: NotificationType.follow,
-        recipientId: ownerUid,
-        senderId: currentUser.uid,
-        senderUsername: username,
-        senderIconUrl: senderUser.profileImageUrl,
-      );
-
-      // 送信済みのpendingを削除
-      await prefs.remove('pending_follow_owner_uid');
-    } catch (_) {}
-  }
-
-  /// lastActiveAt を Firestore に書き込む（DAU/MAU 計測）
-  /// 併せて、端末ローカルにしか無い「選択中の音楽サービス」を users doc へ同期する
-  /// （管理者パネルのサービス別集計用）。同期は**そのユーザーを一度も刻んで
-  /// いないときだけ**走り、既存ユーザーを埋め終われば起動時の処理は無くなる。
-  Future<void> _updateLastActive() async {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) return;
-    await _userService.updateLastActive(uid);
-    await _musicServiceManager.syncSelectedServiceToProfile();
-  }
-
-  /// 再生開始した index の隣接（i+1）投稿の音声を AudioPlayerService にプリロード。
-  /// 次にタップされる可能性が高いカードの setUrl を先行実行し、
-  /// タップ→再生までのネットワーク待ちをスキップする。
-  void _preloadNeighborAudio(int currentIndex) {
-    final posts = _cachedPosts;
-    if (posts == null) return;
-    final nextIndex = currentIndex + 1;
-    if (nextIndex >= posts.length) return;
-    final next = posts[nextIndex];
-    final url = _previewUrlCache[next.postId];
-    if (url == null || url.isEmpty) return;
-    _homeAudioService.preload(
-      url,
-      startFrom: Duration(milliseconds: next.audioStartMs),
-      durationSeconds: next.audioDurationSec,
-    );
-  }
-
   @override
   void dispose() {
     PostPhotoService.instance.photoAdded.removeListener(_onPhotoAdded);
@@ -355,114 +296,6 @@ class _HomeScreenState extends State<HomeScreen>
       });
       _loadPosts();
     }
-  }
-
-  /// スクロール時に各カードの可視性を確認し、
-  /// 最も多く見えているカード（50%超）以外の裏面カードを表面に戻す
-  void _checkPlayingCardVisibility() {
-    // 2列グリッドの拡大オーバーレイ表示中は、再生カードがグリッド上で
-    // プレースホルダ扱いになり「画面外」と誤判定されるため、停止処理をスキップ。
-    if (_gridEnlargedActive) return;
-    final screenHeight = MediaQuery.of(context).size.height;
-
-    String? dominantPostId;
-    double bestVisibleFraction = 0;
-
-    // 全カードの可視割合を計算し、最も多く見えているカードを特定
-    for (final entry in _postCardKeys.entries) {
-      final postId = entry.key;
-      final key = entry.value;
-      final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
-      if (renderBox == null || !renderBox.attached) continue;
-
-      final cardTop = renderBox.localToGlobal(Offset.zero).dy;
-      final cardHeight = renderBox.size.height;
-      final cardBottom = cardTop + cardHeight;
-
-      // 完全に画面外のカードはスキップ
-      if (cardBottom <= 0 || cardTop >= screenHeight) continue;
-
-      final visibleTop = cardTop.clamp(0.0, screenHeight.toDouble());
-      final visibleBottom = cardBottom.clamp(0.0, screenHeight.toDouble());
-      final visibleFraction = (visibleBottom - visibleTop) / cardHeight;
-
-      if (visibleFraction > 0.5 && visibleFraction > bestVisibleFraction) {
-        bestVisibleFraction = visibleFraction;
-        dominantPostId = postId;
-      }
-    }
-
-    // 再生中カードが画面外 or dominant以外になったら音楽を停止し、同時に表面に戻す
-    if (_playingPostId != null && _playingPostId != dominantPostId) {
-      _homeAudioService.stop();
-      _postCardKeys[_playingPostId]?.currentState?.flipToFront();
-      _playingPostId = null;
-    }
-
-    // dominant以外のカードをすべて表面に戻す（音楽停止と同タイミング）
-    for (final entry in _postCardKeys.entries) {
-      final postId = entry.key;
-      final key = entry.value;
-      if (postId != dominantPostId) {
-        key.currentState?.flipToFront();
-      }
-    }
-  }
-
-  /// スクロール量に応じてベルアイコンの透明度を更新
-  void _updateBellOpacity() {
-    if (!_scrollController.hasClients) return;
-    final offset = _scrollController.offset;
-    _bellOpacity.value = (1.0 - (offset / 80.0)).clamp(0.0, 1.0);
-  }
-
-  /// チュートリアル Frame628 でアクティブカードが変わったときに呼ばれる
-  Future<void> _onTutorialAlbumChanged(int index) async {
-    _tutorialActiveIndex = index;
-    final items = TutorialAlbumCarousel.defaultItems;
-    if (index >= items.length) return;
-    final item = items[index];
-    final cacheKey = '${item.title}__${item.artist}';
-    await TutorialPrefetchService.instance.ensureReady(cacheKey, item);
-    if (!mounted || _tutorialActiveIndex != index) return;
-    final previewUrl = TutorialPrefetchService.instance.previewCache[cacheKey];
-    if (previewUrl != null && previewUrl.isNotEmpty) {
-      // owner: this を渡すことで、他画面の dispose() が呼ぶ
-      // stopIfOwner() に巻き添えで止められないようにする
-      _homeAudioService
-          .playPreview(previewUrl, owner: this)
-          .catchError((_) {});
-    }
-    // 次のカードを2秒遅延で preload する。
-    // 即座に preload するとメインプレイヤーの再生が iOS 側で中断される現象が発生したため、
-    // 現在再生中の音声が安定してから preload を開始する。
-    final nextIndex = (index + 1) % items.length;
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted || _tutorialActiveIndex != index) return;
-      TutorialPrefetchService.instance
-          .preloadAudio(items[nextIndex])
-          .catchError((_) {});
-    });
-  }
-
-  /// チュートリアル Frame628 で曲が確定されたときに呼ばれる
-  Future<void> _onTutorialSongConfirmed(TutorialAlbumItem item) async {
-    _homeAudioService.stop();
-    final cacheKey = '${item.title}__${item.artist}';
-    await TutorialPrefetchService.instance.ensureReady(cacheKey, item);
-    if (!mounted) return;
-    final cache = TutorialPrefetchService.instance;
-    final albumArtUrl = cache.artCache[cacheKey]?.isNotEmpty == true
-        ? cache.artCache[cacheKey]!
-        : item.assetPath;
-    _tutorialTrack = TrackModel(
-      trackId: 'tutorial_${item.title.hashCode}',
-      trackName: item.title,
-      artistName: item.artist,
-      albumImageUrl: albumArtUrl,
-      previewUrl: cache.previewCache[cacheKey],
-    );
-    await TutorialController.instance.goTo(TutorialStep.takingPhoto);
   }
 
   /// カレンダーを読み直させるための持ち手。タブは生かされたままで

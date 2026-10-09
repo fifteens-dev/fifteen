@@ -56,6 +56,8 @@ import 'vibe_user_story_screen.dart';
 import '../widgets/home/home_bottom_nav.dart';
 import '../widgets/common/app_toast.dart';
 import '../services/posting_state.dart';
+import '../services/post_write_service.dart';
+import '../services/apple_music_service.dart';
 import '../models/track_model.dart';
 import '../tutorial/tutorial.dart';
 import 'post_flow/mood_post_final_preview_screen.dart';
@@ -169,6 +171,18 @@ class _HomeScreenState extends State<HomeScreen>
   // 現在のユーザーが今日投稿済みかどうか（裏面表示制御用）
   bool _hasPostedToday = false;
 
+  /// 現サイクルで投稿済みか。まだ調べていなければ null。
+  ///
+  /// 投稿ボタンを押すたびに Firestore へ聞くと、曲選びのモーダルが出るまで
+  /// その往復ぶん待たされる。起動時に一度調べ、投稿したら更新して持っておく。
+  bool? _postedThisCycle;
+
+  /// 曲選びのモーダルに渡す、温めておいた再生履歴。
+  ///
+  /// モーダルは開いてから履歴を取りに行くので、その間スピナーになる。
+  /// 投稿できる時間帯に入っていれば先に取っておき、開いた瞬間に出す。
+  List<TrackModel>? _warmTracks;
+
   /// 自分の投稿のうち、既に写真が付いているもの。バーを出すかの判定に使う。
   Set<String> _postsWithPhoto = {};
 
@@ -181,6 +195,7 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     AppLog.debug('🏠 ホーム画面: initState()が呼ばれました');
     PostPhotoService.instance.photoAdded.addListener(_onPhotoAdded);
+    PostWriteService.postCreated.addListener(_onPostCreated);
     _vibeDataFuture = widget.initialVibeData != null
         ? Future.value(widget.initialVibeData)
         : _loadVibeData();
@@ -256,6 +271,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     PostPhotoService.instance.photoAdded.removeListener(_onPhotoAdded);
+    PostWriteService.postCreated.removeListener(_onPostCreated);
     PostingState.instance.removeListener(_onPostingStateChanged);
     WidgetsBinding.instance.removeObserver(this);
     _storyRefreshTimer?.cancel();

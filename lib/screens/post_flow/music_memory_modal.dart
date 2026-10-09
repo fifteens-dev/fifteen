@@ -162,9 +162,16 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
   /// Flutter 表示に使えないため）。
   Future<void> _load(List<TrackModel>? provided) async {
     try {
-      final base = (provided != null && provided.isNotEmpty)
-          ? provided
-          : await _music.getRecentlyPlayedTracks(limit: 15);
+      if (provided != null && provided.isNotEmpty) {
+        // 先に温めてあったぶんを即座に出す（ホームが押される前に取っている）。
+        await _applyTracks(provided);
+        if (!mounted) return;
+        // そのうえで取り直す。温めたのはアプリを開いた時点のものなので、
+        // そのあとに聴いた曲が落ちている。
+        await _refreshTracksQuietly();
+        return;
+      }
+      final base = await _music.getRecentlyPlayedTracks(limit: 15);
       if (!mounted) return;
       await _applyTracks(base);
     } catch (_) {
@@ -175,6 +182,24 @@ class _MusicMemoryModalState extends State<MusicMemoryModal> {
         });
       }
     }
+  }
+
+  /// 裏で履歴を取り直し、まだ触られていなければ差し替える。
+  ///
+  /// 選ぼうとしている最中に並びが変わると操作を奪ってしまうので、
+  /// 先頭のまま・束のまま（＝まだ何もしていない）ときだけ入れ替える。
+  Future<void> _refreshTracksQuietly() async {
+    try {
+      final fresh = await _music.getRecentlyPlayedTracks(limit: 15);
+      if (!mounted || fresh.isEmpty) return;
+      if (_centerIndex != 0 || _deckMode != _DeckMode.single) return;
+      if (_tracks.isNotEmpty &&
+          fresh.first.trackId == _tracks.first.trackId &&
+          fresh.length == _tracks.length) {
+        return; // 変わっていない
+      }
+      await _applyTracks(fresh);
+    } catch (_) {/* 取り直せなくても、温めたぶんが出ている */}
   }
 
   /// 表示リストを構築して反映する。並びは:

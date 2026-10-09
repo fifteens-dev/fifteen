@@ -40,6 +40,12 @@ extension HomePostFlow on _HomeScreenState {
     await AddPhotoFlow.start(context, postId: postId);
   }
 
+  /// 投稿されたら、サイクルの投稿済み判定と温めた履歴を入れ直す。
+  void _onPostCreated() {
+    _postedThisCycle = true;
+    _warmTracks = null; // 次のサイクルで取り直す
+  }
+
   /// 写真が付いた投稿を覚えて「写真を追加する」バーを消す（1 投稿に 1 枚）。
   void _onPhotoAdded() {
     final added = PostPhotoService.instance.photoAdded.value;
@@ -52,8 +58,28 @@ extension HomePostFlow on _HomeScreenState {
   ///
   /// どちらも全画面なので、同時に出すと重なってしまう。投稿フローを開いた
   /// ときは友達成立のお祝いを見送り、次にアプリを開いたときに回す。
+  /// 曲選びのモーダルに渡す再生履歴を先に取っておく。
+  ///
+  /// モーダルは開いてから Apple Music に聞きに行くので、その間スピナーに
+  /// なる。投稿できる時間帯なら、押される前に取っておく。
+  /// 失敗しても黙って諦める（モーダル側が従来どおり取りに行く）。
+  Future<void> _warmUpTracks() async {
+    if (_warmTracks != null) return;
+    try {
+      final service = await _musicServiceManager.getSelectedService();
+      if (service != MusicServiceType.appleMusic) return;
+      final tracks = await AppleMusicService().getRecentlyPlayedTracks(limit: 15);
+      if (mounted && tracks.isNotEmpty) _warmTracks = tracks;
+    } catch (_) {/* 温められなくても本体は動く */}
+  }
+
   Future<void> _runStartupFlows() async {
     final openedPostFlow = await _maybeOpenPostFlowForCycle();
+    // 自動で開かなかった＝投稿ボタンから入る可能性がある。履歴を温めておく。
+    if (!openedPostFlow && _postedThisCycle == false) {
+      // ignore: discarded_futures
+      _warmUpTracks();
+    }
     if (openedPostFlow || !mounted) return;
     await FriendMatchService.instance.maybeCelebrate(context);
   }
@@ -155,7 +181,9 @@ extension HomePostFlow on _HomeScreenState {
       // 以前は「1 サイクルに 1 回だけ」にしていたが、開いて閉じてしまうと
       // その日はもう出ず、「出る時と出ない時がある」と見えていた。
       // 投稿を済ませれば出なくなるので、回数で止める必要はない。
-      if (await _postService.hasAnyPostInCurrentCycle(uid)) return false;
+      final posted = await _postService.hasAnyPostInCurrentCycle(uid);
+      _postedThisCycle = posted;
+      if (posted) return false;
       if (!mounted) return false;
 
       // 画面が組み上がってから開く（initState から呼ばれる経路があるため）。
@@ -191,9 +219,18 @@ extension HomePostFlow on _HomeScreenState {
     // 1 サイクル（通知から翌日の通知まで）に投稿できるのは 1 回だけ。
     // 全員が同じ 1 曲を出し合う場なので、何度も出せると意味が薄れる。
     // 管理者は動作確認のために制限しない。
+    //
+    // 判定は起動時に調べた [_postedThisCycle] を使う。ここで毎回 Firestore へ
+    // 聞くと、その往復ぶんモーダルが出るのが遅れる。まだ調べていないとき
+    // （起動直後にすぐ押した等）だけ聞きに行く。
     if (!context.read<CurrentUserProvider>().isAdmin) {
       final uid = _auth.currentUser?.uid;
-      if (uid != null && await _postService.hasAnyPostInCurrentCycle(uid)) {
+      var posted = _postedThisCycle;
+      if (posted == null && uid != null) {
+        posted = await _postService.hasAnyPostInCurrentCycle(uid);
+        _postedThisCycle = posted;
+      }
+      if (posted == true) {
         if (!mounted) return;
         AppToast.show(context, '今日はもう投稿しています');
         return;
@@ -205,7 +242,9 @@ extension HomePostFlow on _HomeScreenState {
     final service = await _musicServiceManager.getSelectedService();
     if (!mounted) return;
     if (service == MusicServiceType.appleMusic) {
-      await MusicMemoryModal.open(context);
+      // 温めてある履歴があれば渡す。モーダルはそれを即座に並べ、裏で
+      // 取り直して差し替える（[MusicMemoryModal]）。
+      await MusicMemoryModal.open(context, tracks: _warmTracks);
     } else {
       VibeStoryPostSheet.show(
         context,

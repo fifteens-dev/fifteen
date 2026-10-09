@@ -316,7 +316,13 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     // 投稿前に選んでおいた写真があれば、二度聞かずにそのまま紐づける。
     final chosen = _pendingPhoto;
     if (chosen != null) {
-      await AddPhotoFlow.attach(postId: postId, photo: chosen);
+      final ok = await AddPhotoFlow.attach(postId: postId, photo: chosen);
+      // 失敗を黙って捨てない。投稿自体は成立しているので、何も言わないと
+      // 「選んだはずの写真が無い」としか見えない。
+      // 写真が付いていない投稿にはカードのバーが残るので、そこから足し直せる。
+      if (!ok && ctx.mounted) {
+        AppToast.show(ctx, '写真を追加できませんでした。カードから追加し直せます');
+      }
       return;
     }
 

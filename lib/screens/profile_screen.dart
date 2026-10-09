@@ -357,10 +357,23 @@ class ProfileView extends StatelessWidget {
 
   final bool showMilfolhaRanking;
 
+  /// ピルの文言。null なら「友達 N人」。
+  ///
+  /// Figma は「2人の共通」（共通の友達）で、これは他人のプロフィールの
+  /// 話。自分のプロフィールでは成り立たないので、既定は友達の人数にして
+  /// ある。他人を見るときは呼び出し側が共通の人数を渡す。
+  final String? pillLabel;
+
   /// 左上のボタン。招待カードの共有シートを開く。
   final VoidCallback? onOpenShare;
+
+  /// 右上の設定。**自分のプロフィールのときだけ**渡す。null なら出さない。
   final VoidCallback? onOpenSettings;
   final VoidCallback? onOpenMilfolhaRanking;
+
+  /// 戻る。他人のプロフィールのように、前の画面がある場合に渡す。
+  /// 左上は共有ボタンが占めているので右上に出す。
+  final VoidCallback? onBack;
 
   const ProfileView({
     super.key,
@@ -374,9 +387,11 @@ class ProfileView extends StatelessWidget {
     required this.topArtists,
     required this.recentPosts,
     this.showMilfolhaRanking = false,
+    this.pillLabel,
     this.onOpenShare,
     this.onOpenSettings,
     this.onOpenMilfolhaRanking,
+    this.onBack,
   });
 
   @override
@@ -473,15 +488,27 @@ class ProfileView extends StatelessWidget {
                     color: Color(0xFFFFD700), size: 22),
               ),
             ),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onOpenSettings,
-            child: const Padding(
-              padding: EdgeInsets.only(left: 8),
-              child:
-                  Icon(Icons.settings_outlined, color: Colors.white, size: 24),
+          // 設定は自分のプロフィールだけ。他人を見ているときは出さない。
+          if (onOpenSettings != null)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onOpenSettings,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child:
+                    Icon(Icons.settings_outlined, color: Colors.white, size: 24),
+              ),
             ),
-          ),
+          // 左上は共有ボタンが占めているので、戻るはここに出す。
+          if (onBack != null)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onBack,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Icon(Icons.close, color: Colors.white, size: 26),
+              ),
+            ),
         ],
       ),
     );
@@ -582,7 +609,7 @@ class ProfileView extends StatelessWidget {
               right: 8,
               top: 17,
               child: Text(
-                '友達 $friendCount人',
+                pillLabel ?? '友達 $friendCount人',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,

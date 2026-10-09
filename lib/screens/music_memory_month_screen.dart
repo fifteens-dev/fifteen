@@ -7,7 +7,7 @@ import '../services/post_service.dart';
 import '../constants/profile_fonts.dart';
 import '../widgets/variable_blur.dart';
 import 'vibe_user_story_screen.dart';
-import 'home/vibe_story_bar_section.dart';
+import '../widgets/home/vibe_story_bar_section.dart';
 import 'music_memory_detail_screen.dart';
 import '../services/post_photo_service.dart';
 import '../services/post_write_service.dart';

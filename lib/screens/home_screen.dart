@@ -49,11 +49,11 @@ import 'notification_list_screen.dart';
 import 'vibe_track_posts_screen.dart';
 import 'vibe_playlist/vibe_playlist_screen.dart';
 import 'card_share_screen.dart';
-import 'home/vibe_bar_section.dart';
-import 'home/vibe_story_bar_section.dart';
+import '../widgets/home/vibe_bar_section.dart';
+import '../widgets/home/vibe_story_bar_section.dart';
 import 'vibe_story_post_sheet.dart';
 import 'vibe_user_story_screen.dart';
-import 'home/home_bottom_nav.dart';
+import '../widgets/home/home_bottom_nav.dart';
 import '../widgets/common/app_toast.dart';
 import '../services/posting_state.dart';
 import '../models/track_model.dart';
@@ -62,6 +62,13 @@ import 'post_flow/mood_post_final_preview_screen.dart';
 import '../utils/app_log.dart';
 
 /// ホーム画面（タイムライン）
+// home/ の中身はすべて home_screen.dart の一部（part）。
+//
+// part ファイルは自分で import を持てないので、新しいパッケージが要るときは
+// このファイルの import に足すこと。代わりに _HomeScreenState のプライベート
+// メンバーがそのまま見える。
+//
+// 単独のウィジェット（ボトムナビ・Vibe バー）は lib/widgets/home/ にある。
 part 'home/home_header.dart';
 part 'home/home_grid_cell.dart';
 

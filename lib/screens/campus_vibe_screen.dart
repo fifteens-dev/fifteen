@@ -11,7 +11,7 @@ import '../services/audio_player_service.dart';
 import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import 'card_share_screen.dart';
-import 'home/home_bottom_nav.dart';
+import '../widgets/home/home_bottom_nav.dart';
 
 /// Campus Vibe 投稿一覧画面（Vibe画面と同じTikTok式縦スクロール）
 class CampusVibeScreen extends StatefulWidget {

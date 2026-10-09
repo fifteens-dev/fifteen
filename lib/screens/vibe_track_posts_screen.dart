@@ -14,7 +14,7 @@ import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import 'card_share_screen.dart';
 import 'comment_screen.dart';
-import 'home/home_bottom_nav.dart';
+import '../widgets/home/home_bottom_nav.dart';
 
 /// 特定のトラックのVibe投稿一覧を表示する画面
 class VibeTrackPostsScreen extends StatefulWidget {

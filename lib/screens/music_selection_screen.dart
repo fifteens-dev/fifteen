@@ -23,7 +23,7 @@ import 'post_preview_screen.dart';
 import 'home_screen.dart';
 import '../widgets/music/music_search_bar.dart';
 import '../widgets/music/music_track_list_item.dart';
-import 'home/home_bottom_nav.dart';
+import '../widgets/home/home_bottom_nav.dart';
 import '../widgets/common/app_toast.dart';
 import '../utils/app_log.dart';
 

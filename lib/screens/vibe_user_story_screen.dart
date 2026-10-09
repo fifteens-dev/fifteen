@@ -15,7 +15,7 @@ import '../services/itunes_search_service.dart';
 import '../services/post_service.dart';
 import '../widgets/post_creation/lyrics_card_layouts.dart';
 import 'comment_screen.dart';
-import 'home/vibe_story_bar_section.dart';
+import '../widgets/home/vibe_story_bar_section.dart';
 
 /// Vibe ストーリーバーで 1 ユーザーをタップしたときに開くストーリー閲覧画面。
 ///

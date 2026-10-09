@@ -525,7 +525,8 @@ class PostCardState extends State<PostCard>
     return Container(
       width: cardWidth,
       height: cardHeight,
-      color: const Color(0xFF121212),
+      // 裏面も表面と同じカード色にする。表面は gradientEnd で塗っている。
+      color: theme.gradientEnd,
       child: FittedBox(
         // 実寸 363×645 で組んであるので、枠が違うときは丸ごと拡縮する。
         fit: BoxFit.contain,
@@ -538,6 +539,11 @@ class PostCardState extends State<PostCard>
           snapshot: snapshot ?? ProfileSnapshot.empty,
           pillLabel: widget.backPillLabel,
           pillAvatars: widget.backPillAvatars,
+          // 地色をアルバムの色にしたので、文字もテーマの色で揃える。
+          // 明るいアルバムで白文字が沈むのを防ぐ。
+          background: theme.gradientEnd,
+          foreground: theme.textColor,
+          mutedForeground: theme.secondaryTextColor,
         ),
       ),
     );

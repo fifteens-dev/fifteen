@@ -150,15 +150,14 @@ extension HomePostFlow on _HomeScreenState {
       final deadline = MusicMemoryCycleService.deadlineFor(cycleStart);
       if (!now.isBefore(deadline)) return false; // 締切超過
 
-      // このサイクルで既に開いていれば何もしない。
-      final prefs = await SharedPreferences.getInstance();
-      final key = 'auto_post_prompt_${cycleStart.millisecondsSinceEpoch}';
-      if (prefs.getBool(key) == true) return false;
-
+      // まだ投稿していなければ開く。
+      //
+      // 以前は「1 サイクルに 1 回だけ」にしていたが、開いて閉じてしまうと
+      // その日はもう出ず、「出る時と出ない時がある」と見えていた。
+      // 投稿を済ませれば出なくなるので、回数で止める必要はない。
       if (await _postService.hasAnyPostInCurrentCycle(uid)) return false;
       if (!mounted) return false;
 
-      await prefs.setBool(key, true);
       // 画面が組み上がってから開く（initState から呼ばれる経路があるため）。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openPostFlow();
@@ -188,6 +187,20 @@ extension HomePostFlow on _HomeScreenState {
       AppToast.show(context, '21時から投稿できます');
       return;
     }
+
+    // 1 サイクル（通知から翌日の通知まで）に投稿できるのは 1 回だけ。
+    // 全員が同じ 1 曲を出し合う場なので、何度も出せると意味が薄れる。
+    // 管理者は動作確認のために制限しない。
+    if (!context.read<CurrentUserProvider>().isAdmin) {
+      final uid = _auth.currentUser?.uid;
+      if (uid != null && await _postService.hasAnyPostInCurrentCycle(uid)) {
+        if (!mounted) return;
+        AppToast.show(context, '今日はもう投稿しています');
+        return;
+      }
+    }
+    if (!mounted) return;
+
     _homeAudioService.stop();
     final service = await _musicServiceManager.getSelectedService();
     if (!mounted) return;

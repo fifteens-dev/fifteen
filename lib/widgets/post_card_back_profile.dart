@@ -34,6 +34,15 @@ class PostCardBackProfile extends StatelessWidget {
   /// ピルに重ねるアイコン（先頭 2 人ぶん）。
   final List<String?> pillAvatars;
 
+  /// 面の地色。表面と同じカード色を渡す。
+  final Color background;
+
+  /// 文字・見出しの色。地色に対して読める色を渡す（PostTheme.textColor）。
+  final Color foreground;
+
+  /// 曲のアーティスト名など、控えめに出す文字の色。
+  final Color mutedForeground;
+
   const PostCardBackProfile({
     super.key,
     required this.name,
@@ -42,6 +51,9 @@ class PostCardBackProfile extends StatelessWidget {
     required this.snapshot,
     this.pillLabel,
     this.pillAvatars = const [],
+    this.background = Colors.black,
+    this.foreground = Colors.white,
+    this.mutedForeground = _trackArtist,
   });
 
   static const double cardWidth = 363;
@@ -66,7 +78,7 @@ class PostCardBackProfile extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: ColoredBox(
-          color: Colors.black,
+          color: background,
           child: Stack(
             children: [
               _avatar(),
@@ -109,8 +121,8 @@ class PostCardBackProfile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: foreground,
           fontSize: 24,
           height: 1.2,
           fontWeight: FontWeight.w600,
@@ -131,8 +143,8 @@ class PostCardBackProfile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: foreground,
           fontSize: 15,
           height: 1.2,
           fontWeight: FontWeight.w600,
@@ -178,8 +190,8 @@ class PostCardBackProfile extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: foreground,
                   fontSize: 15,
                   height: 1.2,
                   fontWeight: FontWeight.w600,
@@ -204,6 +216,29 @@ class PostCardBackProfile extends StatelessWidget {
     );
   }
 
+  /// 見出し（top artists / recent choice）。
+  ///
+  /// 素材は白から灰へ落ちるグラデーションで、黒地の前提で書き出されている。
+  /// 地色がアルバムの色になると、明るい面では見えなくなってしまう。
+  /// そこで文字の形（アルファ）だけを使い、[foreground] で塗り直す。
+  /// 縦に薄くなる雰囲気は素材に合わせて残す。
+  Widget _heading(String asset, {required double width, required double height}) {
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (rect) => LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [foreground, foreground.withValues(alpha: 0.45)],
+        stops: const [0.29, 0.80],
+      ).createShader(rect),
+      child: Image(
+        image: AssetImage(asset),
+        width: width,
+        height: height,
+      ),
+    );
+  }
+
   // ── top artists ───────────────────────────────────────
 
   List<Widget> _topArtists() {
@@ -211,11 +246,11 @@ class PostCardBackProfile extends StatelessWidget {
     return [
       // 見出しは書き出し素材をそのまま使う（4x）。位置は Figma の
       // 書き出し（Frame 840）と重ね合わせて割り出した実測値。
-      const Positioned(
+      Positioned(
         left: 25,
         top: 248.5,
-        child: Image(
-          image: AssetImage('assets/card_back/title_top_artists.png'),
+        child: _heading(
+          'assets/card_back/title_top_artists.png',
           width: 322.75,
           height: 82,
         ),
@@ -255,8 +290,8 @@ class PostCardBackProfile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: foreground,
               fontSize: 12,
               height: 1.2,
               letterSpacing: 0.12,
@@ -269,8 +304,11 @@ class PostCardBackProfile extends StatelessWidget {
     ];
   }
 
-  /// 白抜きの順位数字。プロフィール画面と同じ素材を使う。
+  /// 順位の数字。プロフィール画面と同じ素材を使う。
   /// 素材は 4x なので高さ = canvas/4、下端をベースライン（399）に揃える。
+  ///
+  /// 素材は白抜きで、見出しと同じく黒地の前提。明るいアルバム色の上では
+  /// 消えてしまうので、形だけ使って [foreground] で塗り直す。
   Widget _rankNumeral(int index) {
     const heights = [178 / 4, 181 / 4, 184 / 4];
     const centers = [113.0, 226.0, 335.0];
@@ -280,9 +318,15 @@ class PostCardBackProfile extends StatelessWidget {
       top: 399 - h,
       width: 80,
       child: Center(
-        child: Image.asset(
-          'assets/profile_v2/rank_${index + 1}.png',
-          height: h,
+        child: ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback: (rect) =>
+              LinearGradient(colors: [foreground, foreground])
+                  .createShader(rect),
+          child: Image.asset(
+            'assets/profile_v2/rank_${index + 1}.png',
+            height: h,
+          ),
         ),
       ),
     );
@@ -294,11 +338,11 @@ class PostCardBackProfile extends StatelessWidget {
     final tracks = snapshot.recentTracks;
     return [
       // 左右はカード幅いっぱいで、素材の時点で両端が切れている（Figma も同じ）。
-      const Positioned(
+      Positioned(
         left: 0,
         top: 440,
-        child: Image(
-          image: AssetImage('assets/card_back/title_recent_choice.png'),
+        child: _heading(
+          'assets/card_back/title_recent_choice.png',
           width: 363,
           height: 68.5,
         ),
@@ -324,8 +368,8 @@ class PostCardBackProfile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: foreground,
               fontSize: 13,
               height: 1.2,
               letterSpacing: 0.13,
@@ -342,8 +386,8 @@ class PostCardBackProfile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: _trackArtist,
+            style: TextStyle(
+              color: mutedForeground,
               fontSize: 12,
               height: 1.2,
               letterSpacing: 0.12,

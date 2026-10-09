@@ -10,6 +10,7 @@ import 'vibe_user_story_screen.dart';
 import 'home/vibe_story_bar_section.dart';
 import 'music_memory_detail_screen.dart';
 import '../services/post_photo_service.dart';
+import '../services/post_write_service.dart';
 
 /// Music Memory - Month 画面。
 ///
@@ -136,10 +137,17 @@ class MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
       _loadedChunks = (_monthCount / _chunkMonths).ceil();
     }
     _scrollController.addListener(_onScroll);
+
+    // カレンダーの中身が変わる出来事を見張る。タブに入ったとき、
+    // 変わっていれば読み直す（[reload]）。
+    PostWriteService.postCreated.addListener(_markStale);
+    PostPhotoService.instance.photoAdded.addListener(_markStale);
   }
 
   @override
   void dispose() {
+    PostWriteService.postCreated.removeListener(_markStale);
+    PostPhotoService.instance.photoAdded.removeListener(_markStale);
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -181,44 +189,72 @@ class MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
     }
   }
 
-  /// 読み直す。
+  /// 前回読んでから、カレンダーの中身が変わる出来事があったか。
   ///
-  /// このカレンダーはタブとして生かされたままなので initState が二度と
-  /// 走らない。投稿してから戻ってきても、前に読んだ内容のままになる
-  /// （新しい投稿も、それに付けた写真も出ない）。タブに入るたびここを通す。
+  /// このカレンダーはタブとして生かされたままで initState が二度と走らない。
+  /// かといってタブに入るたび読み直すと、遡って読んだ月を捨ててしまう。
+  /// 実際に変わったときだけ読み直す。
+  bool _stale = false;
+
+  void _markStale() => _stale = true;
+
+  /// 中身が変わっていれば読み直す。タブに入るたび呼ばれる。
   Future<void> reload() async {
-    if (!_lazy) return;
+    if (!_lazy || !_stale) return;
+    _stale = false;
+    await _refreshLoadedMonths();
+  }
+
+  /// 読み込み済みと**同じ範囲**を取り直して、揃ってから差し替える。
+  ///
+  /// 先に捨てて読み直すと、表示が直近 3 ヶ月まで縮む。このリストは
+  /// reverse:true（下端が現在月、上へ遡るほど過去）なので、縮むと過去側に
+  /// いたスクロール位置が行き場を失って飛ばされ、そこで追加読み込みが
+  /// 走って画面が跳ねる。だから捨てずに差し替える。
+  Future<void> _refreshLoadedMonths() async {
+    final chunks = _loadedChunks;
+    if (chunks == 0) return; // まだ何も読んでいない
+
     PostPhotoService.instance.invalidate();
+
+    final fresh = <String, List<PostModel>>{};
+    for (var c = 0; c < chunks; c++) {
+      for (final p in await _fetchChunk(c)) {
+        (fresh[_monthKeyOf(p)] ??= []).add(p);
+      }
+    }
+    if (!mounted) return;
     setState(() {
-      _postsByMonth.clear();
-      _loadedChunks = 0;
-      _isLoading = false;
+      _postsByMonth
+        ..clear()
+        ..addAll(fresh);
     });
-    await _loadNextChunk();
+  }
+
+  String _monthKeyOf(PostModel p) =>
+      '${p.createdAt.year}-${p.createdAt.month.toString().padLeft(2, '0')}';
+
+  /// [chunk] 番目（0 が最新）の 3 ヶ月ぶんを取る。
+  Future<List<PostModel>> _fetchChunk(int chunk) {
+    final newestIdx = chunk * _chunkMonths;
+    final oldestIdx =
+        ((chunk + 1) * _chunkMonths - 1).clamp(0, _monthCount - 1);
+    return _postService.getUserPostsInRange(
+      widget.userId!,
+      _firstDayOfMonthKey(_monthsNewToOld[oldestIdx]),
+      _firstDayOfNextMonth(_monthsNewToOld[newestIdx]),
+    );
   }
 
   Future<void> _loadNextChunk() async {
     if (!_lazy || _isLoading || !_hasMore) return;
     setState(() => _isLoading = true);
 
-    final chunk = _loadedChunks; // 0-based
-    final newestIdx = chunk * _chunkMonths;
-    final oldestIdx =
-        ((chunk + 1) * _chunkMonths - 1).clamp(0, _monthCount - 1);
-    final rangeStart = _firstDayOfMonthKey(_monthsNewToOld[oldestIdx]);
-    final rangeEnd = _firstDayOfNextMonth(_monthsNewToOld[newestIdx]);
-
-    final posts = await _postService.getUserPostsInRange(
-      widget.userId!,
-      rangeStart,
-      rangeEnd,
-    );
+    final posts = await _fetchChunk(_loadedChunks);
     if (!mounted) return;
 
     for (final p in posts) {
-      final key =
-          '${p.createdAt.year}-${p.createdAt.month.toString().padLeft(2, '0')}';
-      (_postsByMonth[key] ??= []).add(p);
+      (_postsByMonth[_monthKeyOf(p)] ??= []).add(p);
     }
     setState(() {
       _loadedChunks++;

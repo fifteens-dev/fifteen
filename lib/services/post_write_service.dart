@@ -13,6 +13,14 @@ import '../utils/app_log.dart';
 
 /// 投稿データの書き込み（作成・更新・削除）を担当するサービス
 class PostWriteService {
+  /// 投稿が作られたことを知らせる。値は作成のたびに増える。
+  ///
+  /// 画面をまたいで「自分の投稿一覧を読み直す必要があるか」を判断するのに
+  /// 使う。Music Memory のカレンダーがこれを見ている。
+  ///
+  /// このクラスは呼び出しごとに生成されるので static で持つ。
+  static final ValueNotifier<int> postCreated = ValueNotifier<int>(0);
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _postsCollection = 'posts';
   final NotificationService _notificationService = NotificationService();
@@ -142,6 +150,7 @@ class PostWriteService {
       };
 
       await postRef.set(postData);
+      postCreated.value++;
 
       // カード裏面に出す「その時点の音楽の顔」。
       //

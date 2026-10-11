@@ -19,6 +19,42 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
 
+    // 今のサイクルの鍵（JST の日付。例 '2026-10-11'）。
+    //
+    // 通知が実際に発火したときだけ Functions が入れるので、24:00 を過ぎても
+    // 次の通知までは同じ値＝同じサイクルになる（Late 投稿も同じ枠）。
+    // まだ一度も発火していない等で読めないときは '' を返し、呼び出し側で
+    // 制限を掛けない（投稿できなくなる方が害が大きい）。
+    function currentCycleKey() {
+      return get(/databases/$(database)/documents/music_memory_state/current)
+          .data.get('lastNotifiedDate', '');
+    }
+
+    // 1 サイクル 1 投稿の引換券。ID は '<uid>_<サイクルの鍵>'。
+    function postClaimPath(uid) {
+      return /databases/$(database)/documents/post_claims/$(uid + '_' + currentCycleKey());
+    }
+
+    // ── post_claims（1 サイクル 1 投稿の引換券）────────────────
+    //
+    // Music Memory の投稿は 1 サイクルに 1 回だけ。クライアント側でも
+    // 止めているが、アプリを書き換えれば通せてしまうのでここでも閉じる。
+    //
+    // ルールはクエリを投げられないので「この人の投稿が既にあるか」は
+    // 訊けない。代わりに ID を '<uid>_<サイクルの鍵>' に固定した札を 1 枚
+    // 置かせる。create は既にあると必ず失敗し、update も delete も許さない
+    // ので、1 サイクルに 1 枚しか取れない。
+    //
+    // 投稿と同じバッチで作らせ、posts 側は existsAfter でその札を要求する。
+    match /post_claims/{claimId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        claimId == request.auth.uid + '_' + currentCycleKey() &&
+        request.resource.data.userId == request.auth.uid;
+      // 一度取った札は動かせない。取り消せると制限の意味がなくなる。
+      allow update, delete: if false;
+    }
+
     // ── users コレクション ───────────────────────────────────
     match /users/{userId} {
       // 読み取り：ログイン済みなら誰でも可（プロフィール表示用）
@@ -124,9 +160,24 @@ service cloud.firestore {
       //   直接渡しているため、deep-link 取得（get ルール）を経由しない。
       allow list: if isAuthenticated();
 
-      // 作成：ログイン済み、かつ userId が自分のUID
+      // 作成：ログイン済み、かつ userId が自分のUID。
+      //
+      // Music Memory の投稿（isMoodPost）は 1 サイクル 1 回に限る。同じ
+      // バッチで post_claims の札を取れていることを要求する（札は 1 枚しか
+      // 取れない ＝ 2 投稿目はバッチごと失敗する）。
+      //
+      // 制限を掛けないのは次の場合:
+      //   - Music Memory 以外の投稿（Vibe など）
+      //   - 管理者（動作確認のため）
+      //   - サイクルの鍵が読めないとき（通知が一度も発火していない等）。
+      //     ここで締めると誰も投稿できなくなるので、開ける方に倒す。
       allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid;
+        request.resource.data.userId == request.auth.uid && (
+          request.resource.data.get('isMoodPost', false) != true ||
+          currentCycleKey() == '' ||
+          isAdmin() ||
+          existsAfter(postClaimPath(request.auth.uid))
+        );
 
       // 更新：投稿者本人 or 管理者
       // 他ユーザーはいいね・コメント数関連フィールドのみ更新可

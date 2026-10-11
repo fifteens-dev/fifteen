@@ -21,6 +21,7 @@ class MusicMemoryCycleService {
   static const String _cyclesCollection = 'music_memory_cycles';
 
   DateTime? _notifiedAt;
+  String? _cycleKey;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
 
   /// アプリ起動時に一度呼ぶ。状態ドキュメントの購読を開始する。
@@ -29,8 +30,11 @@ class MusicMemoryCycleService {
         .doc(_docPath)
         .snapshots()
         .listen((snap) {
-      final ts = snap.data()?['notifiedAt'];
+      final data = snap.data();
+      final ts = data?['notifiedAt'];
       _notifiedAt = ts is Timestamp ? ts.toDate() : null;
+      final key = data?['lastNotifiedDate'];
+      _cycleKey = key is String ? key : null;
     }, onError: (_) {});
   }
 
@@ -42,12 +46,21 @@ class MusicMemoryCycleService {
   /// 直近に発火した通知時刻（サイクル開始）。未取得/未発火なら null。
   DateTime? get notifiedAt => _notifiedAt;
 
+  /// 今のサイクルの鍵（JST の日付。例 '2026-10-11'）。
+  ///
+  /// 「1 サイクル 1 投稿」の引換券（post_claims）の ID に使う。
+  /// セキュリティルールも同じ値を見るので、名前と中身を勝手に変えないこと。
+  String? get cycleKey => _cycleKey;
+
   /// 購読が届く前でも確実に通知時刻が欲しいとき用の 1 回取得。
   /// 取得できた値はキャッシュにも反映する（Live Activity の起動判定などで使う）。
   Future<DateTime?> fetchNotifiedAt() async {
     try {
       final snap = await FirebaseFirestore.instance.doc(_docPath).get();
-      final ts = snap.data()?['notifiedAt'];
+      final data = snap.data();
+      final key = data?['lastNotifiedDate'];
+      if (key is String) _cycleKey = key;
+      final ts = data?['notifiedAt'];
       if (ts is Timestamp) {
         _notifiedAt = ts.toDate();
         return _notifiedAt;

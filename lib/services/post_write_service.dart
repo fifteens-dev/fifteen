@@ -149,7 +149,29 @@ class PostWriteService {
           'profileSnapshot': profileSnapshot.toMap(),
       };
 
-      await postRef.set(postData);
+      // Music Memory の投稿は 1 サイクル 1 回。投稿と同じバッチで
+      // 「引換券」を取る。券は ID が '<uid>_<サイクルの鍵>' で固定されて
+      // おり、create は 2 回目が必ず失敗する（ルールで update/delete も
+      // 禁じている）。したがって 2 投稿目はバッチごと落ちる。
+      //
+      // サイクルの鍵が分からないときは券を取らない。ルール側もその場合は
+      // 制限を掛けないようにしてある（締めると誰も投稿できなくなる）。
+      final cycleKey = isMoodPost ? mmCycle.cycleKey : null;
+      if (cycleKey != null && cycleKey.isNotEmpty) {
+        final batch = _firestore.batch();
+        batch.set(postRef, postData);
+        batch.set(
+          _firestore.collection('post_claims').doc('${userId}_$cycleKey'),
+          {
+            'userId': userId,
+            'postId': postRef.id,
+            'createdAt': FieldValue.serverTimestamp(),
+          },
+        );
+        await batch.commit();
+      } else {
+        await postRef.set(postData);
+      }
       postCreated.value++;
 
       // カード裏面に出す「その時点の音楽の顔」。

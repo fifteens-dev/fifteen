@@ -141,6 +141,7 @@ class PostService {
     String? adlTeamId,
     String audience = 'public',
     ProfileSnapshot? profileSnapshot,
+    bool exemptFromCycleLimit = false,
   }) => _writeService.createPost(
     userId: userId,
     username: username,
@@ -172,6 +173,7 @@ class PostService {
     adlTeamId: adlTeamId,
     audience: audience,
     profileSnapshot: profileSnapshot,
+    exemptFromCycleLimit: exemptFromCycleLimit,
   );
 
   /// 投稿を削除

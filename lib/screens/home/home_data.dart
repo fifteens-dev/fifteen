@@ -183,6 +183,15 @@ extension HomeData on _HomeScreenState {
       final newPostIds = result.posts.map((p) => p.postId).toSet();
       _postCardKeys.removeWhere((id, _) => !newPostIds.contains(id));
       _previewUrlCache.removeWhere((id, _) => !newPostIds.contains(id));
+      // 写真の有無も一緒に読む。これを忘れると、既に写真が付いている
+      // 自分の投稿に「写真を追加する」バーが出てしまう。
+      //
+      // 投稿フローはホームを作り直してから上に載るので、投稿直後や
+      // 最終確認画面から戻ったときは新しいホームになっている。そこで
+      // 読んでいないと、引っ張って更新するまでバーが残っていた。
+      // ignore: discarded_futures
+      _loadPhotoFlags(result.posts);
+
       setState(() {
         _cachedPosts = result.posts;
         _hasPostedToday = result.hasPostedToday;

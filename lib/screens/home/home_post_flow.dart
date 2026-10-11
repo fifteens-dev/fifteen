@@ -238,7 +238,12 @@ extension HomePostFlow on _HomeScreenState {
     // 判定は起動時に調べた [_postedThisCycle] を使う。ここで毎回 Firestore へ
     // 聞くと、その往復ぶんモーダルが出るのが遅れる。まだ調べていないとき
     // （起動直後にすぐ押した等）だけ聞きに行く。
-    if (!context.read<CurrentUserProvider>().isAdmin) {
+    // 管理者かがまだ読めていないときは制限しない。起動直後に押すと
+    // false のままで、管理者が「今日はもう投稿しています」で弾かれていた。
+    // サーバー側（ルール）が同じ判定を持っているので、ここで緩めても
+    // 一般ユーザーの 2 投稿目は通らない。
+    final me = context.read<CurrentUserProvider>();
+    if (me.isLoaded && !me.isAdmin) {
       final uid = _auth.currentUser?.uid;
       var posted = _postedKnownFor(start) ? _postedThisCycle : null;
       if (posted == null && uid != null) {

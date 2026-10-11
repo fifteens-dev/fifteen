@@ -119,7 +119,7 @@ await check('Music Memory 以外の投稿（Vibe）は制限しない', async ()
 });
 
 await seed(CYCLE, { admin: ['boss'] });
-await check('管理者は券なしで何度でも投稿できる', async () => {
+await check('管理者は券なしで何度でも投稿できる（アプリの実際の形）', async () => {
   const db = admin();
   await assertSucceeds(setDoc(doc(db, 'posts/a1'),
     { userId: 'boss', isMoodPost: true }));
@@ -139,6 +139,16 @@ await check('通知がまだ一度も発火していなければ制限しない'
 await seed(CYCLE);
 await check('他人になりすました投稿は止まる', () =>
   assertFails(postWithClaim(alice(), 'bob', 'x1', CYCLE)));
+
+// 管理者がうっかり券を取りに行くと、2 回目は券が既にあって書き込み
+// ごと落ちる（券は update を禁じているため）。アプリ側で管理者は券を
+// 取らないようにしてあるが、落ちることをここでも示しておく。
+await seed(CYCLE, { admin: ['boss'] });
+await check('管理者でも券を取りに行くと 2 回目は落ちる（取ってはいけない）',
+  async () => {
+    await assertSucceeds(postWithClaim(admin(), 'boss', 'b1', CYCLE));
+    await assertFails(postWithClaim(admin(), 'boss', 'b2', CYCLE));
+  });
 
 await env.cleanup();
 console.log(`\n  通過 ${passed} / 失敗 ${failed}\n`);

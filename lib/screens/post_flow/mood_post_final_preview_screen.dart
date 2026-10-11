@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../providers/current_user_provider.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../models/post_model.dart';
@@ -222,6 +225,10 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     }
     setState(() => _isPosting = true);
 
+    // 管理者は 1 サイクル 1 投稿の制限を受けない。引換券も取らない
+    // （券は 1 枚しか置けず、2 回目は書き込みごと失敗するため）。
+    final exempt = context.read<CurrentUserProvider>().isAdmin;
+
     try {
       // 表示に必要な値をキャプチャ
       final me = _me;
@@ -274,6 +281,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
           audioDurationSec: 15,
           university: university,
           profileSnapshot: snapshot,
+          exemptFromCycleLimit: exempt,
         ),
       );
 

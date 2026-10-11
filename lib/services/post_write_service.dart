@@ -85,6 +85,12 @@ class PostWriteService {
     String? adlTeamId,
     String audience = 'public',
     ProfileSnapshot? profileSnapshot,
+    /// 1 サイクル 1 投稿の制限を受けないか（管理者）。
+    ///
+    /// true のときは引換券を取らない。券は 1 サイクルに 1 枚しか置けず、
+    /// 2 回目は書き込みごと失敗してしまうため。ルール側も管理者には券を
+    /// 要求しない。
+    bool exemptFromCycleLimit = false,
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
@@ -156,7 +162,8 @@ class PostWriteService {
       //
       // サイクルの鍵が分からないときは券を取らない。ルール側もその場合は
       // 制限を掛けないようにしてある（締めると誰も投稿できなくなる）。
-      final cycleKey = isMoodPost ? mmCycle.cycleKey : null;
+      final cycleKey =
+          (isMoodPost && !exemptFromCycleLimit) ? mmCycle.cycleKey : null;
       if (cycleKey != null && cycleKey.isNotEmpty) {
         final batch = _firestore.batch();
         batch.set(postRef, postData);

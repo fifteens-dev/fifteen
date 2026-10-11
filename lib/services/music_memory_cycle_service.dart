@@ -180,6 +180,23 @@ class MusicMemoryCycleService {
     return !DateTime.now().isBefore(start);
   }
 
+  /// 持っている [notifiedAt] が古くなっていれば取り直す。
+  ///
+  /// 通知は毎日 21:00。アプリを開いたままその時刻をまたぐと、持っている
+  /// notifiedAt が前日のものになる。そのままだと新しいサイクルに入った
+  /// のに前日の締切で判定してしまい、投稿できなくなる。
+  ///
+  /// 次の通知予定（この回の締切 24:00 の 21 時間後 = 翌日 21:00）を
+  /// 過ぎていたら取り直す。
+  Future<DateTime?> ensureFreshNotifiedAt() async {
+    final cached = _notifiedAt;
+    if (cached == null) return fetchNotifiedAt();
+    final nextFire =
+        _deadlineForCycleStart(cached).add(const Duration(hours: 21));
+    if (DateTime.now().isBefore(nextFire)) return cached;
+    return fetchNotifiedAt();
+  }
+
   /// [canPostNow] と同じ判定。ただし通知時刻が未取得なら取りに行く。
   ///
   /// 投稿ボタンのように「アプリを開いた直後に押される」経路では

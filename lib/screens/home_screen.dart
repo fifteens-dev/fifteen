@@ -177,6 +177,12 @@ class _HomeScreenState extends State<HomeScreen>
   /// その往復ぶん待たされる。起動時に一度調べ、投稿したら更新して持っておく。
   bool? _postedThisCycle;
 
+  /// [_postedThisCycle] がどのサイクルについての判定か。
+  ///
+  /// アプリを開いたまま 21:00 をまたぐと、前日の「投稿済み」が残って
+  /// 新しいサイクルで投稿できなくなる。サイクルが変わったら捨てる。
+  DateTime? _postedThisCycleFor;
+
   /// 曲選びのモーダルに渡す、温めておいた再生履歴。
   ///
   /// モーダルは開いてから履歴を取りに行くので、その間スピナーになる。

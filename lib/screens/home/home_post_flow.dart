@@ -43,8 +43,14 @@ extension HomePostFlow on _HomeScreenState {
   /// 投稿されたら、サイクルの投稿済み判定と温めた履歴を入れ直す。
   void _onPostCreated() {
     _postedThisCycle = true;
+    _postedThisCycleFor = MusicMemoryCycleService().notifiedAt;
     _warmTracks = null; // 次のサイクルで取り直す
   }
+
+  /// 覚えてある「投稿済み」が、今のサイクルのものか。
+  /// 違えば調べ直す（アプリを開いたまま 21:00 をまたいだとき）。
+  bool _postedKnownFor(DateTime? cycleStart) =>
+      _postedThisCycle != null && _postedThisCycleFor == cycleStart;
 
   /// 写真が付いた投稿を覚えて「写真を追加する」バーを消す（1 投稿に 1 枚）。
   void _onPhotoAdded() {
@@ -168,7 +174,8 @@ extension HomePostFlow on _HomeScreenState {
     if (uid == null) return false;
     try {
       final cycle = MusicMemoryCycleService();
-      final cycleStart = cycle.notifiedAt ?? await cycle.fetchNotifiedAt();
+      // 開いたまま 21:00 をまたいでいることがあるので、古ければ取り直す。
+      final cycleStart = await cycle.ensureFreshNotifiedAt();
       if (cycleStart == null) return false;
 
       final now = DateTime.now();
@@ -183,6 +190,7 @@ extension HomePostFlow on _HomeScreenState {
       // 投稿を済ませれば出なくなるので、回数で止める必要はない。
       final posted = await _postService.hasAnyPostInCurrentCycle(uid);
       _postedThisCycle = posted;
+      _postedThisCycleFor = cycleStart;
       if (posted) return false;
       if (!mounted) return false;
 
@@ -208,8 +216,8 @@ extension HomePostFlow on _HomeScreenState {
   /// 投稿できるのは 21:00 以降。24:00 を過ぎても投稿はできる（写真だけ足せない）。
   Future<void> _openPostFlow() async {
     final cycle = MusicMemoryCycleService();
-    if (cycle.notifiedAt == null) await cycle.fetchNotifiedAt();
-    final start = cycle.notifiedAt;
+    // 開いたまま 21:00 をまたいでいることがあるので、古ければ取り直す。
+    final start = await cycle.ensureFreshNotifiedAt();
     if (start == null || DateTime.now().isBefore(start)) {
       if (!mounted) return;
       AppToast.show(context, '21時から投稿できます');
@@ -225,10 +233,11 @@ extension HomePostFlow on _HomeScreenState {
     // （起動直後にすぐ押した等）だけ聞きに行く。
     if (!context.read<CurrentUserProvider>().isAdmin) {
       final uid = _auth.currentUser?.uid;
-      var posted = _postedThisCycle;
+      var posted = _postedKnownFor(start) ? _postedThisCycle : null;
       if (posted == null && uid != null) {
         posted = await _postService.hasAnyPostInCurrentCycle(uid);
         _postedThisCycle = posted;
+        _postedThisCycleFor = start;
       }
       if (posted == true) {
         if (!mounted) return;

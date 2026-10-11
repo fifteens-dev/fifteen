@@ -59,9 +59,21 @@ class MoodPostFinalPreviewScreen extends StatefulWidget {
   /// 遷移の作法をここに閉じ込めて呼び出し側が間違えられないようにしている。
   ///
   /// 曲選択のモーダル等はスタックから外し、ホームの直上に置く。
+  /// この画面が開いているか。
+  ///
+  /// [open] はホームを**作り直してから**その上に載せる（スタック最下部が
+  /// phone-auth になるのを避けるため）。作り直されたホームは initState で
+  /// 「未投稿なら投稿フローを開く」を走らせるので、黙っていると曲選びに
+  /// 戻されてしまう。開いている間はホーム側がこれを見て自動表示を止める。
+  static bool get isOpen => _openCount > 0;
+  static int _openCount = 0;
+
   static void open(BuildContext context, TrackModel track, {XFile? photo}) {
     final nav = Navigator.of(context);
     nav.pushNamedAndRemoveUntil('/home', (route) => false);
+    // ホームの initState より先に立てる。Navigator の操作は次のフレームで
+    // 反映されるので、ここで立てておけば自動表示の判定に間に合う。
+    _openCount++;
     nav.push(
       PageRouteBuilder<void>(
         opaque: false,
@@ -74,7 +86,9 @@ class MoodPostFinalPreviewScreen extends StatefulWidget {
           child: child,
         ),
       ),
-    );
+    ).whenComplete(() {
+      if (_openCount > 0) _openCount--;
+    });
   }
 
   @override

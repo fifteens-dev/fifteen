@@ -172,6 +172,13 @@ extension HomePostFlow on _HomeScreenState {
   Future<bool> _maybeOpenPostFlowForCycle() async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return false;
+
+    // 投稿フローの途中（最終確認画面が開いている）なら何もしない。
+    // あの画面はホームを作り直してから上に載るので、作り直されたホームが
+    // ここを通る。止めないと曲選びに戻されてしまう。
+    // 何も問い合わせずに済むよう、いちばん先に見る。
+    if (MoodPostFinalPreviewScreen.isOpen) return false;
+
     try {
       final cycle = MusicMemoryCycleService();
       // 開いたまま 21:00 をまたいでいることがあるので、古ければ取り直す。

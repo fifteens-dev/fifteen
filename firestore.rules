@@ -163,8 +163,12 @@ service cloud.firestore {
       // 作成：ログイン済み、かつ userId が自分のUID。
       //
       // Music Memory の投稿（isMoodPost）は 1 サイクル 1 回に限る。同じ
-      // バッチで post_claims の札を取れていることを要求する（札は 1 枚しか
-      // 取れない ＝ 2 投稿目はバッチごと失敗する）。
+      // バッチで post_claims の札を**この書き込みで**取ることを要求する。
+      //
+      // existsAfter だけでは足りない。あれは「この書き込みの後にあるか」
+      // なので、1 回目で作った札が残っていると、札を取らない投稿単独の
+      // 書き込みが通ってしまう（エミュレータで実際に通った）。
+      // 「前には無く、後にはある」＝この書き込みで作られた、を要求する。
       //
       // 制限を掛けないのは次の場合:
       //   - Music Memory 以外の投稿（Vibe など）
@@ -176,7 +180,8 @@ service cloud.firestore {
           request.resource.data.get('isMoodPost', false) != true ||
           currentCycleKey() == '' ||
           isAdmin() ||
-          existsAfter(postClaimPath(request.auth.uid))
+          (!exists(postClaimPath(request.auth.uid)) &&
+            existsAfter(postClaimPath(request.auth.uid)))
         );
 
       // 更新：投稿者本人 or 管理者

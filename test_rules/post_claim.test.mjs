@@ -76,7 +76,9 @@ await check('1 回目の投稿は通る', () =>
 await check('同じサイクルの 2 回目は止まる', () =>
   assertFails(postWithClaim(alice(), 'alice', 'p2', CYCLE)));
 
-await check('引換券を取らずに投稿だけ送っても止まる', () =>
+// 1 回目で券ができた状態で、券を取らずに投稿だけ送る＝改変した
+// クライアントの攻撃形。existsAfter だけだとここが通ってしまう。
+await check('券を取らずに投稿だけ送っても止まる（券が既にあっても）', () =>
   assertFails(setDoc(doc(alice(), 'posts/p3'),
     { userId: 'alice', isMoodPost: true })));
 
@@ -98,6 +100,7 @@ await check('別の人は同じサイクルでも投稿できる', async () => {
   await assertSucceeds(postWithClaim(bob, 'bob', 'p6', CYCLE));
 });
 
+await seed(CYCLE);
 await check('サイクルが変われば、また投稿できる', () =>
   assertSucceeds(postWithClaim(alice(), 'alice', 'p7', CYCLE)
     .then(() => env.withSecurityRulesDisabled(async (ctx) => {

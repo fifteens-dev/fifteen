@@ -75,20 +75,20 @@ class PostCardBackProfile extends StatelessWidget {
     return SizedBox(
       width: cardWidth,
       height: cardHeight,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: ColoredBox(
-          color: background,
-          child: Stack(
-            children: [
-              _avatar(),
-              _name(),
-              _handle(),
-              if (pillLabel != null) _pill(),
-              ..._topArtists(),
-              ..._recentChoice(),
-            ],
-          ),
+      // 角丸は付けない。この面は FittedBox で拡縮されるので、ここで丸めると
+      // 半径まで一緒に縮んで表面と合わなくなる。カード側（PostCard）が
+      // 拡縮されない半径で切る。
+      child: ColoredBox(
+        color: background,
+        child: Stack(
+          children: [
+            _avatar(),
+            _name(),
+            _handle(),
+            if (pillLabel != null) _pill(),
+            ..._topArtists(),
+            ..._recentChoice(),
+          ],
         ),
       ),
     );
@@ -113,8 +113,9 @@ class PostCardBackProfile extends StatelessWidget {
 
   Widget _name() {
     return Positioned(
+      // Figma の中心は 182（アイコン枠 130 + 52）。
       left: 20,
-      right: 20,
+      right: 19,
       top: 132,
       child: Text(
         name,
@@ -168,9 +169,12 @@ class PostCardBackProfile extends StatelessWidget {
         ),
         child: Stack(
           children: [
+            // 傾けた 30px の円。Figma は 34.544 の枠の中央に置いており、
+            // その中心は (33.17, 26.12)。回転は中心まわりなので、
+            // 円の左上を中心 −15 に置く。
             Positioned(
-              left: 15.9,
-              top: 13.8,
+              left: 18.17,
+              top: 11.12,
               child: Transform.rotate(
                 angle: -9.51 * math.pi / 180,
                 child: _pillAvatar(pillAvatars.elementAtOrNull(0)),
@@ -181,17 +185,22 @@ class PostCardBackProfile extends StatelessWidget {
               top: 11,
               child: _pillAvatar(pillAvatars.elementAtOrNull(1)),
             ),
+            // Figma はピル内の中心 126.5、上から 18。
+            // 幅 174 の中で中心を 126.5 にするには、左右の余白を
+            // 79.5 / 0.5 にする（(79.5 + 173.5) / 2 = 126.5）。
             Positioned(
-              left: 82,
-              right: 8,
-              top: 17,
+              left: 79.5,
+              right: 0.5,
+              top: 18,
               child: Text(
                 pillLabel!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: foreground,
+                style: const TextStyle(
+                  // ピルの地色は固定の濃いグレーなので、文字は白のまま。
+                  // カードの色に合わせると明るいアルバムで読めなくなる。
+                  color: Colors.white,
                   fontSize: 15,
                   height: 1.2,
                   fontWeight: FontWeight.w600,

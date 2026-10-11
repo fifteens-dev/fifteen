@@ -54,6 +54,7 @@ class PostCard extends StatefulWidget {
   final PostModel post;
   final VoidCallback? onLike;
   final VoidCallback? onComment;
+
   /// 絵文字リアクションが選ばれたときのコールバック（新リアクションUI）。
   final void Function(String emoji)? onReaction;
   final VoidCallback? onAdd;
@@ -315,7 +316,9 @@ class PostCardState extends State<PostCard>
   /// 表面に戻す（外部から呼び出し可能）
   void flipToFront() {
     if (!mounted || _showFront) return;
-    setState(() { _showFront = true; });
+    setState(() {
+      _showFront = true;
+    });
     _flipController.reverse();
   }
 
@@ -335,7 +338,9 @@ class PostCardState extends State<PostCard>
   /// 既存の呼び出し元（音楽を外部管理する画面）は playAudio=false のまま影響を受けない。
   void flipToBack({bool playAudio = false}) {
     if (!mounted || !_showFront) return;
-    setState(() { _showFront = false; });
+    setState(() {
+      _showFront = false;
+    });
     _flipController.forward();
     if (playAudio && !widget.audioManagedExternally) {
       widget.onPlayStarted?.call();
@@ -362,7 +367,8 @@ class PostCardState extends State<PostCard>
     if (!widget.backSideEnabled && _showFront) {
       HapticFeedback.heavyImpact();
       _rejectController.forward(from: 0.0);
-      RestrictionNotification.show(context, message: '投稿して表示\nあなたのVibeをシェアして\n友達の投稿をみよう');
+      RestrictionNotification.show(context,
+          message: '投稿して表示\nあなたのVibeをシェアして\n友達の投稿をみよう');
       if (!widget.audioManagedExternally) {
         widget.onPlayStarted?.call();
         _playAudioAsync();
@@ -425,7 +431,8 @@ class PostCardState extends State<PostCard>
           child: widget.showFrontOnly
               ? _buildFront() // 表面のみ表示（反転アニメーションなし）
               : AnimatedBuilder(
-                  animation: Listenable.merge([_flipAnimation, _rejectAnimation]),
+                  animation:
+                      Listenable.merge([_flipAnimation, _rejectAnimation]),
                   builder: (context, child) {
                     final flipAngle = _flipAnimation.value * pi;
                     final peekAngle = _rejectAnimation.value * pi;
@@ -457,8 +464,10 @@ class PostCardState extends State<PostCard>
         onTap: _flipCard,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final cardWidth = constraints.maxWidth > 0 ? constraints.maxWidth : 363.0;
-            final cardHeight = constraints.maxHeight > 0 ? constraints.maxHeight : 645.0;
+            final cardWidth =
+                constraints.maxWidth > 0 ? constraints.maxWidth : 363.0;
+            final cardHeight =
+                constraints.maxHeight > 0 ? constraints.maxHeight : 645.0;
             return _buildBackCardBody(cardWidth, cardHeight, theme);
           },
         ),
@@ -467,7 +476,8 @@ class PostCardState extends State<PostCard>
   }
 
   /// 裏面カード本文（トランスフォームなし）- キャプチャ・表示共用
-  Widget _buildBackCardBody(double cardWidth, double cardHeight, PostTheme theme) {
+  Widget _buildBackCardBody(
+      double cardWidth, double cardHeight, PostTheme theme) {
     // 写真が渡されていればそれを最優先で出す（自分のカレンダーから見たとき）。
     //
     // hideBackOverlays より先に見ること。写真が裏面だった頃の投稿は
@@ -509,7 +519,8 @@ class PostCardState extends State<PostCard>
         height: cardHeight,
         color: const Color(0xFF121212),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
+          borderRadius:
+              BorderRadius.circular(PostCardConstants.cardBorderRadius),
           child: _buildPhotoArea(cardWidth, cardHeight),
         ),
       );
@@ -522,28 +533,38 @@ class PostCardState extends State<PostCard>
     // リアクション・コメント・共有はこの面に置き場所が無くなったため、今は
     // 出していない（行き先が決まったら戻す）。
     final snapshot = widget.post.profileSnapshot;
-    return Container(
-      width: cardWidth,
-      height: cardHeight,
-      // 裏面も表面と同じカード色にする。表面は gradientEnd で塗っている。
-      color: theme.gradientEnd,
-      child: FittedBox(
-        // 実寸 363×645 で組んであるので、枠が違うときは丸ごと拡縮する。
-        fit: BoxFit.contain,
-        child: PostCardBackProfile(
-          name: widget.post.authorName?.isNotEmpty == true
-              ? widget.post.authorName!
-              : widget.post.username,
-          username: widget.post.username,
-          avatarUrl: widget.post.userIconUrl,
-          snapshot: snapshot ?? ProfileSnapshot.empty,
-          pillLabel: widget.backPillLabel,
-          pillAvatars: widget.backPillAvatars,
-          // 地色をアルバムの色にしたので、文字もテーマの色で揃える。
-          // 明るいアルバムで白文字が沈むのを防ぐ。
-          background: theme.gradientEnd,
-          foreground: theme.textColor,
-          mutedForeground: theme.secondaryTextColor,
+    // 角丸はここで付ける。
+    //
+    // 以前は四角い Container でカード色を塗り、その中に角丸の中身を
+    // 入れていた。同じ色なので角の丸みが塗り潰され、裏返すと四角い
+    // カードに見えていた。中身側で丸めると、FittedBox の拡縮で半径まで
+    // 縮んで表面と合わなくなる。だから拡縮されない外側で切る。
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(PostCardConstants.cardBorderRadius),
+      child: SizedBox(
+        width: cardWidth,
+        height: cardHeight,
+        child: FittedBox(
+          // 実寸 363×645 で組んであるので、枠に合わせて丸ごと拡縮する。
+          // contain だと枠の比が違うとき余白が出て、カードより小さく
+          // 見えてしまう。cover で埋める。
+          fit: BoxFit.cover,
+          alignment: Alignment.topCenter,
+          child: PostCardBackProfile(
+            name: widget.post.authorName?.isNotEmpty == true
+                ? widget.post.authorName!
+                : widget.post.username,
+            username: widget.post.username,
+            avatarUrl: widget.post.userIconUrl,
+            snapshot: snapshot ?? ProfileSnapshot.empty,
+            pillLabel: widget.backPillLabel,
+            pillAvatars: widget.backPillAvatars,
+            // 地色をアルバムの色にしたので、文字もテーマの色で揃える。
+            // 明るいアルバムで白文字が沈むのを防ぐ。
+            background: theme.gradientEnd,
+            foreground: theme.textColor,
+            mutedForeground: theme.secondaryTextColor,
+          ),
         ),
       ),
     );
@@ -555,7 +576,8 @@ class PostCardState extends State<PostCard>
   Widget _buildCommentButtonBack() {
     if (widget.disableInteractions) {
       return GestureDetector(
-        onTap: () => RestrictionNotification.show(context, message: 'コメントができません'),
+        onTap: () =>
+            RestrictionNotification.show(context, message: 'コメントができません'),
         child: Opacity(
           opacity: 0.35,
           child: Container(
@@ -663,7 +685,8 @@ class PostCardState extends State<PostCard>
         (frameHeight / 2 - widget.post.imageOffsetY * scaleFactor) / imgScale,
       );
 
-      final imageWidget = _buildPhotoImage(BoxFit.fill, indicatorCenter: indicatorCenter);
+      final imageWidget =
+          _buildPhotoImage(BoxFit.fill, indicatorCenter: indicatorCenter);
 
       return Stack(
         clipBehavior: Clip.hardEdge,
@@ -704,7 +727,8 @@ class PostCardState extends State<PostCard>
           builder: (context) {
             try {
               // キャッシュ済みならそれを使う
-              if (_decodedPhotoBytes == null || _decodedPhotoUrl != widget.post.photoUrl) {
+              if (_decodedPhotoBytes == null ||
+                  _decodedPhotoUrl != widget.post.photoUrl) {
                 final String base64String = widget.post.photoUrl!.split(',')[1];
                 _decodedPhotoBytes = base64Decode(base64String);
                 _decodedPhotoUrl = widget.post.photoUrl;
@@ -764,7 +788,8 @@ class PostCardState extends State<PostCard>
           errorWidget: (context, url, error) {
             if (kDebugMode) {
               AppLog.debug('❌ Failed to load photo: $error');
-              AppLog.debug('   URL: ${PhotoHelper.formatPhotoUrlForLog(widget.post.photoUrl)}');
+              AppLog.debug(
+                  '   URL: ${PhotoHelper.formatPhotoUrlForLog(widget.post.photoUrl)}');
             }
             return _displayAlbumArtUrl.isNotEmpty
                 ? _buildAlbumArt(
@@ -824,7 +849,8 @@ class PostCardState extends State<PostCard>
 
     if (widget.post.isVibe) {
       // Vibe投稿の場合
-      if (widget.post.vibeTopicTitle != null && widget.post.vibeTopicTitle!.isNotEmpty) {
+      if (widget.post.vibeTopicTitle != null &&
+          widget.post.vibeTopicTitle!.isNotEmpty) {
         displayText = '#${widget.post.vibeTopicTitle!}';
       } else {
         // vibeTopicTitleがない古い投稿の場合はVibeのみ表示
@@ -991,7 +1017,8 @@ class PostCardState extends State<PostCard>
     {
       return Text(
         text,
-        style: TextStyle(fontSize: fontSize, fontWeight: baseWeight, color: color),
+        style:
+            TextStyle(fontSize: fontSize, fontWeight: baseWeight, color: color),
         maxLines: maxLines,
         overflow: overflow,
       );
@@ -1148,8 +1175,12 @@ class PostCardState extends State<PostCard>
   // ignore: unused_element
   Widget _buildLikedUsersIconsFront(double cardWidth, double cardHeight) {
     return _buildLikedUsersIconsCommon(
-      iconSize: cardWidth * (PostCardConstants.likedUserIconSize / PostCardConstants.cardBaseWidth),
-      margin: cardWidth * (PostCardConstants.likedUserIconMargin / PostCardConstants.cardBaseWidth),
+      iconSize: cardWidth *
+          (PostCardConstants.likedUserIconSize /
+              PostCardConstants.cardBaseWidth),
+      margin: cardWidth *
+          (PostCardConstants.likedUserIconMargin /
+              PostCardConstants.cardBaseWidth),
     );
   }
 
@@ -1158,7 +1189,8 @@ class PostCardState extends State<PostCard>
     required double iconSize,
     required double margin,
   }) {
-    final iconUrls = _likedByUserIconUrlsOptimistic ?? widget.post.likedByUserIconUrls;
+    final iconUrls =
+        _likedByUserIconUrlsOptimistic ?? widget.post.likedByUserIconUrls;
     final displayCount = iconUrls.length > PostCardConstants.maxLikedUsersToShow
         ? PostCardConstants.maxLikedUsersToShow
         : iconUrls.length;
@@ -1263,8 +1295,7 @@ class PostCardState extends State<PostCard>
   /// 3点メニューボタン（削除 or 通報）
   bool get _showMoreButton =>
       widget.currentUserId != null &&
-      (widget.post.userId != widget.currentUserId ||
-          widget.onDelete != null);
+      (widget.post.userId != widget.currentUserId || widget.onDelete != null);
 
   bool get _isOwner =>
       widget.currentUserId != null &&
@@ -1295,7 +1326,8 @@ class PostCardState extends State<PostCard>
   void shareCard() => _handleShare();
 
   /// 角丸マスクを適用してPNGバイト列を返す（角を透明にする）
-  Future<Uint8List?> _applyRoundedMask(Uint8List pngBytes, double pixelRatio) async {
+  Future<Uint8List?> _applyRoundedMask(
+      Uint8List pngBytes, double pixelRatio) async {
     final codec = await ui.instantiateImageCodec(pngBytes);
     final frame = await codec.getNextFrame();
     final src = frame.image;
@@ -1319,7 +1351,8 @@ class PostCardState extends State<PostCard>
   /// カードをPNG画像として返す（Instagram Stories共有等に使用）
   Future<Uint8List?> captureAsImage() async {
     try {
-      final boundary = _cardRepaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      final boundary = _cardRepaintKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
       if (boundary == null) return null;
       const pixelRatio = 3.0;
       final image = await boundary.toImage(pixelRatio: pixelRatio);
@@ -1336,7 +1369,8 @@ class PostCardState extends State<PostCard>
   Future<void> _handleShare() async {
     final ctx = context;
     try {
-      final boundary = _cardRepaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      final boundary = _cardRepaintKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
       if (boundary == null) return;
 
       const pixelRatio = 3.0;
@@ -1367,4 +1401,3 @@ class PostCardState extends State<PostCard>
     }
   }
 }
-

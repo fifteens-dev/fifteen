@@ -203,30 +203,10 @@ class ProfileScreenState extends State<ProfileScreen> {
   /// 暦日ではなく 15s Day（通知 〜 次の通知）で数える。進行中のサイクルに
   /// まだ投稿していない場合はそこを飛ばして 1 つ前から数える。今日まだ
   /// 投稿していないだけで連続が途切れたことにはしないため。
-  Future<int> _calcStreak(List<PostModel> posts) async {
-    if (posts.isEmpty) return 0;
-    try {
-      final days = await MusicMemoryCycleService().loadDays(limit: 40);
-      if (days.isEmpty) return 0;
-
-      final postedKeys = <String>{};
-      for (final p in posts) {
-        final key = MusicMemoryCycleService.dayKeyAt(days, p.createdAt);
-        if (key != null) postedKeys.add(key);
-      }
-
-      var start = 0;
-      if (!postedKeys.contains(days.first.key)) start = 1;
-      var streak = 0;
-      for (var i = start; i < days.length; i++) {
-        if (!postedKeys.contains(days[i].key)) break;
-        streak++;
-      }
-      return streak;
-    } catch (_) {
-      return 0;
-    }
-  }
+  /// 連続投稿日数。規則は他人のプロフィールと同じものを使う
+  /// （[MusicMemoryCycleService.streakDays]）。
+  Future<int> _calcStreak(List<PostModel> posts) =>
+      MusicMemoryCycleService().streakDays([for (final p in posts) p.createdAt]);
 
   /// top artists を集計する。中身は [ProfileSnapshotService] に寄せてある。
   /// 投稿カードの裏面も同じ集計を出すので、ここで独自には持たない。

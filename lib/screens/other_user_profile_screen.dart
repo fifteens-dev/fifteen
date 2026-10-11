@@ -6,6 +6,7 @@ import '../constants/profile_fonts.dart';
 import '../models/user_model.dart';
 import '../models/post_model.dart';
 import '../services/friend_service.dart';
+import '../services/music_memory_cycle_service.dart';
 import '../services/post_service.dart';
 import '../services/profile_snapshot_service.dart';
 import '../services/user_service.dart';
@@ -86,6 +87,9 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   List<PostModel> _posts = const [];
   List<String> _topArtistNames = const [];
 
+  /// 相手の連続投稿日数。
+  int _streakDays = 0;
+
   @override
   void initState() {
     super.initState();
@@ -159,6 +163,11 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         _posts = posts;
         _topArtistNames = names;
       });
+
+      // 連続日数はサイクルの境界が要るので、投稿が揃ってから数える。
+      final streak = await MusicMemoryCycleService()
+          .streakDays([for (final p in posts) p.createdAt]);
+      if (mounted) setState(() => _streakDays = streak);
     } catch (e) {
       AppLog.debug('OtherUserProfile: 投稿を読めず: $e');
     }
@@ -240,7 +249,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       friendIcons: _mutualIcons,
       pillLabel: '$_mutualCount人の共通',
       postCount: _posts.length,
-      streakDays: 0,
+      streakDays: _streakDays,
       topArtists: [for (final n in _topArtistNames) (name: n, artistId: null)],
       recentPosts: [
         for (final p in _posts.take(3))

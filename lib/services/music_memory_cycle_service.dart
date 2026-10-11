@@ -65,7 +65,21 @@ class MusicMemoryCycleService {
   /// 1 件目（最新）は現在進行中のサイクルで、[MusicMemoryDayWindow.end] は
   /// 「次の通知が来るまで」＝現時点では未確定なので `null` になる。
   /// 履歴が無い期間（通知が発火していない日）は要素として現れない。
+  List<MusicMemoryDayWindow>? _daysCache;
+  DateTime? _daysCachedAt;
+
+  /// 境界の一覧は 1 日 1 回しか増えない。プロフィールを開くたびに引き直すと
+  /// 無駄なので、しばらく使い回す。
+  static const Duration _daysCacheTtl = Duration(minutes: 10);
+
   Future<List<MusicMemoryDayWindow>> loadDays({int limit = 40}) async {
+    final cached = _daysCache;
+    final at = _daysCachedAt;
+    if (cached != null &&
+        at != null &&
+        DateTime.now().difference(at) < _daysCacheTtl) {
+      return cached;
+    }
     try {
       final snap = await FirebaseFirestore.instance
           .collection(_cyclesCollection)
@@ -82,7 +96,7 @@ class MusicMemoryCycleService {
       if (starts.isEmpty) return const [];
 
       // 新しい→古い順。各サイクルの終端は「1つ新しいサイクルの開始」。
-      return [
+      final days = [
         for (var i = 0; i < starts.length; i++)
           MusicMemoryDayWindow(
             key: starts[i].key,
@@ -90,9 +104,47 @@ class MusicMemoryCycleService {
             end: i == 0 ? null : starts[i - 1].start,
           ),
       ];
+      _daysCache = days;
+      _daysCachedAt = DateTime.now();
+      return days;
     } catch (_) {
       return const [];
     }
+  }
+
+  /// 連続して投稿している日数。
+  ///
+  /// [days] は新しい順の境界、[postedAt] は投稿の時刻。
+  ///
+  /// 今日のサイクルにまだ投稿が無いときは、そこから数え始めない。
+  /// 21:00 を過ぎてすぐは誰も投稿していないので、そこで途切れた扱いに
+  /// すると、毎晩いったん 0 に見えてしまう。
+  static int streakOf({
+    required List<MusicMemoryDayWindow> days,
+    required Iterable<DateTime> postedAt,
+  }) {
+    if (days.isEmpty) return 0;
+
+    final posted = <String>{};
+    for (final at in postedAt) {
+      final key = dayKeyAt(days, at);
+      if (key != null) posted.add(key);
+    }
+    if (posted.isEmpty) return 0;
+
+    var i = posted.contains(days.first.key) ? 0 : 1;
+    var streak = 0;
+    for (; i < days.length; i++) {
+      if (!posted.contains(days[i].key)) break;
+      streak++;
+    }
+    return streak;
+  }
+
+  /// [streakOf] の、境界の取得込み版。
+  Future<int> streakDays(Iterable<DateTime> postedAt) async {
+    if (postedAt.isEmpty) return 0;
+    return streakOf(days: await loadDays(limit: 40), postedAt: postedAt);
   }
 
   /// [at] が属する「15s Day」のキー（＝直近の通知が発火した JST 暦日）。

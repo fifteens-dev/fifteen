@@ -345,6 +345,7 @@ class ProfileView extends StatelessWidget {
   final String? pillLabel;
 
   /// 左上のボタン。招待カードの共有シートを開く。
+  /// **自分のプロフィールのときだけ**渡す。null なら出さない。
   final VoidCallback? onOpenShare;
 
   /// 右上の設定。**自分のプロフィールのときだけ**渡す。null なら出さない。
@@ -352,7 +353,8 @@ class ProfileView extends StatelessWidget {
   final VoidCallback? onOpenMilfolhaRanking;
 
   /// 戻る。他人のプロフィールのように、前の画面がある場合に渡す。
-  /// 左上は共有ボタンが占めているので右上に出す。
+  /// 共有ボタンと同じ左上に、同じガラスの見た目で出す
+  /// （他人を見ているときは共有が無いので場所が空く）。
   final VoidCallback? onBack;
 
   const ProfileView({
@@ -394,7 +396,10 @@ class ProfileView extends StatelessWidget {
   }
 
   List<Widget> _content(BuildContext context) => [
-        _shareButton(),
+        // 左上のガラスボタン。自分のときは共有（招待カードを配る導線）、
+        // 他人を見ているときは戻る。両方出ることはない。
+        if (onOpenShare != null) _shareButton(),
+        if (onOpenShare == null && onBack != null) _backButton(),
         _settingsButton(),
         _avatar(),
         _name(),
@@ -409,6 +414,41 @@ class ProfileView extends StatelessWidget {
 
   /// 左上のガラスボタン。Figma: Frame 840 (16,62) 52×45。
   /// 招待カードの共有シート（Figma 5779-12975）を開く。
+  /// 左上の戻る。共有ボタンと同じガラスの台座に、矢印を載せる
+  /// （他人のプロフィールでは共有を出さないので、この場所が空く）。
+  Widget _backButton() {
+    return Positioned(
+      left: 16,
+      top: 62,
+      width: 52,
+      height: 45,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onBack,
+        child: Stack(
+          children: [
+            Image.asset(
+              'assets/profile_v2/glass_button.png',
+              width: 52,
+              height: 45,
+              fit: BoxFit.fill,
+            ),
+            const Positioned(
+              left: 16,
+              top: 12,
+              width: 20,
+              height: 20,
+              child: Center(
+                child: Icon(Icons.arrow_back_ios_new,
+                    color: Colors.white, size: 17),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _shareButton() {
     return Positioned(
       left: 16,
@@ -477,16 +517,6 @@ class ProfileView extends StatelessWidget {
                 padding: EdgeInsets.only(left: 8),
                 child:
                     Icon(Icons.settings_outlined, color: Colors.white, size: 24),
-              ),
-            ),
-          // 左上は共有ボタンが占めているので、戻るはここに出す。
-          if (onBack != null)
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onBack,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: Icon(Icons.close, color: Colors.white, size: 26),
               ),
             ),
         ],

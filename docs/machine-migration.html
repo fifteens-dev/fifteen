@@ -1,0 +1,505 @@
+<title>15s 開発機の引っ越し</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+1+Code:wght@400;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+
+<style>
+  :root {
+    --paper:      #F6F7F5;
+    --sunk:       #EBEEEA;
+    --card:       #FFFFFF;
+    --ink:        #161C1A;
+    --ink-soft:   #555F5B;
+    --ink-faint:  #8A938E;
+    --accent:     #0F6E5C;
+    --accent-bg:  #DFEDE8;
+    --hand:       #9A6111;
+    --hand-bg:    #F7EBD8;
+    --done:       #4A7A2B;
+    --done-bg:    #E6EFDC;
+    --line:       #D9DEDA;
+    --measure: 36rem;
+    --r: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #101614;
+      --sunk:       #161D1A;
+      --card:       #1A2220;
+      --ink:        #E6EAE7;
+      --ink-soft:   #9BA6A1;
+      --ink-faint:  #6B7571;
+      --accent:     #5FD3B4;
+      --accent-bg:  #16322B;
+      --hand:       #D9A34A;
+      --hand-bg:    #332717;
+      --done:       #9CC777;
+      --done-bg:    #223019;
+      --line:       #27312E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:      #101614;
+    --sunk:       #161D1A;
+    --card:       #1A2220;
+    --ink:        #E6EAE7;
+    --ink-soft:   #9BA6A1;
+    --ink-faint:  #6B7571;
+    --accent:     #5FD3B4;
+    --accent-bg:  #16322B;
+    --hand:       #D9A34A;
+    --hand-bg:    #332717;
+    --done:       #9CC777;
+    --done-bg:    #223019;
+    --line:       #27312E;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Zen Kaku Gothic New", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 16px;
+    line-height: 1.85;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 50rem;
+    margin: 0 auto;
+    padding: 4rem 1.5rem 7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3rem;
+  }
+
+  /* ── 冒頭 ─────────────────────────── */
+  header { display: flex; flex-direction: column; gap: 0.9rem; }
+  .eyebrow {
+    font-family: "M PLUS 1 Code", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    color: var(--accent);
+  }
+  h1 {
+    font-family: "M PLUS 1 Code", ui-monospace, monospace;
+    font-weight: 700;
+    font-size: clamp(1.8rem, 5.5vw, 2.5rem);
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .lede { max-width: var(--measure); color: var(--ink-soft); }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem;
+    font-family: "M PLUS 1 Code", ui-monospace, monospace;
+    font-size: 0.72rem; color: var(--ink-faint);
+    border-top: 1px solid var(--line); padding-top: 0.9rem; margin-top: 0.3rem;
+  }
+
+  /* ── 段 ───────────────────────────── */
+  .phase { display: flex; flex-direction: column; gap: 1rem; scroll-margin-top: 2rem; }
+  .phase > h2 {
+    font-family: "M PLUS 1 Code", ui-monospace, monospace;
+    font-weight: 700; font-size: 1.15rem; line-height: 1.5;
+    display: flex; align-items: baseline; gap: 0.75rem;
+    padding-bottom: 0.55rem; border-bottom: 1px solid var(--line);
+  }
+  .phase > h2 .n {
+    font-size: 0.78rem; color: var(--accent); font-variant-numeric: tabular-nums;
+    flex: none;
+  }
+  p { max-width: var(--measure); }
+
+  /* ── 手順 ─────────────────────────── */
+  .steps { display: flex; flex-direction: column; gap: 0.6rem; }
+  .step {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--r);
+    padding: 0.9rem 1.1rem;
+    display: flex; flex-direction: column; gap: 0.45rem;
+  }
+  .step.hand { border-left-color: var(--hand); }
+  .step.done { border-left-color: var(--done); }
+  .step .t {
+    font-weight: 700; font-size: 0.95rem;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+  }
+  .step .d { color: var(--ink-soft); font-size: 0.89rem; line-height: 1.75; }
+  .step .d b { color: var(--ink); }
+
+  .tag {
+    font-family: "M PLUS 1 Code", ui-monospace, monospace;
+    font-size: 0.64rem; letter-spacing: 0.05em;
+    padding: 0.16em 0.55em; border-radius: 999px; white-space: nowrap;
+    background: var(--accent-bg); color: var(--accent); font-weight: 600;
+  }
+  .tag.hand { background: var(--hand-bg); color: var(--hand); }
+  .tag.done { background: var(--done-bg); color: var(--done); }
+
+  pre {
+    background: var(--sunk);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 0.7rem 0.9rem;
+    overflow-x: auto;
+    font-family: "M PLUS 1 Code", ui-monospace, monospace;
+    font-size: 0.8rem;
+    line-height: 1.7;
+    color: var(--ink);
+  }
+  code {
+    font-family: "M PLUS 1 Code", ui-monospace, monospace;
+    font-size: 0.85em;
+    background: var(--sunk); border: 1px solid var(--line);
+    border-radius: 4px; padding: 0.06em 0.34em;
+  }
+  pre code { background: none; border: none; padding: 0; font-size: 1em; }
+
+  /* ── 表 ───────────────────────────── */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; min-width: 28rem; }
+  th, td { text-align: left; padding: 0.65rem 0.95rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    background: var(--sunk); font-weight: 700; font-size: 0.72rem;
+    letter-spacing: 0.07em; color: var(--ink-soft);
+    font-family: "M PLUS 1 Code", ui-monospace, monospace;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono { font-family: "M PLUS 1 Code", ui-monospace, monospace; font-size: 0.78rem; }
+
+  /* ── 注意 ─────────────────────────── */
+  .warn {
+    background: var(--hand-bg); border: 1px solid var(--hand);
+    border-radius: var(--r); padding: 0.95rem 1.15rem;
+    font-size: 0.89rem; line-height: 1.75; color: var(--ink);
+    max-width: var(--measure);
+  }
+  .warn b { color: var(--hand); }
+
+  .note {
+    background: var(--sunk); border: 1px solid var(--line);
+    border-radius: var(--r); padding: 0.95rem 1.15rem;
+    font-size: 0.88rem; color: var(--ink-soft); line-height: 1.75;
+    max-width: var(--measure);
+  }
+  .note b { color: var(--ink); }
+
+  footer {
+    border-top: 1px solid var(--line); padding-top: 1.1rem;
+    font-size: 0.78rem; color: var(--ink-faint); max-width: var(--measure);
+    line-height: 1.8;
+  }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">fifteens / 15s</div>
+    <h1>15s 開発機の引っ越し</h1>
+    <p class="lede">
+      ノート PC からデスクトップへ。デスクトップを唯一の作業場にして、
+      ノート PC とスマホはそこを覗く窓にする。同期しないので、常に同一。
+    </p>
+    <div class="meta">
+      <span>2026-10-16</span>
+      <span>macOS / Flutter 3.38.5 / Xcode 27</span>
+      <span>所要 2〜3 時間</span>
+    </div>
+  </header>
+
+  <!-- 00 ───────────────────────────── -->
+  <section class="phase" id="p0">
+    <h2><span class="n">00</span>退避</h2>
+    <div class="steps">
+      <div class="step done">
+        <div class="t">GitHub へ push <span class="tag done">完了</span></div>
+        <div class="d">
+          このセッションの 56 コミットがノート PC にしか無かった。
+          <code>b27ec95..4ff3d3d</code> を push 済み、未 push は 0。
+          <b>デスクトップはここから clone する</b>ので、以後も作業の区切りで push する。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 01 ───────────────────────────── -->
+  <section class="phase" id="p1">
+    <h2><span class="n">01</span>デスクトップの素地</h2>
+    <p>
+      バージョンがずれると、片方で通ったビルドがもう片方で落ちる。
+      ノート PC に合わせる。
+    </p>
+    <div class="steps">
+      <div class="step hand">
+        <div class="t">Xcode 27 <span class="tag hand">手作業</span></div>
+        <div class="d">
+          App Store から。入れたあと <code>xcodebuild -runFirstLaunch</code> と
+          ライセンス同意まで済ませる。
+        </div>
+      </div>
+      <div class="step">
+        <div class="t">Homebrew / CocoaPods / Flutter</div>
+        <div class="d">Flutter は <b>3.38.5</b>。新しいものを入れると挙動が変わる。</div>
+<pre><code>/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install cocoapods git tmux
+# Flutter は SDK を直接置いてバージョンを固定する
+git clone https://github.com/flutter/flutter.git -b 3.38.5 ~/flutter
+echo 'export PATH="$HOME/flutter/bin:$PATH"' >> ~/.zshrc</code></pre>
+      </div>
+      <div class="step">
+        <div class="t">確認</div>
+        <div class="d">両機で同じ出力になることを見る。</div>
+<pre><code>flutter --version
+flutter doctor</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 ───────────────────────────── -->
+  <section class="phase" id="p2">
+    <h2><span class="n">02</span>リポジトリ</h2>
+    <div class="steps">
+      <div class="step hand">
+        <div class="t">GitHub の鍵 <span class="tag hand">手作業</span></div>
+        <div class="d">
+          デスクトップで新しく作って GitHub に登録するのが安全
+          （ノート PC の鍵を複製しない）。
+        </div>
+<pre><code>ssh-keygen -t ed25519 -C "desktop"
+cat ~/.ssh/id_ed25519.pub   # GitHub → Settings → SSH keys に貼る</code></pre>
+      </div>
+      <div class="step">
+        <div class="t">clone</div>
+<pre><code>git clone git@github.com:fifteens-dev/fifteen.git ~/fifteen
+cd ~/fifteen
+git checkout feature/music-memory-cycle-and-posting-flow</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 ───────────────────────────── -->
+  <section class="phase" id="p3">
+    <h2><span class="n">03</span>git に無いものを運ぶ</h2>
+    <p>
+      ここが一番つまずく。<b>clone しただけでは動かない</b>。
+      下の 6 つは <code>.gitignore</code> されていて GitHub に無い。
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>もの</th><th>場所</th><th>無いとどうなるか</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>サービスアカウント鍵</td>
+            <td class="mono">functions/fifteens-39cfe-firebase-adminsdk-....json</td>
+            <td>本番データを読む調査スクリプトが動かない</td>
+          </tr>
+          <tr><td>環境変数</td><td class="mono">.env / functions/.env</td><td>Functions のデプロイ・ローカル実行が通らない</td></tr>
+          <tr><td>Firebase 設定（iOS）</td><td class="mono">ios/Runner/GoogleService-Info.plist</td><td>アプリが Firebase に繋がらない</td></tr>
+          <tr><td>Firebase 設定（Android）</td><td class="mono">android/app/google-services.json</td><td>同上</td></tr>
+          <tr><td>Claude Code の設定</td><td class="mono">.claude/settings.local.json</td><td>権限設定がやり直しになる</td></tr>
+          <tr>
+            <td>記憶</td>
+            <td class="mono">~/.claude/projects/-Users-gotoutarou-fifteen/memory/</td>
+            <td>これまでの判断や方針が引き継がれない（10 ファイル）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="warn">
+      <b>運び方。</b>秘密鍵をチャット・メール・クラウドに置かない。
+      同じ Apple ID なので <b>AirDrop</b> が手軽で確実。
+      暗号化ディスクイメージでも可。
+    </div>
+
+    <div class="note">
+      <b>Apple Music の <code>.p8</code> は運ばなくてよい。</b>
+      リポジトリには無く、Functions 側の秘密として既にデプロイ済み。
+      失効したときだけ、関数の再デプロイで足りる。
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="t">置いたあとの確認</div>
+<pre><code>cd ~/fifteen
+flutter pub get
+cd ios &amp;&amp; pod install &amp;&amp; cd ..
+flutter analyze        # エラー 0 になること
+flutter test           # 40 件通ること</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 ───────────────────────────── -->
+  <section class="phase" id="p4">
+    <h2><span class="n">04</span>署名</h2>
+    <div class="steps">
+      <div class="step hand">
+        <div class="t">開発用証明書 <span class="tag hand">手作業</span></div>
+        <div class="d">
+          ノート PC の<b>キーチェーンアクセス</b>から
+          「Apple Development: Taro Goto」を <code>.p12</code> で書き出し、
+          デスクトップで読み込む。<b>書き出さないと新しい証明書が作られ、
+          枠を 1 つ消費する</b>。
+        </div>
+      </div>
+      <div class="step hand">
+        <div class="t">Xcode に Apple ID <span class="tag hand">手作業</span></div>
+        <div class="d">Xcode → Settings → Accounts。チーム <code>XLSH9RURK4</code>。</div>
+      </div>
+      <div class="step hand">
+        <div class="t">PLA の同意 <span class="tag hand">未解決</span></div>
+        <div class="d">
+          現在 Distribute が「PLA Update available」で止まっている。
+          <b>Account Holder</b> で developer.apple.com にサインインして同意する。
+          これを済ませないと配信用の証明書が発行されない。
+        </div>
+      </div>
+      <div class="step">
+        <div class="t">確認</div>
+<pre><code>flutter build ios --release   # 通れば署名は足りている</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 ───────────────────────────── -->
+  <section class="phase" id="p5">
+    <h2><span class="n">05</span>寝かせない</h2>
+    <div class="steps">
+      <div class="step hand">
+        <div class="t">エネルギー設定 <span class="tag hand">手作業</span></div>
+        <div class="d">
+          システム設定 → エネルギー →
+          <b>「ディスプレイがオフのときは自動でスリープさせない」</b>を入れる。
+        </div>
+      </div>
+      <div class="step">
+        <div class="t">保険</div>
+        <div class="d">tmux の 1 ペインで走らせっぱなしにする。</div>
+<pre><code>caffeinate -dimsu</code></pre>
+      </div>
+    </div>
+    <div class="warn">
+      <b>FileVault の判断が要る。</b>
+      有効だと、停電や再起動のあと<b>手で解錠するまで一切繋がらない</b>。
+      外出先から復帰させたいなら切る。切らないなら「戻れないことがある」前提で運用する。
+      起業で使う前提を踏まえると、安易に切らず
+      <b>UPS を足して停電で落ちないようにする</b>方が筋がよい。
+    </div>
+  </section>
+
+  <!-- 06 ───────────────────────────── -->
+  <section class="phase" id="p6">
+    <h2><span class="n">06</span>外から繋ぐ</h2>
+    <p>
+      同一 Apple ID でも「どこからでも自宅 Mac へ」は今の macOS に無い。
+      専用のものを入れる。
+    </p>
+    <div class="steps">
+      <div class="step">
+        <div class="t">Tailscale</div>
+        <div class="d">
+          両 Mac とスマホを同じ tailnet に入れる。
+          <b>ポート開放も固定 IP も不要</b>で、CGNAT 配下でも繋がる。
+        </div>
+<pre><code>brew install --cask tailscale   # 両機に。同じアカウントでログイン
+tailscale status                # 相手のマシン名を確認</code></pre>
+      </div>
+      <div class="step hand">
+        <div class="t">リモートログイン <span class="tag hand">手作業</span></div>
+        <div class="d">デスクトップ側。システム設定 → 一般 → 共有 → <b>リモートログイン</b> を入れる。</div>
+      </div>
+      <div class="step">
+        <div class="t">繋ぐ</div>
+<pre><code># ~/.ssh/config に書いておくと楽
+Host desk
+  HostName &lt;tailscale のマシン名&gt;
+  User gotoutarou
+
+ssh desk</code></pre>
+      </div>
+      <div class="step hand">
+        <div class="t">画面共有 <span class="tag hand">必要なときだけ</span></div>
+        <div class="d">
+          Xcode・シミュレータ・Figma は GUI が要る。
+          システム設定 → 共有 → <b>画面共有</b> を入れ、Tailscale 越しに繋ぐ。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 ───────────────────────────── -->
+  <section class="phase" id="p7">
+    <h2><span class="n">07</span>運用</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="t">tmux の中で動かす — これが「つけっぱなし」の正体</div>
+        <div class="d">
+          Claude Code を tmux の中で動かせば、<b>ノート PC を閉じても電車に乗っても
+          セッションが生き続ける</b>。接続が切れても作業は止まらない。
+        </div>
+<pre><code>ssh desk
+tmux new -s 15s        # 初回
+tmux attach -t 15s     # 2 回目以降（切れたら繋ぎ直すだけ）
+
+# Ctrl-b d  … 外す（中の処理は動き続ける）
+# Ctrl-b "  … 上下に分割（片方で caffeinate を走らせる）</code></pre>
+      </div>
+      <div class="step">
+        <div class="t">ノート PC は窓として使う</div>
+        <div class="d">
+          作業ツリーはデスクトップの 1 つだけ。ノート PC からは
+          <code>ssh desk</code> で同じ tmux に入る。
+          <b>同期する対象が無いので、ずれようがない。</b>
+        </div>
+      </div>
+      <div class="step">
+        <div class="t">git は履歴とバックアップ</div>
+        <div class="d">
+          同期手段としては使わない。作業の区切りで push して、
+          GitHub に履歴を残す。
+        </div>
+      </div>
+      <div class="step hand">
+        <div class="t">実機インストール <span class="tag hand">制約</span></div>
+        <div class="d">
+          <b>端末を挿した側でしかできない。</b>デスクトップに挿しっぱなしにするか、
+          配信を TestFlight に寄せる。後者なら 04 の PLA が先。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- やらないこと ─────────────────── -->
+  <section class="phase" id="no">
+    <h2><span class="n">—</span>やらないこと</h2>
+    <div class="steps">
+      <div class="step hand">
+        <div class="t">iCloud Drive / Dropbox でリポジトリを同期</div>
+        <div class="d">
+          <code>.git</code> が壊れる（部分同期・競合コピー）。
+          <code>build/</code> <code>Pods/</code> <code>node_modules/</code>
+          <code>.dart_tool/</code> で数十万ファイルになり同期が詰まる。
+        </div>
+      </div>
+      <div class="step hand">
+        <div class="t">両機に独立した作業ツリーを置く</div>
+        <div class="d">
+          同時に触れば確実に衝突する。どうしても必要なら git のブランチ運用になるが、
+          その場合<b>「リアルタイム反映」は諦めることになる</b>。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    この手順はノート PC の実際の状態（未 push・ignore されているファイル・署名の状況）を
+    調べて書き起こしたもの。構成が変わったらここも更新すること。<br>
+    置き場所: <code>docs/machine-migration.html</code>
+  </footer>
+
+</div>

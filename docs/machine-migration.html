@@ -504,6 +504,33 @@ tmux attach -t 15s                   # 2 回目以降
         </div>
       </div>
       <div class="step hand">
+        <div class="t">このノート PC のコピーは畳む <span class="tag hand">手作業</span></div>
+        <div class="d">
+          デスクトップでビルドとテストが通ったら、<b>手癖で触らないよう
+          名前を変える</b>。<code>cd ~/fifteen</code> が指に染み付いていると、
+          窓から入ったつもりで手元のコピーを触ってしまう。
+          <b>消さずに残す</b>のは、移し忘れた秘密ファイルが見つかることが
+          あるため。
+        </div>
+<pre><code>mv ~/fifteen ~/fifteen-archive-20261016</code></pre>
+        <div class="d">
+          ターミナルのプロファイル色を 2 台で変えておくと、
+          どちらにいるか一目で分かる。
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="t">例外：オフラインのとき</div>
+        <div class="d">
+          Remote Control も SSH も回線が要る。電波の無い移動中だけは
+          ローカル作業になる。そのときは窓ではなく通常の git 運用に切り替わり、
+          <b>リアルタイム反映は諦めることになる</b>。
+        </div>
+<pre><code>作業前   git pull
+作業後   git commit &amp;&amp; git push     # 必ず。放置すると次に必ず衝突する</code></pre>
+      </div>
+
+      <div class="step hand">
         <div class="t">実機インストール <span class="tag hand">制約</span></div>
         <div class="d">
           <b>端末を挿した側でしかできない。</b>デスクトップに挿しっぱなしにするか、
@@ -530,6 +557,18 @@ tmux attach -t 15s                   # 2 回目以降
         <div class="d">
           同時に触れば確実に衝突する。どうしても必要なら git のブランチ運用になるが、
           その場合<b>「リアルタイム反映」は諦めることになる</b>。
+          <br><br>
+          混同が起きるのはここだけ。窓として使う限り、作業ツリーは 1 つしか
+          無いのでずれようがない。<b>ノート PC を使うこと自体は問題ない。</b>
+        </div>
+      </div>
+
+      <div class="step hand">
+        <div class="t">記憶も 2 つに分かれる</div>
+        <div class="d">
+          Claude Code の記憶（<code>~/.claude/projects/.../memory/</code>）は
+          <b>マシンごと</b>に持つ。両方でローカル作業すると、判断や方針の記憶も
+          分かれてずれていく。1 台に寄せるべき理由のひとつ。
         </div>
       </div>
     </div>

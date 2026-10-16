@@ -396,15 +396,45 @@ flutter test           # 40 件通ること</code></pre>
   <section class="phase" id="p6">
     <h2><span class="n">06</span>外から繋ぐ</h2>
     <p>
-      同一 Apple ID でも「どこからでも自宅 Mac へ」は今の macOS に無い。
-      専用のものを入れる。
+      入り口は 2 つ用意する。普段は Claude Code の Remote Control、
+      その下に SSH を床として敷く。
     </p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="t">主：Claude Code の Remote Control</div>
+        <div class="d">
+          デスクトップでこう起動すると、<b>account の他のセッションから
+          辿れるようになる</b>。名前を付けておくと分かりやすい
+          （既定はホスト名）。
+        </div>
+<pre><code>claude --remote-control 15s-desk</code></pre>
+        <div class="d">
+          CLI v2.1.251 で <code>--remote-control</code> の存在を確認済み。
+          <b>スマホ側からどう入るかは未確認</b>。<code>claude.ai/code</code>
+          に出る見込みだが、実機で確かめること。
+        </div>
+      </div>
+
+      <div class="step hand">
+        <div class="t">床：SSH — 省略しない <span class="tag hand">重要</span></div>
+        <div class="d">
+          <b>Remote Control には復旧手段が無い。</b>セッションが落ちたら
+          （クラッシュ・アップデート・再起動）外から起動し直せない。
+          Claude Code に繋がるのであって、マシンに繋がるわけではないため。
+          外出先で詰むと帰るまで何もできないので、SSH は必ず用意する。
+        </div>
+      </div>
+    </div>
+
+    <h3 style="font-family:'M PLUS 1 Code',monospace;font-size:0.92rem;margin-top:0.4rem;">床の作り方</h3>
     <div class="steps">
       <div class="step">
         <div class="t">Tailscale</div>
         <div class="d">
           両 Mac とスマホを同じ tailnet に入れる。
           <b>ポート開放も固定 IP も不要</b>で、CGNAT 配下でも繋がる。
+          同一 Apple ID でも「どこからでも自宅 Mac へ」は今の macOS に無い。
         </div>
 <pre><code>brew install --cask tailscale   # 両機に。同じアカウントでログイン
 tailscale status                # 相手のマシン名を確認</code></pre>
@@ -425,10 +455,18 @@ ssh desk</code></pre>
       <div class="step hand">
         <div class="t">画面共有 <span class="tag hand">必要なときだけ</span></div>
         <div class="d">
-          Xcode・シミュレータ・Figma は GUI が要る。
-          システム設定 → 共有 → <b>画面共有</b> を入れ、Tailscale 越しに繋ぐ。
+          Xcode・シミュレータ・Figma は GUI が要る。Remote Control でも
+          SSH でも代われない。システム設定 → 共有 → <b>画面共有</b> を入れる。
         </div>
       </div>
+    </div>
+
+    <div class="note">
+      <b>紛らわしいもの。</b>
+      <code>--cloud</code> は Anthropic 側のクラウドで動く別のセッションで、
+      手元のリポジトリ・秘密ファイル・Xcode には触れない。
+      <code>--bg</code> / <code>claude attach</code> はローカルの
+      バックグラウンドセッション。どちらも今回の用途には合わない。
     </div>
   </section>
 
@@ -439,21 +477,22 @@ ssh desk</code></pre>
       <div class="step">
         <div class="t">tmux の中で動かす — これが「つけっぱなし」の正体</div>
         <div class="d">
-          Claude Code を tmux の中で動かせば、<b>ノート PC を閉じても電車に乗っても
-          セッションが生き続ける</b>。接続が切れても作業は止まらない。
+          Remote Control を使う場合も要る。<b>ターミナルや SSH が切れても
+          プロセスを生かす</b>のは tmux の役目。
         </div>
 <pre><code>ssh desk
-tmux new -s 15s        # 初回
-tmux attach -t 15s     # 2 回目以降（切れたら繋ぎ直すだけ）
+tmux new -s 15s                      # 初回
+claude --remote-control 15s-desk     # この中で動かす
 
+tmux attach -t 15s                   # 2 回目以降
 # Ctrl-b d  … 外す（中の処理は動き続ける）
 # Ctrl-b "  … 上下に分割（片方で caffeinate を走らせる）</code></pre>
       </div>
       <div class="step">
         <div class="t">ノート PC は窓として使う</div>
         <div class="d">
-          作業ツリーはデスクトップの 1 つだけ。ノート PC からは
-          <code>ssh desk</code> で同じ tmux に入る。
+          作業ツリーはデスクトップの 1 つだけ。Remote Control か
+          <code>ssh desk</code> で同じものに入る。
           <b>同期する対象が無いので、ずれようがない。</b>
         </div>
       </div>

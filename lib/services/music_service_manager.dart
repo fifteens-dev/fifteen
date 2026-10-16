@@ -156,6 +156,34 @@ class MusicServiceManager {
     }
   }
 
+  /// この端末に残っている連携の痕跡を全部消す。
+  ///
+  /// ログアウトとアカウント削除で呼ぶ。連携状態は**端末**に持っていて
+  /// アプリ内アカウントには紐付いていないので、消さないと次に入った人へ
+  /// そのまま引き継がれる。実際、ダミーアカウントで連携したまま削除した
+  /// あと、新しいアカウントが「連携済み」と判定されて連携し直せなくなった。
+  ///
+  /// 消すのは端末側だけ。`users/{uid}.musicService` は「その人が何を使って
+  /// いるか」の記録なので触らない（ログアウトで none にすると集計が壊れる）。
+  ///
+  /// どちらのサービスのトークンも消す。選択の記録が壊れていても確実に
+  /// 消えるようにするため、[logout] のように選択で分岐しない。
+  Future<void> clearDeviceLinkage() async {
+    try {
+      await _appleMusicService.logout();
+    } catch (_) {/* 片方が失敗しても、もう片方は消す */}
+    try {
+      await _spotifyAuthService.logout();
+    } catch (_) {}
+
+    _selectedService = null; // メモリ上のキャッシュ
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_selectedServiceKey);
+      await prefs.remove(_stampedUidKey);
+    } catch (_) {}
+  }
+
   /// 認証状態を確認
   Future<bool> isAuthenticated() async {
     final service = await getSelectedService();

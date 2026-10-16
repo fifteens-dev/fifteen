@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'live_activity_service.dart';
 import '../utils/app_log.dart';
+import 'music_service_manager.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -190,7 +191,21 @@ class AuthService {
     // ロック画面に前ユーザーの Live Activity が残らないよう先に片付ける
     // （サインアウト後は uid が取れず Firestore の後始末ができないため）。
     await LiveActivityService().stop();
+    await _clearDeviceLinkage();
     await _auth.signOut();
+  }
+
+  /// 端末に残る音楽サービスの連携を消す。
+  ///
+  /// 連携状態（トークン・選択）は端末に持っていてアカウントに紐付かない。
+  /// 消さないと、次にこの端末で入った人が前の人の連携を引き継ぐ。
+  /// 失敗してもサインアウト自体は進める。
+  Future<void> _clearDeviceLinkage() async {
+    try {
+      await MusicServiceManager().clearDeviceLinkage();
+    } catch (e) {
+      if (kDebugMode) AppLog.debug('⚠️ 連携の後始末に失敗（続行）: $e');
+    }
   }
 
   // アカウント削除（直接）
@@ -198,6 +213,7 @@ class AuthService {
   Future<void> deleteAccount() async {
     final user = currentUser;
     if (user != null) {
+      await _clearDeviceLinkage();
       try {
         await user.getIdToken(true);
       } catch (e) {
@@ -210,6 +226,7 @@ class AuthService {
   // Cloud Function 経由でアカウント削除（Admin SDK）
   // requires-recent-login 制約なし。再認証が完了できないケースでも動作する。
   Future<void> deleteAccountViaFunction() async {
+    await _clearDeviceLinkage();
     await FirebaseFunctions.instance
         .httpsCallable('deleteCurrentUser')
         .call<Map<String, dynamic>>();

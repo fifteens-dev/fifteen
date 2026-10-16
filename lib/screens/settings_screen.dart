@@ -20,6 +20,7 @@ import 'adl_join_screen.dart';
 import '../services/adl_service.dart';
 import 'milfolha_join_screen.dart';
 import '../services/milfolha_service.dart';
+import '../services/auth_service.dart';
 import '../constants/milfolha_teams.dart';
 
 /// 設定画面
@@ -556,7 +557,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed && context.mounted) {
       context.read<SavedItemsProvider>().clear();
       context.read<CurrentUserProvider>().clear();
-      await FirebaseAuth.instance.signOut();
+      // AuthService を通す。直接 signOut すると、端末に残る音楽サービスの
+      // 連携や Live Activity の後始末が飛ばされる。
+      await AuthService().signOut();
       if (context.mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil(
           '/phone-auth',

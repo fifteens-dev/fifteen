@@ -103,6 +103,13 @@ class PostWriteService {
       // Music Memory 投稿のサイクル情報。作成時点の通知時刻を cycleStart に、
       // 締切（翌1:00）超過なら isLate=true を付与する。通知未発火(null)なら通常扱い。
       final mmCycle = MusicMemoryCycleService();
+      // 起動直後は購読がまだ届いておらず、鍵も通知時刻も null のことがある。
+      // そのまま進むと引換券を取らずに投稿し、ルールに弾かれる。
+      // 1 回取りに行ってから決める（取れなければ従来どおり null のまま）。
+      if (isMoodPost &&
+          (mmCycle.cycleKey == null || mmCycle.notifiedAt == null)) {
+        await mmCycle.fetchNotifiedAt();
+      }
       final DateTime? cycleStart = isMoodPost ? mmCycle.notifiedAt : null;
       final bool isLate = isMoodPost ? mmCycle.isLate(now) : false;
 

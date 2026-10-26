@@ -40,6 +40,10 @@ class MusicMemoryDetailScreen extends StatefulWidget {
   /// 投稿が削除されたときに postId を通知する（呼び出し元のカレンダー更新用）。
   final ValueChanged<String>? onPostDeleted;
 
+  /// true なら呼び出し元の画面を背景にしてぼかし、その上に重ねて開く
+  /// （Weekly Recap の整列画面から開くとき）。false なら写真をぼかした背景。
+  final bool blurBehind;
+
   const MusicMemoryDetailScreen({
     super.key,
     required this.posts,
@@ -48,6 +52,7 @@ class MusicMemoryDetailScreen extends StatefulWidget {
     this.monthsNewToOld = const [],
     this.loadedChunks = 0,
     this.onPostDeleted,
+    this.blurBehind = false,
   });
 
   static Future<void> push(
@@ -58,10 +63,11 @@ class MusicMemoryDetailScreen extends StatefulWidget {
     List<String> monthsNewToOld = const [],
     int loadedChunks = 0,
     ValueChanged<String>? onPostDeleted,
+    bool blurBehind = false,
   }) {
     return Navigator.of(context).push(
       PageRouteBuilder(
-        opaque: true,
+        opaque: !blurBehind,
         transitionDuration: const Duration(milliseconds: 320),
         reverseTransitionDuration: const Duration(milliseconds: 240),
         pageBuilder: (_, __, ___) => MusicMemoryDetailScreen(
@@ -71,6 +77,7 @@ class MusicMemoryDetailScreen extends StatefulWidget {
           monthsNewToOld: monthsNewToOld,
           loadedChunks: loadedChunks,
           onPostDeleted: onPostDeleted,
+          blurBehind: blurBehind,
         ),
         // ジャケット→写真の「ズームで表示」を近似する scale + fade。
         transitionsBuilder: (_, animation, __, child) {
@@ -79,12 +86,28 @@ class MusicMemoryDetailScreen extends StatefulWidget {
             curve: Curves.easeOutCubic,
             reverseCurve: Curves.easeInCubic,
           );
-          return FadeTransition(
+          final content = FadeTransition(
             opacity: curved,
             child: ScaleTransition(
               scale: Tween<double>(begin: 0.82, end: 1.0).animate(curved),
               child: child,
             ),
+          );
+          if (!blurBehind) return content;
+          // ぼかしは拡大させずに全面へ。フェードでぼけ具合ごと出し入れする。
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: FadeTransition(
+                  opacity: curved,
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                    child: const ColoredBox(color: Color(0x33000000)),
+                  ),
+                ),
+              ),
+              content,
+            ],
           );
         },
       ),
@@ -342,11 +365,14 @@ class _MusicMemoryDetailScreenState extends State<MusicMemoryDetailScreen> {
     final savedItems = context.watch<SavedItemsProvider>();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor:
+          widget.blurBehind ? Colors.transparent : const Color(0xFF121212),
       body: Stack(
         children: [
           // 背景: #121212 + 現在の写真をぼかしたもの。
-          Positioned.fill(child: _blurredBackground(current)),
+          // blurBehind のときはルート側で後ろの画面をぼかしている。
+          if (!widget.blurBehind)
+            Positioned.fill(child: _blurredBackground(current)),
 
           SafeArea(
             child: Column(

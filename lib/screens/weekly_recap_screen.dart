@@ -8,10 +8,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../constants/profile_fonts.dart';
 import '../models/post_model.dart';
+import '../providers/current_user_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/instagram_stories_service.dart';
 import '../services/weekly_recap_service.dart';
@@ -21,8 +23,11 @@ import 'music_memory_detail_screen.dart';
 
 /// Weekly Recap（Figma 6147:11641）。通知「Your Weekly Recap is here🎧」から開く。
 ///
-/// 1 週間（日曜〜土曜）の各日の投稿カードを散らして並べる。カードを押すと
-/// Music Memory と同じ詳細画面（日カルーセル）で開く。右上から画像で共有できる。
+/// 1 週間（日曜〜土曜）の各日の投稿カードを散らして並べる。どこかを押すと
+/// カードが整列した配置（Figma 5996:11609）へ滑らかに移り、整列後にカードを
+/// 押すと Music Memory と同じ詳細画面（日カルーセル）で開く。整列中に余白を
+/// 押すと散らした配置に戻る。右上の共有では、画面とは別に組んだ 9:16 の
+/// 共有画像（署名入り）を Instagram / X / その他へ送る。
 ///
 /// レイアウトは Figma の 402×874 の座標をそのまま使い、画面幅に合わせて縮める。
 class WeeklyRecapScreen extends StatefulWidget {
@@ -62,12 +67,49 @@ const Map<int, _Slot> _kSlots = {
   7: _Slot(260.8, 613.4, 11.74), // 日
 };
 
+/// 整列した配置（Figma 5996:11609）。カードは 109.744×195 に縮む。
+const Map<int, _Slot> _kArrangedSlots = {
+  1: _Slot(85.9, 276.2, 3), // 月
+  2: _Slot(318.1, 271.8, -2.5), // 火
+  3: _Slot(198.2, 423.0, -0.5), // 水
+  4: _Slot(83.2, 517.4, 2), // 木
+  5: _Slot(318.2, 512.4, -2), // 金
+  6: _Slot(88.1, 720.8, 2.5), // 土
+  7: _Slot(315.4, 715.9, -1.5), // 日
+};
+const double _kArrangedScale = 109.744 / _kCardW;
+
+/// 共有画像（Figma 6181:11291）の寸法。Instagram ストーリーズの 9:16。
+const double _kShareH = 715;
+
+/// 共有画像でのカードの置き場所。見出しと署名の間に収まるよう、
+/// 散らした配置を少し縮めて上に寄せたもの。傾きは画面と同じ。
+const Map<int, _Slot> _kShareSlots = {
+  1: _Slot(116.0, 286.0, -5.14), // 月
+  2: _Slot(301.0, 380.0, 6.3), // 火
+  3: _Slot(218.5, 273.6, 2.49), // 水
+  4: _Slot(195.0, 429.0, 2), // 木
+  5: _Slot(96.0, 446.0, -2), // 金
+  6: _Slot(146.7, 557.0, -10.35), // 土
+  7: _Slot(266.5, 524.0, 11.74), // 日
+};
+const double _kShareScale = 0.775;
+
 /// 重なり順（奥→手前）。Figma のレイヤー順。
 const List<int> _kPaintOrder = [4, 1, 3, 2, 5, 7, 6];
 
-class _WeeklyRecapScreenState extends State<WeeklyRecapScreen> {
+class _WeeklyRecapScreenState extends State<WeeklyRecapScreen>
+    with SingleTickerProviderStateMixin {
   final AudioPlayerService _audioService = AudioPlayerService();
-  final GlobalKey _captureKey = GlobalKey();
+
+  /// 0 = 散らした配置、1 = 整列した配置。
+  late final AnimationController _arrange = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 720),
+  );
+
+  /// 共有画像（画面の裏に描いておき、共有時に切り出す）。
+  final GlobalKey _shareKey = GlobalKey();
   WeeklyRecap? _recap;
   bool _isSharing = false;
 
@@ -77,10 +119,38 @@ class _WeeklyRecapScreenState extends State<WeeklyRecapScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _arrange.dispose();
+    super.dispose();
+  }
+
+  bool get _isArranged => _arrange.status == AnimationStatus.completed;
+
+  /// 余白のタップ。散らした配置⇄整列した配置を行き来する。
+  void _toggleArrange() {
+    if (_arrange.status == AnimationStatus.completed ||
+        _arrange.status == AnimationStatus.forward) {
+      _arrange.reverse();
+    } else {
+      _arrange.forward();
+    }
+  }
+
+  /// カードのタップ。整列していれば詳細へ、まだなら整列させる。
+  void _onCardTap(PostModel post) {
+    if (_isArranged) {
+      _openPost(post);
+    } else {
+      _arrange.forward();
+    }
+  }
+
   Future<void> _load() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    final recap = await WeeklyRecapService().load(uid, weekStart: widget.weekStart);
+    final recap =
+        await WeeklyRecapService().load(uid, weekStart: widget.weekStart);
     if (!mounted) return;
     setState(() => _recap = recap);
   }
@@ -95,6 +165,8 @@ class _WeeklyRecapScreenState extends State<WeeklyRecapScreen> {
       context,
       posts: posts,
       initialIndex: idx < 0 ? 0 : idx,
+      // 整列画面をぼかして、その上に重ねる。
+      blurBehind: true,
     );
   }
 
@@ -102,7 +174,7 @@ class _WeeklyRecapScreenState extends State<WeeklyRecapScreen> {
     if (_isSharing) return;
     setState(() => _isSharing = true);
     try {
-      final boundary = _captureKey.currentContext?.findRenderObject()
+      final boundary = _shareKey.currentContext?.findRenderObject()
           as RenderRepaintBoundary?;
       if (boundary == null) return;
       final image = await boundary.toImage(pixelRatio: 3);
@@ -146,10 +218,17 @@ class _WeeklyRecapScreenState extends State<WeeklyRecapScreen> {
       backgroundColor: const Color(0xFF121212),
       body: Stack(
         children: [
-          // 共有画像にはボタンを入れないので、ここまでを切り出す。
+          // 共有画像。画面の下に敷いて隠しておく（描画はされるので切り出せる）。
+          if (recap != null && recap.posts.isNotEmpty)
+            Positioned(
+              left: 0,
+              top: 0,
+              width: _kCanvasW,
+              height: _kShareH,
+              child: _shareComposition(recap),
+            ),
           Positioned.fill(
             child: RepaintBoundary(
-              key: _captureKey,
               child: Container(
                 color: const Color(0xFF121212),
                 child: Stack(
@@ -158,8 +237,16 @@ class _WeeklyRecapScreenState extends State<WeeklyRecapScreen> {
                       if (recap != null && recap.posts.isNotEmpty)
                         _background(recap.posts.last),
                       if (recap != null) _title(recap),
+                      if (recap != null && recap.posts.isNotEmpty)
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _toggleArrange,
+                          ),
+                        ),
                       if (recap != null)
-                        for (final weekday in _kPaintOrder) ..._cardFor(recap, weekday),
+                        for (final (i, weekday) in _kPaintOrder.indexed)
+                          ..._cardFor(recap, weekday, i),
                       if (recap != null && recap.posts.isEmpty) _emptyMessage(),
                     ]),
                     if (recap == null)
@@ -177,7 +264,8 @@ class _WeeklyRecapScreenState extends State<WeeklyRecapScreen> {
           _canvas([
             _glassButton(
               left: 22,
-              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 17),
+              icon: const Icon(Icons.arrow_back_ios_new,
+                  color: Colors.white, size: 17),
               onTap: () => Navigator.of(context).maybePop(),
             ),
             if (recap != null && recap.posts.isNotEmpty)
@@ -188,9 +276,11 @@ class _WeeklyRecapScreenState extends State<WeeklyRecapScreen> {
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
                       )
-                    : const Icon(CupertinoIcons.share, color: Colors.white, size: 19),
+                    : const Icon(CupertinoIcons.share,
+                        color: Colors.white, size: 19),
                 onTap: _openShare,
               ),
           ]),
@@ -270,65 +360,150 @@ class _WeeklyRecapScreenState extends State<WeeklyRecapScreen> {
   }
 
   /// その曜日の投稿があれば、置き場所に傾けて置く。
-  List<Widget> _cardFor(WeeklyRecap recap, int weekday) {
-    final post = recap.posts.where((p) => p.createdAt.weekday == weekday).firstOrNull;
+  ///
+  /// 散らした配置と整列した配置の間を [_arrange] で補間する。[order] ぶん
+  /// 少しずつ遅らせて動かし、全部が一斉に動くより柔らかく見せる。
+  List<Widget> _cardFor(WeeklyRecap recap, int weekday, int order) {
+    final post =
+        recap.posts.where((p) => p.createdAt.weekday == weekday).firstOrNull;
     if (post == null) return const [];
-    final slot = _kSlots[weekday]!;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final from = _kSlots[weekday]!;
+    final to = _kArrangedSlots[weekday]!;
+    final start = order * 0.05;
+    final t = CurvedAnimation(
+      parent: _arrange,
+      curve: Interval(start, start + 0.7, curve: Curves.easeInOutCubic),
+    );
     return [
-      Positioned(
-        left: slot.cx - _kCardW / 2,
-        top: slot.cy - _kCardH / 2,
-        width: _kCardW,
-        height: _kCardH,
-        child: Transform.rotate(
-          angle: slot.deg * math.pi / 180,
-          child: GestureDetector(
-            onTap: () => _openPost(post),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0x1AFFFFFF)),
-                boxShadow: const [
-                  BoxShadow(color: Color(0x47000000), offset: Offset(0, 2), blurRadius: 6),
-                  BoxShadow(
-                    color: Color(0x6B000000),
-                    offset: Offset(0, 8),
-                    blurRadius: 24,
-                    spreadRadius: -2,
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: IgnorePointer(
-                  child: FittedBox(
-                    fit: BoxFit.fill,
-                    child: SizedBox(
-                      width: 363,
-                      height: 645,
-                      child: PostCard(
-                        key: ValueKey('recap-${post.postId}'),
-                        post: post,
-                        currentUserId: uid,
-                        audioService: _audioService,
-                        showFrontOnly: true,
-                        backSideEnabled: false,
-                        hideCommentBar: true,
-                        hideShareButton: true,
-                        hideAudienceBadge: true,
-                        disableInteractions: true,
-                        audioManagedExternally: true,
-                      ),
+      AnimatedBuilder(
+        animation: t,
+        builder: (context, child) {
+          final v = t.value;
+          final cx = ui.lerpDouble(from.cx, to.cx, v)!;
+          final cy = ui.lerpDouble(from.cy, to.cy, v)!;
+          final deg = ui.lerpDouble(from.deg, to.deg, v)!;
+          final scale = ui.lerpDouble(1, _kArrangedScale, v)!;
+          return Positioned(
+            left: cx - _kCardW / 2,
+            top: cy - _kCardH / 2,
+            width: _kCardW,
+            height: _kCardH,
+            child: Transform.rotate(
+              angle: deg * math.pi / 180,
+              child: Transform.scale(scale: scale, child: child),
+            ),
+          );
+        },
+        child: GestureDetector(
+          onTap: () => _onCardTap(post),
+          child: _cardVisual(post, 'recap'),
+        ),
+      ),
+    ];
+  }
+
+  /// 共有画像（Figma 6181:11291）。見出し・カード・署名（@ユーザー名 と 15s）。
+  Widget _shareComposition(WeeklyRecap recap) {
+    final username = context.read<CurrentUserProvider>().username;
+    const footer = TextStyle(
+      fontFamily: kSfProRounded,
+      fontWeight: FontWeight.w800,
+      color: Color(0xFFA8A8A8),
+    );
+    return RepaintBoundary(
+      key: _shareKey,
+      child: Container(
+        color: const Color(0xFF121212),
+        child: Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            _background(recap.posts.last),
+            _title(recap),
+            for (final weekday in _kPaintOrder)
+              if (recap.posts
+                      .where((p) => p.createdAt.weekday == weekday)
+                      .firstOrNull
+                  case final post?)
+                Positioned(
+                  left: _kShareSlots[weekday]!.cx - _kCardW / 2,
+                  top: _kShareSlots[weekday]!.cy - _kCardH / 2,
+                  width: _kCardW,
+                  height: _kCardH,
+                  child: Transform.rotate(
+                    angle: _kShareSlots[weekday]!.deg * math.pi / 180,
+                    child: Transform.scale(
+                      scale: _kShareScale,
+                      child: _cardVisual(post, 'share'),
                     ),
                   ),
                 ),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 648,
+              child: Column(
+                children: [
+                  if (username.isNotEmpty)
+                    Text('@$username',
+                        style: footer.copyWith(fontSize: 20, height: 1.2)),
+                  Text('15s',
+                      style: footer.copyWith(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                          height: 1.1)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 投稿カードを 125×222 に縮めて、枠と影を付けたもの。
+  Widget _cardVisual(PostModel post, String keyPrefix) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0x1AFFFFFF)),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x47000000), offset: Offset(0, 2), blurRadius: 6),
+          BoxShadow(
+            color: Color(0x6B000000),
+            offset: Offset(0, 8),
+            blurRadius: 24,
+            spreadRadius: -2,
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: IgnorePointer(
+          child: FittedBox(
+            fit: BoxFit.fill,
+            child: SizedBox(
+              width: 363,
+              height: 645,
+              child: PostCard(
+                key: ValueKey('$keyPrefix-${post.postId}'),
+                post: post,
+                currentUserId: uid,
+                audioService: _audioService,
+                showFrontOnly: true,
+                backSideEnabled: false,
+                hideCommentBar: true,
+                hideShareButton: true,
+                hideAudienceBadge: true,
+                disableInteractions: true,
+                audioManagedExternally: true,
               ),
             ),
           ),
         ),
       ),
-    ];
+    );
   }
 
   /// プロフィールと同じガラスの丸ボタン（52×45）。
@@ -486,7 +661,8 @@ class _RecapShareSheetState extends State<_RecapShareSheet> {
                     height: 58,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFF080808), width: 2),
+                      border:
+                          Border.all(color: const Color(0xFF080808), width: 2),
                     ),
                     padding: const EdgeInsets.all(2),
                     child: Stack(
@@ -522,7 +698,8 @@ class _RecapShareSheetState extends State<_RecapShareSheet> {
                     height: 58,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFF3E3E3D), width: 2),
+                      border:
+                          Border.all(color: const Color(0xFF3E3E3D), width: 2),
                     ),
                     padding: const EdgeInsets.all(2),
                     child: SvgPicture.asset(

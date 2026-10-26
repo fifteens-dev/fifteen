@@ -5,6 +5,7 @@ import '../models/user_model.dart';
 import '../models/notification_model.dart';
 import 'notification_service.dart';
 import 'milfolha_service.dart';
+import 'laneige_service.dart';
 import 'music_memory_cycle_service.dart';
 import '../utils/app_log.dart';
 
@@ -566,6 +567,7 @@ class UserService {
       // WATERFALLS の所属は users とは別コレクションなので、users を消す前に
       // 後始末する（残すと集計だけに載る孤児メンバーシップになる）。
       await MilfolhaService().cleanupMembershipForDeletedUser(userId);
+      await LaneigeService().cleanupMembershipForDeletedUser(userId);
 
       final batch = _firestore.batch();
 

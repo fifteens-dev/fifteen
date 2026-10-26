@@ -22,6 +22,9 @@ import 'milfolha_join_screen.dart';
 import '../services/milfolha_service.dart';
 import '../services/auth_service.dart';
 import '../constants/milfolha_teams.dart';
+import 'laneige_join_screen.dart';
+import '../services/laneige_service.dart';
+import '../constants/laneige_teams.dart';
 
 /// 設定画面
 class SettingsScreen extends StatefulWidget {
@@ -36,11 +39,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final AdminService _adminService = AdminService();
   final AdlService _adlService = AdlService();
   final MilfolhaService _milfolhaService = MilfolhaService();
+  final LaneigeService _laneigeService = LaneigeService();
   UserModel? _userData;
   bool _isAdmin = false;
   bool _adlActive = false;
   bool _milfolhaActive = false;
   String? _milfolhaTeamId;
+  bool _laneigeActive = false;
+  String? _laneigeTeamId;
 
   @override
   void initState() {
@@ -84,6 +90,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _milfolhaActive = active;
           _milfolhaTeamId = membership?['teamId'] as String?;
+        });
+      }
+    } catch (_) {}
+
+    // Laneige情報も独立してロード
+    try {
+      final active = await _laneigeService.isActive();
+      final membership =
+          await _laneigeService.getMembership(currentUser.uid);
+      if (mounted) {
+        setState(() {
+          _laneigeActive = active;
+          _laneigeTeamId = membership?['teamId'] as String?;
         });
       }
     } catch (_) {}
@@ -257,6 +276,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 MaterialPageRoute(
                                   builder: (_) => MilfolhaJoinScreen(
                                     currentTeamId: _milfolhaTeamId,
+                                  ),
+                                ),
+                              );
+                              _loadUserData();
+                            },
+                          ),
+                        ]),
+                      ],
+
+                      // Laneige イベント（開催中のみ表示）
+                      if (_laneigeActive) ...[
+                        const SizedBox(height: 24),
+                        _buildSectionLabel('LANEIGEイベント'),
+                        const SizedBox(height: 8),
+                        _buildSettingsCard([
+                          _SettingsItem(
+                            icon: Icons.emoji_events,
+                            title: _laneigeTeamId != null
+                                ? 'チーム ${LaneigeTeamDefinitions.displayNameOf(_laneigeTeamId!)}（参加中）'
+                                : 'チームに参加する',
+                            onTap: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LaneigeJoinScreen(
+                                    currentTeamId: _laneigeTeamId,
                                   ),
                                 ),
                               );

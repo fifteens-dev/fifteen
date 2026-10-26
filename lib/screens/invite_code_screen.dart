@@ -12,6 +12,8 @@ import '../services/invite_code_service.dart';
 import '../services/user_service.dart';
 import '../services/milfolha_service.dart';
 import '../constants/milfolha_teams.dart';
+import '../services/laneige_service.dart';
+import '../constants/laneige_teams.dart';
 import '../widgets/common/app_toast.dart';
 
 /// 招待コード入力画面
@@ -27,6 +29,7 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
   final InviteCodeService _inviteCodeService = InviteCodeService();
   final UserService _userService = UserService();
   final MilfolhaService _milfolhaService = MilfolhaService();
+  final LaneigeService _laneigeService = LaneigeService();
   bool _isLoading = true;
 
   @override
@@ -107,6 +110,12 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
       return;
     }
 
+    // LANEIGE チームコード（laneige_X）なら、そのチームに参加する。
+    if (LaneigeTeamDefinitions.isValidCode(rawInput)) {
+      await _handleLaneigeTeamCode(rawInput);
+      return;
+    }
+
     // それ以外は通常の個人招待コードとして処理する。
     await _handleNormalInviteCode(rawInput.toUpperCase());
   }
@@ -133,6 +142,40 @@ class _InviteCodeScreenState extends State<InviteCodeScreen> {
           AppToast.show(context, '無効なチームコードです');
           return;
         case MilfolhaJoinResult.error:
+          setState(() => _isLoading = false);
+          AppToast.show(context, 'チーム参加に失敗しました');
+          return;
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        AppToast.show(context, 'チーム参加に失敗しました');
+      }
+    }
+  }
+
+  /// Laneige チームコードでチームに参加する。
+  Future<void> _handleLaneigeTeamCode(String code) async {
+    setState(() => _isLoading = true);
+    try {
+      final result = await _laneigeService.joinTeamWithCode(code);
+      if (!mounted) return;
+      switch (result) {
+        case LaneigeJoinResult.success:
+        case LaneigeJoinResult.switched:
+        case LaneigeJoinResult.alreadyJoined:
+          setState(() => _isLoading = false);
+          Navigator.pushNamed(context, '/name-input');
+          return;
+        case LaneigeJoinResult.disabled:
+          setState(() => _isLoading = false);
+          AppToast.show(context, '現在このイベントは開催されていません');
+          return;
+        case LaneigeJoinResult.invalidCode:
+          setState(() => _isLoading = false);
+          AppToast.show(context, '無効なチームコードです');
+          return;
+        case LaneigeJoinResult.error:
           setState(() => _isLoading = false);
           AppToast.show(context, 'チーム参加に失敗しました');
           return;

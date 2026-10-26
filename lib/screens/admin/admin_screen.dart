@@ -16,6 +16,7 @@ import 'reports_tab.dart';
 import 'analytics_tab.dart';
 import 'adl_tab.dart';
 import 'milfolha_tab.dart';
+import 'laneige_tab.dart';
 import '../../widgets/common/app_toast.dart';
 
 /// 管理者画面
@@ -38,7 +39,8 @@ class _AdminScreenState extends State<AdminScreen>
   void initState() {
     super.initState();
     // Vibe 機能の全面非表示に伴い、Vibeお題・Vibe投稿タブを除外（9→7）。
-    _tabController = TabController(length: 8, vsync: this);
+    // その後 WATERFALLS・LANEIGE を足して 9。
+    _tabController = TabController(length: 9, vsync: this);
     _checkAdminStatus();
   }
 
@@ -142,6 +144,10 @@ class _AdminScreenState extends State<AdminScreen>
               icon: Icon(Icons.emoji_events),
               text: 'WATERFALLS',
             ),
+            Tab(
+              icon: Icon(Icons.emoji_events_outlined),
+              text: 'LANEIGE',
+            ),
           ],
         ),
       ),
@@ -159,6 +165,7 @@ class _AdminScreenState extends State<AdminScreen>
           _OfficialAccountTab(),
           AdlTab(),
           MilfolhaTab(),
+          LaneigeTab(),
         ],
       ),
     );

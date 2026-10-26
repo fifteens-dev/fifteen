@@ -385,6 +385,77 @@ exports.photoReminderNotification = onSchedule(
   }
 );
 
+const WEEKLY_RECAP_TITLE = 'Your Weekly Recap is here🎧';
+const WEEKLY_RECAP_BODY = 'あなたの1週間の音楽が、ひとつの作品になったよ。';
+
+/**
+ * Weekly Recap 通知。毎週日曜 12:00 JST に、前の週（日曜 0:00〜土曜 24:00 JST）に
+ * Music Memory を 1 回以上投稿した人へ送る。
+ *
+ * 重複起動に備え、`weekly_recap_notifications/{週の開始日}` を create で予約してから送る。
+ */
+exports.weeklyRecapNotification = onSchedule(
+  { schedule: '0 12 * * 0', timeZone: 'Asia/Tokyo', timeoutSeconds: 300 },
+  async () => {
+    const db = admin.firestore();
+    const now = new Date();
+    const weekEnd = jstDayStartFor(now); // 今日（日曜）の JST 0:00
+    const weekStart = new Date(weekEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const startJst = new Date(weekStart.getTime() + 9 * 60 * 60 * 1000);
+    const weekKey = `${startJst.getUTCFullYear()}-${String(startJst.getUTCMonth() + 1).padStart(2, '0')}-${String(startJst.getUTCDate()).padStart(2, '0')}`;
+
+    try {
+      try {
+        await db.collection('weekly_recap_notifications').doc(weekKey).create({
+          weekStart: admin.firestore.Timestamp.fromDate(weekStart),
+          weekEnd: admin.firestore.Timestamp.fromDate(weekEnd),
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (_) {
+        console.log(`weeklyRecapNotification: ${weekKey} は送信済み`);
+        return;
+      }
+
+      const postsSnap = await db.collection('posts')
+        .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(weekStart))
+        .where('createdAt', '<', admin.firestore.Timestamp.fromDate(weekEnd))
+        .get();
+      const posterIds = new Set();
+      for (const doc of postsSnap.docs) {
+        const p = doc.data();
+        if (p.isMoodPost !== true || p.isVibe === true || !p.userId) continue;
+        posterIds.add(p.userId);
+      }
+
+      const usersSnapshot = await db.collection('users').get();
+      const targetUserIds = usersSnapshot.docs
+        .filter((d) => posterIds.has(d.id) && d.data().notifVibeEnabled !== false)
+        .map((d) => d.id);
+
+      const res = await broadcastPush(db, targetUserIds, {
+        title: WEEKLY_RECAP_TITLE,
+        body: WEEKLY_RECAP_BODY,
+        data: {
+          notificationType: 'weekly_recap',
+          weekStart: weekKey,
+          click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        },
+      });
+      await db.collection('weekly_recap_notifications').doc(weekKey).update({
+        targets: targetUserIds.length,
+        success: res.success,
+        failure: res.failure,
+      });
+      console.log(
+        `weeklyRecapNotification ${weekKey}: targets=${targetUserIds.length} ` +
+        `success=${res.success}, failure=${res.failure}`
+      );
+    } catch (error) {
+      console.error('weeklyRecapNotification error:', error);
+    }
+  }
+);
+
 /**
  * プッシュ通知送信Cloud Function
  *

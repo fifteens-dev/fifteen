@@ -106,6 +106,10 @@ flutter:
     - assets/profile_v2/rank_2.png
     - assets/profile_v2/rank_3.png
     - assets/profile_v2/glass_button.png
+    - assets/weekly_recap/share_instagram.svg
+    - assets/weekly_recap/share_x_circle.svg
+    - assets/weekly_recap/x_logo.jpg
+    - assets/weekly_recap/share_other.svg
     - assets/friend_match/heart.png
     - assets/friend_match/music_double.png
     - assets/friend_match/music_note.png

@@ -11,6 +11,8 @@ import '../widgets/home/vibe_story_bar_section.dart';
 import 'music_memory_detail_screen.dart';
 import '../services/post_photo_service.dart';
 import '../services/post_write_service.dart';
+import '../services/weekly_recap_service.dart';
+import 'weekly_recap_screen.dart';
 
 /// Music Memory - Month 画面。
 ///
@@ -350,6 +352,31 @@ class MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
     );
   }
 
+  /// Weekly Recap の入口に出す週。直近で終わった週（日曜〜土曜）に投稿が
+  /// 1 件もなければ null（入口を出さない）。自分の Music Memory のときだけ。
+  WeeklyRecap? _weeklyRecap() {
+    if (!widget.embedded) return null;
+    final start = WeeklyRecapService.lastCompletedWeekStart(DateTime.now());
+    final end = DateTime(start.year, start.month, start.day + 7);
+    final repByDay = <String, PostModel>{};
+    for (final p in _allLoadedPosts()) {
+      if (p.createdAt.isBefore(start) || !p.createdAt.isBefore(end)) continue;
+      final key = '${p.createdAt.year}-${p.createdAt.month}-${p.createdAt.day}';
+      final ex = repByDay[key];
+      if (ex == null || p.createdAt.isAfter(ex.createdAt)) repByDay[key] = p;
+    }
+    if (repByDay.isEmpty) return null;
+    final posts = repByDay.values.toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return WeeklyRecap(start: start, end: end, posts: posts);
+  }
+
+  void _openWeeklyRecap(WeeklyRecap recap) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => WeeklyRecapScreen(weekStart: recap.start),
+    ));
+  }
+
   /// 詳細画面で削除された投稿をカレンダーからも取り除く。
   void _removeDeletedPost(String postId) {
     if (!mounted) return;
@@ -370,10 +397,21 @@ class MusicMemoryMonthScreenState extends State<MusicMemoryMonthScreen> {
     // すりガラスは画面上部およそ 30% の帯に収め、そこから下へフェードさせる。
     final fadeH = MediaQuery.of(context).size.height * 0.3;
     final loadedCount = _loadedMonthCount;
+    final recap = _weeklyRecap();
     final children = <Widget>[
       // 最下部余白。ルートタブ埋め込み時(embedded)はボトムナビ(画面下から約94px)と
       // 重ならないよう、Figma 5189:11310 準拠で記録カード下端を画面下から約160pxに上げる。
-      SizedBox(height: widget.embedded ? 160 : 40),
+      // Weekly Recap の入口を出すときは、そのぶん下の余白を削って記録カードの
+      // 位置（ボトムナビの上）を保つ。
+      if (recap != null) ...[
+        SizedBox(height: widget.embedded ? 100 : 40),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 56),
+          child: _WeeklyRecapEntry(recap: recap, onTap: () => _openWeeklyRecap(recap)),
+        ),
+        const SizedBox(height: 12),
+      ] else
+        SizedBox(height: widget.embedded ? 160 : 40),
       // 記録カード(Figma: (83, 1214), 236×47) — 中央 83px マージン
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 83),
@@ -771,6 +809,106 @@ class _RecordCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Weekly Recap の入口（記録カードの下）。
+///
+/// 記録カードと同じ黒地＋細枠に、その週のジャケットを重ねて並べ、
+/// 「Weekly Recap」と期間を添える。右端の矢印で画面遷移を示す。
+class _WeeklyRecapEntry extends StatelessWidget {
+  final WeeklyRecap recap;
+  final VoidCallback onTap;
+
+  const _WeeklyRecapEntry({required this.recap, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    // 新しい投稿を手前にして最大 3 枚重ねる。
+    final arts = recap.posts.reversed.take(3).toList().reversed.toList();
+    const artSize = 30.0;
+    const artStep = 16.0;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.only(left: 9, right: 14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(15),
+          gradient: const LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [Color(0xFF17151C), Color(0xFF09090A)],
+          ),
+        ),
+        foregroundDecoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: const Color(0xFF272627), width: 1),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: artSize + artStep * (arts.length - 1),
+              height: artSize,
+              child: Stack(
+                children: [
+                  for (int i = 0; i < arts.length; i++)
+                    Positioned(
+                      left: artStep * i,
+                      child: Container(
+                        width: artSize,
+                        height: artSize,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFF09090A), width: 1.5),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(5),
+                          child: CachedNetworkImage(
+                            imageUrl: arts[i].track.albumImageUrl,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, __, ___) =>
+                                const ColoredBox(color: Color(0xFF272627)),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Weekly Recap 🎧',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: kSfProRounded,
+                    ),
+                  ),
+                  Text(
+                    recap.rangeLabel(withYear: false),
+                    style: const TextStyle(
+                      color: Color(0xFF5C5656),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      fontFamily: kSfProRounded,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(CupertinoIcons.chevron_right, color: Color(0xFF5C5656), size: 16),
+          ],
+        ),
       ),
     );
   }

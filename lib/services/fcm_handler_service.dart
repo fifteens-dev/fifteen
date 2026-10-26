@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../screens/other_user_profile_screen.dart';
+import '../screens/weekly_recap_screen.dart';
+import 'weekly_recap_service.dart';
 import '../screens/post_detail_screen.dart';
 import 'live_activity_service.dart';
 import 'notification_service.dart';
@@ -176,6 +178,13 @@ class FCMHandlerService {
       // リアクション（いいね）は、ホームで自分のカードまで送って演出を流す。
       ReactionRevealService.instance.popToHome(navigator);
       ReactionRevealService.instance.request(postId: postId, senderId: senderId);
+    } else if (notificationType == 'weekly_recap') {
+      navigator.push(MaterialPageRoute(
+        builder: (_) => WeeklyRecapScreen(
+          weekStart: WeeklyRecapService.parseWeekKey(
+              message.data['weekStart'] as String?),
+        ),
+      ));
     } else if (postId != null && postId.isNotEmpty) {
       _navigateToPost(navigator, postId);
     } else if (actionUrl != null && actionUrl.isNotEmpty) {

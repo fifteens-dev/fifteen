@@ -11,6 +11,8 @@ import '../../widgets/primary_button.dart';
 import '../../widgets/common/app_toast.dart';
 import '../../services/live_activity_service.dart';
 import '../friend_match_screen.dart';
+import '../weekly_recap_screen.dart';
+import '../../services/weekly_recap_service.dart';
 import '../../services/friend_widget_service.dart';
 import '../../services/listening_history_service.dart';
 import '../../models/music_service_type.dart';
@@ -453,6 +455,55 @@ class _DevToolsTabState extends State<DevToolsTab> {
     );
   }
 
+  void _openWeeklyRecap(int weeksAgo) {
+    // weeksAgo: 0 = いま進行中の週, 1 = 先週（本番で表示する週）, 2 = 2 週前。
+    final lastWeek = WeeklyRecapService.lastCompletedWeekStart(DateTime.now());
+    final start = DateTime(
+        lastWeek.year, lastWeek.month, lastWeek.day - 7 * (weeksAgo - 1));
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => WeeklyRecapScreen(weekStart: start)),
+    );
+  }
+
+  /// Weekly Recap の見た目を確認するためのプレビュー。
+  ///
+  /// 本番の入口は日曜の通知と Music Memory 下のボタンで、どちらも「先週」に
+  /// 投稿がないと出ない。週を選んで直接開けるようにしてある。
+  Widget _buildWeeklyRecapPreview() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Weekly Recap',
+          style: TextStyle(
+              color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '自分の投稿で開きます。「先週」が本番で表示される週です。',
+          style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.5),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final (label, weeksAgo) in const [
+              ('今週', 0),
+              ('先週', 1),
+              ('2週前', 2),
+            ]) ...[
+              ElevatedButton(
+                onPressed: () => _openWeeklyRecap(weeksAgo),
+                child: Text(label),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ],
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
   Widget _buildArtworkDiagnostics() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -581,6 +632,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
             _buildWidgetDiagnostics(),
             _buildHistoryDiagnostics(),
             _buildFriendMatchPreview(),
+            _buildWeeklyRecapPreview(),
             _buildArtworkDiagnostics(),
 
             if (_statusMessage.isNotEmpty) ...[

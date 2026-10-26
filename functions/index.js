@@ -311,6 +311,8 @@ exports.musicMemoryDailyNotification = onSchedule(
 
 /** 写真リマインド: 投稿からこの時間が経っても写真が無ければ送る。 */
 const PHOTO_REMINDER_DELAY_MS = 60 * 60 * 1000;
+/** 送る対象は 21:00〜22:59（JST）の投稿だけ。 */
+const PHOTO_REMINDER_FIRST_HOUR = 21;
 /** この時刻（JST）以降の投稿には送らない。1時間後だと締切 24:00 に間に合わないため。 */
 const PHOTO_REMINDER_LAST_HOUR = 23;
 const PHOTO_REMINDER_TITLE = '今日の1枚も残す？📷';
@@ -318,7 +320,7 @@ const PHOTO_REMINDER_BODY = '24:00まで写真を追加できるよ。';
 
 /**
  * Music Memory に投稿したが写真を付けていない人へ、投稿の 1 時間後に
- * 写真の追加を促す（21:24 の投稿なら 22:24）。23:00 以降の投稿は対象外。
+ * 写真の追加を促す（21:24 の投稿なら 22:24）。対象は 21:00〜22:59 の投稿だけ。
  *
  * 5 分ごとに「1 時間〜1 時間 10 分前」の投稿を見る。窓を実行間隔より
  * 広く取り、取りこぼしを防ぐ。重複は `photo_reminders/{postId}` を
@@ -350,8 +352,8 @@ exports.photoReminderNotification = onSchedule(
         const createdAt = p.createdAt?.toDate?.();
         if (!createdAt || createdAt < cycleStart) continue;
         const jstHour = new Date(createdAt.getTime() + 9 * 60 * 60 * 1000).getUTCHours();
-        // 21:00 通知の後なので、ここで弾くのは 23 時台（と日付をまたいだ投稿）。
-        if (jstHour >= PHOTO_REMINDER_LAST_HOUR || jstHour < 12) continue;
+        // 21 時台・22 時台の投稿だけ。21:00 より前の遅れ投稿（前のサイクル扱い）にも送らない。
+        if (jstHour < PHOTO_REMINDER_FIRST_HOUR || jstHour >= PHOTO_REMINDER_LAST_HOUR) continue;
 
         const photoSnap = await db.collection('post_photos').doc(doc.id).get();
         if (photoSnap.exists) continue;

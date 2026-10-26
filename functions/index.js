@@ -309,6 +309,82 @@ exports.musicMemoryDailyNotification = onSchedule(
   }
 );
 
+/** 写真リマインド: 投稿からこの時間が経っても写真が無ければ送る。 */
+const PHOTO_REMINDER_DELAY_MS = 60 * 60 * 1000;
+/** この時刻（JST）以降の投稿には送らない。1時間後だと締切 24:00 に間に合わないため。 */
+const PHOTO_REMINDER_LAST_HOUR = 23;
+const PHOTO_REMINDER_TITLE = '今日の1枚も残す？📷';
+const PHOTO_REMINDER_BODY = '24:00まで写真を追加できるよ。';
+
+/**
+ * Music Memory に投稿したが写真を付けていない人へ、投稿の 1 時間後に
+ * 写真の追加を促す（21:24 の投稿なら 22:24）。23:00 以降の投稿は対象外。
+ *
+ * 5 分ごとに「1 時間〜1 時間 10 分前」の投稿を見る。窓を実行間隔より
+ * 広く取り、取りこぼしを防ぐ。重複は `photo_reminders/{postId}` を
+ * create（既にあれば失敗）で予約して防ぐ。
+ */
+exports.photoReminderNotification = onSchedule(
+  { schedule: '*/5 * * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 120 },
+  async () => {
+    const db = admin.firestore();
+    const now = Date.now();
+    const from = new Date(now - PHOTO_REMINDER_DELAY_MS - 10 * 60 * 1000);
+    const to = new Date(now - PHOTO_REMINDER_DELAY_MS);
+
+    try {
+      // 今のサイクル（今日の 21:00 通知以降）の投稿だけが写真を足せる。
+      const stateSnap = await db.doc(MM_STATE_REF_PATH).get();
+      const cycleStart = stateSnap.data()?.notifiedAt?.toDate?.();
+      if (!cycleStart) return;
+
+      const postsSnap = await db.collection('posts')
+        .where('createdAt', '>', admin.firestore.Timestamp.fromDate(from))
+        .where('createdAt', '<=', admin.firestore.Timestamp.fromDate(to))
+        .get();
+
+      let sent = 0;
+      for (const doc of postsSnap.docs) {
+        const p = doc.data();
+        if (p.isMoodPost !== true || p.isVibe === true) continue;
+        const createdAt = p.createdAt?.toDate?.();
+        if (!createdAt || createdAt < cycleStart) continue;
+        const jstHour = new Date(createdAt.getTime() + 9 * 60 * 60 * 1000).getUTCHours();
+        // 21:00 通知の後なので、ここで弾くのは 23 時台（と日付をまたいだ投稿）。
+        if (jstHour >= PHOTO_REMINDER_LAST_HOUR || jstHour < 12) continue;
+
+        const photoSnap = await db.collection('post_photos').doc(doc.id).get();
+        if (photoSnap.exists) continue;
+
+        const userSnap = await db.collection('users').doc(p.userId).get();
+        if (!userSnap.exists || userSnap.data().notifVibeEnabled === false) continue;
+
+        try {
+          await db.collection('photo_reminders').doc(doc.id).create({
+            userId: p.userId,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        } catch (_) {
+          continue; // 送信済み
+        }
+
+        await broadcastPush(db, [p.userId], {
+          title: PHOTO_REMINDER_TITLE,
+          body: PHOTO_REMINDER_BODY,
+          data: {
+            notificationType: 'photo_reminder',
+            click_action: 'FLUTTER_NOTIFICATION_CLICK',
+          },
+        });
+        sent++;
+      }
+      if (sent > 0) console.log(`photoReminderNotification: sent=${sent}`);
+    } catch (error) {
+      console.error('photoReminderNotification error:', error);
+    }
+  }
+);
+
 /**
  * プッシュ通知送信Cloud Function
  *
@@ -366,6 +442,17 @@ exports.sendPushNotification = onDocumentCreated(
       } else if (notificationType === 'follow') {
         notifTitle = 'フォロー通知';
         notifBody = `${senderUsername}があなたをフォローしました`;
+      } else if (
+        notificationType === 'like' &&
+        typeof request.body === 'string' &&
+        senderUsername &&
+        request.body.startsWith(senderUsername)
+      ) {
+        // リアクション。本文が「RyotaがあなたのChoiceに🔥」と名前込みなので、
+        // タイトルに名前を重ねない（タイトル無しならアプリ名だけが出る）。
+        // 1.6.3 以前は本文に名前が無い（「「🔥」でリアクションしました」）ので、
+        // そちらは下の else でタイトルに名前を残す。
+        notifTitle = undefined;
       } else {
         notifTitle = senderUsername;
       }
@@ -373,7 +460,7 @@ exports.sendPushNotification = onDocumentCreated(
       // プッシュ通知のペイロード
       const payload = {
         notification: {
-          title: notifTitle,
+          ...(notifTitle ? { title: notifTitle } : {}),
           body: notifBody,
         },
         data: {

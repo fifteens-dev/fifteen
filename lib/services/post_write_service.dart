@@ -400,16 +400,17 @@ class PostWriteService {
       });
 
       if (shouldNotify && postOwnerId != null && postOwnerId != userId) {
+        final senderUsername = currentUser?.username ?? 'Unknown';
         await _notificationService.createNotification(
           type: NotificationType.like, // リアクションは like 種別を再利用
           recipientId: postOwnerId!,
           senderId: userId,
-          senderUsername: currentUser?.username ?? 'Unknown',
+          senderUsername: senderUsername,
           senderIconUrl: currentUser?.profileImageUrl,
           postId: postId,
           albumArtUrl: albumArtUrl,
           trackName: trackName,
-          body: '「$emoji」でリアクションしました',
+          body: '$senderUsernameがあなたのChoiceに$emoji',
         );
         if (kDebugMode) {
           AppLog.debug('✅ リアクション通知作成: postId=$postId, emoji=$emoji, recipient=$postOwnerId');

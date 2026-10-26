@@ -7,6 +7,7 @@ import '../screens/post_detail_screen.dart';
 import 'live_activity_service.dart';
 import 'notification_service.dart';
 import 'post_service.dart';
+import 'reaction_reveal_service.dart';
 import 'auth_service.dart';
 import '../utils/app_log.dart';
 
@@ -167,6 +168,14 @@ class FCMHandlerService {
       navigator.push(MaterialPageRoute(
         builder: (_) => OtherUserProfileScreen(userId: senderId),
       ));
+    } else if (notificationType == 'like' &&
+        postId != null &&
+        postId.isNotEmpty &&
+        senderId != null &&
+        senderId.isNotEmpty) {
+      // リアクション（いいね）は、ホームで自分のカードまで送って演出を流す。
+      navigator.popUntil((route) => route.isFirst);
+      ReactionRevealService.instance.request(postId: postId, senderId: senderId);
     } else if (postId != null && postId.isNotEmpty) {
       _navigateToPost(navigator, postId);
     } else if (actionUrl != null && actionUrl.isNotEmpty) {

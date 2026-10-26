@@ -200,7 +200,7 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
   /// 招待文。プロフィールの共有シートと同じものを使うため、組み立ては
   /// [InviteStoryService] に置いてある。
   String get _shareText =>
-      InviteStoryService.shareText(inviteCode: _inviteCode);
+      InviteStoryService.shareText(inviteCode: _inviteCode, uid: _uid);
 
   /// 招待カードの QR に埋める URL。組み立ては [InviteStoryService] に置いてある
   /// （プロフィールの共有シートと同じものを使うため）。
@@ -445,37 +445,46 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
         child: CircularProgressIndicator(color: Colors.white24, strokeWidth: 2),
       );
     }
+    // 左右の余白は ListView ではなく各要素に付ける。ListView に付けると、
+    // 「知り合いかも」の横スクロールまで 16px 内側で切られ、カードが
+    // 画面の端に届かず途中で途切れて見える。
+    Widget inset(Widget child) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: child,
+        );
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 19, 16, 40),
+      padding: const EdgeInsets.fromLTRB(0, 19, 0, 40),
       children: [
-        _inviteCard(),
-        const SizedBox(height: 19),
-        // Figma 5539:11197 の書き出し（虫眼鏡＋プラス）。実寸 21×21。
-        _sectionHeader(null, '15sのリンクを共有',
-            emphasizeFirst: '15s',
-            iconAsset: 'assets/icons/sheet/search_plus.svg',
-            iconSize: const Size(21, 21)),
-        const SizedBox(height: 5),
-        _shareRow(),
-        const SizedBox(height: 22),
-        // Figma 5540:11239 の書き出し（person.2.fill）。実寸 27×18。
-        _sectionHeader(null, 'あなたの友達',
-            iconAsset: 'assets/icons/sheet/friends.svg',
-            iconSize: const Size(27, 18)),
-        const SizedBox(height: 8),
-        if (_friends.isEmpty)
-          _emptyNote('まだ友達がいません。上のリンクから招待してみましょう。')
-        else ...[
-          ...(_friendsExpanded
-                  ? _friends
-                  : _friends.take(_friendsPreviewCount))
-              .map(_friendRow),
-          if (_friends.length > _friendsPreviewCount) _friendsToggle(),
-        ],
+        ...[
+          _inviteCard(),
+          const SizedBox(height: 19),
+          // Figma 5539:11197 の書き出し（虫眼鏡＋プラス）。実寸 21×21。
+          _sectionHeader(null, '15sのリンクを共有',
+              emphasizeFirst: '15s',
+              iconAsset: 'assets/icons/sheet/search_plus.svg',
+              iconSize: const Size(21, 21)),
+          const SizedBox(height: 5),
+          _shareRow(),
+          const SizedBox(height: 22),
+          // Figma 5540:11239 の書き出し（person.2.fill）。実寸 27×18。
+          _sectionHeader(null, 'あなたの友達',
+              iconAsset: 'assets/icons/sheet/friends.svg',
+              iconSize: const Size(27, 18)),
+          const SizedBox(height: 8),
+          if (_friends.isEmpty)
+            _emptyNote('まだ友達がいません。上のリンクから招待してみましょう。')
+          else ...[
+            ...(_friendsExpanded
+                    ? _friends
+                    : _friends.take(_friendsPreviewCount))
+                .map(_friendRow),
+            if (_friends.length > _friendsPreviewCount) _friendsToggle(),
+          ],
+        ].map(inset),
         if (_suggestions.isNotEmpty) ...[
           const SizedBox(height: 22),
           const Padding(
-            padding: EdgeInsets.only(left: 10),
+            padding: EdgeInsets.only(left: 26),
             child: Text(
               '知り合いかも',
               style: TextStyle(
@@ -487,7 +496,8 @@ class _FriendAddSheetState extends State<FriendAddSheet> {
             height: 182,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 5),
+              // 先頭の位置は今まで（シートの余白 16 + 5）と同じにする。
+              padding: const EdgeInsets.symmetric(horizontal: 21),
               itemCount: _suggestions.length,
               separatorBuilder: (_, __) => const SizedBox(width: 19),
               itemBuilder: (_, i) => _suggestionCard(_suggestions[i]),

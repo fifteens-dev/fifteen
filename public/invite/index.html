@@ -162,11 +162,17 @@
         copy(true);
       });
 
-      // 既にアプリを持っている人はそのまま起動する。
+      // 既にアプリを持っている人は、招待した人のプロフィールを開く。
+      // 招待した人の uid（?u=）が無い古いリンクはアプリを起動するだけ。
+      var inviter = (new URLSearchParams(window.location.search).get('u') || '').trim();
+      var appUrl = inviter
+        ? 'fifteenapp://user/' + encodeURIComponent(inviter) +
+          (code ? '?code=' + encodeURIComponent(code) : '')
+        : 'fifteenapp://invite/' + encodeURIComponent(code);
       document.getElementById('openBtn').addEventListener('click', function (e) {
         e.preventDefault();
         copy(true);
-        window.location.href = 'fifteenapp://invite/' + encodeURIComponent(code);
+        window.location.href = appUrl;
         setTimeout(function () { window.location.href = STORE_URL; }, 1200);
       });
     })();

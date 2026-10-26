@@ -397,11 +397,15 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen>
 
     // 招待画面 → （候補が居れば）知り合いかも → ホーム の順。
     // 15s は友達が居ないと何も起きないので、まず誘ってもらう。
-    Navigator.pushReplacement(
-      context,
+    //
+    // この画面は pushReplacement で消えるので、以降の遷移は先に掴んだ
+    // navigator で行う。この State の mounted / context を見ると、
+    // 消えたあとに呼ばれる「あとで」「リンクを送信」が何もせず止まる。
+    final navigator = Navigator.of(context);
+    navigator.pushReplacement(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => OnboardingInviteScreen(
-          onDone: () => _afterInvite(candidates),
+          onDone: () => _afterInvite(navigator, candidates),
         ),
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
@@ -410,18 +414,18 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen>
   }
 
   /// 招待画面のあと。知り合いかもの候補が居れば 1 枚挟む。
-  void _afterInvite(List<FriendSuggestion> candidates) {
-    if (!mounted) return;
+  static void _afterInvite(
+      NavigatorState navigator, List<FriendSuggestion> candidates) {
+    if (!navigator.mounted) return;
     if (candidates.isEmpty) {
-      _replaceWithHome();
+      _replaceWithHome(navigator);
       return;
     }
-    Navigator.pushReplacement(
-      context,
+    navigator.pushReplacement(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => OnboardingFriendsScreen(
           suggestions: candidates,
-          onDone: _replaceWithHome,
+          onDone: () => _replaceWithHome(navigator),
         ),
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
@@ -430,9 +434,9 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen>
   }
 
   /// 視覚的にはホームが既に見えているので、遷移は瞬時に行う（スライドなし）。
-  void _replaceWithHome() {
-    Navigator.pushReplacement(
-      context,
+  static void _replaceWithHome(NavigatorState navigator) {
+    if (!navigator.mounted) return;
+    navigator.pushReplacement(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => const HomeScreen(),
         transitionDuration: Duration.zero,

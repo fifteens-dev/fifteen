@@ -14,6 +14,7 @@ import 'other_user_profile_screen.dart';
 import 'post_detail_screen.dart';
 import '../widgets/common/app_toast.dart';
 import 'batch_posts_screen.dart';
+import '../services/reaction_reveal_service.dart';
 
 /// 通知一覧画面
 class NotificationListScreen extends StatefulWidget {
@@ -1075,6 +1076,19 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         case NotificationType.comment:
         case NotificationType.post:
         case NotificationType.mention:
+          // リアクション（いいね）は、ホームで自分のカードまで送って演出を流す。
+          if (notification.type == NotificationType.like &&
+              (notification.postIds == null ||
+                  notification.postIds!.length <= 1) &&
+              notification.postId != null &&
+              notification.postId!.isNotEmpty) {
+            Navigator.of(context).popUntil((route) => route.isFirst);
+            ReactionRevealService.instance.request(
+              postId: notification.postId!,
+              senderId: notification.senderId,
+            );
+            break;
+          }
           // バッチ通知（複数postIds）→ スクロール可能な投稿リスト画面へ
           if (notification.postIds != null && notification.postIds!.length > 1) {
             await Navigator.push(

@@ -348,6 +348,11 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       return;
     }
 
+    // 写真を足せない時間（24:00 以降）の投稿では聞かない。押しても
+    // 「24:00までです」と断るだけのシートになってしまう。
+    if (!await PostPhotoService.instance.canAddPhotoNow()) return;
+    if (!ctx.mounted) return;
+
     final wantsPhoto = await PostCompleteSheet.show(ctx);
     if (wantsPhoto && ctx.mounted) {
       await AddPhotoFlow.start(ctx, postId: postId);

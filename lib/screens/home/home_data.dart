@@ -210,6 +210,8 @@ extension HomeData on _HomeScreenState {
       }
       _prefetchBacksideImages(result.posts);
       _prefetchPreviewUrls(result.posts);
+      // 投稿を読み終える前に届いたリアクション通知の依頼を、ここで流す。
+      _onReactionRevealRequested();
     } else {
       AppLog.debug('⚠️ mountedがfalseのため、setStateをスキップ');
     }

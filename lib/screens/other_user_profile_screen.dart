@@ -73,7 +73,15 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   /// 相手が自分をフォローしているか。両方立っていれば友達。
   bool _followedBy = false;
 
+  /// 自分自身を開いたか（自分の投稿カードのアイコンから来る）。
+  ///
+  /// 自分は自分をフォローしないので、そのままだと「＋ 追加」が出てしまう。
+  /// 友達と同じ見た目で自分のプロフィールを出す。
+  bool get _isMe =>
+      widget.userId == FirebaseAuth.instance.currentUser?.uid;
+
   _Relation get _relation {
+    if (_isMe) return _Relation.friend;
     if (_following && _followedBy) return _Relation.friend;
     if (_following) return _Relation.pending;
     return _Relation.none;
@@ -130,6 +138,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     try {
       final mine = FriendService.friendUidsOf(me).toSet();
       final theirs = FriendService.friendUidsOf(target);
+      // 自分のときは共通の友達＝自分の友達全員になる。ピルも「友達 N人」にする。
       final shared = [for (final u in theirs) if (mine.contains(u)) u];
       if (shared.isEmpty || !mounted) return;
 
@@ -247,7 +256,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       // ピルは共通の友達（Figma の「2人の共通」）。
       friendCount: _mutualCount,
       friendIcons: _mutualIcons,
-      pillLabel: '$_mutualCount人の共通',
+      pillLabel: _isMe ? '友達 $_mutualCount人' : '$_mutualCount人の共通',
       postCount: _posts.length,
       streakDays: _streakDays,
       topArtists: [for (final n in _topArtistNames) (name: n, artistId: null)],

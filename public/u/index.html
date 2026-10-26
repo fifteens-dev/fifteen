@@ -47,42 +47,58 @@
     .app-name { font-size: 15px; color: #8e8e93; margin-top: 4px; }
     .message { font-size: 15px; line-height: 1.7; margin-top: 24px; color: #d7d7d9; }
 
+    .code-label { font-size: 12px; color: #8e8e93; margin-top: 28px; }
+    .code {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .copied { font-size: 12px; color: #4cc764; margin-top: 8px; min-height: 16px; }
+
     .btn {
       display: block;
       width: 100%;
-      margin-top: 14px;
-      padding: 15px 16px;
-      border: none;
-      border-radius: 12px;
+      margin-top: 12px;
+      padding: 15px;
+      border-radius: 14px;
       font-size: 15px;
       font-weight: 600;
       text-decoration: none;
+      border: none;
       cursor: pointer;
+      font-family: inherit;
     }
+    .store-btn { background: #ffffff; color: #111111; margin-top: 24px; }
+    .open-btn  { background: #2c2c2e; color: #ffffff; }
+    .copy-btn  { background: transparent; color: #8e8e93; font-size: 13px; padding: 10px; }
 
-    .open-btn { background: #b7ff4a; color: #111111; margin-top: 28px; }
-    .store-btn { background: #2c2c2e; color: #ffffff; }
-
-    .hint { font-size: 12px; line-height: 1.7; color: #8e8e93; margin-top: 24px; }
+    .hint { font-size: 12px; color: #555; margin-top: 22px; line-height: 1.6; }
   </style>
 </head>
 <body>
+  <!-- 見た目は招待ページ（/invite）と揃える。 -->
   <div class="card">
     <div class="logo">15s</div>
     <div class="app-name">Fifteens</div>
 
-    <p class="message" id="message">
-      友達があなたを Fifteens に招待しました。<br>
-      アプリを開くと相手のプロフィールが見られます。
-    </p>
+    <p class="message" id="message">友達があなたを Fifteens に招待しました。</p>
 
-    <a class="btn open-btn" id="openBtn" href="#">アプリで開く</a>
+    <div id="codeBlock" style="display:none">
+      <div class="code-label">招待コード</div>
+      <div class="code" id="code">-</div>
+      <div class="copied" id="copied"></div>
+      <button class="btn copy-btn" id="copyBtn" type="button">コードをコピー</button>
+    </div>
+
     <a class="btn store-btn" id="storeBtn"
        href="https://apps.apple.com/jp/app/fifteens/id6758916042"
        target="_blank" rel="noopener">App Storeでダウンロード</a>
+    <a class="btn open-btn" id="openBtn" href="#">アプリを持っている方はこちら</a>
 
     <p class="hint" id="hint">
-      インストール後にもう一度 QR を読み取ると、相手のプロフィールが開きます。
+      アプリを持っている方は、上のボタンから相手のプロフィールが開きます。
     </p>
   </div>
 
@@ -94,7 +110,9 @@
       var segments = window.location.pathname.split('/').filter(Boolean);
       var uid = segments.length > 1 ? segments[segments.length - 1] : null;
       if (uid && uid.toLowerCase() === 'u') uid = null;
-      var code = (new URLSearchParams(window.location.search).get('code') || '').trim();
+      var code = (new URLSearchParams(window.location.search).get('code') || '')
+        .trim().toUpperCase();
+      var copiedEl = document.getElementById('copied');
 
       if (!uid) {
         document.getElementById('message').textContent =
@@ -111,24 +129,49 @@
       // 入力を省略してそのまま適用する。インストール後に戻ってこない
       // 導線（App Store 経由）でも効くよう、開いた時点でコピーしておく。
       // 拒否するブラウザもあるので、失敗しても黙って進む。
-      function copyCode() {
+      function copy(silent) {
         if (!code) return;
+        var done = function () { copiedEl.textContent = 'コードをコピーしました'; };
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(code).catch(function () {});
+          navigator.clipboard.writeText(code).then(done).catch(function () {
+            if (!silent) fallbackCopy(done);
+          });
+        } else if (!silent) {
+          fallbackCopy(done);
         }
       }
-      copyCode();
 
-      function openApp(e) {
-        if (e) e.preventDefault();
-        copyCode();
+      function fallbackCopy(done) {
+        var ta = document.createElement('textarea');
+        ta.value = code;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) { /* noop */ }
+        document.body.removeChild(ta);
+      }
+
+      if (code) {
+        document.getElementById('codeBlock').style.display = 'block';
+        document.getElementById('code').textContent = code;
+        copy(true);
+      }
+
+      document.getElementById('copyBtn').addEventListener('click', function () {
+        copy(false);
+      });
+      document.getElementById('storeBtn').addEventListener('click', function () {
+        copy(true);
+      });
+      document.getElementById('openBtn').addEventListener('click', function (e) {
+        e.preventDefault();
+        copy(true);
         window.location.href = appUrl;
         // アプリが無ければ戻ってこないので、少し待って App Store へ。
         setTimeout(function () { window.location.href = STORE_URL; }, 1200);
-      }
-
-      document.getElementById('openBtn').addEventListener('click', openApp);
-      document.getElementById('storeBtn').addEventListener('click', copyCode);
+      });
     })();
   </script>
 </body>

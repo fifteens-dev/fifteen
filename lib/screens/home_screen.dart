@@ -62,6 +62,10 @@ import '../models/track_model.dart';
 import '../tutorial/tutorial.dart';
 import 'post_flow/mood_post_final_preview_screen.dart';
 import '../utils/app_log.dart';
+import '../services/reaction_reveal_service.dart';
+import '../widgets/reaction_overlay.dart';
+import 'post_detail_screen.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 /// ホーム画面（タイムライン）
 // home/ の中身はすべて home_screen.dart の一部（part）。
@@ -81,6 +85,7 @@ part 'home/home_post_flow.dart';
 part 'home/home_build.dart';
 part 'home/home_playback.dart';
 part 'home/home_startup.dart';
+part 'home/home_reaction_reveal.dart';
 class HomeScreen extends StatefulWidget {
   final List<PostModel>? initialPosts;
   final Map<String, dynamic>? initialVibeData;
@@ -202,6 +207,11 @@ class _HomeScreenState extends State<HomeScreen>
     AppLog.debug('🏠 ホーム画面: initState()が呼ばれました');
     PostPhotoService.instance.photoAdded.addListener(_onPhotoAdded);
     PostWriteService.postCreated.addListener(_onPostCreated);
+    // リアクション通知のタップで、自分のカードまで送って演出を流す。
+    ReactionRevealService.instance.pending
+        .addListener(_onReactionRevealRequested);
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _onReactionRevealRequested());
     _vibeDataFuture = widget.initialVibeData != null
         ? Future.value(widget.initialVibeData)
         : _loadVibeData();
@@ -278,6 +288,8 @@ class _HomeScreenState extends State<HomeScreen>
   void dispose() {
     PostPhotoService.instance.photoAdded.removeListener(_onPhotoAdded);
     PostWriteService.postCreated.removeListener(_onPostCreated);
+    ReactionRevealService.instance.pending
+        .removeListener(_onReactionRevealRequested);
     PostingState.instance.removeListener(_onPostingStateChanged);
     WidgetsBinding.instance.removeObserver(this);
     _storyRefreshTimer?.cancel();

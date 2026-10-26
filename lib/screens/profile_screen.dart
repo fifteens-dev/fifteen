@@ -9,6 +9,7 @@ import '../models/post_model.dart';
 import '../models/user_model.dart';
 import '../services/friend_service.dart';
 import '../services/milfolha_service.dart';
+import '../services/laneige_service.dart';
 import '../services/music_memory_cycle_service.dart';
 import '../services/post_service.dart';
 import '../services/profile_snapshot_service.dart';
@@ -17,6 +18,7 @@ import '../utils/album_image.dart';
 import '../widgets/profile_widgets.dart';
 import 'invite_share_sheet.dart';
 import 'milfolha_ranking_screen.dart';
+import 'laneige_ranking_screen.dart';
 import 'settings_screen.dart';
 
 /// プロフィール画面（自分）— Figma 5761:12112。
@@ -68,6 +70,7 @@ class ProfileScreenState extends State<ProfileScreen> {
   final PostService _postService = PostService();
   final FriendService _friendService = FriendService();
   final MilfolhaService _milfolhaService = MilfolhaService();
+  final LaneigeService _laneigeService = LaneigeService();
 
   UserModel? _user;
   bool _loading = true;
@@ -88,6 +91,10 @@ class ProfileScreenState extends State<ProfileScreen> {
 
   /// WATERFALLS 参加中のときだけランキング導線を出す。
   bool _showMilfolhaRanking = false;
+
+  /// LANEIGE 参加中のときだけランキング導線を出す。WATERFALLS と同じ
+  /// ボタンを使い、両方に参加していれば LANEIGE（新しい方）を開く。
+  bool _showLaneigeRanking = false;
 
   String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
@@ -116,6 +123,7 @@ class ProfileScreenState extends State<ProfileScreen> {
     unawaited(_loadPosts(uid));
     unawaited(_loadFriends(uid));
     unawaited(_loadMilfolhaEntry(uid));
+    unawaited(_loadLaneigeEntry(uid));
   }
 
   Future<void> _refresh() async {
@@ -180,6 +188,18 @@ class ProfileScreenState extends State<ProfileScreen> {
       final show = active && membership?['teamId'] != null;
       if (mounted && show != _showMilfolhaRanking) {
         setState(() => _showMilfolhaRanking = show);
+      }
+    } catch (_) {/* 導線を出さないだけ */}
+  }
+
+  Future<void> _loadLaneigeEntry(String uid) async {
+    try {
+      final active = await _laneigeService.isActive();
+      final membership =
+          active ? await _laneigeService.getMembership(uid) : null;
+      final show = active && membership?['teamId'] != null;
+      if (mounted && show != _showLaneigeRanking) {
+        setState(() => _showLaneigeRanking = show);
       }
     } catch (_) {/* 導線を出さないだけ */}
   }
@@ -289,7 +309,8 @@ class ProfileScreenState extends State<ProfileScreen> {
                       artistName: p.track.artistName,
                     ),
                 ],
-                showMilfolhaRanking: _showMilfolhaRanking,
+                showMilfolhaRanking:
+                    _showMilfolhaRanking || _showLaneigeRanking,
                 onOpenShare: _openShareSheet,
                 onOpenSettings: () async {
                   await Navigator.push(
@@ -302,7 +323,9 @@ class ProfileScreenState extends State<ProfileScreen> {
                 onOpenMilfolhaRanking: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                      builder: (_) => const MilfolhaRankingScreen()),
+                      builder: (_) => _showLaneigeRanking
+                          ? const LaneigeRankingScreen()
+                          : const MilfolhaRankingScreen()),
                 ),
               ),
             ),
@@ -513,10 +536,26 @@ class ProfileView extends StatelessWidget {
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: onOpenSettings,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child:
-                    Icon(Icons.settings_outlined, color: Colors.white, size: 24),
+              // 左上の共有ボタンと同じガラス（52×45）に載せる。
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: SizedBox(
+                  width: 52,
+                  height: 45,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Image.asset(
+                        'assets/profile_v2/glass_button.png',
+                        width: 52,
+                        height: 45,
+                        fit: BoxFit.fill,
+                      ),
+                      const Icon(Icons.settings_outlined,
+                          color: Colors.white, size: 22),
+                    ],
+                  ),
+                ),
               ),
             ),
         ],

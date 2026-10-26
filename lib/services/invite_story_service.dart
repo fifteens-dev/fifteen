@@ -39,13 +39,17 @@ class InviteStoryService {
   /// App Store へ誘導される。アプリ側は起動時にそれを拾って自動で適用する。
   /// 末尾スラッシュ無し。Firebase Hosting は trailingSlash:false なので
   /// `/invite/` だと 301 を 1 回挟む（一部のメッセージアプリでプレビューが崩れる）。
-  static String inviteUrl({String? inviteCode}) =>
-      'https://fifteens-39cfe.web.app/invite?code=${inviteCode ?? ''}';
+  ///
+  /// [uid] は招待した人。ページの「アプリを持っている方はこちら」で
+  /// その人のプロフィールを開くのに使う。
+  static String inviteUrl({String? inviteCode, String? uid}) =>
+      'https://fifteens-39cfe.web.app/invite?code=${inviteCode ?? ''}'
+      '${uid != null && uid.isNotEmpty ? '&u=$uid' : ''}';
 
   /// メッセージアプリ等に流す招待文。
-  static String shareText({String? inviteCode}) =>
+  static String shareText({String? inviteCode, String? uid}) =>
       '15sで友達になろう！\n招待コード：${inviteCode ?? ''}\n'
-      '${inviteUrl(inviteCode: inviteCode)}';
+      '${inviteUrl(inviteCode: inviteCode, uid: uid)}';
 
   /// 招待カードをストーリーへ送る。開けなければ招待文をコピーして false を返す。
   ///
@@ -65,7 +69,7 @@ class InviteStoryService {
     if (ok) return true;
     // 画像は作れたが Instagram が入っていない場合もここに来る。
     await Clipboard.setData(
-      ClipboardData(text: shareText(inviteCode: inviteCode)),
+      ClipboardData(text: shareText(inviteCode: inviteCode, uid: uid)),
     );
     return false;
   }

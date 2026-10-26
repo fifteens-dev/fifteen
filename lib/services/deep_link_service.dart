@@ -166,18 +166,13 @@ class DeepLinkService {
     }
   }
 
-  /// 招待カードの QR から開かれたプロフィール。
+  /// 招待カードの QR やプロフィールリンクから開かれたプロフィール。
   ///
-  /// 自分自身の QR を読んだ場合は何もしない（他人用の画面を自分で開いても
-  /// フォローボタンなどが成立しないため）。
+  /// 自分自身のリンクでも開く（自分のアイコンを押したときと同じく、
+  /// OtherUserProfileScreen が自分用の表示に切り替える）。
   Future<void> _openProfile(String userId) async {
     if (userId == _lastHandledUserId) return;
     _lastHandledUserId = userId;
-
-    if (userId == FirebaseAuth.instance.currentUser?.uid) {
-      if (kDebugMode) AppLog.debug('DeepLinkService: 自分の QR なので開かない');
-      return;
-    }
 
     final navigator = await _waitForNavigator();
     if (navigator == null) {

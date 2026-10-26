@@ -436,12 +436,14 @@ class _MusicConnectionScreenState extends State<MusicConnectionScreen>
   /// 視覚的にはホームが既に見えているので、遷移は瞬時に行う（スライドなし）。
   static void _replaceWithHome(NavigatorState navigator) {
     if (!navigator.mounted) return;
-    navigator.pushReplacement(
+    // 電話番号認証からの画面がスタックに積まれたままなので、まとめて外す。
+    navigator.pushAndRemoveUntil(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => const HomeScreen(),
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
       ),
+      (route) => false,
     );
   }
 }

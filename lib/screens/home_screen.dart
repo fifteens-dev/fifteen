@@ -109,6 +109,8 @@ class _HomeScreenState extends State<HomeScreen>
   // ナビゲーション: 0=Music Memory(カレンダー) / 1=ホーム / 2=プロフィール。
   // 起動時はホーム(中央)を表示。
   int _selectedIndex = 1;
+  // このホームが載っている route。リアクション通知からここへ戻る。
+  Route<dynamic>? _route;
   // ホームのタイムライン表示: false=1列(既定) / true=2列グリッド。
   bool _isGridView = false;
   // 2列グリッドの拡大オーバーレイ表示中フラグ。
@@ -263,7 +265,10 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    routeObserver.subscribe(this, ModalRoute.of(context)!);
+    final route = ModalRoute.of(context)!;
+    routeObserver.subscribe(this, route);
+    _route = route;
+    ReactionRevealService.instance.attachHome(route);
   }
 
   /// 他画面から戻ったタイミングで最新データを再取得
@@ -290,6 +295,7 @@ class _HomeScreenState extends State<HomeScreen>
     PostWriteService.postCreated.removeListener(_onPostCreated);
     ReactionRevealService.instance.pending
         .removeListener(_onReactionRevealRequested);
+    ReactionRevealService.instance.detachHome(_route);
     PostingState.instance.removeListener(_onPostingStateChanged);
     WidgetsBinding.instance.removeObserver(this);
     _storyRefreshTimer?.cancel();

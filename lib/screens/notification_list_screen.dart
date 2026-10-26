@@ -1082,7 +1082,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                   notification.postIds!.length <= 1) &&
               notification.postId != null &&
               notification.postId!.isNotEmpty) {
-            Navigator.of(context).popUntil((route) => route.isFirst);
+            ReactionRevealService.instance.popToHome(Navigator.of(context));
             ReactionRevealService.instance.request(
               postId: notification.postId!,
               senderId: notification.senderId,

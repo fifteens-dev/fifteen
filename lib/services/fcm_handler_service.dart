@@ -174,7 +174,7 @@ class FCMHandlerService {
         senderId != null &&
         senderId.isNotEmpty) {
       // リアクション（いいね）は、ホームで自分のカードまで送って演出を流す。
-      navigator.popUntil((route) => route.isFirst);
+      ReactionRevealService.instance.popToHome(navigator);
       ReactionRevealService.instance.request(postId: postId, senderId: senderId);
     } else if (postId != null && postId.isNotEmpty) {
       _navigateToPost(navigator, postId);

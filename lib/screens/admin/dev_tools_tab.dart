@@ -192,6 +192,19 @@ class _DevToolsTabState extends State<DevToolsTab> {
     });
   }
 
+  /// ダミーの友達 5 人をウィジェットに流す。「更新して確認」で本物に戻る。
+  Future<void> _sendWidgetDummy() async {
+    setState(() => _widgetBusy = true);
+    await FriendWidgetService.instance.sendDummy();
+    final text = await FriendWidgetService.instance.diagnostics();
+    if (!mounted) return;
+    setState(() {
+      _widgetDiag = text;
+      _widgetBusy = false;
+    });
+    AppToast.show(context, 'ダミーを流しました（1時間は本物で上書きしません）');
+  }
+
   Widget _buildWidgetDiagnostics() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,12 +220,19 @@ class _DevToolsTabState extends State<DevToolsTab> {
           style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.5),
         ),
         const SizedBox(height: 8),
-        Row(
+        // ボタンが 3 つ並ぶと狭い端末で溢れるので折り返す。
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             ElevatedButton.icon(
               onPressed: _widgetBusy ? null : _loadWidgetDiagnostics,
               icon: const Icon(Icons.widgets_outlined, size: 18),
               label: Text(_widgetBusy ? '更新中...' : '更新して確認'),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: _widgetBusy ? null : _sendWidgetDummy,
+              child: const Text('ダミーを流す'),
             ),
             const SizedBox(width: 8),
             if (_widgetDiag != null)

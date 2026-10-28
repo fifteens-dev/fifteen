@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'friend_service.dart';
 import 'apple_music_service.dart';
+import 'itunes_search_service.dart';
 import 'live_activity_service.dart';
 import 'now_playing_share_service.dart';
 import '../utils/app_log.dart';
@@ -36,13 +37,22 @@ class FriendWidgetService {
   DateTime? _lastRun;
   static const Duration _throttle = Duration(minutes: 5);
 
+  /// ダミーを流している間は、本物の更新で上書きしない（開発者ツール用）。
+  DateTime? _dummyUntil;
+
   /// 友達の投稿をウィジェットへ反映する。
   ///
   /// 失敗してもアプリ側には影響しない（ウィジェットが前のまま残るだけ）。
+  /// [force] はダミー表示中でも本物に戻す。
   Future<void> refresh({bool force = false}) async {
     if (!Platform.isIOS) return;
 
     final now = DateTime.now();
+    if (force) {
+      _dummyUntil = null;
+    } else if (_dummyUntil != null && now.isBefore(_dummyUntil!)) {
+      return;
+    }
     if (!force && _lastRun != null && now.difference(_lastRun!) < _throttle) {
       return;
     }
@@ -60,6 +70,49 @@ class FriendWidgetService {
     } catch (e) {
       await _log('失敗: $e');
     }
+  }
+
+  /// ダミーの友達と曲をウィジェットに流す（開発者ツール用）。
+  ///
+  /// 「今聴いてる」「◯分前」「◯時間前」「◯日前」が一通り出るように時刻を
+  /// ずらしてある。Firestore には何も書かず、この端末のウィジェットだけが
+  /// 変わる。1 時間は本物の更新で上書きしない（[refresh] の force で戻せる）。
+  Future<void> sendDummy() async {
+    if (!Platform.isIOS) return;
+    final now = DateTime.now();
+    const dummies = [
+      ('Ryota', 'ゴミ人間、俺', 'ヤングスキニー', Duration.zero, true),
+      ('Nanami', 'Magnetic', 'ILLIT', Duration(minutes: 12), false),
+      ('Kenta', 'Lose Yourself', 'Eminem', Duration(hours: 3), false),
+      ('Mio', 'Pretender', 'Official髭男dism', Duration(hours: 9), false),
+      ('Sota', 'アイドル', 'YOASOBI', Duration(hours: 26), false),
+    ];
+    final itunes = ITunesSearchService();
+    final items = <_Item>[];
+    for (final (i, (name, track, artist, ago, isNow)) in dummies.indexed) {
+      String artworkUrl = '';
+      try {
+        final hits = await itunes.searchTracks('$track $artist', limit: 1);
+        if (hits.isNotEmpty) artworkUrl = hits.first.albumImageUrl;
+      } catch (_) {/* 画像が無くてもダミーとしては足りる */}
+      items.add(_Item(
+        trackName: track,
+        artistName: artist,
+        // friend_ 始まりにして、本物に戻したとき掃除されるようにする。
+        artworkId: 'friend_dummy_art_$i',
+        artworkUrl: artworkUrl,
+        // アイコンは用意しない（頭文字で出る）。
+        avatarId: 'friend_dummy_$i',
+        avatarUrl: '',
+        friendName: name,
+        service: 'appleMusic',
+        playedAt: now.subtract(ago),
+        isNow: isNow,
+      ));
+    }
+    _dummyUntil = now.add(const Duration(hours: 1));
+    await _log('ダミーを送信 ${items.length} 件');
+    await _send(items);
   }
 
   /// ウィジェットが読むファイルの中身を見る（開発者ツール用）。

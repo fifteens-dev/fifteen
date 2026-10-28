@@ -75,6 +75,24 @@ class PostCardBackProfile extends StatelessWidget {
 
   static const Color _trackArtist = Color(0xFF525252);
 
+  /// Figma の SF Pro。アプリは iOS のシステム SF Pro を 'SFPro' として
+  /// 読み込んでいる（[FontService.loadSFPro]）。
+  static const String _sfPro = 'SFPro';
+
+  /// SF Pro も同梱の SF Pro Rounded も可変フォントで、fontWeight だけでは
+  /// 太さの軸（wght）が動かず細いまま出る。Figma の数値をそのまま渡す。
+  /// SF Pro は大きさで字形が変わる軸（opsz）も持つので、iOS / Figma と
+  /// 同じく文字の大きさに合わせる（範囲は 17〜96）。
+  static List<FontVariation> _weight(double wght, {double? size}) => [
+        FontVariation('wght', wght),
+        if (size != null) FontVariation('opsz', size.clamp(17, 96).toDouble()),
+      ];
+
+  /// Figma の名前付きウェイト。
+  static const double _semibold = 590;
+  static const double _bold = 700;
+  static const double _heavy = 860;
+
   /// タイルに共通の落ち影。1 位だけ黄緑の光を足す。
   static const List<BoxShadow> _tileShadow = [
     BoxShadow(color: Color(0x2E000000), offset: Offset(0, 4), blurRadius: 12),
@@ -138,6 +156,7 @@ class PostCardBackProfile extends StatelessWidget {
           fontSize: 24,
           height: 1.2,
           fontWeight: FontWeight.w600,
+          fontVariations: _weight(_semibold),
           fontFamily: kSfProRounded,
         ),
       ),
@@ -160,6 +179,7 @@ class PostCardBackProfile extends StatelessWidget {
           fontSize: 15,
           height: 1.2,
           fontWeight: FontWeight.w600,
+          fontVariations: _weight(_semibold),
           fontFamily: kSfProRounded,
         ),
       ),
@@ -208,13 +228,14 @@ class PostCardBackProfile extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   // ピルの地色は固定の濃いグレーなので、文字は白のまま。
                   // カードの色に合わせると明るいアルバムで読めなくなる。
                   color: Colors.white,
                   fontSize: 15,
                   height: 1.2,
                   fontWeight: FontWeight.w600,
+                  fontVariations: _weight(_semibold),
                   fontFamily: kSfProRounded,
                 ),
               ),
@@ -270,6 +291,8 @@ class PostCardBackProfile extends StatelessWidget {
           height: 1.2,
           letterSpacing: fontSize * 0.01,
           fontWeight: FontWeight.w800,
+          fontVariations: _weight(_heavy, size: fontSize),
+          fontFamily: _sfPro,
           foreground: Paint()
             ..shader = LinearGradient(
               begin: Alignment.topCenter,
@@ -336,6 +359,7 @@ class PostCardBackProfile extends StatelessWidget {
               height: 1.2,
               letterSpacing: 0.12,
               fontWeight: FontWeight.w700,
+              fontVariations: _weight(_bold),
               fontFamily: kSfProRounded,
             ),
           ),
@@ -399,6 +423,8 @@ class PostCardBackProfile extends StatelessWidget {
               height: 1.2,
               letterSpacing: 0.13,
               fontWeight: FontWeight.w600,
+              fontVariations: _weight(_semibold, size: 13),
+              fontFamily: _sfPro,
             ),
           ),
         ),
@@ -417,6 +443,8 @@ class PostCardBackProfile extends StatelessWidget {
               height: 1.2,
               letterSpacing: 0.12,
               fontWeight: FontWeight.w600,
+              fontVariations: _weight(_semibold, size: 12),
+              fontFamily: _sfPro,
             ),
           ),
         ),

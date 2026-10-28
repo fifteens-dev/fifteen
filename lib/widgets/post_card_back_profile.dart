@@ -8,7 +8,7 @@ import '../models/profile_snapshot.dart';
 import '../utils/album_image.dart';
 import 'profile_widgets.dart';
 
-/// 投稿カードの裏面（Figma 5787-12995）。
+/// 投稿カードの裏面（写真がない日。Figma 6187-11425）。
 ///
 /// 投稿者の「その時点でよく聴いていた音楽」を見せる面。中身はプロフィール画面の
 /// top artists / recent choice と同じで、値は投稿時に焼き込んだ
@@ -60,7 +60,18 @@ class PostCardBackProfile extends StatelessWidget {
   static const double cardHeight = 645;
 
   static const double _tile = 105;
-  static const List<double> _tileLefts = [18, 134, 250];
+
+  /// top artists の丸タイルの左端。Figma ではグループが 17 から始まる。
+  static const List<double> _artistLefts = [17, 133, 249];
+
+  /// recent choice のジャケットの左端。
+  static const List<double> _trackLefts = [18, 134, 250];
+
+  /// 見出しの縦グラデーション。Figma は黒 → #3B3437 で、その途中の色を
+  /// 黒からの割合に直したもの（#110E10 ≒ 0.29、#241D20 ≒ 0.61）。
+  static const List<double> _headingStops = [0.289, 0.443, 0.623, 0.803];
+  static const List<double> _headingMix = [0, 0.29, 0.61, 1];
+  static const Color _headingFade = Color(0xFF3B3437);
 
   static const Color _trackArtist = Color(0xFF525252);
 
@@ -99,7 +110,7 @@ class PostCardBackProfile extends StatelessWidget {
   Widget _avatar() {
     return Positioned(
       left: 137.5,
-      top: 36,
+      top: 58,
       child: ClipOval(
         child: Container(
           width: 89,
@@ -116,7 +127,7 @@ class PostCardBackProfile extends StatelessWidget {
       // Figma の中心は 182（アイコン枠 130 + 52）。
       left: 20,
       right: 19,
-      top: 132,
+      top: 154,
       child: Text(
         name,
         maxLines: 1,
@@ -137,8 +148,8 @@ class PostCardBackProfile extends StatelessWidget {
     final handle = username;
     return Positioned(
       left: 20,
-      right: 20,
-      top: 161,
+      right: 21,
+      top: 183,
       child: Text(
         (handle == null || handle.isEmpty) ? '' : '@$handle',
         maxLines: 1,
@@ -227,23 +238,53 @@ class PostCardBackProfile extends StatelessWidget {
 
   /// 見出し（top artists / recent choice）。
   ///
-  /// 素材は白から灰へ落ちるグラデーションで、黒地の前提で書き出されている。
-  /// 地色がアルバムの色になると、明るい面では見えなくなってしまう。
-  /// そこで文字の形（アルファ）だけを使い、[foreground] で塗り直す。
-  /// 縦に薄くなる雰囲気は素材に合わせて残す。
-  Widget _heading(String asset, {required double width, required double height}) {
-    return ShaderMask(
-      blendMode: BlendMode.srcIn,
-      shaderCallback: (rect) => LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [foreground, foreground.withValues(alpha: 0.45)],
-        stops: const [0.29, 0.80],
-      ).createShader(rect),
-      child: Image(
-        image: AssetImage(asset),
-        width: width,
-        height: height,
+  /// Figma は SF Pro Heavy の文字に、上から下へ少し明るくなる
+  /// グラデーションと落ち影を付けている。黒地の色はそのまま、
+  /// 地色に合わせて [foreground] から同じ割合で薄めていく
+  /// （foreground が黒なら Figma と同じ色になる）。
+  ///
+  /// [centerX] を中心に置き、幅は切らない（recent choice はカードより
+  /// 広く、両端がカードの縁で切れるのが Figma 通り）。
+  Widget _heading(
+    String text, {
+    required double top,
+    required double centerX,
+    required double fontSize,
+  }) {
+    final lineHeight = fontSize * 1.2;
+    final colors = [
+      for (final t in _headingMix) Color.lerp(foreground, _headingFade, t)!,
+    ];
+    return Positioned(
+      left: centerX - 300,
+      width: 600,
+      top: top,
+      child: Text(
+        text,
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.visible,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: fontSize,
+          height: 1.2,
+          letterSpacing: fontSize * 0.01,
+          fontWeight: FontWeight.w800,
+          foreground: Paint()
+            ..shader = LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: colors,
+              stops: _headingStops,
+            ).createShader(Rect.fromLTWH(0, 0, 600, lineHeight)),
+          shadows: const [
+            Shadow(
+              color: Color(0x38000000),
+              offset: Offset(0, 6),
+              blurRadius: 18,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -253,21 +294,11 @@ class PostCardBackProfile extends StatelessWidget {
   List<Widget> _topArtists() {
     final artists = snapshot.topArtists;
     return [
-      // 見出しは書き出し素材をそのまま使う（4x）。位置は Figma の
-      // 書き出し（Frame 840）と重ね合わせて割り出した実測値。
-      Positioned(
-        left: 25,
-        top: 248.5,
-        child: _heading(
-          'assets/card_back/title_top_artists.png',
-          width: 322.75,
-          height: 82,
-        ),
-      ),
+      _heading('top artists', top: 212, centerX: 185.5, fontSize: 60),
       for (var i = 0; i < 3; i++) ...[
         Positioned(
-          left: _tileLefts[i],
-          top: 295,
+          left: _artistLefts[i],
+          top: 261,
           child: Container(
             width: _tile,
             height: _tile,
@@ -291,8 +322,8 @@ class PostCardBackProfile extends StatelessWidget {
         // 順位の数字。タイルに重なるので後に描く。
         _rankNumeral(i),
         Positioned(
-          left: _tileLefts[i] - 12,
-          top: 415,
+          left: _artistLefts[i] - 12,
+          top: 381,
           width: _tile + 24,
           child: Text(
             i < artists.length ? artists[i].name : '',
@@ -313,29 +344,22 @@ class PostCardBackProfile extends StatelessWidget {
     ];
   }
 
-  /// 順位の数字。プロフィール画面と同じ素材を使う。
-  /// 素材は 4x なので高さ = canvas/4、下端をベースライン（399）に揃える。
-  ///
-  /// 素材は白抜きで、見出しと同じく黒地の前提。明るいアルバム色の上では
-  /// 消えてしまうので、形だけ使って [foreground] で塗り直す。
+  /// 順位の数字。プロフィール画面と同じ白抜きの素材を、Figma 通り白のまま使う。
+  /// 素材は 4x なので高さ = canvas/4、下端をベースライン（365）に揃える。
+  /// ベースラインは Figma の数字（60px、上端 308）から求めた値で、
+  /// タイルの下端（261 + 105 = 366）とほぼ同じ。
   Widget _rankNumeral(int index) {
     const heights = [178 / 4, 181 / 4, 184 / 4];
-    const centers = [113.0, 226.0, 335.0];
+    const centers = [112.0, 225.0, 334.0];
     final h = heights[index];
     return Positioned(
       left: centers[index] - 40,
-      top: 399 - h,
+      top: 365 - h,
       width: 80,
       child: Center(
-        child: ShaderMask(
-          blendMode: BlendMode.srcIn,
-          shaderCallback: (rect) =>
-              LinearGradient(colors: [foreground, foreground])
-                  .createShader(rect),
-          child: Image.asset(
-            'assets/profile_v2/rank_${index + 1}.png',
-            height: h,
-          ),
+        child: Image.asset(
+          'assets/profile_v2/rank_${index + 1}.png',
+          height: h,
         ),
       ),
     );
@@ -346,20 +370,12 @@ class PostCardBackProfile extends StatelessWidget {
   List<Widget> _recentChoice() {
     final tracks = snapshot.recentTracks;
     return [
-      // 左右はカード幅いっぱいで、素材の時点で両端が切れている（Figma も同じ）。
-      Positioned(
-        left: 0,
-        top: 440,
-        child: _heading(
-          'assets/card_back/title_recent_choice.png',
-          width: 363,
-          height: 68.5,
-        ),
-      ),
+      // カードより広く、両端が縁で切れる（Figma も同じ）。
+      _heading('recent choice', top: 410, centerX: 181.5, fontSize: 55),
       for (var i = 0; i < 3; i++) ...[
         Positioned(
-          left: _tileLefts[i],
-          top: 485,
+          left: _trackLefts[i],
+          top: 457,
           child: Container(
             width: _tile,
             height: _tile,
@@ -369,8 +385,8 @@ class PostCardBackProfile extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: _tileLefts[i] - 12,
-          top: 599,
+          left: _trackLefts[i] - 12,
+          top: 571,
           width: _tile + 24,
           child: Text(
             i < tracks.length ? tracks[i].trackName : '',
@@ -387,8 +403,8 @@ class PostCardBackProfile extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: _tileLefts[i] - 12,
-          top: 618,
+          left: _trackLefts[i] - 12,
+          top: 590,
           width: _tile + 24,
           child: Text(
             i < tracks.length ? tracks[i].artistName : '',

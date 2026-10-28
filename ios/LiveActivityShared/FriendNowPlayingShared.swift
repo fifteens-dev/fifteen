@@ -18,6 +18,11 @@ public struct FriendNowPlaying: Codable, Hashable {
     public var friendName: String
     /// 音楽サービス（"appleMusic" / "spotify"）。右上のバッジに使う。
     public var service: String?
+    /// 最後に聴いていたと分かっている時刻。「◯時間前」の元。
+    /// 古いアプリが書いたファイルには無いので optional。
+    public var playedAt: Date?
+    /// 書き出した時点で今まさに聴いていたか。
+    public var isNow: Bool?
 
     public init(
         trackName: String,
@@ -25,7 +30,9 @@ public struct FriendNowPlaying: Codable, Hashable {
         artworkId: String?,
         avatarId: String?,
         friendName: String,
-        service: String?
+        service: String?,
+        playedAt: Date? = nil,
+        isNow: Bool? = nil
     ) {
         self.trackName = trackName
         self.artistName = artistName
@@ -33,6 +40,8 @@ public struct FriendNowPlaying: Codable, Hashable {
         self.avatarId = avatarId
         self.friendName = friendName
         self.service = service
+        self.playedAt = playedAt
+        self.isNow = isNow
     }
 }
 

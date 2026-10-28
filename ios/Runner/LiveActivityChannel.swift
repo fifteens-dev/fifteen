@@ -174,7 +174,10 @@ final class LiveActivityChannel: NSObject {
             let avatar = item.avatarId.map {
                 MusicMemoryShared.hasUsableArtwork(id: $0) ? "アイコンあり" : "アイコンなし"
             } ?? "ID なし"
-            return "\(item.friendName): \(item.trackName) / \(item.artistName) [\(art), \(avatar)]"
+            let when = item.playedAt.map {
+                (item.isNow == true ? "今 " : "") + "\($0)"
+            } ?? "時刻なし"
+            return "\(item.friendName): \(item.trackName) / \(item.artistName) [\(art), \(avatar), \(when)]"
         }
         if let dir = MusicMemoryShared.sharedDirectory {
             let path = dir.appendingPathComponent("friend_now_playing.json").path
@@ -214,7 +217,11 @@ final class LiveActivityChannel: NSObject {
                 artworkId: store("artworkId", "artworkBytes"),
                 avatarId: store("avatarId", "avatarBytes"),
                 friendName: entry["friendName"] as? String ?? "",
-                service: entry["service"] as? String
+                service: entry["service"] as? String,
+                playedAt: (entry["playedAt"] as? Double).map {
+                    Date(timeIntervalSince1970: $0)
+                },
+                isNow: entry["isNow"] as? Bool
             ))
         }
 

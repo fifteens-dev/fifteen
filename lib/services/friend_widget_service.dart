@@ -10,14 +10,14 @@ import 'live_activity_service.dart';
 import 'now_playing_share_service.dart';
 import '../utils/app_log.dart';
 
-/// ホーム画面ウィジェット「友達が今聴いてる曲」へデータを渡す。
+/// ホーム画面ウィジェット「友達の1曲」へデータを渡す。
 ///
-/// 友達が**今 Apple Music で再生している曲**を集めて App Group のファイルへ
-/// 書き出す。ウィジェット側は更新のたびに次の 1 人へ送る。
+/// 友達が**今、または最近 Apple Music で聴いた曲**を集めて App Group の
+/// ファイルへ書き出す。ウィジェット側は更新のたびに次の 1 人へ送り、
+/// 「今」か「◯時間前」かを添えて出す。
 ///
 /// 友達の端末の再生状態を直接知る API は無いので、各自が自分のぶんを
 /// Firestore に書いたものを読む（[NowPlayingShareService]）。
-/// 報告が古い人は「聴いていない」として出さない。
 ///
 /// 画像（アルバムアート・友達のアイコン）は Live Activity と同じ置き場に
 /// 入れる。既に持っているものは送らないので、毎回ダウンロードし直さない。
@@ -99,7 +99,7 @@ class FriendWidgetService {
     } catch (_) {/* ログが出せなくても本体は続ける */}
   }
 
-  /// 友達が今 Apple Music で聴いている曲を集める。
+  /// 友達が今、または最近 Apple Music で聴いた曲を集める。
   Future<List<_Item>> _collect(String uid) async {
     final friends = await _friendService.loadFriends(uid);
     if (friends.isEmpty) {
@@ -111,11 +111,13 @@ class FriendWidgetService {
     final playing = await NowPlayingShareService.instance
         .fetch(byUid.keys.toList());
 
-    // 報告が新しい順。「今」に近い人から見せる。
+    // 聴いた時刻が新しい順。「今」に近い人から見せる。
     final entries = playing.entries.toList()
-      ..sort((a, b) => b.value.updatedAt.compareTo(a.value.updatedAt));
+      ..sort((a, b) => b.value.playedAt.compareTo(a.value.playedAt));
 
-    await _log('友達 ${friends.length} 人 / 再生中 ${entries.length} 人');
+    final nowCount = entries.where((e) => e.value.isNow).length;
+    await _log('友達 ${friends.length} 人 / 再生中 $nowCount 人 / '
+        '最近聴いた ${entries.length} 人');
 
     return [
       for (final e in entries.take(_maxItems))
@@ -137,6 +139,8 @@ class FriendWidgetService {
                 : (user.username ?? ''),
             // 共有しているのは Apple Music の再生状態だけ。
             service: 'appleMusic',
+            playedAt: e.value.playedAt,
+            isNow: e.value.isNow,
           ),
     ];
   }
@@ -185,6 +189,9 @@ class FriendWidgetService {
         'artworkId': item.artworkId,
         'avatarId': item.avatarId,
         if (item.service != null) 'service': item.service,
+        // ウィジェット側で表示の瞬間に「◯分前」を数え直すため、時刻で渡す。
+        'playedAt': item.playedAt.millisecondsSinceEpoch / 1000,
+        'isNow': item.isNow,
       };
       if (missing.contains(item.artworkId)) {
         final bytes = await LiveActivityService().downloadImage(item.artworkUrl);
@@ -212,6 +219,8 @@ class _Item {
   final String avatarUrl;
   final String friendName;
   final String? service;
+  final DateTime playedAt;
+  final bool isNow;
 
   const _Item({
     required this.trackName,
@@ -222,5 +231,7 @@ class _Item {
     required this.avatarUrl,
     required this.friendName,
     required this.service,
+    required this.playedAt,
+    required this.isNow,
   });
 }

@@ -14,7 +14,10 @@ import '../utils/app_log.dart';
 ///
 /// つまり「今」は厳密には「その人の端末が最後に報告した時点」。古い情報を
 /// 「今聴いている」として出すと嘘になるので、[freshness] を過ぎたものは
-/// 聴いていない扱いにする。
+/// 「今」とは言わず、「◯時間前に聴いた」として扱う。
+///
+/// 止めたあとも直前の曲は `last*` に残す（`trackName` などは再生中だけ）。
+/// これで「今」聴いている人がいなくても、最近聴いた曲を出せる。
 ///
 /// 書き込みはアプリを開いたときに加えて、バックグラウンド更新からも行う
 /// （[BackgroundRefreshService]）。
@@ -31,6 +34,9 @@ class NowPlayingShareService {
   /// 「今」と言うことになる。その折り合いで 30 分にしている。
   static const Duration freshness = Duration(minutes: 30);
 
+  /// 最近聴いた曲として出す範囲。これより前のものは出さない。
+  static const Duration recentWindow = Duration(hours: 24);
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   /// 自分の再生状態を書き込む。再生していなければ「停止」として書く。
@@ -45,25 +51,34 @@ class NowPlayingShareService {
       final np = await NowPlayingService().getNowPlaying(includeArtwork: false);
       final playing = np != null && np.isPlaying && np.title.isNotEmpty;
 
+      // merge で書き、止めたときは last* を消さずに残す。
       await _firestore.collection(_collection).doc(uid).set({
         'isPlaying': playing,
         'trackName': playing ? np.title : null,
         'artistName': playing ? np.artist : null,
         'storeId': playing ? np.storeId : null,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+        if (playing) ...{
+          'lastTrackName': np.title,
+          'lastArtistName': np.artist,
+          'lastStoreId': np.storeId,
+          'lastPlayedAt': FieldValue.serverTimestamp(),
+        },
+      }, SetOptions(merge: true));
     } catch (e) {
       if (kDebugMode) AppLog.debug('NowPlayingShare.publish error: $e');
     }
   }
 
-  /// 友達たちの再生状態を読む。[freshness] を過ぎたものは返さない。
+  /// 友達たちの今の曲、または最近聴いた曲を読む。
   ///
-  /// 返すのは uid → 曲。聴いていない人・報告が古い人は含まれない。
+  /// 返すのは uid → 曲。[recentWindow] より前にしか聴いていない人は含まれない。
   Future<Map<String, NowPlayingEntry>> fetch(List<String> uids) async {
     if (uids.isEmpty) return const {};
 
-    final cutoff = DateTime.now().subtract(freshness);
+    final now = DateTime.now();
+    final nowCutoff = now.subtract(freshness);
+    final recentCutoff = now.subtract(recentWindow);
     final out = <String, NowPlayingEntry>{};
 
     // whereIn は 30 件まで。
@@ -75,27 +90,50 @@ class NowPlayingShareService {
             .where(FieldPath.documentId, whereIn: chunk)
             .get();
         for (final doc in snap.docs) {
-          final d = doc.data();
-          if (d['isPlaying'] != true) continue;
-
-          final at = (d['updatedAt'] as Timestamp?)?.toDate();
-          if (at == null || at.isBefore(cutoff)) continue;
-
-          final name = d['trackName'];
-          if (name is! String || name.isEmpty) continue;
-
-          out[doc.id] = NowPlayingEntry(
-            trackName: name,
-            artistName: d['artistName'] is String ? d['artistName'] as String : '',
-            storeId: d['storeId'] is String ? d['storeId'] as String : null,
-            updatedAt: at,
-          );
+          final entry = _entryFrom(doc.data(), nowCutoff);
+          if (entry == null || entry.playedAt.isBefore(recentCutoff)) continue;
+          out[doc.id] = entry;
         }
       } catch (e) {
         if (kDebugMode) AppLog.debug('NowPlayingShare.fetch chunk failed: $e');
       }
     }
     return out;
+  }
+
+  /// 1 人ぶんの文書から曲を取り出す。
+  ///
+  /// 再生中で報告が新しければ「今」。そうでなければ最後に聴いた曲と時刻。
+  /// last* が無い文書（古いアプリが書いたもの）は、再生中の報告だけを使う。
+  static NowPlayingEntry? _entryFrom(
+      Map<String, dynamic> d, DateTime nowCutoff) {
+    String? str(String key) {
+      final v = d[key];
+      return v is String && v.isNotEmpty ? v : null;
+    }
+
+    final updatedAt = (d['updatedAt'] as Timestamp?)?.toDate();
+    final playingName = str('trackName');
+    if (d['isPlaying'] == true && playingName != null && updatedAt != null) {
+      return NowPlayingEntry(
+        trackName: playingName,
+        artistName: str('artistName') ?? '',
+        storeId: str('storeId'),
+        playedAt: updatedAt,
+        isNow: !updatedAt.isBefore(nowCutoff),
+      );
+    }
+
+    final lastName = str('lastTrackName');
+    final lastAt = (d['lastPlayedAt'] as Timestamp?)?.toDate();
+    if (lastName == null || lastAt == null) return null;
+    return NowPlayingEntry(
+      trackName: lastName,
+      artistName: str('lastArtistName') ?? '',
+      storeId: str('lastStoreId'),
+      playedAt: lastAt,
+      isNow: false,
+    );
   }
 }
 
@@ -107,12 +145,17 @@ class NowPlayingEntry {
   /// Apple Music のカタログ ID。アートワークを引くのに使う。
   final String? storeId;
 
-  final DateTime updatedAt;
+  /// 最後に聴いていたと分かっている時刻。
+  final DateTime playedAt;
+
+  /// 今まさに聴いている（報告が [NowPlayingShareService.freshness] 以内）。
+  final bool isNow;
 
   const NowPlayingEntry({
     required this.trackName,
     required this.artistName,
     required this.storeId,
-    required this.updatedAt,
+    required this.playedAt,
+    required this.isNow,
   });
 }

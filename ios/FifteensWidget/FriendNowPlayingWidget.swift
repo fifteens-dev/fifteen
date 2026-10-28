@@ -1,10 +1,11 @@
 import SwiftUI
 import WidgetKit
 
-/// ホーム画面ウィジェット「友達が今聴いてる曲」（Figma 5761-11798）。
+/// ホーム画面ウィジェット「友達の1曲」（Figma 5761-11798）。
 ///
 /// アプリが App Group に書いた [FriendNowPlaying] を読んで出す。1 人ずつ
-/// 表示し、更新のたびに次の友達へ送る。誰も聴いていなければその旨を出す。
+/// 表示し、更新のたびに次の友達へ送る。「今」聴いている人は少ないので、
+/// 最近聴いた曲も「◯時間前」を添えて出す。誰もいなければその旨を出す。
 ///
 /// 背景はすりガラス。iOS 17 以降は `containerBackground` を付けないと
 /// ホーム画面のウィジェットが表示されないため、必ず指定する。
@@ -16,7 +17,7 @@ struct FriendNowPlayingWidget: Widget {
             FriendNowPlayingView(entry: entry)
         }
         .configurationDisplayName("友達の1曲")
-        .description("友達が今 Apple Music で聴いている曲を表示します。")
+        .description("友達が最近 Apple Music で聴いた曲を表示します。")
         .supportedFamilies([.systemSmall])
     }
 }
@@ -95,7 +96,7 @@ struct FriendNowPlayingView: View {
 
     /// Figma: 164×164 の中に アート 85（左上 18,18）、
     /// サービスバッジ 35（111,18）、友達アイコン 35（111,65）、
-    /// 曲名 13pt（18,111）、アーティスト 11pt。
+    /// 曲名 13pt（18,111）、アーティスト 11pt。その下に聴いた時刻 10pt。
     private func filled(_ item: FriendNowPlaying) -> some View {
         GeometryReader { geo in
             // 164 を基準にした比率で置く（Small の実寸は端末で変わる）。
@@ -120,6 +121,12 @@ struct FriendNowPlayingView: View {
                         .font(.system(size: 11 * s))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    if let when = whenLabel(item) {
+                        Text(when)
+                            .font(.system(size: 10 * s, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 .offset(x: 18 * s, y: 111 * s)
                 .frame(width: 128 * s, alignment: .leading)
@@ -132,13 +139,31 @@ struct FriendNowPlayingView: View {
             Image(systemName: "music.note")
                 .font(.system(size: 22))
                 .foregroundStyle(.secondary)
-            Text("友達は音楽を聴いていません。")
+            Text("最近音楽を聴いた友達はいません。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(12)
+    }
+
+    /// 「今聴いてる」か「◯分前 / ◯時間前」。
+    ///
+    /// 表示する瞬間（entry.date）から数える。Timeline は先の時刻の分まで
+    /// 積んであるので、Date() ではなく entry.date を使う。
+    /// 「今」は書き出した時点の話なので、そこから 30 分を過ぎたら
+    /// 経過時間の表示に切り替える（アプリ側の鮮度と同じ 30 分）。
+    private func whenLabel(_ item: FriendNowPlaying) -> String? {
+        guard let playedAt = item.playedAt else { return nil }
+        let elapsed = max(0, entry.date.timeIntervalSince(playedAt))
+        if item.isNow == true && elapsed < 30 * 60 { return "今聴いてる" }
+        let minutes = Int(elapsed / 60)
+        if minutes < 1 { return "たった今" }
+        if minutes < 60 { return "\(minutes)分前" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)時間前" }
+        return "\(hours / 24)日前"
     }
 
     private func artwork(_ item: FriendNowPlaying, side: CGFloat) -> some View {

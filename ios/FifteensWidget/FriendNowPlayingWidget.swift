@@ -19,6 +19,10 @@ struct FriendNowPlayingWidget: Widget {
         .configurationDisplayName("友達の1曲")
         .description("友達が最近 Apple Music で聴いた曲を表示します。")
         .supportedFamilies([.systemSmall])
+        // iOS 17 以降は OS が周りに余白（約 16pt）を足す。Figma の座標は
+        // ウィジェットの縁から測った値（余白 18 込み）なので、OS の余白を
+        // 外さないと、その内側でさらに縮んで小さく見える。
+        .contentMarginsDisabled()
     }
 }
 
@@ -74,7 +78,17 @@ struct FriendNowPlayingView: View {
 
     @ViewBuilder
     var body: some View {
-        if #available(iOS 17.0, *) {
+        if #available(iOS 26.0, *) {
+            // 【試験】iOS 26 のガラス（glassEffect）を背景に敷く。
+            // ウィジェットは前もって絵として描かれるので、後ろの壁紙が
+            // 透けずにただのグレーになるかもしれない。実機で確かめ、
+            // だめならアルバムアートのぼかしに切り替える。
+            // ホーム画面が「クリア」表示のときは、OS がこの背景を外して
+            // 自前のガラスにする。
+            content.containerBackground(for: .widget) {
+                Color.clear.glassEffect(.regular, in: Rectangle())
+            }
+        } else if #available(iOS 17.0, *) {
             // iOS 17 以降はこれが無いとホーム画面に出ない。
             // すりガラスは自前で敷かず、システムのマテリアルに任せる。
             content.containerBackground(for: .widget) { Color.clear }
@@ -171,7 +185,9 @@ struct FriendNowPlayingView: View {
             if let id = item.artworkId,
                let data = MusicMemoryShared.artworkData(for: id),
                let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFill()
+                Image(uiImage: image).resizable()
+                    .fullColorWhenAccented()
+                    .scaledToFill()
             } else {
                 ZStack {
                     Color.primary.opacity(0.1)
@@ -190,7 +206,9 @@ struct FriendNowPlayingView: View {
             if let id = item.avatarId,
                let data = MusicMemoryShared.artworkData(for: id),
                let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFill()
+                Image(uiImage: image).resizable()
+                    .fullColorWhenAccented()
+                    .scaledToFill()
             } else {
                 ZStack {
                     Color.primary.opacity(0.15)
@@ -219,6 +237,19 @@ struct FriendNowPlayingView: View {
         switch service {
         case "spotify": return Color(red: 0.11, green: 0.73, blue: 0.33)
         default: return Color(red: 0.98, green: 0.19, blue: 0.36) // Apple Music
+        }
+    }
+}
+
+private extension Image {
+    /// ホーム画面が「クリア」「色合い」表示のとき、OS は画像を単色に
+    /// 塗り替える。アルバムアートと友達のアイコンはカラーのまま出す。
+    @ViewBuilder
+    func fullColorWhenAccented() -> some View {
+        if #available(iOS 18.0, *) {
+            self.widgetAccentedRenderingMode(.fullColor)
+        } else {
+            self
         }
     }
 }

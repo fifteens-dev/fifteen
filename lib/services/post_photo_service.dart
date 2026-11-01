@@ -10,15 +10,12 @@ import 'music_memory_cycle_service.dart';
 import 'storage_service.dart';
 import '../utils/app_log.dart';
 
-/// 投稿に添える写真。**本人しか見られない**。
+/// 投稿に添える写真。カードの裏面に出す。
 ///
-/// ## なぜ posts に入れないか
-/// posts は `allow list: if isAuthenticated()` で、ログインしていれば一覧を
-/// 引ける。photoUrl を posts に入れると、URL を読めてしまう以上「非公開」に
-/// ならない。そこで `post_photos/{postId}` に分け、ルールで本人だけに絞る。
-///
-/// 写真そのものは Storage に置く。URL を知られても困らないよう、パスに
-/// 推測しにくい postId を使い、Storage 側のルールでも本人に限定する。
+/// 以前は本人しか見られなかったので `post_photos/{postId}` に分けてある。
+/// 2026-11-02 から他の人にも見せるようにした（postId 指定の 1 件取得は
+/// ログインしていれば可、一覧は自分のぶんだけ）。投稿側には付いたことだけを
+/// `hasPhoto` で書く（カメラマーク用）。
 class PostPhotoService {
   PostPhotoService._();
   static final PostPhotoService instance = PostPhotoService._();
@@ -28,10 +25,10 @@ class PostPhotoService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final StorageService _storage = StorageService();
 
-  /// 写真を足せる時間帯か（投稿した日の 24:00 まで）。
+  /// 写真を足せる時間帯か（28:00 = 翌 4:00 まで）。
   ///
-  /// 24 時を過ぎたら投稿はできても写真は足せない。境界は投稿と同じ
-  /// [MusicMemoryCycleService] の締切を使う。
+  /// 28 時を過ぎたら投稿はできても写真は足せない。28 時を過ぎてから
+  /// 投稿した人は、その時点でもう締切後なので自然に足せない。
   ///
   /// 通知時刻が未取得なら取りに行く。アプリを開いた直後は未取得で、
   /// そのまま見ると締切が不明＝「追加できない」になってしまう
@@ -39,7 +36,7 @@ class PostPhotoService {
   Future<bool> canAddPhotoNow() async {
     final cycle = MusicMemoryCycleService();
     if (cycle.notifiedAt == null) await cycle.fetchNotifiedAt();
-    final deadline = cycle.currentDeadline;
+    final deadline = cycle.currentPhotoDeadline;
     if (deadline == null) return false;
     return DateTime.now().isBefore(deadline);
   }
@@ -47,7 +44,7 @@ class PostPhotoService {
   /// 取りに行かずに判定する。既に取得済みの前提で、描画のたびに
   /// 呼ばれる場所（カードのバーを出すか）で使う。
   bool get canAddPhotoNowSync {
-    final deadline = MusicMemoryCycleService().currentDeadline;
+    final deadline = MusicMemoryCycleService().currentPhotoDeadline;
     if (deadline == null) return false;
     return DateTime.now().isBefore(deadline);
   }
@@ -88,7 +85,7 @@ class PostPhotoService {
         imageBytes: processed,
         userId: uid,
         storageService: _storage,
-        // 本人しか見られない写真なので、公開画像とは別のパスに置く。
+        // 以前は本人だけの写真だったので別のパス（private_photos）に置いている。
         private: true,
         alreadyCompressed: true,
       );
@@ -102,6 +99,11 @@ class PostPhotoService {
         'height': height,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      // 付いたことを投稿にも書く（グループ画面のカメラマーク用）。
+      await _firestore
+          .collection('posts')
+          .doc(postId)
+          .update({'hasPhoto': true}).catchError((_) {});
       _cache = null; // 次の取得で入れ直す
       photoAdded.value = {...photoAdded.value, postId};
       return true;
@@ -111,8 +113,7 @@ class PostPhotoService {
     }
   }
 
-  /// 自分の投稿に付いている写真の URL を引く。
-  /// 他人の投稿を渡してもルールで弾かれ、null が返る。
+  /// 投稿に付いている写真の URL を引く（他人の投稿も可）。無ければ null。
   Future<String?> photoUrl(String postId) async {
     try {
       final doc = await _firestore.collection(_collection).doc(postId).get();

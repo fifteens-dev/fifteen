@@ -1,0 +1,13 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="17" height="17" viewBox="0 0 17 17" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Frame 927">
+<circle id="Ellipse 124" cx="8.5" cy="8.5" r="8.5" fill="black" fill-opacity="0.7"/>
+<g id="Camera" clip-path="url(#clip0_0_18)">
+<path id="Icon" d="M12.625 11.125C12.625 11.3239 12.546 11.5147 12.4053 11.6553C12.2647 11.796 12.0739 11.875 11.875 11.875H5.125C4.92609 11.875 4.73532 11.796 4.59467 11.6553C4.45402 11.5147 4.375 11.3239 4.375 11.125V7C4.375 6.80109 4.45402 6.61032 4.59467 6.46967C4.73532 6.32902 4.92609 6.25 5.125 6.25H6.625L7.375 5.125H9.625L10.375 6.25H11.875C12.0739 6.25 12.2647 6.32902 12.4053 6.46967C12.546 6.61032 12.625 6.80109 12.625 7V11.125ZM10 8.875C10 9.70343 9.32843 10.375 8.5 10.375C7.67157 10.375 7 9.70343 7 8.875C7 8.04657 7.67157 7.375 8.5 7.375C9.32843 7.375 10 8.04657 10 8.875Z" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round" stroke="white"/>
+</g>
+</g>
+<defs>
+<clipPath id="clip0_0_18">
+<rect width="9" height="9" fill="white" transform="translate(4 4)"/>
+</clipPath>
+</defs>
+</svg>

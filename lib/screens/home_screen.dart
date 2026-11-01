@@ -65,6 +65,9 @@ import '../utils/app_log.dart';
 import '../services/reaction_reveal_service.dart';
 import '../widgets/reaction_overlay.dart';
 import 'post_detail_screen.dart';
+import 'group_screen.dart';
+import '../services/post_flow_request.dart';
+import '../widgets/home/group_home_view.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
 /// ホーム画面（タイムライン）
@@ -109,6 +112,17 @@ class _HomeScreenState extends State<HomeScreen>
   // ナビゲーション: 0=Music Memory(カレンダー) / 1=ホーム / 2=プロフィール。
   // 起動時はホーム(中央)を表示。
   int _selectedIndex = 1;
+
+  /// 新しいホーム（グループ一覧、Figma 6206:11652 / 6275:12082）を使うか。
+  ///
+  /// 新しいホームにはボトムナビが無く、Music Memory とプロフィールは右上の
+  /// ボタンから開く。旧タイムラインは置き換えが済むまで残してあり、false に
+  /// すれば元に戻る。
+  static const bool _useGroupHome = true;
+
+  /// 投稿フローを開いている最中か。通知タップと起動時の自動表示が重なって
+  /// 二重に開かないようにする。
+  bool _postFlowBusy = false;
   // このホームが載っている route。リアクション通知からここへ戻る。
   Route<dynamic>? _route;
   // ホームのタイムライン表示: false=1列(既定) / true=2列グリッド。
@@ -199,7 +213,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// 自分の投稿のうち、既に写真が付いているもの。バーを出すかの判定に使う。
   Set<String> _postsWithPhoto = {};
 
-  /// 今が写真を足せる時間帯か（24:00 まで）。
+  /// 今が写真を足せる時間帯か（28:00 まで）。
   /// 判定には通知時刻が要るので、取得できてから立てる。
   bool _canAddPhoto = false;
 
@@ -214,6 +228,10 @@ class _HomeScreenState extends State<HomeScreen>
         .addListener(_onReactionRevealRequested);
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _onReactionRevealRequested());
+    // つつかれた通知のタップ・グループ画面の自分の枠から、投稿画面を開く。
+    PostFlowRequest.instance.addListener(_onPostFlowRequested);
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _onPostFlowRequested());
     _vibeDataFuture = widget.initialVibeData != null
         ? Future.value(widget.initialVibeData)
         : _loadVibeData();
@@ -296,6 +314,7 @@ class _HomeScreenState extends State<HomeScreen>
     ReactionRevealService.instance.pending
         .removeListener(_onReactionRevealRequested);
     ReactionRevealService.instance.detachHome(_route);
+    PostFlowRequest.instance.removeListener(_onPostFlowRequested);
     PostingState.instance.removeListener(_onPostingStateChanged);
     WidgetsBinding.instance.removeObserver(this);
     _storyRefreshTimer?.cancel();
@@ -406,6 +425,9 @@ class _HomeScreenState extends State<HomeScreen>
                 // index 0: Music Memory（カレンダー）
                 _buildMusicMemoryTab(),
                 // index 1: ホーム
+                if (_useGroupHome)
+                  _buildGroupHome()
+                else
                 NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
                     if (notification is ScrollUpdateNotification) {
@@ -572,7 +594,7 @@ class _HomeScreenState extends State<HomeScreen>
             // 背景色へ溶ける純粋なグラデーション（＝画像貼り付け相当・ネイティブ非使用）。
             // スクロール構造・ピン留めヘッダーには一切触れず、外側 Stack に IgnorePointer の
             // Positioned オーバーレイとして重ねるだけなのでホーム機能を壊さない。
-            if (_selectedIndex == 1) ...[
+            if (_selectedIndex == 1 && !_useGroupHome) ...[
               Positioned(
                 top: 0,
                 left: 0,
@@ -608,6 +630,7 @@ class _HomeScreenState extends State<HomeScreen>
             // ナビ中央の投稿ボタンを廃止したため、ここから投稿フローへ入る。
             // タイムライン0件時は空状態カードのボタンを使うため FAB は隠す。
             if (_selectedIndex == 1 &&
+                !_useGroupHome &&
                 !(_cachedPosts != null && _cachedPosts!.isEmpty) &&
                 MediaQuery.of(context).viewInsets.bottom == 0)
               Positioned(
@@ -636,7 +659,9 @@ class _HomeScreenState extends State<HomeScreen>
               ),
 
             // フローティングボトムナビゲーション（キーボード表示中は非表示）
-            if (MediaQuery.of(context).viewInsets.bottom == 0)
+            // 新しいホームには無い（右上・左下・右下のボタンに置き換え）。
+            if (!_useGroupHome &&
+                MediaQuery.of(context).viewInsets.bottom == 0)
               Positioned(
                 left: 0,
                 right: 0,

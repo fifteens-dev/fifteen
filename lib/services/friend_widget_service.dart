@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import 'friend_service.dart';
+import 'group_service.dart';
 import 'apple_music_service.dart';
 import 'itunes_search_service.dart';
 import 'live_activity_service.dart';
@@ -13,11 +13,11 @@ import '../utils/app_log.dart';
 
 /// ホーム画面ウィジェット「友達の1曲」へデータを渡す。
 ///
-/// 友達が**今、または最近 Apple Music で聴いた曲**を集めて App Group の
-/// ファイルへ書き出す。ウィジェット側は更新のたびに次の 1 人へ送り、
-/// 「今」か「◯時間前」かを添えて出す。
+/// 同じグループの人が**今、または最近 Apple Music で聴いた曲**を集めて
+/// App Group のファイルへ書き出す。ウィジェット側は更新のたびに次の 1 人へ
+/// 送り、「今」か「◯時間前」かを添えて出す。
 ///
-/// 友達の端末の再生状態を直接知る API は無いので、各自が自分のぶんを
+/// 相手の端末の再生状態を直接知る API は無いので、各自が自分のぶんを
 /// Firestore に書いたものを読む（[NowPlayingShareService]）。
 ///
 /// 画像（アルバムアート・友達のアイコン）は Live Activity と同じ置き場に
@@ -31,7 +31,7 @@ class FriendWidgetService {
   /// ウィジェットに渡す最大件数。多すぎても一巡しないうちに次の日になる。
   static const int _maxItems = 8;
 
-  final FriendService _friendService = FriendService();
+  final GroupService _groupService = GroupService();
 
   /// 短時間に何度も呼ばれても実際に走らせるのは 1 回だけ。
   DateTime? _lastRun;
@@ -154,13 +154,15 @@ class FriendWidgetService {
 
   /// 友達が今、または最近 Apple Music で聴いた曲を集める。
   Future<List<_Item>> _collect(String uid) async {
-    final friends = await _friendService.loadFriends(uid);
-    if (friends.isEmpty) {
-      await _log('友達が 0 人');
+    // 友達機能は廃止したので、相手は同じグループの人（2026-11-01）。
+    final mateUids = await _groupService.groupmateUids(uid);
+    if (mateUids.isEmpty) {
+      await _log('同じグループの人が 0 人');
       return const [];
     }
 
-    final byUid = {for (final f in friends) f.user.uid: f.user};
+    final mates = await _groupService.fetchUsers(mateUids);
+    final byUid = {for (final u in mates) u.uid: u};
     final playing = await NowPlayingShareService.instance
         .fetch(byUid.keys.toList());
 
@@ -169,7 +171,7 @@ class FriendWidgetService {
       ..sort((a, b) => b.value.playedAt.compareTo(a.value.playedAt));
 
     final nowCount = entries.where((e) => e.value.isNow).length;
-    await _log('友達 ${friends.length} 人 / 再生中 $nowCount 人 / '
+    await _log('グループの人 ${mates.length} 人 / 再生中 $nowCount 人 / '
         '最近聴いた ${entries.length} 人');
 
     return [

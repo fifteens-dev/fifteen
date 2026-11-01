@@ -367,6 +367,10 @@ class ProfileView extends StatelessWidget {
   /// ある。他人を見るときは呼び出し側が共通の人数を渡す。
   final String? pillLabel;
 
+  /// 友達のピルを出すか。他人のプロフィールでは出さない
+  /// （友達機能の廃止、2026-11-01）。
+  final bool showFriendsPill;
+
   /// 左上のボタン。招待カードの共有シートを開く。
   /// **自分のプロフィールのときだけ**渡す。null なら出さない。
   final VoidCallback? onOpenShare;
@@ -393,6 +397,7 @@ class ProfileView extends StatelessWidget {
     required this.recentPosts,
     this.showMilfolhaRanking = false,
     this.pillLabel,
+    this.showFriendsPill = true,
     this.onOpenShare,
     this.onOpenSettings,
     this.onOpenMilfolhaRanking,
@@ -427,7 +432,7 @@ class ProfileView extends StatelessWidget {
         _avatar(),
         _name(),
         _handle(),
-        _friendsPill(),
+        if (showFriendsPill) _friendsPill(),
         _statsPill(),
         ..._topArtistsSection(),
         ..._recentChoiceSection(),

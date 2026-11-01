@@ -99,13 +99,13 @@ class PostCard extends StatefulWidget {
 
   /// 「写真を追加する」バーを押したとき。null なら出さない。
   ///
-  /// 自分の投稿かつ 24:00 前のときだけ呼び出し側が渡す。
+  /// 自分の投稿かつ 28:00 前のときだけ呼び出し側が渡す。
   final VoidCallback? onAddPhoto;
 
   /// 裏面に出す写真の URL。渡すとプロフィールの代わりに写真を全面に出す。
   ///
-  /// 写真は本人しか見られないので、Music Memory のカレンダーから開いた
-  /// ときだけ渡す。タイムラインでは常に null（＝プロフィール）。
+  /// Music Memory のカレンダーとグループ画面から渡す。写真の無い投稿は
+  /// null（＝プロフィール）。
   final String? backPhotoUrl;
   final bool disableInteractions; // trueの場合、いいね・コメント無効（カウントのみ表示）
   final bool audioManagedExternally; // trueの場合、音楽制御を外部（プロフィール画面等）に委譲
@@ -113,6 +113,10 @@ class PostCard extends StatefulWidget {
   // trueの場合、カードタップで内部反転せず onCardTap を呼ぶだけにする。
   // 反転は親が flipToBack()/flipToFront() で制御する（ホーム2列グリッド用）。
   final bool externalFlipControl;
+
+  /// true のとき、カードを長押しで絵文字リアクションを出す（グループ画面）。
+  /// タップは反転に使っているので、リアクションは長押しに分けている。
+  final bool reactOnLongPress;
 
   const PostCard({
     super.key,
@@ -148,6 +152,7 @@ class PostCard extends StatefulWidget {
     this.audioManagedExternally = false, // デフォルトはPostCard内部で音楽制御
     this.onShare, // 共有コールバック（オプション）
     this.externalFlipControl = false, // デフォルトは内部で反転制御
+    this.reactOnLongPress = false,
   });
 
   @override
@@ -428,7 +433,7 @@ class PostCardState extends State<PostCard>
         height: 645.0,
         child: RepaintBoundary(
           key: _cardRepaintKey,
-          child: widget.showFrontOnly
+          child: _withLongPressReaction(widget.showFrontOnly
               ? _buildFront() // 表面のみ表示（反転アニメーションなし）
               : AnimatedBuilder(
                   animation:
@@ -447,8 +452,21 @@ class PostCardState extends State<PostCard>
                       child: isFront ? _buildFront() : _buildBack(),
                     );
                   },
-                ),
+                )),
         ),
+      ),
+    );
+  }
+
+  /// [PostCard.reactOnLongPress] のとき、カード全体の長押しでリアクションを出す。
+  /// 吹き出しはカード全体を基準に置く。
+  Widget _withLongPressReaction(Widget child) {
+    if (!widget.reactOnLongPress || widget.onReaction == null) return child;
+    return Builder(
+      builder: (cardCtx) => GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onLongPress: () => _showReactionPicker(cardCtx),
+        child: child,
       ),
     );
   }

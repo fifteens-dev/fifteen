@@ -108,13 +108,13 @@ service cloud.firestore {
       allow write: if isOwner(userId);
     }
 
-    // ── 投稿に添えた写真（本人のみ） ──
+    // ── 投稿に添えた写真 ──
     //
-    // posts は list が誰でも引けるので、photoUrl をそこに入れると
-    // 「非公開」にならない。別コレクションに分けて本人だけに絞る。
+    // 以前は本人だけが読めたが、2026-11-02 からカード裏面に出して他の人にも
+    // 見せる。1 件取得（postId 指定）はログインしていれば可。
+    // 一覧（クエリ）は今までどおり自分のぶんだけ。
     match /post_photos/{postId} {
-      // 1 件取得は中身を見て本人か判定できる。
-      allow get: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow get: if isAuthenticated();
 
       // クエリでは resource.data を見られない（Firestore は結果を 1 件ずつ
       // 評価せず、クエリの条件だけで可否を決める）。read に resource.data を
@@ -473,6 +473,79 @@ service cloud.firestore {
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.laneigeTeamId == teamId &&
           request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['profileImageUrl', 'description']));
+    }
+
+    // ── groups コレクション ──────────────────────────────────
+    // ホームに並ぶ投稿の単位。読み取りはメンバーと管理者だけ。
+    // （自分のグループは memberIds の arrayContains で引くので、
+    //   クエリもこの条件で通る）
+    //
+    // 作成・参加の画面はまだ無いので、作れるのは今は管理者だけ
+    // （管理者パネルのテスト用グループ）。
+    //
+    // 1 グループ 10 人まで（GroupModel.maxMembers と揃える）。
+    match /groups/{groupId} {
+      allow read: if isAdmin() ||
+        (isAuthenticated() && request.auth.uid in resource.data.memberIds);
+      allow create: if isAdmin() &&
+        request.resource.data.memberIds.size() <= 10;
+
+      // 更新は管理者か、メンバーが次のどちらかをするときだけ。
+      //   - 設定を変える（名前・アイコン・締め切り・招待コード）。通知の
+      //     オン/オフは自分の uid を出し入れするときだけ。
+      //   - 自分が抜ける（memberIds から自分だけを外す）。
+      // 誰かを足す（参加）はここでは許さない。参加の仕組みを作るときに、
+      // 締め切りと 10 人の上限を確かめる形で足す。
+      allow update: if request.resource.data.memberIds.size() <= 10 && (
+        isAdmin() ||
+        (isAuthenticated() && request.auth.uid in resource.data.memberIds && (
+          (request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['name', 'iconIndex', 'joinClosed', 'inviteCode',
+                        'mutedMemberIds', 'updatedAt']) &&
+            request.resource.data.get('mutedMemberIds', []).toSet()
+              .difference(resource.data.get('mutedMemberIds', []).toSet())
+              .hasOnly([request.auth.uid]) &&
+            resource.data.get('mutedMemberIds', []).toSet()
+              .difference(request.resource.data.get('mutedMemberIds', []).toSet())
+              .hasOnly([request.auth.uid])) ||
+          (request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['memberIds', 'mutedMemberIds', 'updatedAt']) &&
+            request.resource.data.memberIds.toSet() ==
+              resource.data.memberIds.toSet().difference([request.auth.uid].toSet()) &&
+            request.resource.data.get('mutedMemberIds', []).toSet()
+              .difference(resource.data.get('mutedMemberIds', []).toSet()).size() == 0)
+        ))
+      );
+
+      // 消せるのは管理者か、最後の 1 人が抜けるとき。
+      allow delete: if isAdmin() ||
+        (isAuthenticated() && resource.data.memberIds == [request.auth.uid]);
+    }
+
+    // ── pokes コレクション（つつく）──────────────────────────
+    // ID は '<サイクルの鍵>_<送った人>_<送られた人>'。create は既にあると
+    // 失敗するので、同じ相手には 1 サイクルに 1 回しかつつけない。
+    // 同じグループのメンバー同士でだけつつける。通知は Functions が送り、
+    // notified を立てる（クライアントは動かせない）。
+    match /pokes/{pokeId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.fromUid == request.auth.uid ||
+         resource.data.toUid == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        request.resource.data.fromUid == request.auth.uid &&
+        request.resource.data.toUid != request.auth.uid &&
+        request.resource.data.cycleKey == currentCycleKey() &&
+        request.resource.data.notified == false &&
+        pokeId == currentCycleKey() + '_' + request.auth.uid + '_' +
+          request.resource.data.toUid &&
+        request.auth.uid in get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.memberIds &&
+        request.resource.data.toUid in get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.memberIds;
+      allow update, delete: if false;
+    }
+
+    // poke_notify（つつきの送信状況）は Functions だけが読み書きする。
+    match /poke_notify/{docId} {
+      allow read, write: if false;
     }
 
     // ── app_open_events コレクション ──────────────────────────

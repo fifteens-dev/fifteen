@@ -121,18 +121,15 @@ struct MusicMemoryLockScreenView: View {
     private var thirdLine: some View {
         switch phase {
         case .waiting:
-            Text("24:00まで")
+            // 投稿は翌日 20:59 まで（2026-11-02〜）。
+            Text("明日の20:59まで")
                 .font(.system(size: 11))
                 .foregroundColor(.white)
                 .lineLimit(1)
         case .friendsWaiting:
-            HStack(spacing: 0) {
-                Text("締切まで")
-                // タイマーは 1 秒ごとにシステムが再描画する（push 不要）。
-                Text(timerInterval: Date()...max(state.deadline, Date().addingTimeInterval(1)),
-                     countsDown: true)
-                    .monospacedDigit()
-            }
+            // 以前は締切（24:00）までのカウントダウンだった。締切が翌日 20:59 に
+            // なり、Live Activity（25:00 で閉じる）の時間と合わなくなったので文言にした。
+            Text("明日の20:59まで")
             .font(.system(size: 11, weight: .medium))
             .foregroundColor(MMColor.deadline)
             .lineLimit(1)

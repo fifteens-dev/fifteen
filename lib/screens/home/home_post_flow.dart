@@ -40,6 +40,12 @@ extension HomePostFlow on _HomeScreenState {
     await AddPhotoFlow.start(context, postId: postId);
   }
 
+  /// 「投稿画面を開いて」の依頼（[PostFlowRequest]）を受けて開く。
+  void _onPostFlowRequested() {
+    if (!mounted || !PostFlowRequest.instance.take()) return;
+    _openPostFlow();
+  }
+
   /// 投稿されたら、サイクルの投稿済み判定と温めた履歴を入れ直す。
   void _onPostCreated() {
     _postedThisCycle = true;
@@ -75,14 +81,17 @@ extension HomePostFlow on _HomeScreenState {
       final service = await _musicServiceManager.getSelectedService();
       if (service != MusicServiceType.appleMusic) return;
       final tracks = await AppleMusicService().getRecentlyPlayedTracks(limit: 15);
-      if (mounted && tracks.isNotEmpty) _warmTracks = tracks;
+      // 新しいホームは投稿前のカードに先頭 3 曲を出すので描き直す。
+      if (mounted && tracks.isNotEmpty) setState(() => _warmTracks = tracks);
     } catch (_) {/* 温められなくても本体は動く */}
   }
 
   Future<void> _runStartupFlows() async {
     final openedPostFlow = await _maybeOpenPostFlowForCycle();
     // 自動で開かなかった＝投稿ボタンから入る可能性がある。履歴を温めておく。
-    if (!openedPostFlow && _postedThisCycle == false) {
+    // 新しいホームは投稿前のカードに最近の曲を並べるので、開いたときも取る。
+    if ((!openedPostFlow || _HomeScreenState._useGroupHome) &&
+        _postedThisCycle == false) {
       // ignore: discarded_futures
       _warmUpTracks();
     }
@@ -187,7 +196,7 @@ extension HomePostFlow on _HomeScreenState {
 
       final now = DateTime.now();
       if (now.isBefore(cycleStart)) return false; // まだ通知前
-      final deadline = MusicMemoryCycleService.deadlineFor(cycleStart);
+      final deadline = MusicMemoryCycleService.postDeadlineFor(cycleStart);
       if (!now.isBefore(deadline)) return false; // 締切超過
 
       // まだ投稿していなければ開く。
@@ -216,12 +225,20 @@ extension HomePostFlow on _HomeScreenState {
   /// - Apple Music: 「今日のMusic Memory」カルーセル(MusicMemoryModal)。
   /// - Spotify / 未連携: ログが取れないため Vibe 楽曲選択シート（お題非表示）→
   ///   曲決定で Apple と同じく最終確認(MoodPostFinalPreviewScreen)へ。
-  /// 投稿フローを開く。投稿できるのは通知（21:00）から 24:00 までの間だけで、
-  /// それ以外の時間は開かずに理由を出す。
   /// 投稿フローを開く。
   ///
-  /// 投稿できるのは 21:00 以降。24:00 を過ぎても投稿はできる（写真だけ足せない）。
+  /// 投稿できるのは 21:00 から翌日 20:59 まで（写真は 28:00 まで）。
   Future<void> _openPostFlow() async {
+    if (_postFlowBusy) return;
+    _postFlowBusy = true;
+    try {
+      await _openPostFlowInner();
+    } finally {
+      _postFlowBusy = false;
+    }
+  }
+
+  Future<void> _openPostFlowInner() async {
     final cycle = MusicMemoryCycleService();
     // 開いたまま 21:00 をまたいでいることがあるので、古ければ取り直す。
     final start = await cycle.ensureFreshNotifiedAt();

@@ -7,11 +7,11 @@ import 'package:fifteen/services/music_memory_cycle_service.dart';
 /// 新しい日に投稿できなくなる。取り直す境目をここで押さえる。
 ///
 /// 判定式は ensureFreshNotifiedAt と同じ:
-///   次の通知 = その回の締切(JST 24:00) + 21 時間 = 翌日 21:00 JST
+///   次の通知 = その回の投稿締切(翌日 20:59:59 JST) の 1 秒後 = 翌日 21:00 JST
 void main() {
   DateTime nextFireAfter(DateTime cycleStart) =>
-      MusicMemoryCycleService.deadlineFor(cycleStart)
-          .add(const Duration(hours: 21));
+      MusicMemoryCycleService.postDeadlineFor(cycleStart)
+          .add(const Duration(seconds: 1));
 
   bool isStale(DateTime cycleStart, DateTime now) =>
       !now.isBefore(nextFireAfter(cycleStart));
@@ -31,7 +31,7 @@ void main() {
   });
 
   test('日付をまたいだ直後も、まだ同じサイクル', () {
-    // 24:00 を過ぎても次の通知までは同じサイクル（Late 投稿の時間帯）。
+    // 日付をまたいでも次の通知までは同じサイクル（翌日 20:59 まで投稿できる）。
     expect(isStale(cycle, jst(2026, 10, 11, 1)), false);
     expect(isStale(cycle, jst(2026, 10, 11, 20, 59)), false);
   });

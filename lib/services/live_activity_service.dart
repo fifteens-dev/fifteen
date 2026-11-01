@@ -136,7 +136,9 @@ class LiveActivityService {
         await _end();
         return;
       }
-      final deadline = MusicMemoryCycleService.deadlineFor(cycleStart);
+      // ロック画面に出すのは通知を止める 25:00 まで（投稿自体は翌日 20:59 まで
+      // できるが、Live Activity は iOS の制限で 8 時間しか出せない）。
+      final deadline = MusicMemoryCycleService.quietFromFor(cycleStart);
       if (!DateTime.now().isBefore(deadline)) {
         await _log('refresh', '終了: 締切超過 deadline=${deadline.toIso8601String()}');
         await _end();
@@ -184,7 +186,7 @@ class LiveActivityService {
       await _syncDaysOnly(uid, cycleStart);
 
       if (cycleStart == null) return;
-      final deadline = MusicMemoryCycleService.deadlineFor(cycleStart);
+      final deadline = MusicMemoryCycleService.quietFromFor(cycleStart);
       if (!DateTime.now().isBefore(deadline)) return;
       await _apply(
         uid: uid,

@@ -163,7 +163,8 @@ const MM_CYCLES_COLLECTION = 'music_memory_cycles';
 /** 通知の発火時刻（JST）。以前は 19:00〜23:30 のランダムだったが 21:00 固定にした。 */
 const MM_FIRE_MIN = 21 * 60;              // 21:00
 const MM_NOTIF_TITLE = '🎵 Music Memoryの時間です。';
-const MM_NOTIF_BODY = '24:00までに投稿しましょう。';
+// 投稿は翌日 20:59 まで（2026-11-02〜）。
+const MM_NOTIF_BODY = '明日の20:59までに投稿しましょう。';
 
 exports.musicMemoryDailyNotification = onSchedule(
   { schedule: '*/5 * * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 300 },
@@ -311,16 +312,18 @@ exports.musicMemoryDailyNotification = onSchedule(
 
 /** 写真リマインド: 投稿からこの時間が経っても写真が無ければ送る。 */
 const PHOTO_REMINDER_DELAY_MS = 60 * 60 * 1000;
-/** 送る対象は 21:00〜22:59（JST）の投稿だけ。 */
+/** 送る対象は 21:00〜23:59（JST）の投稿だけ。 */
 const PHOTO_REMINDER_FIRST_HOUR = 21;
-/** この時刻（JST）以降の投稿には送らない。1時間後だと締切 24:00 に間に合わないため。 */
-const PHOTO_REMINDER_LAST_HOUR = 23;
+/** この時刻（JST）以降の投稿には送らない。1 時間後が 25:00 を過ぎる（通知は 25 時まで）。 */
+const PHOTO_REMINDER_LAST_HOUR = 24;
 const PHOTO_REMINDER_TITLE = '今日の1枚も残す？📷';
-const PHOTO_REMINDER_BODY = '24:00まで写真を追加できるよ。';
+// 写真は 28:00（翌 4:00）まで足せる。
+const PHOTO_REMINDER_BODY = '28時（翌4時）まで写真を追加できるよ。';
 
 /**
  * Music Memory に投稿したが写真を付けていない人へ、投稿の 1 時間後に
- * 写真の追加を促す（21:24 の投稿なら 22:24）。対象は 21:00〜22:59 の投稿だけ。
+ * 写真の追加を促す（21:24 の投稿なら 22:24）。対象は 21:00〜23:59 の投稿だけ
+ * （通知は 25 時まで）。
  *
  * 5 分ごとに「1 時間〜1 時間 10 分前」の投稿を見る。窓を実行間隔より
  * 広く取り、取りこぼしを防ぐ。重複は `photo_reminders/{postId}` を
@@ -352,7 +355,7 @@ exports.photoReminderNotification = onSchedule(
         const createdAt = p.createdAt?.toDate?.();
         if (!createdAt || createdAt < cycleStart) continue;
         const jstHour = new Date(createdAt.getTime() + 9 * 60 * 60 * 1000).getUTCHours();
-        // 21 時台・22 時台の投稿だけ。21:00 より前の遅れ投稿（前のサイクル扱い）にも送らない。
+        // 21〜23 時台の投稿だけ。0 時以降の投稿は 1 時間後が 25 時を過ぎる。
         if (jstHour < PHOTO_REMINDER_FIRST_HOUR || jstHour >= PHOTO_REMINDER_LAST_HOUR) continue;
 
         const photoSnap = await db.collection('post_photos').doc(doc.id).get();
@@ -383,6 +386,210 @@ exports.photoReminderNotification = onSchedule(
       if (sent > 0) console.log(`photoReminderNotification: sent=${sent}`);
     } catch (error) {
       console.error('photoReminderNotification error:', error);
+    }
+  }
+);
+
+/**
+ * つつく（未投稿のグループメンバーに投稿を促す）。
+ *
+ * クライアントが `pokes/{サイクルの鍵}_{送った人}_{送られた人}` を作る
+ * （1 サイクルに同じ相手へ 1 回だけ。ルールで縛っている）。
+ *
+ * 送り方:
+ *   - その人への今日最初のつつきは、すぐ 1 通送る（onPokeCreated）。
+ *   - 2 通目以降は貯めておき、前回から 30 分以上たったら 1 通にまとめて
+ *     送る（pokeDigestNotification を 15 分ごとに回す → 間隔は 30〜45 分）。
+ *   - 25 時（サイクル開始日の翌 1:00 JST）以降は送らない。つつき自体は残る。
+ *   - 相手がもう投稿していたら送らない。
+ *
+ * 送られた人がそのグループの通知を切っていたら送らない（グループ設定）。
+ *
+ * 送った・送らないと決めたつつきは notified: true にする。
+ * 送り状況は `poke_notify/{サイクルの鍵}_{送られた人}` に lastSentAt を持つ。
+ */
+const POKE_DIGEST_INTERVAL_MS = 30 * 60 * 1000;
+/** サイクル開始（21:00）から通知を止めるまで。21:00 + 4 時間 = 25:00。 */
+const POKE_QUIET_AFTER_MS = 4 * 60 * 60 * 1000;
+
+/** 今のサイクルの鍵と開始時刻。読めなければ null。 */
+async function currentCycle(db) {
+  const snap = await db.doc(MM_STATE_REF_PATH).get();
+  const data = snap.data() || {};
+  const key = data.lastNotifiedDate;
+  const start = data.notifiedAt?.toDate?.();
+  if (!key || !start) return null;
+  return { key, start };
+}
+
+function pokeQuietNow(cycle, now = Date.now()) {
+  return now >= cycle.start.getTime() + POKE_QUIET_AFTER_MS;
+}
+
+/** 相手が今のサイクルに投稿済みか。 */
+async function postedInCycle(db, uid, cycleStart) {
+  const snap = await db.collection('posts')
+    .where('userId', '==', uid)
+    .where('createdAt', '>', admin.firestore.Timestamp.fromDate(cycleStart))
+    .get();
+  return snap.docs.some((d) => d.data().isVibe !== true && d.data().isDummyPost !== true);
+}
+
+/**
+ * まとめて 1 通の文言。
+ *   1 人から   : 「mioがつついています👉」/「サークル同期であなたの曲を待っています」
+ *   複数人から : 「mioとkentaほか1人があなたの曲を待っています👉」
+ *   複数グループ: 「2つのグループであなたの曲を待っています👉」
+ */
+function pokeMessage(pokes) {
+  const groups = [...new Set(pokes.map((p) => p.groupId))];
+  const senders = [];
+  const seen = new Set();
+  for (const p of pokes) {
+    if (seen.has(p.fromUid)) continue;
+    seen.add(p.fromUid);
+    senders.push(p.fromName || '友達');
+  }
+  if (groups.length >= 2) {
+    return { title: `${groups.length}つのグループであなたの曲を待っています👉`, body: '' };
+  }
+  if (senders.length === 1) {
+    return {
+      title: `${senders[0]}がつついています👉`,
+      body: `${pokes[0].groupName || 'グループ'}であなたの曲を待っています`,
+    };
+  }
+  const others = senders.length - 2;
+  const names = others > 0
+    ? `${senders[0]}と${senders[1]}ほか${others}人`
+    : `${senders[0]}と${senders[1]}`;
+  return { title: `${names}があなたの曲を待っています👉`, body: '' };
+}
+
+/** 送られた人がそのグループの通知を切っているか（グループ設定「通知を受け取る」）。 */
+async function pokeMuted(db, poke, cache = {}) {
+  if (!(poke.groupId in cache)) {
+    const g = await db.collection('groups').doc(poke.groupId).get();
+    cache[poke.groupId] = g.exists ? (g.data().mutedMemberIds || []) : [];
+  }
+  return cache[poke.groupId].includes(poke.toUid);
+}
+
+async function sendPokePush(db, toUid, pokes) {
+  const { title, body } = pokeMessage(pokes);
+  await broadcastPush(db, [toUid], {
+    title,
+    body,
+    data: {
+      notificationType: 'poke',
+      click_action: 'FLUTTER_NOTIFICATION_CLICK',
+    },
+  });
+}
+
+exports.onPokeCreated = onDocumentCreated('pokes/{pokeId}', async (event) => {
+  const db = admin.firestore();
+  const poke = event.data?.data();
+  if (!poke) return;
+  const pokeRef = event.data.ref;
+
+  try {
+    const cycle = await currentCycle(db);
+    // 古いサイクルの札・25 時以降・投稿済みは送らない。
+    if (!cycle || poke.cycleKey !== cycle.key || pokeQuietNow(cycle) ||
+        await pokeMuted(db, poke) ||
+        await postedInCycle(db, poke.toUid, cycle.start)) {
+      await pokeRef.update({ notified: true, skipped: true });
+      return;
+    }
+
+    // 今日最初の 1 通かを排他的に決める。2 通目以降は digest に任せる。
+    const stateRef = db.collection('poke_notify').doc(`${cycle.key}_${poke.toUid}`);
+    const first = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(stateRef);
+      if (snap.exists && snap.data().lastSentAt) return false;
+      tx.set(stateRef, {
+        toUid: poke.toUid,
+        cycleKey: cycle.key,
+        lastSentAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return true;
+    });
+    if (!first) return;
+
+    await pokeRef.update({ notified: true });
+    await sendPokePush(db, poke.toUid, [poke]);
+  } catch (error) {
+    console.error('onPokeCreated error:', error);
+  }
+});
+
+exports.pokeDigestNotification = onSchedule(
+  { schedule: '*/15 * * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 120 },
+  async () => {
+    const db = admin.firestore();
+    try {
+      const cycle = await currentCycle(db);
+      if (!cycle) return;
+
+      const pendingSnap = await db.collection('pokes')
+        .where('cycleKey', '==', cycle.key)
+        .where('notified', '==', false)
+        .get();
+      if (pendingSnap.empty) return;
+
+      const byTarget = {};
+      for (const d of pendingSnap.docs) {
+        (byTarget[d.data().toUid] = byTarget[d.data().toUid] || []).push(d);
+      }
+
+      const quiet = pokeQuietNow(cycle);
+      const muteCache = {};
+      let sent = 0;
+      for (const [toUid, allDocs] of Object.entries(byTarget)) {
+        // 通知を切っているグループからのつつきは送らずに片付ける。
+        const docs = [];
+        for (const d of allDocs) {
+          if (await pokeMuted(db, d.data(), muteCache)) {
+            await d.ref.update({ notified: true, skipped: true });
+          } else {
+            docs.push(d);
+          }
+        }
+        if (docs.length === 0) continue;
+
+        const markAll = (extra = {}) => Promise.all(
+          docs.map((d) => d.ref.update({ notified: true, ...extra })));
+
+        if (quiet || await postedInCycle(db, toUid, cycle.start)) {
+          await markAll({ skipped: true });
+          continue;
+        }
+
+        const stateRef = db.collection('poke_notify').doc(`${cycle.key}_${toUid}`);
+        const due = await db.runTransaction(async (tx) => {
+          const snap = await tx.get(stateRef);
+          const last = snap.data()?.lastSentAt?.toDate?.();
+          if (last && Date.now() - last.getTime() < POKE_DIGEST_INTERVAL_MS) return false;
+          tx.set(stateRef, {
+            toUid,
+            cycleKey: cycle.key,
+            lastSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+          return true;
+        });
+        if (!due) continue;
+
+        const pokes = docs
+          .map((d) => d.data())
+          .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
+        await markAll();
+        await sendPokePush(db, toUid, pokes);
+        sent++;
+      }
+      if (sent > 0) console.log(`pokeDigestNotification: sent=${sent}`);
+    } catch (error) {
+      console.error('pokeDigestNotification error:', error);
     }
   }
 );
@@ -504,6 +711,17 @@ exports.sendPushNotification = onDocumentCreated(
       }
 
       const senderId = request.senderId || '';
+
+      // 「◯◯が投稿しました」は 25 時（サイクル開始日の翌 1:00）から次の
+      // 21:00 までは送らない（投稿ルール「通知は 25 時以降は送らない」）。
+      // アプリ内の通知一覧には残る。
+      if (notificationType === 'post') {
+        const cycle = await currentCycle(admin.firestore());
+        if (cycle && pokeQuietNow(cycle)) {
+          await snap.ref.update({ processed: true, skipped: 'quiet_hours' });
+          return;
+        }
+      }
 
       // 通知タイプ別タイトル・本文
       let notifTitle;
@@ -3091,10 +3309,9 @@ exports.unflagBulkDummyPosts = onCall(
 
 const LIVE_ACTIVITIES_COLLECTION = 'live_activities';
 
-/** 通知時刻（サイクル開始）に対する投稿締切 = JST 24:00（翌 0:00）。
- *  この時刻を過ぎると投稿そのものができない（Late 投稿は廃止）。 */
+/** Live Activity を閉じる時刻（25:00 = 通知を止める時刻）。投稿自体は翌日 20:59 まで。 */
 function liveActivityDeadline(cycleStart) {
-  return new Date(jstDayStartFor(cycleStart).getTime() + 24 * 60 * 60 * 1000);
+  return new Date(jstDayStartFor(cycleStart).getTime() + 25 * 60 * 60 * 1000);
 }
 
 /** push で送る content-state。Swift 側 ContentState と 1:1。 */
@@ -3273,7 +3490,7 @@ async function markOwnLiveActivityPosted(db, posterId, cycleStart) {
 }
 
 /**
- * 締切（24:00）を過ぎた Live Activity を終了させる。
+ * 閉じる時刻（25:00）を過ぎた Live Activity を終了させる。
  * アプリが起動されないまま残り続けるのを防ぐ（ActivityKit 自体の 8 時間上限より先に畳む）。
  */
 exports.endStaleLiveActivities = onSchedule(

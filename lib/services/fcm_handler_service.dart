@@ -10,6 +10,7 @@ import 'live_activity_service.dart';
 import 'notification_service.dart';
 import 'post_service.dart';
 import 'reaction_reveal_service.dart';
+import 'post_flow_request.dart';
 import 'auth_service.dart';
 import '../utils/app_log.dart';
 
@@ -178,6 +179,10 @@ class FCMHandlerService {
       // リアクション（いいね）は、ホームで自分のカードまで送って演出を流す。
       ReactionRevealService.instance.popToHome(navigator);
       ReactionRevealService.instance.request(postId: postId, senderId: senderId);
+    } else if (notificationType == 'poke') {
+      // つつかれた → ホームへ戻ってそのまま投稿画面を開く。
+      ReactionRevealService.instance.popToHome(navigator);
+      PostFlowRequest.instance.request();
     } else if (notificationType == 'weekly_recap') {
       navigator.push(MaterialPageRoute(
         builder: (_) => WeeklyRecapScreen(

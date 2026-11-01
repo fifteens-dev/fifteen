@@ -8,7 +8,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// `music_memory_state/current.notifiedAt` に記録する。これが「投稿サイクルの境界」。
 ///
 /// - タイムライン表示: `createdAt >= currentCycleStart`（＝直近 notifiedAt 以降）のみ。
-/// - 投稿締切: notifiedAt の JST 日付の 24:00。以降は投稿できない（Late 投稿は廃止）。
+/// 投稿ルール（2026-11-02〜）。時刻はすべて JST、「その日」は通知が来た暦日:
+/// - 投稿: 21:00 〜 翌日 20:59（＝次の通知まで）。
+/// - 写真の追加: 28:00（翌 4:00）まで。28:00 を過ぎてから投稿した人は足せない。
+/// - 通知: 25:00（翌 1:00）を過ぎたら送らない。
 class MusicMemoryCycleService {
   MusicMemoryCycleService._();
   static final MusicMemoryCycleService _instance =
@@ -69,9 +72,20 @@ class MusicMemoryCycleService {
     return _notifiedAt;
   }
 
-  /// 任意の [cycleStart] に対する通常投稿締切（JST 翌 01:00）。
-  static DateTime deadlineFor(DateTime cycleStart) =>
-      _deadlineForCycleStart(cycleStart);
+  /// [cycleStart] の回の投稿締切（翌日 20:59:59 JST）。
+  static DateTime postDeadlineFor(DateTime cycleStart) =>
+      _jstDayStart(cycleStart)
+          .add(const Duration(hours: 45))
+          .subtract(const Duration(seconds: 1));
+
+  /// [cycleStart] の回の写真追加の締切（28:00 = 翌 4:00 JST）。
+  static DateTime photoDeadlineFor(DateTime cycleStart) =>
+      _jstDayStart(cycleStart).add(const Duration(hours: 28));
+
+  /// [cycleStart] の回で通知を止める時刻（25:00 = 翌 1:00 JST）。
+  /// Live Activity もここで閉じる。
+  static DateTime quietFromFor(DateTime cycleStart) =>
+      _jstDayStart(cycleStart).add(const Duration(hours: 25));
 
   /// 直近 [limit] 件の「15s Day」を新しい→古い順で返す。
   ///
@@ -175,18 +189,22 @@ class MusicMemoryCycleService {
   DateTime get currentCycleStart =>
       _notifiedAt ?? DateTime.now().subtract(const Duration(hours: 24));
 
-  /// 現サイクルの投稿締切（notifiedAt の JST 日付の 24:00 = 翌 0:00 JST）。
-  /// notifiedAt が無いときは null（＝締切判定不能）。
-  DateTime? get currentDeadline {
+  /// 今の回の投稿締切（翌日 20:59:59）。notifiedAt が無いときは null。
+  DateTime? get currentPostDeadline {
     final start = _notifiedAt;
-    if (start == null) return null;
-    return _deadlineForCycleStart(start);
+    return start == null ? null : postDeadlineFor(start);
+  }
+
+  /// 今の回の写真追加の締切（28:00）。notifiedAt が無いときは null。
+  DateTime? get currentPhotoDeadline {
+    final start = _notifiedAt;
+    return start == null ? null : photoDeadlineFor(start);
   }
 
   /// 今が投稿できる時間帯か（通知 21:00 以降）。
   ///
-  /// 24:00 を過ぎても投稿はできる。締切が効くのは写真の追加だけで、
-  /// そちらは [currentDeadline] を直接見る（[PostPhotoService]）。
+  /// 締切（翌日 20:59）のすぐ後に次の通知が来るので、通知が来ていれば
+  /// いつでも投稿できる。
   bool get canPostNow {
     final start = _notifiedAt;
     if (start == null) return false;
@@ -199,13 +217,11 @@ class MusicMemoryCycleService {
   /// notifiedAt が前日のものになる。そのままだと新しいサイクルに入った
   /// のに前日の締切で判定してしまい、投稿できなくなる。
   ///
-  /// 次の通知予定（この回の締切 24:00 の 21 時間後 = 翌日 21:00）を
-  /// 過ぎていたら取り直す。
+  /// 次の通知予定（翌日 21:00）を過ぎていたら取り直す。
   Future<DateTime?> ensureFreshNotifiedAt() async {
     final cached = _notifiedAt;
     if (cached == null) return fetchNotifiedAt();
-    final nextFire =
-        _deadlineForCycleStart(cached).add(const Duration(hours: 21));
+    final nextFire = _jstDayStart(cached).add(const Duration(hours: 45));
     if (DateTime.now().isBefore(nextFire)) return cached;
     return fetchNotifiedAt();
   }
@@ -220,24 +236,22 @@ class MusicMemoryCycleService {
     return canPostNow;
   }
 
-  /// [createdAt] が現サイクルの締切（24:00）を過ぎているか。
-  /// 24 時以降の投稿はこれが true になる（写真は足せない）。
+  /// [createdAt] が今の回の投稿締切（翌日 20:59）を過ぎているか。
+  /// 次の通知が遅れたときくらいしか true にならない。
   bool isLate(DateTime createdAt) {
-    final deadline = currentDeadline;
+    final deadline = currentPostDeadline;
     if (deadline == null) return false;
     return createdAt.toUtc().isAfter(deadline);
   }
 
 
-  /// サイクル開始（通知時刻）に対する投稿締切の instant を返す。
-  /// JST 固定: notifiedAt の JST 暦日の 24:00（＝翌日 0:00 JST）。
-  static DateTime _deadlineForCycleStart(DateTime cycleStart) {
+  /// [cycleStart] の JST 暦日の 0:00 の instant。締切はすべてここから数える。
+  static DateTime _jstDayStart(DateTime cycleStart) {
     // instant を JST の壁時計（フィールドが JST 値の UTC DateTime）に変換。
     final jst = cycleStart.toUtc().add(const Duration(hours: 9));
-    // JST 暦日の翌日 0:00（壁時計）を UTC フィールドとして構築し、9h 引いて instant 化。
-    final wall = DateTime.utc(jst.year, jst.month, jst.day)
-        .add(const Duration(days: 1));
-    return wall.subtract(const Duration(hours: 9));
+    // JST 暦日の 0:00（壁時計）を UTC フィールドとして構築し、9h 引いて instant 化。
+    return DateTime.utc(jst.year, jst.month, jst.day)
+        .subtract(const Duration(hours: 9));
   }
 }
 

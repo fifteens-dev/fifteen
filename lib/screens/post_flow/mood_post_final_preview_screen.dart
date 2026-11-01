@@ -122,7 +122,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   /// （この時点では postId がまだ無い）。
   XFile? _pendingPhoto;
 
-  /// 今が写真を足せる時間帯か（24:00 まで）。
+  /// 今が写真を足せる時間帯か（28:00 まで）。
   bool _canAddPhoto = false;
 
   /// カード裏面に焼き込む top artists / recent choice。
@@ -348,8 +348,8 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       return;
     }
 
-    // 写真を足せない時間（24:00 以降）の投稿では聞かない。押しても
-    // 「24:00までです」と断るだけのシートになってしまう。
+    // 写真を足せない時間（28:00 以降）の投稿では聞かない。押しても
+    // 「28時までです」と断るだけのシートになってしまう。
     if (!await PostPhotoService.instance.canAddPhotoNow()) return;
     if (!ctx.mounted) return;
 
@@ -492,7 +492,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       hideAudienceBadge: true,
       preExtractedGradientStart: _gradientStart,
       preExtractedGradientEnd: _gradientEnd,
-      // 24:00 までなら写真を選べる。投稿が終わってから紐づける。
+      // 28:00 までなら写真を選べる。投稿が終わってから紐づける。
       onAddPhoto: (_canAddPhoto && !_isPosting) ? _pickPhoto : null,
       addPhotoLabel: _pendingPhoto != null ? '写真を変更する' : null,
     );

@@ -8,7 +8,7 @@ import '../post_photo_selection_screen.dart';
 /// 投稿に写真を足す一連の流れ。
 ///
 /// 写真は次の条件でしか足せない:
-///  - その日の 24:00 まで（[PostPhotoService.canAddPhotoNow]）
+///  - 28:00（翌 4:00）まで（[PostPhotoService.canAddPhotoNow]）
 ///  - その日撮った写真か、その場で撮ったもの
 ///
 /// 足した写真は本人しか見られない。Music Memory のカレンダーから開いた
@@ -22,7 +22,7 @@ class AddPhotoFlow {
   static Future<bool> start(BuildContext context, {required String postId}) async {
     if (!await PostPhotoService.instance.canAddPhotoNow()) {
       if (!context.mounted) return false;
-      AppToast.show(context, '写真を追加できるのは24:00までです');
+      AppToast.show(context, '写真を追加できるのは28時（翌4時）までです');
       return false;
     }
     if (!context.mounted) return false;

@@ -17,7 +17,7 @@ struct FriendNowPlayingWidget: Widget {
             FriendNowPlayingView(entry: entry)
         }
         .configurationDisplayName("友達の1曲")
-        .description("友達が最近 Apple Music で聴いた曲を表示します。")
+        .description("同じグループの人が最近 Apple Music で聴いた曲を表示します。")
         .supportedFamilies([.systemSmall])
         // iOS 17 以降は OS が周りに余白（約 16pt）を足す。Figma の座標は
         // ウィジェットの縁から測った値（余白 18 込み）なので、OS の余白を
@@ -153,7 +153,7 @@ struct FriendNowPlayingView: View {
             Image(systemName: "music.note")
                 .font(.system(size: 22))
                 .foregroundStyle(.secondary)
-            Text("最近音楽を聴いた友達はいません。")
+            Text("最近音楽を聴いたグループの人はいません。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

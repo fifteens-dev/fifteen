@@ -105,6 +105,20 @@ flutter:
     - assets/profile_v2/rank_3.png
     - assets/profile_v2/glass_button.png
     - assets/weekly_recap/share_instagram.svg
+    # 新ホーム（Figma 6206:11652 / 6275:12082）
+    - assets/home_v2/dash_posted.svg
+    - assets/home_v2/dash_waiting.svg
+    - assets/home_v2/chevron_line_down.svg
+    - assets/home_v2/chevron_line_up.svg
+    - assets/home_v2/chevron_small.svg
+    - assets/home_v2/plus.svg
+    # グループ画面（Figma 6308:12346）
+    - assets/home_v2/camera_badge.svg
+    - assets/home_v2/back_chevron.svg
+    # グループ設定（Figma 6314:12876）
+    - assets/home_v2/hash.svg
+    - assets/home_v2/close.svg
+    - assets/group_icons/icon_1.jpg
     - assets/weekly_recap/share_x_circle.svg
     - assets/weekly_recap/x_logo.jpg
     - assets/weekly_recap/share_other.svg

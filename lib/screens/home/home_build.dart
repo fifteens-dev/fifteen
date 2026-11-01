@@ -115,6 +115,62 @@ extension HomeBuild on _HomeScreenState {
     );
   }
 
+  /// 新しいホーム（グループ一覧）。
+  Widget _buildGroupHome() {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return const SizedBox.shrink();
+    return GroupHomeView(
+      uid: uid,
+      cycleStart: MusicMemoryCycleService().currentCycleStart,
+      cycleKey: MusicMemoryCycleService().cycleKey,
+      recentTracks: _warmTracks,
+      onChooseTrack: _openPostFlow,
+      onOpenMusicMemory: () {
+        _homeAudioService.stop();
+        MusicMemoryMonthScreen.push(
+          context,
+          userId: uid,
+          accountCreatedAt: _auth.currentUser?.metadata.creationTime,
+        );
+      },
+      // プロフィールは別途作り直す。それまでは今の画面を開く。
+      onOpenProfile: () {
+        _homeAudioService.stop();
+        Navigator.push(
+          context,
+          CupertinoPageRoute(
+            builder: (_) => Scaffold(
+              backgroundColor: AppColors.background,
+              body: Stack(
+                children: [
+                  const ProfileScreen(),
+                  Positioned(
+                    left: 4,
+                    top: MediaQuery.of(context).padding.top + 4,
+                    child: const BackButton(color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+      onOpenNotifications: () {
+        _homeAudioService.stop();
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const NotificationListScreen()),
+        );
+      },
+      // グループ作成は別途作る。
+      onCreateGroup: () => AppToast.show(context, 'グループ作成は準備中です'),
+      onOpenGroup: (group) {
+        _homeAudioService.stop();
+        GroupScreen.push(context, group);
+      },
+    );
+  }
+
   /// Music Memory タブ（カレンダー）。プロフィールから開く月画面を
   /// ルートタブとして埋め込む（戻るボタンは非表示）。
   Widget _buildMusicMemoryTab() {
@@ -176,7 +232,7 @@ extension HomeBuild on _HomeScreenState {
           : null,
       isSaved: savedItems.isPostOrTrackSaved(post),
       backSideEnabled: true,
-      // 写真は自分の投稿に、24:00 まで、まだ無いときだけ足せる。
+      // 写真は自分の投稿に、28:00 まで、まだ無いときだけ足せる。
       onAddPhoto: (post.userId == currentUserId &&
               _canAddPhoto &&
               !_postsWithPhoto.contains(post.postId))

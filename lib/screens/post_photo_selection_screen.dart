@@ -248,15 +248,14 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     await _loadAlbumAssets(_selectedAlbum!);
   }
 
-  /// [PostPhotoSelectionScreen.todayOnly] のとき、その投稿の日に撮った
-  /// 写真だけに絞る。
+  /// [PostPhotoSelectionScreen.todayOnly] のとき、その日に撮った写真だけに絞る。
   ///
   /// 判定は撮影日時（createDateTime）。保存日ではないので、昔の写真を
   /// 今日インポートしても通らない。
   ///
-  /// 基準は「今日」ではなく**サイクルの開始日**（通知が来た日）。投稿は
-  /// 21:00〜24:00 なので普段は今日と同じだが、0 時を回ってから足せる場面では
-  /// 「今日」で見ると前夜に撮った当の写真が消えてしまう。
+  /// 「その日」は**サイクルの開始日**（通知が来た日）の 0:00 から今まで。
+  /// 写真は 28:00（翌 4:00）まで足せるので、0 時を回ってから撮った写真も
+  /// 含める（暦日で切ると、夜中に撮った当の写真が消えてしまう）。
   List<AssetEntity> _filterToday(List<AssetEntity> assets) {
     if (!widget.todayOnly) return assets;
 
@@ -265,12 +264,10 @@ class _PostPhotoSelectionScreenState extends State<PostPhotoSelectionScreen>
     final cycle = MusicMemoryCycleService();
     final day = (cycle.notifiedAt ?? DateTime.now()).toLocal();
 
+    final dayStart = DateTime(day.year, day.month, day.day);
     return [
       for (final a in assets)
-        if (a.createDateTime.year == day.year &&
-            a.createDateTime.month == day.month &&
-            a.createDateTime.day == day.day)
-          a,
+        if (!a.createDateTime.isBefore(dayStart)) a,
     ];
   }
 

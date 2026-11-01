@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// 「写真を追加する」バー（Figma 5858-11628）。
 ///
-/// 自分の投稿カードに出す。写真は 24:00 までしか足せないので、それを過ぎたら
+/// 自分の投稿カードに出す。写真は 28:00（翌 4:00）までしか足せないので、それを過ぎたら
 /// 呼び出し側でこのバーごと消す。
 class AddPhotoBar extends StatelessWidget {
   final VoidCallback? onTap;

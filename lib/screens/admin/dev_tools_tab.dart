@@ -12,6 +12,7 @@ import '../../widgets/common/app_toast.dart';
 import '../../services/live_activity_service.dart';
 import '../friend_match_screen.dart';
 import '../weekly_recap_screen.dart';
+import 'test_groups_section.dart';
 import '../../services/weekly_recap_service.dart';
 import '../../services/friend_widget_service.dart';
 import '../../services/listening_history_service.dart';
@@ -653,6 +654,7 @@ class _DevToolsTabState extends State<DevToolsTab> {
             _buildHistoryDiagnostics(),
             _buildFriendMatchPreview(),
             _buildWeeklyRecapPreview(),
+            const TestGroupsSection(),
             _buildArtworkDiagnostics(),
 
             if (_statusMessage.isNotEmpty) ...[

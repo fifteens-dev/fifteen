@@ -22,6 +22,8 @@ import ObjectiveC.runtime
   private var _pendingDeepLinkUserId: String? = nil
   // 同上。ロック画面の Live Activity から起動されたときのアクション（"compose"）
   private var _pendingDeepLinkAction: String? = nil
+  /// グループの招待リンク（fifteenapp://group/{code}）のコード。
+  private var _pendingDeepLinkGroupCode: String? = nil
 
   // MARK: - FlutterTextInputView swizzle: ペーストを常に許可
 
@@ -632,6 +634,9 @@ import ObjectiveC.runtime
         // QR から起動されたときに保持した uid を返して消去
         result(self._pendingDeepLinkUserId)
         self._pendingDeepLinkUserId = nil
+      case "getInitialGroupCode":
+        result(self._pendingDeepLinkGroupCode)
+        self._pendingDeepLinkGroupCode = nil
       case "getInitialAction":
         // コールドスタート時に保持したアクション（Live Activity の "compose"）
         result(self._pendingDeepLinkAction)
@@ -649,6 +654,15 @@ import ObjectiveC.runtime
     if url.host == "compose" {
       _pendingDeepLinkAction = "compose"
       deepLinkFlutterChannel?.invokeMethod("onDeepLink", arguments: ["action": "compose"])
+      return true
+    }
+
+    // グループの招待（fifteenapp://group/{code}）→ 参加の確認。
+    if url.host == "group" {
+      let segments = url.pathComponents.filter { $0 != "/" }
+      guard let code = segments.first, !code.isEmpty else { return false }
+      _pendingDeepLinkGroupCode = code
+      deepLinkFlutterChannel?.invokeMethod("onDeepLink", arguments: ["groupCode": code])
       return true
     }
 

@@ -21,6 +21,7 @@ import '../services/post_flow_request.dart';
 import '../services/post_service.dart';
 import '../utils/color_extractor.dart';
 import '../widgets/common/app_toast.dart';
+import 'group_dialogs.dart' show GroupInviteDialog;
 import 'group_settings_sheet.dart';
 import '../widgets/common/glass_circle_button.dart';
 import '../widgets/home/group_home_view.dart' show groupReactionEmojis;
@@ -437,7 +438,7 @@ class _GroupScreenState extends State<GroupScreen> {
       case _InviteSlot():
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: _openSettings,
+          onTap: () => GroupInviteDialog.show(context, _group),
           child: _fit(const _InviteCard()),
         );
     }

@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/group_model.dart';
@@ -128,7 +129,45 @@ class GroupService {
     return ref.id;
   }
 
-  static final Random _random = Random.secure();
+  /// グループを作る（ホームの＋→「グループを作成」）。作った人だけのグループ。
+  /// 名前が空ならサーバーが作った人の名前から付ける。
+  Future<({String groupId, String name, String inviteCode})> createMyGroup(
+      String name) async {
+    final res = await FirebaseFunctions.instance
+        .httpsCallable('createGroup')
+        .call({'name': name});
+    final data = Map<String, dynamic>.from(res.data as Map);
+    return (
+      groupId: data['groupId'] as String,
+      name: data['name'] as String,
+      inviteCode: data['inviteCode'] as String,
+    );
+  }
+
+  /// 招待コードで参加する。締め切り・10 人・コード違いはサーバーが弾き、
+  /// [GroupJoinException] の message にそのまま出せる文言が入る。
+  Future<({String groupId, String name, bool alreadyMember})> joinByCode(
+      String code) async {
+    try {
+      final res = await FirebaseFunctions.instance
+          .httpsCallable('joinGroupByCode')
+          .call({'code': code.trim().toLowerCase()});
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return (
+        groupId: data['groupId'] as String,
+        name: (data['name'] as String?) ?? '',
+        alreadyMember: data['alreadyMember'] == true,
+      );
+    } on FirebaseFunctionsException catch (e) {
+      throw GroupJoinException(e.message ?? '参加できませんでした');
+    }
+  }
+
+  /// 招待リンク（QR にもこれを入れる）。開くと Web からアプリへ渡る。
+  static String inviteUrl(String code) =>
+      'https://fifteens-39cfe.web.app/g/$code';
+
+    static final Random _random = Random.secure();
 
   /// 招待コード（6 桁、小文字英字と数字）。紛らわしい 0/o/1/l は使わない。
   static String newInviteCode() {
@@ -266,4 +305,12 @@ class GroupService {
       photoUrls: photos,
     );
   }
+}
+
+/// 招待コードで参加できなかった理由（そのまま画面に出せる文言）。
+class GroupJoinException implements Exception {
+  final String message;
+  const GroupJoinException(this.message);
+  @override
+  String toString() => message;
 }

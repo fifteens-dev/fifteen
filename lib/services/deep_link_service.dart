@@ -4,6 +4,7 @@ import 'package:app_links/app_links.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../screens/group_dialogs.dart';
 import 'package:flutter/services.dart';
 import '../screens/other_user_profile_screen.dart';
 import '../screens/post_detail_screen.dart';
@@ -89,6 +90,18 @@ class DeepLinkService {
         if (kDebugMode) AppLog.debug('DeepLinkService getInitialUserId error: $e');
       }
 
+      // 同上: グループの招待リンクから起動されたとき。
+      try {
+        final code =
+            await _nativeChannel.invokeMethod<String>('getInitialGroupCode');
+        if (code != null && code.isNotEmpty) {
+          WidgetsBinding.instance
+              .addPostFrameCallback((_) => _openGroupInvite(code));
+        }
+      } catch (e) {
+        if (kDebugMode) AppLog.debug('DeepLinkService getInitialGroupCode error: $e');
+      }
+
       // 同上: Live Activity から起動されたときのアクション。
       try {
         final action = await _nativeChannel.invokeMethod<String>('getInitialAction');
@@ -135,6 +148,11 @@ class DeepLinkService {
         _requestCompose();
         return;
       }
+      final groupCode = args?['groupCode'] as String?;
+      if (groupCode != null && groupCode.isNotEmpty) {
+        await _openGroupInvite(groupCode);
+        return;
+      }
       final userId = args?['userId'] as String?;
       if (userId != null && userId.isNotEmpty) {
         if (kDebugMode) AppLog.debug('DeepLinkService iOS onDeepLink user: $userId');
@@ -163,7 +181,19 @@ class DeepLinkService {
     }
     if (uri.host == 'user' && uri.pathSegments.isNotEmpty) {
       _openProfile(uri.pathSegments.first);
+      return;
     }
+    if (uri.host == 'group' && uri.pathSegments.isNotEmpty) {
+      _openGroupInvite(uri.pathSegments.first);
+    }
+  }
+
+  /// グループの招待リンク（QR）から開かれた。参加の確認を出す。
+  Future<void> _openGroupInvite(String code) async {
+    final navigator = await _waitForNavigator();
+    final ctx = navigator?.context;
+    if (ctx == null || !ctx.mounted) return;
+    await JoinGroupDialog.show(ctx, initialCode: code);
   }
 
   /// 招待カードの QR やプロフィールリンクから開かれたプロフィール。

@@ -594,6 +594,96 @@ exports.pokeDigestNotification = onSchedule(
   }
 );
 
+/**
+ * グループの作成と、招待コードでの参加。
+ *
+ * どちらもルールではなくここで行う。参加は「メンバーでない人が自分を足す」
+ * ので、締め切り・10 人の上限・コードの一致をサーバーで確かめる必要がある。
+ * 作成も招待コードが他と被らないことをここで確かめる。
+ */
+const GROUP_MAX_MEMBERS = 10;
+const GROUP_ICON_COUNT = 7;
+const INVITE_CODE_CHARS = 'abcdefghijkmnpqrstuvwxyz23456789';
+
+function newGroupInviteCode() {
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += INVITE_CODE_CHARS[Math.floor(Math.random() * INVITE_CODE_CHARS.length)];
+  }
+  return code;
+}
+
+async function uniqueGroupInviteCode(db) {
+  for (let i = 0; i < 10; i++) {
+    const code = newGroupInviteCode();
+    const snap = await db.collection('groups').where('inviteCode', '==', code).limit(1).get();
+    if (snap.empty) return code;
+  }
+  throw new HttpsError('internal', '招待コードを作れませんでした');
+}
+
+exports.createGroup = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'ログインが必要です');
+  const db = admin.firestore();
+
+  let name = String(request.data?.name || '').trim().slice(0, 20);
+  if (!name) {
+    // 名前は任意。空なら作った人の名前から付ける（あとで設定から変えられる）。
+    const user = (await db.collection('users').doc(uid).get()).data() || {};
+    const who = user.name || user.username || '';
+    name = who ? `${who}のグループ` : '新しいグループ';
+  }
+
+  const inviteCode = await uniqueGroupInviteCode(db);
+  const ref = await db.collection('groups').add({
+    name,
+    ownerId: uid,
+    memberIds: [uid],
+    iconIndex: Math.floor(Math.random() * GROUP_ICON_COUNT),
+    inviteCode,
+    joinClosed: false,
+    mutedMemberIds: [],
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return { groupId: ref.id, name, inviteCode };
+});
+
+exports.joinGroupByCode = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'ログインが必要です');
+  const code = String(request.data?.code || '').trim().toLowerCase();
+  if (!/^[a-z0-9]{6}$/.test(code)) {
+    throw new HttpsError('invalid-argument', '招待コードは6桁の英数字です');
+  }
+  const db = admin.firestore();
+
+  const found = await db.collection('groups').where('inviteCode', '==', code).limit(1).get();
+  if (found.empty) throw new HttpsError('not-found', 'このコードのグループは見つかりません');
+  const ref = found.docs[0].ref;
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new HttpsError('not-found', 'このコードのグループは見つかりません');
+    const g = snap.data();
+    const members = g.memberIds || [];
+    const result = { groupId: ref.id, name: g.name || '' };
+    if (members.includes(uid)) return { ...result, alreadyMember: true };
+    if (g.joinClosed === true) {
+      throw new HttpsError('failed-precondition', 'このグループは参加を締め切っています');
+    }
+    if (members.length >= GROUP_MAX_MEMBERS) {
+      throw new HttpsError('resource-exhausted', `このグループは${GROUP_MAX_MEMBERS}人に達しています`);
+    }
+    tx.update(ref, {
+      memberIds: admin.firestore.FieldValue.arrayUnion(uid),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return { ...result, alreadyMember: false };
+  });
+});
+
 const WEEKLY_RECAP_TITLE = 'Your Weekly Recap is here🎧';
 const WEEKLY_RECAP_BODY = 'あなたの1週間の音楽が、ひとつの作品になったよ。';
 

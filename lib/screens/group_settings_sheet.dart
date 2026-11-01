@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../constants/profile_fonts.dart';
 import '../models/group_model.dart';
@@ -15,6 +14,7 @@ import '../services/group_service.dart';
 import '../widgets/common/app_toast.dart';
 import '../widgets/common/glass_circle_button.dart';
 import '../widgets/profile_widgets.dart';
+import 'group_dialogs.dart' show GroupInviteDialog, QrGlyph;
 
 /// グループの既定アイコン（イラスト）。
 ///
@@ -156,19 +156,8 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
 
   // ── 操作 ────────────────────────────────────────────
 
-  Future<void> _invite(GroupModel g) async {
-    if (g.joinClosed) {
-      AppToast.show(context, '参加を締め切っています');
-      return;
-    }
-    if (g.memberIds.length >= GroupModel.maxMembers) {
-      AppToast.show(context, 'グループは${GroupModel.maxMembers}人までです');
-      return;
-    }
-    final code = g.inviteCode;
-    if (code == null) return;
-    await Share.share('15sのグループ「${g.name}」に参加しよう\n招待コード: $code');
-  }
+  /// 招待のカード（QR・共有・LINE）を出す。締め切り・10 人はそちらで断る。
+  Future<void> _invite(GroupModel g) => GroupInviteDialog.show(context, g);
 
   Future<void> _copyCode(GroupModel g) async {
     final code = g.inviteCode;
@@ -563,7 +552,7 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => _showQr(g),
-              child: const Center(child: _QrGlyph()),
+              child: const Center(child: QrGlyph(color: _subGrey)),
             ),
           ),
           toggle(
@@ -661,38 +650,4 @@ class _Divider extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       const SizedBox(height: 1, child: ColoredBox(color: _divider));
-}
-
-/// 招待コードの横の QR の記号（Figma 6321:12963）。16×15 の小さな枠 5 つ。
-class _QrGlyph extends StatelessWidget {
-  const _QrGlyph();
-
-  @override
-  Widget build(BuildContext context) {
-    Widget box(double l, double t, double s) => Positioned(
-          left: l,
-          top: t,
-          child: Container(
-            width: s,
-            height: s,
-            decoration: BoxDecoration(
-              border: Border.all(color: _subGrey, width: 1.5),
-              borderRadius: BorderRadius.circular(1),
-            ),
-          ),
-        );
-    return SizedBox(
-      width: 16,
-      height: 15,
-      child: Stack(
-        children: [
-          box(0, 0, 7),
-          box(9, 0, 7),
-          box(0, 8, 7),
-          box(9, 8, 4),
-          box(12, 11, 4),
-        ],
-      ),
-    );
-  }
 }

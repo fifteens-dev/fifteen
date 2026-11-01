@@ -66,6 +66,7 @@ import '../services/reaction_reveal_service.dart';
 import '../widgets/reaction_overlay.dart';
 import 'post_detail_screen.dart';
 import 'group_screen.dart';
+import 'group_dialogs.dart' show GroupAddMenu;
 import '../services/post_flow_request.dart';
 import '../widgets/home/group_home_view.dart';
 import 'package:flutter/services.dart' show HapticFeedback;

@@ -162,8 +162,8 @@ extension HomeBuild on _HomeScreenState {
           MaterialPageRoute(builder: (_) => const NotificationListScreen()),
         );
       },
-      // グループ作成は別途作る。
-      onCreateGroup: () => AppToast.show(context, 'グループ作成は準備中です'),
+      // ＋ → 「グループを作成」「コードで参加」のメニュー。
+      onCreateGroup: () => GroupAddMenu.show(context),
       onOpenGroup: (group) {
         _homeAudioService.stop();
         GroupScreen.push(context, group);

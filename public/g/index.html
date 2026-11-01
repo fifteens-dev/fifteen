@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>15sのグループに招待されました</title>
+
+  <!--
+    グループの招待リンク・QR（/g/{招待コード}）の着地ページ。
+
+    ここではグループ名もメンバーも出さない（コードを知れば誰でも開けるため）。
+    アプリを持っている人は fifteenapp://group/{コード} でアプリへ進み、
+    参加の確認が出る。締め切り・10 人の上限はアプリ側（サーバー）で確かめる。
+  -->
+  <meta property="og:title" content="15sのグループに招待されました">
+  <meta property="og:description" content="音楽で「今日」をシェアするSNS。アプリを開くとグループに参加できます。">
+  <meta property="og:site_name" content="Fifteens">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+      background: #111111;
+      color: #ffffff;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 360px;
+      background: #1c1c1e;
+      border-radius: 20px;
+      padding: 40px 32px 36px;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .logo { font-size: 52px; font-weight: 700; letter-spacing: -1px; }
+    .app-name { font-size: 15px; color: #8e8e93; margin-top: 4px; }
+    .message { font-size: 15px; line-height: 1.7; margin-top: 24px; color: #d7d7d9; }
+
+    .code-label { font-size: 12px; color: #8e8e93; margin-top: 28px; }
+    .code {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .copied { font-size: 12px; color: #4cc764; margin-top: 8px; min-height: 16px; }
+
+    .btn {
+      display: block;
+      width: 100%;
+      margin-top: 12px;
+      padding: 15px;
+      border-radius: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .store-btn { background: #ffffff; color: #111111; margin-top: 24px; }
+    .open-btn  { background: #2c2c2e; color: #ffffff; }
+    .copy-btn  { background: transparent; color: #8e8e93; font-size: 13px; padding: 10px; }
+
+    .hint { font-size: 12px; color: #555; margin-top: 22px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <!-- 見た目はプロフィールの招待ページ（/u）と揃える。 -->
+  <div class="card">
+    <div class="logo">15s</div>
+    <div class="app-name">Fifteens</div>
+
+    <p class="message" id="message">15sのグループに招待されました。</p>
+
+    <div id="codeBlock" style="display:none">
+      <div class="code-label">招待コード</div>
+      <div class="code" id="code">-</div>
+      <div class="copied" id="copied"></div>
+      <button class="btn copy-btn" id="copyBtn" type="button">コードをコピー</button>
+    </div>
+
+    <a class="btn open-btn" id="openBtn" href="#" style="margin-top:24px">アプリで参加する</a>
+    <a class="btn store-btn" id="storeBtn" style="margin-top:12px"
+       href="https://apps.apple.com/jp/app/fifteens/id6758916042"
+       target="_blank" rel="noopener">App Storeでダウンロード</a>
+
+    <p class="hint" id="hint">
+      アプリを入れたあとは、ホームの＋ →「コードで参加」に招待コードを入れると参加できます。
+    </p>
+  </div>
+
+  <script>
+    (function () {
+      var STORE_URL = 'https://apps.apple.com/jp/app/fifteens/id6758916042';
+
+      // /g/{コード}
+      var segments = window.location.pathname.split('/').filter(Boolean);
+      var code = segments.length > 1 ? segments[segments.length - 1] : '';
+      code = (code || '').trim().toLowerCase();
+      if (!/^[a-z0-9]{6}$/.test(code)) code = '';
+      var copiedEl = document.getElementById('copied');
+
+      if (!code) {
+        document.getElementById('message').textContent =
+          'リンクが読み取れませんでした。QR をもう一度読み取ってください。';
+        document.getElementById('openBtn').style.display = 'none';
+        document.getElementById('hint').style.display = 'none';
+        return;
+      }
+
+      var appUrl = 'fifteenapp://group/' + encodeURIComponent(code);
+
+      function fallbackCopy(done) {
+        var ta = document.createElement('textarea');
+        ta.value = code;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) { /* noop */ }
+        document.body.removeChild(ta);
+      }
+
+      function copy() {
+        var done = function () { copiedEl.textContent = 'コードをコピーしました'; };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(done).catch(function () {
+            fallbackCopy(done);
+          });
+        } else {
+          fallbackCopy(done);
+        }
+      }
+
+      document.getElementById('codeBlock').style.display = 'block';
+      document.getElementById('code').textContent = code;
+
+      document.getElementById('copyBtn').addEventListener('click', copy);
+      document.getElementById('openBtn').addEventListener('click', function (e) {
+        e.preventDefault();
+        window.location.href = appUrl;
+        // アプリが無ければ戻ってこないので、少し待って App Store へ。
+        setTimeout(function () { window.location.href = STORE_URL; }, 1200);
+      });
+    })();
+  </script>
+</body>
+</html>

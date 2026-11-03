@@ -627,13 +627,9 @@ exports.createGroup = onCall(async (request) => {
   if (!uid) throw new HttpsError('unauthenticated', 'ログインが必要です');
   const db = admin.firestore();
 
-  let name = String(request.data?.name || '').trim().slice(0, 20);
-  if (!name) {
-    // 名前は任意。空なら作った人の名前から付ける（あとで設定から変えられる）。
-    const user = (await db.collection('users').doc(uid).get()).data() || {};
-    const who = user.name || user.username || '';
-    name = who ? `${who}のグループ` : '新しいグループ';
-  }
+  // グループ名は必須（アプリでも空ならチェックを押せない）。
+  const name = String(request.data?.name || '').trim().slice(0, 20);
+  if (!name) throw new HttpsError('invalid-argument', 'グループ名を入力してください');
 
   const inviteCode = await uniqueGroupInviteCode(db);
   const ref = await db.collection('groups').add({
@@ -682,6 +678,120 @@ exports.joinGroupByCode = onCall(async (request) => {
     });
     return { ...result, alreadyMember: false };
   });
+});
+
+/**
+ * 同じグループの人の一覧（group_peers/{uid}.uids）を作り直す。
+ *
+ * 投稿に付けた写真（post_photos）は同じグループの人だけに見せる。ルールでは
+ * 「どのグループに一緒にいるか」を問い合わせられないので、ここで人ごとに
+ * まとめておき、ルールは get() で 1 件見るだけにする。
+ *
+ * メンバーが変わったグループの、前後どちらかにいた人だけを作り直す。
+ */
+exports.syncGroupPeers = onDocumentWritten('groups/{groupId}', async (event) => {
+  const before = event.data?.before?.data()?.memberIds || [];
+  const after = event.data?.after?.data()?.memberIds || [];
+  const same = before.length === after.length && before.every((u) => after.includes(u));
+  if (same && event.data?.before?.exists && event.data?.after?.exists) return;
+
+  const affected = [...new Set([...before, ...after])];
+  await Promise.all(affected.map(rebuildGroupPeers));
+});
+
+/** uid と同じグループにいる人を集め直して group_peers/{uid} に書く。 */
+async function rebuildGroupPeers(uid) {
+  const db = admin.firestore();
+  const groups = await db.collection('groups').where('memberIds', 'array-contains', uid).get();
+  const peers = new Set();
+  groups.forEach((g) => (g.data().memberIds || []).forEach((m) => peers.add(m)));
+  peers.delete(uid);
+  await db.collection('group_peers').doc(uid).set({
+    uids: [...peers],
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+/**
+ * 自分の group_peers を作り直す。アプリを開いたときに呼ぶ。
+ * syncGroupPeers より前からあるグループでも、写真が見られるようにするため。
+ */
+exports.refreshMyGroupPeers = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'ログインが必要です');
+  await rebuildGroupPeers(uid);
+  return { ok: true };
+});
+
+/**
+ * 友達をグループに追加する（招待カードの「友達を追加」）。
+ *
+ * 友達＝どこかのグループで一緒の人。追加された人は確認なしでそのまま参加になる。
+ * 締め切り中と 10 人の上限は、コードで参加と同じく断る。
+ */
+exports.addGroupMembers = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'ログインが必要です');
+  const groupId = String(request.data?.groupId || '');
+  const uids = Array.isArray(request.data?.uids)
+    ? [...new Set(request.data.uids.map(String))].filter((u) => u && u !== uid)
+    : [];
+  if (!groupId || uids.length === 0) {
+    throw new HttpsError('invalid-argument', '追加する友達を選んでください');
+  }
+  const db = admin.firestore();
+
+  // 呼んだ人と、どこかのグループで一緒の人だけ追加できる。
+  const mine = await db.collection('groups').where('memberIds', 'array-contains', uid).get();
+  const friends = new Set();
+  mine.forEach((g) => (g.data().memberIds || []).forEach((m) => friends.add(m)));
+  if (uids.some((u) => !friends.has(u))) {
+    throw new HttpsError('permission-denied', '追加できるのは同じグループの友達だけです');
+  }
+
+  const ref = db.collection('groups').doc(groupId);
+  const result = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new HttpsError('not-found', 'グループが見つかりません');
+    const g = snap.data();
+    const members = g.memberIds || [];
+    if (!members.includes(uid)) {
+      throw new HttpsError('permission-denied', 'このグループのメンバーではありません');
+    }
+    if (g.joinClosed === true) {
+      throw new HttpsError('failed-precondition', 'このグループは参加を締め切っています');
+    }
+    const added = uids.filter((u) => !members.includes(u));
+    if (members.length + added.length > GROUP_MAX_MEMBERS) {
+      throw new HttpsError('resource-exhausted', `グループは${GROUP_MAX_MEMBERS}人までです`);
+    }
+    if (added.length > 0) {
+      tx.update(ref, {
+        memberIds: admin.firestore.FieldValue.arrayUnion(...added),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    return { added, groupName: g.name || '' };
+  });
+
+  if (result.added.length > 0) {
+    try {
+      const me = (await db.collection('users').doc(uid).get()).data() || {};
+      const who = me.name || me.username || '友達';
+      await broadcastPush(db, result.added, {
+        title: `${who}があなたを「${result.groupName}」に追加しました`,
+        body: '',
+        data: {
+          notificationType: 'group_added',
+          groupId,
+          click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        },
+      });
+    } catch (e) {
+      console.error('addGroupMembers push failed', e);
+    }
+  }
+  return { added: result.added };
 });
 
 const WEEKLY_RECAP_TITLE = 'Your Weekly Recap is here🎧';

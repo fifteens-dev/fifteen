@@ -23,6 +23,12 @@ import 'group_dialogs.dart' show GroupInviteDialog, QrGlyph;
 class GroupIcons {
   static const List<String> _assets = [
     'assets/group_icons/icon_1.jpg',
+    'assets/group_icons/icon_2.jpg',
+    'assets/group_icons/icon_3.jpg',
+    'assets/group_icons/icon_4.jpg',
+    'assets/group_icons/icon_5.jpg',
+    'assets/group_icons/icon_6.jpg',
+    'assets/group_icons/icon_7.jpg',
   ];
 
   static String assetFor(int index) => _assets[index % _assets.length];

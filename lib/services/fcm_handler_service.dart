@@ -1,8 +1,10 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageRoute;
 import 'package:url_launcher/url_launcher.dart';
 import '../screens/other_user_profile_screen.dart';
+import '../screens/group_screen.dart';
 import '../screens/weekly_recap_screen.dart';
 import 'weekly_recap_service.dart';
 import '../screens/post_detail_screen.dart';
@@ -11,6 +13,7 @@ import 'notification_service.dart';
 import 'post_service.dart';
 import 'reaction_reveal_service.dart';
 import 'post_flow_request.dart';
+import 'group_service.dart';
 import 'auth_service.dart';
 import '../utils/app_log.dart';
 
@@ -183,6 +186,18 @@ class FCMHandlerService {
       // つつかれた → ホームへ戻ってそのまま投稿画面を開く。
       ReactionRevealService.instance.popToHome(navigator);
       PostFlowRequest.instance.request();
+    } else if (notificationType == 'group_added') {
+      // 友達にグループへ追加された → そのグループを開く。
+      final groupId = message.data['groupId'] as String?;
+      if (groupId != null && groupId.isNotEmpty) {
+        GroupService().watchGroup(groupId).first.then((group) {
+          if (group == null) return;
+          ReactionRevealService.instance.popToHome(navigator);
+          navigator.push(CupertinoPageRoute(
+            builder: (_) => GroupScreen(group: group),
+          ));
+        }).catchError((_) {});
+      }
     } else if (notificationType == 'weekly_recap') {
       navigator.push(MaterialPageRoute(
         builder: (_) => WeeklyRecapScreen(

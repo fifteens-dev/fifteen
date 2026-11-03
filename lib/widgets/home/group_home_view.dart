@@ -172,6 +172,7 @@ class _GroupHomeViewState extends State<GroupHomeView> {
   void _subscribe() {
     _groupsStream =
         widget.debugGroups ?? _groupService.watchMyGroups(widget.uid);
+    if (widget.debugGroups == null) _groupService.refreshMyPeersOnce();
     _myPostStream =
         widget.debugMyPost ?? _groupService.watchMyCyclePost(widget.uid);
     final key = widget.cycleKey;

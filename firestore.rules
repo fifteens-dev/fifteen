@@ -113,8 +113,19 @@ service cloud.firestore {
     // 以前は本人だけが読めたが、2026-11-02 からカード裏面に出して他の人にも
     // 見せる。1 件取得（postId 指定）はログインしていれば可。
     // 一覧（クエリ）は今までどおり自分のぶんだけ。
+    // 同じグループの人の一覧。Functions（syncGroupPeers）だけが書く。
+    match /group_peers/{uid} {
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
     match /post_photos/{postId} {
-      allow get: if isAuthenticated();
+      // 見られるのは本人と、同じグループの人だけ（2026-11-02）。
+      // 一覧は group_peers に Functions がまとめている。
+      allow get: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        request.auth.uid in get(/databases/$(database)/documents/group_peers/$(resource.data.userId)).data.uids
+      );
 
       // クエリでは resource.data を見られない（Firestore は結果を 1 件ずつ
       // 評価せず、クエリの条件だけで可否を決める）。read に resource.data を

@@ -3,8 +3,8 @@ rules_version = '2';
 // Firebase Storage のルール。
 //
 // これを入れる前は「ログイン済みなら全部読める」既定に近い状態だった。
-// 投稿に添える写真（private_photos）は以前は本人しか見られなかったが、
-// 2026-11-02 からカード裏面に出して他の人にも見せる（パス名はそのまま）。
+// 投稿に添える写真（private_photos）は本人だけが読める。カード裏面で
+// 同じグループの人に見せるときは、post_photos に入れた URL を使う。
 //
 // 既存の読み取りを壊さないよう、今アプリが使っているパスはすべて明示する。
 // ここに無いパスは既定で拒否になる点に注意（新しい置き場を足したら追記する）。
@@ -28,10 +28,10 @@ service firebase.storage {
 
     // ── 投稿に添えた写真 ──
     //
-    // カード裏面に出すので、ログインしていれば読める（2026-11-02 から）。
-    // 書けるのは本人だけ。
+    // 読み書きできるのは本人だけ。ほかの人には、Firestore の post_photos に
+    // 入れたダウンロード URL で見せる（post_photos を読めるのは同じグループの人だけ）。
     match /private_photos/{userId}/{file} {
-      allow read: if isSignedIn();
+      allow read: if isOwner(userId);
       allow write: if isOwner(userId) && isImageUnder(12);
     }
 

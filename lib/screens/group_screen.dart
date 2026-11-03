@@ -32,7 +32,8 @@ import '../widgets/profile_widgets.dart';
 /// グループ画面（Figma 6308:12346）。
 ///
 /// 2 列のグリッドに、自分（左上）→ 投稿した順のメンバー → まだの人 →
-/// 招待、の順に並べる。投稿していなくても入れて、投稿も見られる。
+/// 招待、の順に並べる。投稿していなくても入れるが、自分が投稿するまでは
+/// ほかの人の投稿はぼかして、裏返しもできない。
 ///
 /// - 投稿は表面を省略したカードで出し、タップでその場から拡大して裏へ反転する。
 /// - リアクションは長押し（タップは反転に使う）。
@@ -391,18 +392,33 @@ class _GroupScreenState extends State<GroupScreen> {
   Widget _cell(_Slot slot, GroupCycleStatus status) {
     switch (slot) {
       case _PostSlot(:final post, :final isMe):
+        final compact = _CompactPostCard(
+          post: post,
+          isMe: isMe,
+          hasPhoto: status.postIdsWithPhoto.contains(post.postId),
+          reactionEmojis: groupReactionEmojis(
+            post.reactions,
+            _group.memberIds.toSet(),
+            max: 6,
+          ),
+        );
+        // 自分がまだのうちは、ほかの人の投稿をぼかして裏返せなくする（BeReal と同じ）。
+        if (!status.postsByMember.containsKey(_uid)) {
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => AppToast.show(context, '曲を選ぶと見られます'),
+            child: _fit(ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                child: compact,
+              ),
+            )),
+          );
+        }
         return EnlargeFlipCell(
           key: ValueKey('post_${post.postId}'),
-          cell: _fit(_CompactPostCard(
-            post: post,
-            isMe: isMe,
-            hasPhoto: status.postIdsWithPhoto.contains(post.postId),
-            reactionEmojis: groupReactionEmojis(
-              post.reactions,
-              _group.memberIds.toSet(),
-              max: 6,
-            ),
-          )),
+          cell: _fit(compact),
           cardBuilder: (key, onTap, requestClose) {
             _audioUsed = true;
             return PostCard(

@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -10,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../constants/profile_fonts.dart';
 import '../models/group_model.dart';
+import '../models/user_model.dart';
 import '../services/group_service.dart';
 import '../widgets/common/app_toast.dart';
 import '../widgets/common/glass_circle_button.dart';
@@ -22,6 +24,7 @@ import 'group_settings_sheet.dart' show GroupIconImage;
 //   新しいグループ     Figma 6373:14064（上に出るガラスのカード＋キーボード）
 //   招待               Figma 6394:14203（中央のガラスのカードに QR）
 //   コードで参加       デザインなし。新しいグループと同じ形で作っている
+//   友達を追加         デザインなし。同じガラスの見た目で一覧から選ぶ
 //
 // 寸法は Figma の 402×874 のまま持ち、画面幅に合わせて拡縮する。
 
@@ -208,6 +211,9 @@ class _TopCardDialog extends StatefulWidget {
   final String? initialText;
   final int? maxLength;
 
+  /// 入力がこれを満たすとチェックが白くなり、押せるようになる。
+  final bool Function(String text) canSubmit;
+
   /// チェックを押したとき。成功したら true を返すとダイアログを閉じる。
   final Future<bool> Function(BuildContext context, String text) onSubmit;
 
@@ -221,6 +227,7 @@ class _TopCardDialog extends StatefulWidget {
     required this.placeholder,
     required this.note,
     required this.onSubmit,
+    required this.canSubmit,
     this.initialText,
     this.maxLength,
     this.footerLabel,
@@ -235,6 +242,16 @@ class _TopCardDialogState extends State<_TopCardDialog> {
   late final TextEditingController _controller =
       TextEditingController(text: widget.initialText);
   bool _busy = false;
+  late bool _ready = widget.canSubmit(_controller.text.trim());
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(() {
+      final ready = widget.canSubmit(_controller.text.trim());
+      if (ready != _ready) setState(() => _ready = ready);
+    });
+  }
 
   @override
   void dispose() {
@@ -243,7 +260,7 @@ class _TopCardDialogState extends State<_TopCardDialog> {
   }
 
   Future<void> _submit() async {
-    if (_busy) return;
+    if (_busy || !_ready) return;
     setState(() => _busy = true);
     final ok = await widget.onSubmit(context, _controller.text.trim());
     if (!mounted) return;
@@ -285,18 +302,22 @@ class _TopCardDialogState extends State<_TopCardDialog> {
                       child: Text(widget.title,
                           style: _rounded(20, Colors.white, 700)),
                     ),
-                    // 決定（Figma: Liquid Glass Light + Check）。
+                    // 決定（Figma: Liquid Glass Light + Check）。入力するまでは
+                    // 半透明で押せず、入力すると白くなる。
                     Positioned(
                       left: 317,
                       top: 25,
                       child: GestureDetector(
                         onTap: _submit,
-                        child: Container(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Colors.white.withValues(alpha: 0.55),
+                            color: _ready
+                                ? Colors.white
+                                : Colors.white.withValues(alpha: 0.55),
                           ),
                           child: _busy
                               ? const CupertinoActivityIndicator(
@@ -413,11 +434,12 @@ class CreateGroupDialog {
       context,
       _TopCardDialog(
         title: '新しいグループ',
-        placeholder: 'グループ名 (任意)',
+        placeholder: 'グループ名',
         note: '最大${GroupModel.maxMembers}人まで。作成後に招待リンクやQRで友達を呼べます。',
         maxLength: 20,
         footerLabel: '招待コード・QRで参加する',
         onFooter: () => openJoin = true,
+        canSubmit: (name) => name.isNotEmpty,
         onSubmit: (ctx, name) async {
           try {
             final res = await GroupService().createMyGroup(name);
@@ -461,11 +483,8 @@ class JoinGroupDialog {
         note: '招待リンクのQRは、iPhoneのカメラで読み取ると参加できます。',
         initialText: initialCode,
         maxLength: 6,
+        canSubmit: (code) => code.length == 6,
         onSubmit: (ctx, code) async {
-          if (code.length != 6) {
-            AppToast.show(ctx, '招待コードは6桁です');
-            return false;
-          }
           try {
             joined = await GroupService().joinByCode(code);
             return true;
@@ -667,9 +686,210 @@ class _InviteCard extends StatelessWidget {
             width: 266,
             child: SizedBox(height: 1, child: ColoredBox(color: _divider)),
           ),
-          // 「友達を追加」の行き先は未定。今は招待の共有と同じにしている。
-          row(463, const SizedBox(width: 28, height: 28), '友達を追加', _share),
+          row(
+              463,
+              const Icon(CupertinoIcons.person_add,
+                  color: Colors.white, size: 26),
+              '友達を追加',
+              () => GroupFriendPicker.show(context, group)),
         ],
+      ),
+    );
+  }
+}
+
+
+// ── 友達を追加 ───────────────────────────────────────────
+
+/// 招待カードの「友達を追加」。デザインは無いので、同じガラスのカードに
+/// 友達（どこかのグループで一緒の人）を並べ、選んで追加する。
+///
+/// 追加された人は確認なしでそのまま参加になる（サーバー addGroupMembers）。
+class GroupFriendPicker {
+  static Future<void> show(BuildContext context, GroupModel group) async {
+    final added = await showGeneralDialog<int>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'close',
+      barrierColor: Colors.black.withValues(alpha: 0.7),
+      transitionDuration: const Duration(milliseconds: 200),
+      pageBuilder: (ctx, _, __) => _designOverlay(
+        ctx,
+        Stack(
+          children: [
+            Positioned(left: 38, top: 162, child: _FriendPickerCard(group: group)),
+          ],
+        ),
+      ),
+      transitionBuilder: (ctx, anim, _, child) =>
+          FadeTransition(opacity: anim, child: child),
+    );
+    if (added != null && added > 0 && context.mounted) {
+      AppToast.show(context, '$added人をグループに追加しました');
+    }
+  }
+}
+
+class _FriendPickerCard extends StatefulWidget {
+  final GroupModel group;
+  const _FriendPickerCard({required this.group});
+
+  @override
+  State<_FriendPickerCard> createState() => _FriendPickerCardState();
+}
+
+class _FriendPickerCardState extends State<_FriendPickerCard> {
+  final GroupService _service = GroupService();
+  List<UserModel>? _friends;
+  final Set<String> _selected = {};
+  bool _busy = false;
+
+  int get _room => GroupModel.maxMembers - widget.group.memberIds.length;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    _service.fetchFriendsNotIn(widget.group, uid).then((list) {
+      if (mounted) setState(() => _friends = list);
+    }).catchError((_) {
+      if (mounted) setState(() => _friends = const []);
+    });
+  }
+
+  void _toggle(String uid) {
+    setState(() {
+      if (_selected.remove(uid)) return;
+      if (_selected.length >= _room) {
+        AppToast.show(context, 'グループは${GroupModel.maxMembers}人までです');
+        return;
+      }
+      _selected.add(uid);
+    });
+  }
+
+  Future<void> _add() async {
+    if (_busy || _selected.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      final n = await _service.addMembers(
+          widget.group.groupId, _selected.toList());
+      if (mounted) Navigator.of(context).pop(n);
+    } on GroupJoinException catch (e) {
+      if (mounted) AppToast.show(context, e.message);
+    } catch (_) {
+      if (mounted) AppToast.show(context, '追加できませんでした');
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final friends = _friends;
+    return GlassPanel(
+      width: 325,
+      height: 548,
+      radius: 50,
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          children: [
+            const SizedBox(height: 32),
+            Text('友達を追加', style: _rounded(18, Colors.white, 700)),
+            const SizedBox(height: 6),
+            Text('追加した友達はそのまま参加します（あと$_room人）',
+                style: _rounded(12, const Color(0xFF8F8894), 400)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: friends == null
+                  ? const Center(
+                      child: CupertinoActivityIndicator(color: Colors.white))
+                  : friends.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                              'ほかのグループで一緒の友達がいません。\n招待リンクやQRで呼んでください。',
+                              textAlign: TextAlign.center,
+                              style: _rounded(13, const Color(0xFF8F8894), 400),
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          itemCount: friends.length,
+                          itemBuilder: (_, i) => _row(friends[i]),
+                        ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(86, 12, 86, 32),
+              child: GestureDetector(
+                onTap: _add,
+                child: Container(
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _selected.isEmpty
+                        ? Colors.white.withValues(alpha: 0.55)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                  child: _busy
+                      ? const CupertinoActivityIndicator(color: Colors.black)
+                      : Text(
+                          _selected.isEmpty ? '追加する' : '${_selected.length}人を追加',
+                          style: _rounded(16, Colors.black, 510)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(UserModel u) {
+    final on = _selected.contains(u.uid);
+    final url = u.profileImageUrl ?? '';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _toggle(u.uid),
+      child: SizedBox(
+        height: 56,
+        child: Row(
+          children: [
+            ClipOval(
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: url.isEmpty
+                    ? const ColoredBox(color: Color(0xFF3A363E))
+                    : CachedNetworkImage(
+                        imageUrl: url,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, __, ___) =>
+                            const ColoredBox(color: Color(0xFF3A363E)),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                (u.name?.isNotEmpty == true ? u.name : u.username) ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _rounded(15, Colors.white, 510),
+              ),
+            ),
+            Icon(
+              on
+                  ? CupertinoIcons.check_mark_circled_solid
+                  : CupertinoIcons.circle,
+              color: on ? Colors.white : const Color(0xFF5C5762),
+              size: 24,
+            ),
+          ],
+        ),
       ),
     );
   }

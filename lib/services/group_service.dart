@@ -129,8 +129,25 @@ class GroupService {
     return ref.id;
   }
 
+  static bool _peersRefreshed = false;
+
+  /// 同じグループの人の一覧（group_peers）をサーバーで作り直してもらう。
+  /// 写真を見せる相手の判定に使う。アプリを開いて最初の 1 回だけ呼ぶ。
+  Future<void> refreshMyPeersOnce() async {
+    if (_peersRefreshed) return;
+    _peersRefreshed = true;
+    try {
+      await FirebaseFunctions.instance
+          .httpsCallable('refreshMyGroupPeers')
+          .call<void>();
+    } catch (e) {
+      _peersRefreshed = false;
+      AppLog.debug('GroupService.refreshMyPeersOnce failed: $e');
+    }
+  }
+
   /// グループを作る（ホームの＋→「グループを作成」）。作った人だけのグループ。
-  /// 名前が空ならサーバーが作った人の名前から付ける。
+  /// 名前は必須（空ならサーバーが断る）。
   Future<({String groupId, String name, String inviteCode})> createMyGroup(
       String name) async {
     final res = await FirebaseFunctions.instance
@@ -160,6 +177,37 @@ class GroupService {
       );
     } on FirebaseFunctionsException catch (e) {
       throw GroupJoinException(e.message ?? '参加できませんでした');
+    }
+  }
+
+  /// 友達（どこかのグループで一緒の人）のうち、[group] にまだいない人。
+  Future<List<UserModel>> fetchFriendsNotIn(GroupModel group, String uid) async {
+    final snap = await _firestore
+        .collection(_groupsCollection)
+        .where('memberIds', arrayContains: uid)
+        .get();
+    final ids = <String>{
+      for (final d in snap.docs) ...GroupModel.fromFirestore(d).memberIds,
+    }
+      ..remove(uid)
+      ..removeAll(group.memberIds);
+    final users = await fetchUsers(ids);
+    users.sort((a, b) => (a.name ?? a.username ?? '')
+        .compareTo(b.name ?? b.username ?? ''));
+    return users;
+  }
+
+  /// 友達をグループに追加する。追加された人は確認なしで参加になる。
+  /// 断られたら [GroupJoinException] の message にそのまま出せる文言が入る。
+  Future<int> addMembers(String groupId, List<String> uids) async {
+    try {
+      final res = await FirebaseFunctions.instance
+          .httpsCallable('addGroupMembers')
+          .call({'groupId': groupId, 'uids': uids});
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return (data['added'] as List?)?.length ?? 0;
+    } on FirebaseFunctionsException catch (e) {
+      throw GroupJoinException(e.message ?? '追加できませんでした');
     }
   }
 

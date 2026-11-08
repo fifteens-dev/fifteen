@@ -15,6 +15,7 @@ import '../models/user_model.dart';
 import '../services/group_service.dart';
 import '../widgets/common/app_toast.dart';
 import '../widgets/common/glass_circle_button.dart';
+import '../widgets/common/liquid_glass.dart';
 import 'group_screen.dart';
 import 'group_settings_sheet.dart' show GroupIconImage;
 
@@ -41,8 +42,8 @@ TextStyle _rounded(double size, Color color, double wght) => TextStyle(
       fontVariations: [ui.FontVariation('wght', wght)],
     );
 
-/// iOS の Liquid Glass（Regular / Medium / Dark）の代わり。背景をぼかして
-/// 暗い半透明を重ね、縁に細い光を入れる（[GlassCircleButton] と同じ考え方）。
+/// iOS の Liquid Glass のカード（Figma: Regular / Medium / Dark）。
+/// ガラスは iOS 本来のもの（[LiquidGlass]）。
 class GlassPanel extends StatelessWidget {
   final double width;
   final double height;
@@ -59,29 +60,13 @@ class GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: Container(
-          width: width,
-          height: height,
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1D21).withValues(alpha: 0.82),
-            borderRadius: BorderRadius.circular(radius),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.12),
-              width: 0.8,
-            ),
-          ),
-          child: child,
-        ),
-      ),
+    return LiquidGlass(
+      radius: radius,
+      child: SizedBox(width: width, height: height, child: child),
     );
   }
 }
 
-/// 招待コードの QR の記号（Figma 6321:12963）。16×15 の小さな枠 5 つ。
 class QrGlyph extends StatelessWidget {
   final Color color;
   const QrGlyph({super.key, required this.color});

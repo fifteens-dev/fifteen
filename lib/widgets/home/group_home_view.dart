@@ -91,12 +91,12 @@ const Color _rowBg = Color(0xFF28262B);
 const Color _subGrey = Color(0xFF9B94A0);
 const Color _artistGrey = Color(0xFF8F8894);
 
-/// 1 行に重ねるジャケットの最大数（Figma は 6 人のグループで 5 枚）。
-const int _maxJackets = 5;
+/// 1 行に重ねるジャケットの最大数。グループは最大 10 人なので全員分出す
+/// （10 枚で見た目がどうなるか確認中、11/11）。
+const int _maxJackets = 10;
 
-/// 今日の 1 曲のカードに出すリアクションの最大数。
-/// 「Music Memoryを見る ›」に重ならない数。
-const int _maxReactions = 4;
+/// 今日の 1 曲のカードに出すリアクションの最大数。絵文字は 5 種類なので全部。
+const int _maxReactions = 5;
 
 /// SF Pro Rounded は可変フォントなので fontWeight だけでは細く出る。
 /// Figma の太さを wght で渡す（日本語はフォールバックの Hiragino になる）。
@@ -536,13 +536,38 @@ class _GroupHomeViewState extends State<GroupHomeView> {
                   ],
                 ),
               ),
+              // 1 回の締切の間に何曲でも投稿できるので、もう 1 曲選ぶ入口。
+              // デザインは無いので、見出しの行の右端に小さく置く。
+              Positioned(
+                right: 6,
+                top: 4,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.onChooseTrack,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Row(
+                      children: [
+                        const Icon(CupertinoIcons.plus,
+                            size: 12, color: Color(0xFFD9D3DD)),
+                        const SizedBox(width: 3),
+                        Text('もう1曲えらぶ',
+                            style: _rounded(12, const Color(0xFFD9D3DD), 600)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
               // リアクションは右寄せで、左から多い順（Figma は 28 間隔、右端 358）。
+              // 5 つのときは「Music Memoryを見る ›」に重ならないよう詰める。
               for (var i = 0; i < emojis.length; i++)
                 Positioned(
-                  left: 338 - 28.0 * (emojis.length - 1 - i),
-                  top: 86,
+                  left: 338 - (emojis.length > 4 ? 24.0 : 28.0) *
+                      (emojis.length - 1 - i),
+                  top: emojis.length > 4 ? 87 : 86,
                   child: Text(emojis[i],
-                      style: const TextStyle(fontSize: 20, height: 1.2)),
+                      style: TextStyle(
+                          fontSize: emojis.length > 4 ? 18 : 20, height: 1.2)),
                 ),
             ],
           ),

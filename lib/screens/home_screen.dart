@@ -95,6 +95,14 @@ class HomeScreen extends StatefulWidget {
   final Map<String, dynamic>? initialVibeData;
   final UserModel? initialUserModel;
   final bool initialHasPostedToday;
+  /// 新しいホーム（グループ一覧、Figma 6206:11652 / 6275:12082）を使うか。
+  ///
+  /// 新しいホームにはボトムナビが無く、Music Memory とプロフィールは右上の
+  /// ボタンから開く。旧タイムラインのコードは残してあり、false にすれば
+  /// 元に戻る。true の間は旧タイムラインの読み込み（友達の投稿・Vibe・
+  /// ストーリーの定期取得・カレンダータブ・起動時の先読み）を走らせない。
+  static const bool useGroupHome = true;
+
   const HomeScreen({
     super.key,
     this.initialPosts,
@@ -114,12 +122,8 @@ class _HomeScreenState extends State<HomeScreen>
   // 起動時はホーム(中央)を表示。
   int _selectedIndex = 1;
 
-  /// 新しいホーム（グループ一覧、Figma 6206:11652 / 6275:12082）を使うか。
-  ///
-  /// 新しいホームにはボトムナビが無く、Music Memory とプロフィールは右上の
-  /// ボタンから開く。旧タイムラインは置き換えが済むまで残してあり、false に
-  /// すれば元に戻る。
-  static const bool _useGroupHome = true;
+  /// [HomeScreen.useGroupHome] の短縮。
+  static const bool _useGroupHome = HomeScreen.useGroupHome;
 
   /// 投稿フローを開いている最中か。通知タップと起動時の自動表示が重なって
   /// 二重に開かないようにする。
@@ -194,16 +198,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _hasPostedToday = false;
 
   /// 現サイクルで投稿済みか。まだ調べていなければ null。
-  ///
-  /// 投稿ボタンを押すたびに Firestore へ聞くと、曲選びのモーダルが出るまで
-  /// その往復ぶん待たされる。起動時に一度調べ、投稿したら更新して持っておく。
+  /// 起動時に投稿画面を自動で開くかの判定に使う。
   bool? _postedThisCycle;
-
-  /// [_postedThisCycle] がどのサイクルについての判定か。
-  ///
-  /// アプリを開いたまま 21:00 をまたぐと、前日の「投稿済み」が残って
-  /// 新しいサイクルで投稿できなくなる。サイクルが変わったら捨てる。
-  DateTime? _postedThisCycleFor;
 
   /// 曲選びのモーダルに渡す、温めておいた再生履歴。
   ///
@@ -233,10 +229,12 @@ class _HomeScreenState extends State<HomeScreen>
     PostFlowRequest.instance.addListener(_onPostFlowRequested);
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _onPostFlowRequested());
-    _vibeDataFuture = widget.initialVibeData != null
-        ? Future.value(widget.initialVibeData)
-        : _loadVibeData();
-    _loadViewedStoryPostIds();
+    if (!_useGroupHome) {
+      _vibeDataFuture = widget.initialVibeData != null
+          ? Future.value(widget.initialVibeData)
+          : _loadVibeData();
+      _loadViewedStoryPostIds();
+    }
     // CurrentUserProvider に initialUserModel を流し込んでおく（Firestore 再フェッチ不要）
     if (widget.initialUserModel != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -265,6 +263,7 @@ class _HomeScreenState extends State<HomeScreen>
     _processPendingFollowNotification();
     PostingState.instance.addListener(_onPostingStateChanged);
     WidgetsBinding.instance.addObserver(this);
+    if (_useGroupHome) return;
     _startStoryRefreshTimer();
     if (widget.initialPosts != null) {
       // バックグラウンドで事前取得済みのデータをそのまま表示（追加フェッチ不要）
@@ -293,6 +292,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// 他画面から戻ったタイミングで最新データを再取得
   @override
   void didPopNext() {
+    if (_useGroupHome) return;
     _loadPosts();
     setState(() {
       _vibeDataFuture = _loadVibeData();
@@ -333,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (state == AppLifecycleState.resumed) {
       // フォアグラウンド復帰時: 即再取得 + タイマー再開 (即時 fire は
       // _startStoryRefreshTimer 内で行われるので個別呼び出し不要)。
-      _startStoryRefreshTimer();
+      if (!_useGroupHome) _startStoryRefreshTimer();
       // ロック画面の Live Activity を現在の状況に合わせ直す
       // （締切超過なら終了、フォロー中の投稿があれば「友達が待っています」へ）。
       // ignore: discarded_futures
@@ -357,6 +357,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// 投稿アップロード完了時にタイムライン＋Vibeを自動リロード
   void _onPostingStateChanged() {
+    if (_useGroupHome) return;
     if (!PostingState.instance.isPosting) {
       setState(() {
         _vibeDataFuture = _loadVibeData();
@@ -423,8 +424,12 @@ class _HomeScreenState extends State<HomeScreen>
             IndexedStack(
               index: _selectedIndex,
               children: [
-                // index 0: Music Memory（カレンダー）
-                _buildMusicMemoryTab(),
+                // index 0: Music Memory（カレンダー）。新しいホームでは右上の
+                // ボタンから開くので、裏で作らない。
+                if (_useGroupHome)
+                  const SizedBox.shrink()
+                else
+                  _buildMusicMemoryTab(),
                 // index 1: ホーム
                 if (_useGroupHome)
                   _buildGroupHome()

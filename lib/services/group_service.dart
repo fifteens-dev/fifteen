@@ -16,7 +16,11 @@ class GroupCycleStatus {
   final GroupModel group;
 
   /// 今のサイクルに投稿したメンバーの投稿（uid → 最新の 1 件）。
+  /// 1 回の締切の間に何曲でも投稿できるので、出すのは一番新しいもの。
   final Map<String, PostModel> postsByMember;
+
+  /// 各メンバーがこのサイクルで最初に投稿した時刻（並び順に使う）。
+  final Map<String, DateTime> firstPostedAt;
 
   /// 写真を付けた投稿の写真（postId → URL）。カメラマークと裏面に使う。
   final Map<String, String> photoUrls;
@@ -27,6 +31,7 @@ class GroupCycleStatus {
     required this.group,
     required this.postsByMember,
     this.photoUrls = const {},
+    this.firstPostedAt = const {},
   });
 
   int get memberCount => group.memberIds.length;
@@ -310,10 +315,11 @@ class GroupService {
   /// 今のサイクル（直近の 21:00 以降）に各メンバーが投稿したか。
   ///
   /// タイムラインに載らない投稿（ダミー / Vibe）は数えない。同じ人が
-  /// 複数あれば新しい方を採る。
+  /// 複数あれば新しい方を出し、並び順は最初に投稿した時刻で決める。
   Future<GroupCycleStatus> loadCycleStatus(GroupModel group) async {
     final cutoff = MusicMemoryCycleService().currentCycleStart;
     final posts = <String, PostModel>{};
+    final firsts = <String, DateTime>{};
     final uids = group.memberIds;
     for (var i = 0; i < uids.length; i += 30) {
       final chunk = uids.skip(i).take(30).toList();
@@ -330,6 +336,10 @@ class GroupService {
           final prev = posts[post.userId];
           if (prev == null || post.createdAt.isAfter(prev.createdAt)) {
             posts[post.userId] = post;
+          }
+          final first = firsts[post.userId];
+          if (first == null || post.createdAt.isBefore(first)) {
+            firsts[post.userId] = post.createdAt;
           }
         }
       } catch (e) {
@@ -351,6 +361,7 @@ class GroupService {
       group: group,
       postsByMember: posts,
       photoUrls: photos,
+      firstPostedAt: firsts,
     );
   }
 }

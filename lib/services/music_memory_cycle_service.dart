@@ -8,7 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// `music_memory_state/current.notifiedAt` に記録する。これが「投稿サイクルの境界」。
 ///
 /// - タイムライン表示: `createdAt >= currentCycleStart`（＝直近 notifiedAt 以降）のみ。
-/// 投稿ルール（2026-11-02〜）。時刻はすべて JST、「その日」は通知が来た暦日:
+/// 投稿ルール（2026-11-02〜）。時刻はすべて JST:
 /// - 投稿: 21:00 〜 翌日 20:59（＝次の通知まで）。
 /// - 写真の追加: 28:00（翌 4:00）まで。28:00 を過ぎてから投稿した人は足せない。
 /// - 通知: 25:00（翌 1:00）を過ぎたら送らない。

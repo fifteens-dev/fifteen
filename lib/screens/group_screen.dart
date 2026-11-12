@@ -193,7 +193,8 @@ class _GroupScreenState extends State<GroupScreen> {
     final others = [
       for (final e in posts.entries)
         if (e.key != _uid) e.value,
-    ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    ]..sort((a, b) => (status.firstPostedAt[a.userId] ?? a.createdAt)
+        .compareTo(status.firstPostedAt[b.userId] ?? b.createdAt));
     return [
       mine != null
           ? _PostSlot(mine, isMe: true)
@@ -399,7 +400,7 @@ class _GroupScreenState extends State<GroupScreen> {
           reactionEmojis: groupReactionEmojis(
             post.reactions,
             _group.memberIds.toSet(),
-            max: 6,
+            max: 5,
           ),
         );
         // 自分がまだのうちは、ほかの人の投稿をぼかして裏返せなくする（BeReal と同じ）。

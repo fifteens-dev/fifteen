@@ -30,22 +30,11 @@ service cloud.firestore {
           .data.get('lastNotifiedDate', '');
     }
 
-    // 1 サイクル 1 投稿の引換券。ID は '<uid>_<サイクルの鍵>'。
-    function postClaimPath(uid) {
-      return /databases/$(database)/documents/post_claims/$(uid + '_' + currentCycleKey());
-    }
-
-    // ── post_claims（1 サイクル 1 投稿の引換券）────────────────
+    // ── post_claims（以前の「1 サイクル 1 投稿」の引換券）──────────
     //
-    // Music Memory の投稿は 1 サイクルに 1 回だけ。クライアント側でも
-    // 止めているが、アプリを書き換えれば通せてしまうのでここでも閉じる。
-    //
-    // ルールはクエリを投げられないので「この人の投稿が既にあるか」は
-    // 訊けない。代わりに ID を '<uid>_<サイクルの鍵>' に固定した札を 1 枚
-    // 置かせる。create は既にあると必ず失敗し、update も delete も許さない
-    // ので、1 サイクルに 1 枚しか取れない。
-    //
-    // 投稿と同じバッチで作らせ、posts 側は existsAfter でその札を要求する。
+    // 投稿の回数制限は 2026-11-10 にやめた（posts の create 参照）。
+    // TestFlight の 1.7.0（ビルド 77〜81）は投稿と同じバッチでこの札を
+    // 書くので、その書き込みが落ちないよう受け口だけ残している。
     match /post_claims/{claimId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
@@ -140,10 +129,31 @@ service cloud.firestore {
       allow list: if isAuthenticated() &&
         resource.data.userId == request.auth.uid;
 
+      // 付けられるのは自分の投稿に、28 時（その回の 21 時の通知から 7 時間）
+      // まで。投稿もその回のもの（28 時までに投稿した人だけ付けられる）。
+      // 撮った日（その日に撮ったものか）はアプリで絞っている。
       allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        photoWindowOpen(postId);
+      allow update: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid &&
+        photoWindowOpen(postId);
+      allow delete: if isAuthenticated() &&
         resource.data.userId == request.auth.uid;
+    }
+
+    // 写真を付けられる時間か。管理者（動作確認）と、通知がまだ一度も
+    // 発火しておらず回の始まりが分からないときは開けておく。
+    function photoWindowOpen(postId) {
+      let state = get(/databases/$(database)/documents/music_memory_state/current).data;
+      let post = get(/databases/$(database)/documents/posts/$(postId)).data;
+      return post.userId == request.auth.uid && (
+        isAdmin() ||
+        !('notifiedAt' in state) ||
+        (post.createdAt >= state.notifiedAt &&
+          request.time < state.notifiedAt + duration.value(7, 'h'))
+      );
     }
 
     // ── posts コレクション ───────────────────────────────────
@@ -173,37 +183,11 @@ service cloud.firestore {
 
       // 作成：ログイン済み、かつ userId が自分のUID。
       //
-      // ※ 下の 1 サイクル 1 投稿の制限は一時的に外している（2026-10-21）。
-      //   App Store 版 1.6.3 は post_claims の札を取らないので、一般
-      //   ユーザーの Music Memory 投稿がすべて弾かれていた。1.7.0 以降が
-      //   行き渡り、鍵の読み込み前に投稿すると札を取らない件
-      //   （post_write_service の cycleKey）を直してから戻す。
+      // 投稿の回数は制限しない。1 回の締切（21:00〜翌 20:59）の間に何曲でも
+      // 投稿できる（2026-11-10 に仕様として決定）。以前あった「1 サイクル
+      // 1 投稿」（post_claims の札）は使わない。
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid;
-
-      // 戻すときは上の allow create を消し、これを有効にする。
-      //
-      // Music Memory の投稿（isMoodPost）は 1 サイクル 1 回に限る。同じ
-      // バッチで post_claims の札を**この書き込みで**取ることを要求する。
-      //
-      // existsAfter だけでは足りない。あれは「この書き込みの後にあるか」
-      // なので、1 回目で作った札が残っていると、札を取らない投稿単独の
-      // 書き込みが通ってしまう（エミュレータで実際に通った）。
-      // 「前には無く、後にはある」＝この書き込みで作られた、を要求する。
-      //
-      // 制限を掛けないのは次の場合:
-      //   - Music Memory 以外の投稿（Vibe など）
-      //   - 管理者（動作確認のため）
-      //   - サイクルの鍵が読めないとき（通知が一度も発火していない等）。
-      //     ここで締めると誰も投稿できなくなるので、開ける方に倒す。
-      // allow create: if isAuthenticated() &&
-      //   request.resource.data.userId == request.auth.uid && (
-      //     request.resource.data.get('isMoodPost', false) != true ||
-      //     currentCycleKey() == '' ||
-      //     isAdmin() ||
-      //     (!exists(postClaimPath(request.auth.uid)) &&
-      //       existsAfter(postClaimPath(request.auth.uid)))
-      //   );
 
       // 更新：投稿者本人 or 管理者
       // 他ユーザーはいいね・コメント数関連フィールドのみ更新可

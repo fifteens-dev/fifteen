@@ -326,8 +326,10 @@ const PHOTO_REMINDER_BODY = '28時（翌4時）まで写真を追加できるよ
  * （通知は 25 時まで）。
  *
  * 5 分ごとに「1 時間〜1 時間 10 分前」の投稿を見る。窓を実行間隔より
- * 広く取り、取りこぼしを防ぐ。重複は `photo_reminders/{postId}` を
+ * 広く取り、取りこぼしを防ぐ。重複は `photo_reminders/{サイクルの鍵}_{uid}` を
  * create（既にあれば失敗）で予約して防ぐ。
+ * 1 回の締切に何曲投稿しても、送るのは 1 人 1 通まで。
+ * 25 時を過ぎたら送らない（つつきと同じ）。
  */
 exports.photoReminderNotification = onSchedule(
   { schedule: '*/5 * * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 120 },
@@ -339,9 +341,11 @@ exports.photoReminderNotification = onSchedule(
 
     try {
       // 今のサイクル（今日の 21:00 通知以降）の投稿だけが写真を足せる。
-      const stateSnap = await db.doc(MM_STATE_REF_PATH).get();
-      const cycleStart = stateSnap.data()?.notifiedAt?.toDate?.();
-      if (!cycleStart) return;
+      const cycle = await currentCycle(db);
+      if (!cycle) return;
+      const cycleStart = cycle.start;
+      // 25 時（サイクル開始日の翌 1:00）以降は送らない。
+      if (pokeQuietNow(cycle, now)) return;
 
       const postsSnap = await db.collection('posts')
         .where('createdAt', '>', admin.firestore.Timestamp.fromDate(from))
@@ -364,9 +368,11 @@ exports.photoReminderNotification = onSchedule(
         const userSnap = await db.collection('users').doc(p.userId).get();
         if (!userSnap.exists || userSnap.data().notifVibeEnabled === false) continue;
 
+        // 何曲でも投稿できるので、催促は 1 回の締切につき 1 人 1 通まで。
         try {
-          await db.collection('photo_reminders').doc(doc.id).create({
+          await db.collection('photo_reminders').doc(`${cycle.key}_${p.userId}`).create({
             userId: p.userId,
+            postId: doc.id,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         } catch (_) {
@@ -912,17 +918,6 @@ exports.sendPushNotification = onDocumentCreated(
 
       const senderId = request.senderId || '';
 
-      // 「◯◯が投稿しました」は 25 時（サイクル開始日の翌 1:00）から次の
-      // 21:00 までは送らない（投稿ルール「通知は 25 時以降は送らない」）。
-      // アプリ内の通知一覧には残る。
-      if (notificationType === 'post') {
-        const cycle = await currentCycle(admin.firestore());
-        if (cycle && pokeQuietNow(cycle)) {
-          await snap.ref.update({ processed: true, skipped: 'quiet_hours' });
-          return;
-        }
-      }
-
       // 通知タイプ別タイトル・本文
       let notifTitle;
       let notifBody = message;
@@ -1301,8 +1296,10 @@ async function processPostNotificationForRecipient(db, recipientId, senderId, se
  * トリガー: Firestore `posts` コレクションへの書き込み
  *
  * 処理:
- * 1. 投稿者のフォロワーリストを取得
- * 2. 各フォロワーの通知状態に応じて状態遷移を実行
+ * 1. 投稿者と同じグループのメンバーを集める（11/11 にフォロワーから変更）
+ * 2. 各メンバーの通知状態に応じて状態遷移を実行
+ *
+ * 1 回の締切に何曲でも投稿でき、2 曲目以降も 1 曲ごとに通知する。
  */
 exports.onPostCreated = onDocumentCreated(
   { document: 'posts/{postId}', timeoutSeconds: 300, retry: false },
@@ -1328,7 +1325,14 @@ exports.onPostCreated = onDocumentCreated(
         return;
       }
 
-      const followers = posterDoc.data().followers || [];
+      // 宛先は同じグループのメンバー（どのグループかは問わず、重複はまとめる）。
+      const groupsSnap = await db.collection('groups')
+        .where('memberIds', 'array-contains', posterId)
+        .get();
+      const mates = new Set();
+      groupsSnap.forEach((g) => (g.data().memberIds || []).forEach((m) => mates.add(m)));
+      mates.delete(posterId);
+      const recipients = [...mates];
 
       // 投稿の楽曲取得元を users に記録する（参考値。連携先の判定には使わない）。
       if (post.isDummyPost !== true) {
@@ -1344,8 +1348,8 @@ exports.onPostCreated = onDocumentCreated(
           const cycleStart = mmState.data()?.notifiedAt?.toDate?.();
           if (cycleStart) {
             await markOwnLiveActivityPosted(db, posterId, cycleStart);
-            if (followers.length > 0) {
-              await promoteFollowersLiveActivity(db, followers, cycleStart);
+            if (recipients.length > 0) {
+              await promoteFollowersLiveActivity(db, recipients, cycleStart);
             }
           }
         } catch (e) {
@@ -1353,17 +1357,16 @@ exports.onPostCreated = onDocumentCreated(
         }
       }
 
-      if (followers.length === 0) {
-        console.log(`onPostCreated: user ${posterId} has no followers`);
+      if (recipients.length === 0) {
+        console.log(`onPostCreated: user ${posterId} has no groupmates`);
         return;
       }
 
-      console.log(`onPostCreated: processing ${followers.length} followers for ${posterUsername}`);
+      console.log(`onPostCreated: processing ${recipients.length} groupmates for ${posterUsername}`);
 
       // notifPostEnabled チェック（未設定はデフォルトで通知あり）
-      // 大量フォロワー対策: 最大1000人まで処理
       // ラウンドトリップ削減のため whereIn (最大30件/クエリ) で一括取得
-      const followersToProcess = followers.length > 1000 ? followers.slice(0, 1000) : followers;
+      const followersToProcess = recipients;
       const whereInLimit = 30;
       const enabledFollowers = [];
       for (let i = 0; i < followersToProcess.length; i += whereInLimit) {
@@ -1379,7 +1382,7 @@ exports.onPostCreated = onDocumentCreated(
         }
       }
 
-      console.log(`onPostCreated: ${enabledFollowers.length} / ${followers.length} followers enabled`);
+      console.log(`onPostCreated: ${enabledFollowers.length} / ${recipients.length} groupmates enabled`);
 
       // 各フォロワーの状態遷移を処理 (10件ずつ並列実行)
       const chunkSize = 10;

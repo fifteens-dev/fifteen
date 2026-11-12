@@ -342,23 +342,26 @@ class _AuthGateState extends State<AuthGate> {
             List<PostModel>? initialPosts;
             Map<String, dynamic>? initialVibeData;
             bool initialHasPostedToday = false;
-            try {
-              final postService = PostService();
-              final vibeTopicService = VibeTopicService();
-              final followingIds = userModel.following;
-              final allTargetIds = [...followingIds, user.uid];
+            // 新しいホームは旧タイムラインを使わないので、先読みしない。
+            if (!HomeScreen.useGroupHome) {
+              try {
+                final postService = PostService();
+                final vibeTopicService = VibeTopicService();
+                final followingIds = userModel.following;
+                final allTargetIds = [...followingIds, user.uid];
 
-              // 投稿・Vibe・今日の投稿チェックを並列取得
-              final results = await Future.wait([
-                postService.getPostsForFollowing(allTargetIds, limit: 50),
-                _fetchVibeData(vibeTopicService, postService),
-                postService.hasUserPostedToday(user.uid),
-              ]);
-              initialPosts = results[0] as List<PostModel>;
-              initialVibeData = results[1] as Map<String, dynamic>;
-              initialHasPostedToday = results[2] as bool;
-            } catch (_) {
-              // 取得失敗時はホーム画面側でリロード
+                // 投稿・Vibe・今日の投稿チェックを並列取得
+                final results = await Future.wait([
+                  postService.getPostsForFollowing(allTargetIds, limit: 50),
+                  _fetchVibeData(vibeTopicService, postService),
+                  postService.hasUserPostedToday(user.uid),
+                ]);
+                initialPosts = results[0] as List<PostModel>;
+                initialVibeData = results[1] as Map<String, dynamic>;
+                initialHasPostedToday = results[2] as bool;
+              } catch (_) {
+                // 取得失敗時はホーム画面側でリロード
+              }
             }
             await _waitForMinSplash();
             if (!mounted) return;

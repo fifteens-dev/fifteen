@@ -85,12 +85,6 @@ class PostWriteService {
     String? adlTeamId,
     String audience = 'public',
     ProfileSnapshot? profileSnapshot,
-    /// 1 サイクル 1 投稿の制限を受けないか（管理者）。
-    ///
-    /// true のときは引換券を取らない。券は 1 サイクルに 1 枚しか置けず、
-    /// 2 回目は書き込みごと失敗してしまうため。ルール側も管理者には券を
-    /// 要求しない。
-    bool exemptFromCycleLimit = false,
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
@@ -162,30 +156,9 @@ class PostWriteService {
           'profileSnapshot': profileSnapshot.toMap(),
       };
 
-      // Music Memory の投稿は 1 サイクル 1 回。投稿と同じバッチで
-      // 「引換券」を取る。券は ID が '<uid>_<サイクルの鍵>' で固定されて
-      // おり、create は 2 回目が必ず失敗する（ルールで update/delete も
-      // 禁じている）。したがって 2 投稿目はバッチごと落ちる。
-      //
-      // サイクルの鍵が分からないときは券を取らない。ルール側もその場合は
-      // 制限を掛けないようにしてある（締めると誰も投稿できなくなる）。
-      final cycleKey =
-          (isMoodPost && !exemptFromCycleLimit) ? mmCycle.cycleKey : null;
-      if (cycleKey != null && cycleKey.isNotEmpty) {
-        final batch = _firestore.batch();
-        batch.set(postRef, postData);
-        batch.set(
-          _firestore.collection('post_claims').doc('${userId}_$cycleKey'),
-          {
-            'userId': userId,
-            'postId': postRef.id,
-            'createdAt': FieldValue.serverTimestamp(),
-          },
-        );
-        await batch.commit();
-      } else {
-        await postRef.set(postData);
-      }
+      // 1 回の締切（21:00〜翌 20:59）の間に何曲でも投稿できる（2026-11-10）。
+      // 以前は 1 サイクル 1 回で、同じバッチで post_claims の札を取っていた。
+      await postRef.set(postData);
       postCreated.value++;
 
       // カード裏面に出す「その時点の音楽の顔」。

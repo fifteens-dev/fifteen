@@ -14,6 +14,12 @@ extension HomeReactionReveal on _HomeScreenState {
   void _onReactionRevealRequested() {
     if (!mounted) return;
     if (ReactionRevealService.instance.pending.value == null) return;
+    // 新しいホームには旧タイムラインのカードが無いので、演出は流さずに捨てる
+    // （通知タップでホームへ戻るところまでは ReactionRevealService が行う）。
+    if (_HomeScreenState._useGroupHome) {
+      ReactionRevealService.instance.take();
+      return;
+    }
     // 投稿をまだ読んでいなければ、読み終えたところでもう一度呼ばれる。
     if (_cachedPosts == null) return;
     final req = ReactionRevealService.instance.take();

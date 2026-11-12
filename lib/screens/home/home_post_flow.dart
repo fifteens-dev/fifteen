@@ -49,14 +49,8 @@ extension HomePostFlow on _HomeScreenState {
   /// 投稿されたら、サイクルの投稿済み判定と温めた履歴を入れ直す。
   void _onPostCreated() {
     _postedThisCycle = true;
-    _postedThisCycleFor = MusicMemoryCycleService().notifiedAt;
     _warmTracks = null; // 次のサイクルで取り直す
   }
-
-  /// 覚えてある「投稿済み」が、今のサイクルのものか。
-  /// 違えば調べ直す（アプリを開いたまま 21:00 をまたいだとき）。
-  bool _postedKnownFor(DateTime? cycleStart) =>
-      _postedThisCycle != null && _postedThisCycleFor == cycleStart;
 
   /// 写真が付いた投稿を覚えて「写真を追加する」バーを消す（1 投稿に 1 枚）。
   void _onPhotoAdded() {
@@ -206,7 +200,6 @@ extension HomePostFlow on _HomeScreenState {
       // 投稿を済ませれば出なくなるので、回数で止める必要はない。
       final posted = await _postService.hasAnyPostInCurrentCycle(uid);
       _postedThisCycle = posted;
-      _postedThisCycleFor = cycleStart;
       if (posted) return false;
       if (!mounted) return false;
 
@@ -248,32 +241,7 @@ extension HomePostFlow on _HomeScreenState {
       return;
     }
 
-    // 1 サイクル（通知から翌日の通知まで）に投稿できるのは 1 回だけ。
-    // 全員が同じ 1 曲を出し合う場なので、何度も出せると意味が薄れる。
-    // 管理者は動作確認のために制限しない。
-    //
-    // 判定は起動時に調べた [_postedThisCycle] を使う。ここで毎回 Firestore へ
-    // 聞くと、その往復ぶんモーダルが出るのが遅れる。まだ調べていないとき
-    // （起動直後にすぐ押した等）だけ聞きに行く。
-    // 管理者かがまだ読めていないときは制限しない。起動直後に押すと
-    // false のままで、管理者が「今日はもう投稿しています」で弾かれていた。
-    // サーバー側（ルール）が同じ判定を持っているので、ここで緩めても
-    // 一般ユーザーの 2 投稿目は通らない。
-    final me = context.read<CurrentUserProvider>();
-    if (me.isLoaded && !me.isAdmin) {
-      final uid = _auth.currentUser?.uid;
-      var posted = _postedKnownFor(start) ? _postedThisCycle : null;
-      if (posted == null && uid != null) {
-        posted = await _postService.hasAnyPostInCurrentCycle(uid);
-        _postedThisCycle = posted;
-        _postedThisCycleFor = start;
-      }
-      if (posted == true) {
-        if (!mounted) return;
-        AppToast.show(context, '今日はもう投稿しています');
-        return;
-      }
-    }
+    // 1 回の締切の間に何曲でも投稿できる（2026-11-10）。2 曲目も止めない。
     if (!mounted) return;
 
     _homeAudioService.stop();

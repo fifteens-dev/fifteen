@@ -49,18 +49,6 @@ class PostPhotoService {
     return DateTime.now().isBefore(deadline);
   }
 
-  /// その写真が「今日撮ったもの」か。
-  ///
-  /// 判定はサイクル（通知 21:00）ではなく暦日で行う。ユーザーの感覚が
-  /// 「今日撮った写真」であり、20 時に撮った写真を弾くと理屈に合わないため。
-  static bool isTakenToday(DateTime? createdAt) {
-    if (createdAt == null) return false;
-    final now = DateTime.now();
-    return createdAt.year == now.year &&
-        createdAt.month == now.month &&
-        createdAt.day == now.day;
-  }
-
   /// 写真を保存する。成功したら true。
   /// 写真が付いた投稿の postId。付くたびに増える。
   ///

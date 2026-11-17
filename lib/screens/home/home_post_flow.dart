@@ -220,7 +220,7 @@ extension HomePostFlow on _HomeScreenState {
   ///   曲決定で Apple と同じく最終確認(MoodPostFinalPreviewScreen)へ。
   /// 投稿フローを開く。
   ///
-  /// 投稿できるのは 21:00 から翌日 20:59 まで（写真は 28:00 まで）。
+  /// 投稿できるのは 21:00 から翌日 20:59 まで（写真も同じ締切まで）。
   Future<void> _openPostFlow() async {
     if (_postFlowBusy) return;
     _postFlowBusy = true;
@@ -241,7 +241,35 @@ extension HomePostFlow on _HomeScreenState {
       return;
     }
 
-    // 1 回の締切の間に何曲でも投稿できる（2026-11-10）。2 曲目も止めない。
+    // 1 グループに 1 日（21:00〜翌 20:59）1 曲まで（2026-11-17）。どのグループに
+    // 載せるかは最後の確認画面で選び、今日もう載せたグループは選べない。
+    // ここで止めるのは、すべてのグループに載せ終わっているとき（グループに
+    // 入っていなければ、今日もう投稿しているとき）だけ。管理者は止めない。
+    // 管理者かがまだ読めていないときも止めない（起動直後に管理者が弾かれないように）。
+    // ルール側の制限は、App Store の 1.6.3 が groupIds を書かないので、
+    // 1.7.0 を配ってから考える。
+    final me = context.read<CurrentUserProvider>();
+    final uid = _auth.currentUser?.uid;
+    if (me.isLoaded && !me.isAdmin && uid != null) {
+      final groupService = GroupService();
+      final groups = await groupService.watchMyGroups(uid).first;
+      final bool done;
+      if (groups.isEmpty) {
+        done = await _postService.hasAnyPostInCurrentCycle(uid);
+      } else {
+        final used = await groupService.postedGroupIds(uid, groups);
+        done = used.length >= groups.length;
+      }
+      if (done) {
+        if (!mounted) return;
+        AppToast.show(
+            context,
+            groups.length > 1
+                ? '今日はすべてのグループに投稿しています'
+                : '今日はもう投稿しています');
+        return;
+      }
+    }
     if (!mounted) return;
 
     _homeAudioService.stop();

@@ -79,6 +79,7 @@ class PostModel {
   /// ナビバー投稿ボタン → Music Memory モーダル経由で作成された
   /// 「気分で投稿」フラグ。true の投稿はストーリーバーに載せない。
   final bool isMoodPost;
+
   /// true のとき、PostCard 裏面はユーザー情報バッジ・歌詞カード・楽曲情報バー
   /// などの overlay を一切描画せず、photoUrl を BoxFit.cover で全面表示する。
   /// Vibe ストーリーで「写真なし = プレビューをキャプチャして photo として上げる」
@@ -90,6 +91,7 @@ class PostModel {
   /// Music Memory 投稿サイクルの開始時刻（作成時点の通知時刻 notifiedAt）。
   /// タイムライン表示・Late 判定の基準。Music Memory 投稿以外は null。
   final DateTime? cycleStart;
+
   /// このサイクルの締切（翌1:00）を過ぎて投稿された「Late 投稿」か。
   final bool isLate;
   final String? emotionTag; // 感情タグ（例: "嬉しい", "悲しい", "楽しい"）
@@ -111,9 +113,17 @@ class PostModel {
   /// Cloud Functionが「1人1日1投稿」ルールで初回投稿のみtrueにする。
   /// null（フラグ未設定）の場合はレガシー投稿として扱い、UIは表示する。
   final bool? countsForAdl;
+
   /// 公開範囲（`PostAudience.public` または `PostAudience.followers`）。
   /// 投稿時に確定し、後から変更不可。既存投稿（フィールドなし）は `public` 扱い。
   final String audience;
+
+  /// 載せたグループ（投稿のときに選ぶ、2026-11-17）。null は選ぶ前の投稿で、
+  /// 自分のすべてのグループに載っている扱い。
+  final List<String>? groupIds;
+
+  /// [groupId] のグループに載っているか。
+  bool isInGroup(String groupId) => groupIds?.contains(groupId) ?? true;
 
   PostModel({
     required this.postId,
@@ -162,6 +172,7 @@ class PostModel {
     this.adlTeamId,
     this.countsForAdl,
     this.audience = PostAudience.public,
+    this.groupIds,
   });
 
   // Firestoreドキュメントから作成
@@ -209,10 +220,9 @@ class PostModel {
       username: data['username']?.toString() ?? '',
       userIconUrl: data['userIconUrl']?.toString(),
       // track フィールドが Map 以外の型で保存されていた場合も空Mapにフォールバック
-      track: TrackModel.fromMap(
-          data['track'] is Map<String, dynamic>
-              ? data['track'] as Map<String, dynamic>
-              : {}),
+      track: TrackModel.fromMap(data['track'] is Map<String, dynamic>
+          ? data['track'] as Map<String, dynamic>
+          : {}),
       likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
       commentCount: (data['commentCount'] as num?)?.toInt() ?? 0,
       likedUserIds: safeStringList('likedUserIds'),
@@ -231,7 +241,8 @@ class PostModel {
       imageOffsetY: (data['imageOffsetY'] as num?)?.toDouble() ?? 0.0,
       imageScale: (data['imageScale'] as num?)?.toDouble() ?? 1.0,
       imageNaturalWidth: (data['imageNaturalWidth'] as num?)?.toDouble() ?? 0.0,
-      imageNaturalHeight: (data['imageNaturalHeight'] as num?)?.toDouble() ?? 0.0,
+      imageNaturalHeight:
+          (data['imageNaturalHeight'] as num?)?.toDouble() ?? 0.0,
       selectedLayoutIndex: (data['selectedLayoutIndex'] as num?)?.toInt() ?? 0,
       cardPositionX: (data['cardPositionX'] as num?)?.toDouble() ?? 0.0,
       cardPositionY: (data['cardPositionY'] as num?)?.toDouble() ?? 0.0,
@@ -256,10 +267,12 @@ class PostModel {
       campusVibeParticipating: data['campusVibeParticipating'] != false,
       campusVibePost: data['campusVibePost'] == true,
       adlTeamId: data['adlTeamId']?.toString(),
-      countsForAdl: data['countsForAdl'] is bool
-          ? data['countsForAdl'] as bool
-          : null,
+      countsForAdl:
+          data['countsForAdl'] is bool ? data['countsForAdl'] as bool : null,
       audience: PostAudience.normalize(data['audience']),
+      groupIds: data['groupIds'] is List
+          ? (data['groupIds'] as List).whereType<String>().toList()
+          : null,
     );
   }
 
@@ -309,6 +322,7 @@ class PostModel {
       'campusVibeParticipating': campusVibeParticipating,
       'adlTeamId': adlTeamId,
       'audience': audience,
+      if (groupIds != null) 'groupIds': groupIds,
     };
   }
 
@@ -401,12 +415,14 @@ class PostModel {
       profileSnapshot: profileSnapshot ?? this.profileSnapshot,
       authorName: authorName ?? this.authorName,
       university: university ?? this.university,
-      campusVibeParticipating: campusVibeParticipating ?? this.campusVibeParticipating,
+      campusVibeParticipating:
+          campusVibeParticipating ?? this.campusVibeParticipating,
       campusVibePost: this.campusVibePost,
       adlTeamId: adlTeamId ?? this.adlTeamId,
       countsForAdl: countsForAdl ?? this.countsForAdl,
       // audience は投稿時に確定（後から変更不可）
       audience: this.audience,
+      groupIds: groupIds,
     );
   }
 

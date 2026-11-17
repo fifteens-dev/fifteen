@@ -26,10 +26,12 @@ class PostService {
   Future<List<PostModel>> getPosts({
     int limit = 20,
     DocumentSnapshot? startAfter,
-  }) => _fetchService.getPosts(limit: limit, startAfter: startAfter);
+  }) =>
+      _fetchService.getPosts(limit: limit, startAfter: startAfter);
 
   /// フォロー中のユーザーの投稿を取得
-  Future<List<PostModel>> getPostsForFollowing(List<String> userIds, {int limit = 50}) =>
+  Future<List<PostModel>> getPostsForFollowing(List<String> userIds,
+          {int limit = 50}) =>
       _fetchService.getPostsForFollowing(userIds, limit: limit);
 
   /// 特定のユーザーの投稿を取得（Future版）
@@ -55,14 +57,17 @@ class PostService {
     String userId, {
     int limit = 20,
     DocumentSnapshot? startAfter,
-  }) => _fetchService.getPostsWithPagination(userId, limit: limit, startAfter: startAfter);
+  }) =>
+          _fetchService.getPostsWithPagination(userId,
+              limit: limit, startAfter: startAfter);
 
   /// ユーザーの投稿を createdAt 範囲 [start, end) で取得（Music Memory 遅延ロード用）
   Future<List<PostModel>> getUserPostsInRange(
     String userId,
     DateTime start,
     DateTime end,
-  ) => _fetchService.getUserPostsInRange(userId, start, end);
+  ) =>
+      _fetchService.getUserPostsInRange(userId, start, end);
 
   /// 指定 trackId の投稿をカーソルページネーション付きで取得
   Future<({List<PostModel> posts, DocumentSnapshot? lastDoc, bool hasMore})>
@@ -70,10 +75,13 @@ class PostService {
     String trackId, {
     int limit = 12,
     DocumentSnapshot? startAfter,
-  }) => _fetchService.getPostsByTrackIdPaged(trackId, limit: limit, startAfter: startAfter);
+  }) =>
+          _fetchService.getPostsByTrackIdPaged(trackId,
+              limit: limit, startAfter: startAfter);
 
   /// 特定のユーザーが保存した投稿を取得
-  Future<List<PostModel>> getPostsSavedByUser(String userId, {int limit = 50}) =>
+  Future<List<PostModel>> getPostsSavedByUser(String userId,
+          {int limit = 50}) =>
       _fetchService.getPostsSavedByUser(userId, limit: limit);
 
   /// 特定の投稿を取得
@@ -141,38 +149,41 @@ class PostService {
     String? adlTeamId,
     String audience = 'public',
     ProfileSnapshot? profileSnapshot,
-  }) => _writeService.createPost(
-    userId: userId,
-    username: username,
-    userIconUrl: userIconUrl,
-    trackData: trackData,
-    photoUrl: photoUrl,
-    imageOffsetX: imageOffsetX,
-    imageOffsetY: imageOffsetY,
-    imageScale: imageScale,
-    imageNaturalWidth: imageNaturalWidth,
-    imageNaturalHeight: imageNaturalHeight,
-    selectedLayoutIndex: selectedLayoutIndex,
-    cardPositionX: cardPositionX,
-    cardPositionY: cardPositionY,
-    cardScale: cardScale,
-    cardRotation: cardRotation,
-    isVibe: isVibe,
-    isMoodPost: isMoodPost,
-    hideBackOverlays: hideBackOverlays,
-    vibeTopicId: vibeTopicId,
-    vibeTopicTitle: vibeTopicTitle,
-    emotionTag: emotionTag,
-    theme: theme,
-    lyricsText: lyricsText,
-    audioStartMs: audioStartMs,
-    audioDurationSec: audioDurationSec,
-    university: university,
-    campusVibeParticipating: campusVibeParticipating,
-    adlTeamId: adlTeamId,
-    audience: audience,
-    profileSnapshot: profileSnapshot,
-  );
+    List<String>? groupIds,
+  }) =>
+      _writeService.createPost(
+        userId: userId,
+        username: username,
+        userIconUrl: userIconUrl,
+        trackData: trackData,
+        photoUrl: photoUrl,
+        imageOffsetX: imageOffsetX,
+        imageOffsetY: imageOffsetY,
+        imageScale: imageScale,
+        imageNaturalWidth: imageNaturalWidth,
+        imageNaturalHeight: imageNaturalHeight,
+        selectedLayoutIndex: selectedLayoutIndex,
+        cardPositionX: cardPositionX,
+        cardPositionY: cardPositionY,
+        cardScale: cardScale,
+        cardRotation: cardRotation,
+        isVibe: isVibe,
+        isMoodPost: isMoodPost,
+        hideBackOverlays: hideBackOverlays,
+        vibeTopicId: vibeTopicId,
+        vibeTopicTitle: vibeTopicTitle,
+        emotionTag: emotionTag,
+        theme: theme,
+        lyricsText: lyricsText,
+        audioStartMs: audioStartMs,
+        audioDurationSec: audioDurationSec,
+        university: university,
+        campusVibeParticipating: campusVibeParticipating,
+        adlTeamId: adlTeamId,
+        audience: audience,
+        profileSnapshot: profileSnapshot,
+        groupIds: groupIds,
+      );
 
   /// 投稿を削除
   Future<void> deletePost(String postId) => _writeService.deletePost(postId);
@@ -181,33 +192,38 @@ class PostService {
   Future<void> updatePostPhotoUrl({
     required String postId,
     required String photoUrl,
-  }) => _writeService.updatePostPhotoUrl(postId: postId, photoUrl: photoUrl);
+  }) =>
+      _writeService.updatePostPhotoUrl(postId: postId, photoUrl: photoUrl);
 
   /// 投稿の歌詞テキストを更新
   Future<void> updateLyricsText({
     required String postId,
     required String lyricsText,
-  }) => _writeService.updateLyricsText(postId: postId, lyricsText: lyricsText);
+  }) =>
+      _writeService.updateLyricsText(postId: postId, lyricsText: lyricsText);
 
   /// いいねをトグル（追加/削除）
   Future<void> toggleLike({
     required String postId,
     required String userId,
-  }) => _writeService.toggleLike(postId: postId, userId: userId);
+  }) =>
+      _writeService.toggleLike(postId: postId, userId: userId);
 
   /// 絵文字リアクションを設定/変更/解除（1ユーザー＝1つ）
   Future<void> setReaction({
     required String postId,
     required String emoji,
     required String userId,
-  }) => _writeService.setReaction(postId: postId, emoji: emoji, userId: userId);
+  }) =>
+      _writeService.setReaction(postId: postId, emoji: emoji, userId: userId);
 
   /// コメント数を更新
   Future<void> updateCommentCount(String postId, int commentCount) =>
       _writeService.updateCommentCount(postId, commentCount);
 
   /// アナリティクスイベントを記録
-  Future<void> trackAnalyticsEvent({required String uid, required String type}) =>
+  Future<void> trackAnalyticsEvent(
+          {required String uid, required String type}) =>
       _writeService.trackAnalyticsEvent(uid: uid, type: type);
 
   // ─── Check ───────────────────────────────────────
@@ -246,7 +262,8 @@ class PostService {
       _checkService.getTodaysPosts(userId);
 
   /// 特定ユーザーの今日以外の投稿を取得
-  Future<List<PostModel>> getPostsExcludingToday(String userId, {int limit = 20}) =>
+  Future<List<PostModel>> getPostsExcludingToday(String userId,
+          {int limit = 20}) =>
       _checkService.getPostsExcludingToday(userId, limit: limit);
 
   // ─── Streams (kept in PostService) ───────────────
@@ -262,9 +279,8 @@ class PostService {
         .limit(limit)
         .snapshots()
         .asyncMap((snapshot) async {
-      final posts = snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
+      final posts =
+          snapshot.docs.map((doc) => PostModel.fromFirestore(doc)).toList();
       return await _fetchService.applyLatestUserInfo(posts);
     });
   }
@@ -278,9 +294,7 @@ class PostService {
         .limit(limit)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
+      return snapshot.docs.map((doc) => PostModel.fromFirestore(doc)).toList();
     });
   }
 
@@ -313,7 +327,8 @@ class PostService {
           .collection(_postsCollection)
           .where('isVibe', isEqualTo: true)
           .where('vibeTopicId', isEqualTo: topicId)
-          .where('vibeDate', isGreaterThanOrEqualTo: Timestamp.fromDate(normalizedDate))
+          .where('vibeDate',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(normalizedDate))
           .where('vibeDate', isLessThan: Timestamp.fromDate(nextDay))
           .get();
 
@@ -385,7 +400,8 @@ class PostService {
         });
       }
 
-      rankingData.sort((a, b) => (b['postCount'] as int).compareTo(a['postCount'] as int));
+      rankingData.sort(
+          (a, b) => (b['postCount'] as int).compareTo(a['postCount'] as int));
 
       final List<VibeRankingItem> ranking = [];
       for (int i = 0; i < rankingData.length && i < limit; i++) {
@@ -420,15 +436,16 @@ class PostService {
           .collection(_postsCollection)
           .where('university', isEqualTo: university)
           .where('campusVibeParticipating', isEqualTo: true)
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(range.start))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(range.end))
+          .where('createdAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(range.start))
+          .where('createdAt',
+              isLessThanOrEqualTo: Timestamp.fromDate(range.end))
           .orderBy('createdAt', descending: true)
           .limit(300)
           .get();
 
-      final posts = snapshot.docs
-          .map((doc) => PostModel.fromFirestore(doc))
-          .toList();
+      final posts =
+          snapshot.docs.map((doc) => PostModel.fromFirestore(doc)).toList();
       return posts;
     } catch (e) {
       if (kDebugMode) AppLog.debug('getCampusVibePosts error: $e');
@@ -468,7 +485,8 @@ class PostService {
 
   /// 過去のVibeお題一覧を取得（topicTitle + date のユニーク一覧、新しい順、0件除外）
   /// スケーラビリティ対策: 直近30日 / 最大1000件に制限（300〜600 active users 想定）
-  Future<List<({String topicTitle, String topicId, DateTime date, int count})>> getPastVibeTopics() async {
+  Future<List<({String topicTitle, String topicId, DateTime date, int count})>>
+      getPastVibeTopics() async {
     try {
       final cutoff = DateTime.now().subtract(const Duration(days: 30));
       final snapshot = await _firestore
@@ -479,7 +497,8 @@ class PostService {
           .limit(1000)
           .get();
 
-      final groups = <String, ({String topicTitle, String topicId, DateTime date, int count})>{};
+      final groups = <String,
+          ({String topicTitle, String topicId, DateTime date, int count})>{};
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final title = data['vibeTopicTitle'] as String?;
@@ -490,15 +509,22 @@ class PostService {
         final normalized = DateTime(date.year, date.month, date.day);
         final key = '${topicId}_${normalized.millisecondsSinceEpoch}';
         if (!groups.containsKey(key)) {
-          groups[key] = (topicTitle: title, topicId: topicId, date: normalized, count: 1);
+          groups[key] =
+              (topicTitle: title, topicId: topicId, date: normalized, count: 1);
         } else {
           final e = groups[key]!;
-          groups[key] = (topicTitle: e.topicTitle, topicId: e.topicId, date: e.date, count: e.count + 1);
+          groups[key] = (
+            topicTitle: e.topicTitle,
+            topicId: e.topicId,
+            date: e.date,
+            count: e.count + 1
+          );
         }
       }
 
       final today = DateTime.now();
-      final yesterdayNormalized = DateTime(today.year, today.month, today.day - 1);
+      final yesterdayNormalized =
+          DateTime(today.year, today.month, today.day - 1);
 
       final result = groups.values
           .where((e) => e.date.isBefore(yesterdayNormalized))
@@ -523,7 +549,8 @@ class PostService {
           .orderBy('vibeDate', descending: true)
           .get();
 
-      final groups = <String, ({String topicTitle, String topicId, DateTime date, int count})>{};
+      final groups = <String,
+          ({String topicTitle, String topicId, DateTime date, int count})>{};
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final title = data['vibeTopicTitle'] as String?;
@@ -534,10 +561,16 @@ class PostService {
         final normalized = DateTime(date.year, date.month, date.day);
         final key = '${topicId}_${normalized.millisecondsSinceEpoch}';
         if (!groups.containsKey(key)) {
-          groups[key] = (topicTitle: title, topicId: topicId, date: normalized, count: 1);
+          groups[key] =
+              (topicTitle: title, topicId: topicId, date: normalized, count: 1);
         } else {
           final e = groups[key]!;
-          groups[key] = (topicTitle: e.topicTitle, topicId: e.topicId, date: e.date, count: e.count + 1);
+          groups[key] = (
+            topicTitle: e.topicTitle,
+            topicId: e.topicId,
+            date: e.date,
+            count: e.count + 1
+          );
         }
       }
 
@@ -551,13 +584,16 @@ class PostService {
   /// Vibeお題ごとのサムネイル付き集計を取得（検索画面のVibeセクション用）
   /// - topic+date 単位で集計、件数の多い順
   /// - 各 topic につき最大4枚のサムネイル（写真優先、不足時にアルバムアートで補完）
-  Future<List<({
-    String topicTitle,
-    String topicId,
-    DateTime date,
-    int count,
-    List<String> thumbnails,
-  })>> getVibeTopicsWithThumbnails({int limit = 20, int minCount = 1, bool randomize = false}) async {
+  Future<
+      List<
+          ({
+            String topicTitle,
+            String topicId,
+            DateTime date,
+            int count,
+            List<String> thumbnails,
+          })>> getVibeTopicsWithThumbnails(
+      {int limit = 20, int minCount = 1, bool randomize = false}) async {
     try {
       // 直近60日 / 最大60件に制限（6題×サムネ4枚=24件が最小要件、余裕を持たせて60件）
       // 不足分は vibe_topics コレクションで補完するためこれ以上は不要
@@ -570,7 +606,8 @@ class PostService {
           .limit(60)
           .get();
 
-      final groups = <String, ({
+      final groups = <String,
+          ({
         String topicTitle,
         String topicId,
         DateTime date,
@@ -610,7 +647,9 @@ class PostService {
         } else {
           final newPhotos = List<String>.of(existing.photos);
           final newJackets = List<String>.of(existing.jackets);
-          if (photo != null && photo.startsWith('http') && newPhotos.length < 4) {
+          if (photo != null &&
+              photo.startsWith('http') &&
+              newPhotos.length < 4) {
             newPhotos.add(photo);
           }
           if (jacket != null &&
@@ -630,9 +669,7 @@ class PostService {
         }
       }
 
-      final result = groups.values
-          .where((g) => g.count >= minCount)
-          .map((g) {
+      final result = groups.values.where((g) => g.count >= minCount).map((g) {
         final picked = <String>['', '', '', ''];
         final usedPhotos = <String>{};
         for (var i = 0; i < 2 && i < g.photos.length; i++) {
@@ -713,7 +750,8 @@ class PostService {
   }
 
   /// 特定のVibeお題・日付の全投稿を取得
-  Future<List<PostModel>> getVibePostsByTopicAndDate(String topicId, DateTime date) async {
+  Future<List<PostModel>> getVibePostsByTopicAndDate(
+      String topicId, DateTime date) async {
     try {
       final normalized = DateTime(date.year, date.month, date.day);
       final nextDay = normalized.add(const Duration(days: 1));
@@ -721,7 +759,8 @@ class PostService {
           .collection(_postsCollection)
           .where('isVibe', isEqualTo: true)
           .where('vibeTopicId', isEqualTo: topicId)
-          .where('vibeDate', isGreaterThanOrEqualTo: Timestamp.fromDate(normalized))
+          .where('vibeDate',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(normalized))
           .where('vibeDate', isLessThan: Timestamp.fromDate(nextDay))
           .get();
       // Vibe プレイリスト系には鍵投稿を流さない（[getVibePostsByTopic] と同じ方針）。
@@ -738,14 +777,16 @@ class PostService {
   }
 
   /// 過去のCampusVibe一覧を取得（university + 週開始日のユニーク一覧、新しい順、0件除外）
-  Future<List<({String university, DateTime weekStart, int count})>> getPastCampusVibeEntries() async {
+  Future<List<({String university, DateTime weekStart, int count})>>
+      getPastCampusVibeEntries() async {
     try {
       final snapshot = await _firestore
           .collection(_postsCollection)
           .where('university', isGreaterThan: '')
           .get();
 
-      final groups = <String, ({String university, DateTime weekStart, int count})>{};
+      final groups =
+          <String, ({String university, DateTime weekStart, int count})>{};
       for (final doc in snapshot.docs) {
         final data = doc.data();
         // campusVibePost: true のもの（参加選択した投稿）のみ集計
@@ -759,10 +800,15 @@ class PostService {
         final weekStart = range.start;
         final key = '${university}_${weekStart.millisecondsSinceEpoch}';
         if (!groups.containsKey(key)) {
-          groups[key] = (university: university, weekStart: weekStart, count: 1);
+          groups[key] =
+              (university: university, weekStart: weekStart, count: 1);
         } else {
           final e = groups[key]!;
-          groups[key] = (university: e.university, weekStart: e.weekStart, count: e.count + 1);
+          groups[key] = (
+            university: e.university,
+            weekStart: e.weekStart,
+            count: e.count + 1
+          );
         }
       }
 
@@ -776,7 +822,8 @@ class PostService {
   }
 
   /// 特定の週・大学のCampusVibe投稿を取得
-  Future<List<PostModel>> getCampusVibePostsByWeekAndUniversity(DateTime weekStart, String university) async {
+  Future<List<PostModel>> getCampusVibePostsByWeekAndUniversity(
+      DateTime weekStart, String university) async {
     try {
       final range = CampusVibeUtils.weekendRangeFor(weekStart);
       // 複合インデックス不要のため university のみで絞り込み、日付はクライアント側でフィルタリング
@@ -794,17 +841,21 @@ class PostService {
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return posts;
     } catch (e) {
-      if (kDebugMode) AppLog.debug('getCampusVibePostsByWeekAndUniversity error: $e');
+      if (kDebugMode)
+        AppLog.debug('getCampusVibePostsByWeekAndUniversity error: $e');
       return [];
     }
   }
 
   /// Vibeお題をキーワード検索（topicTitleの前方一致）
-  Future<List<({String topicTitle, String topicId, DateTime date, int count})>> searchVibeTopics(String query) async {
+  Future<List<({String topicTitle, String topicId, DateTime date, int count})>>
+      searchVibeTopics(String query) async {
     if (query.trim().isEmpty) return [];
     final all = await getPastVibeTopics();
     final lower = query.toLowerCase();
-    return all.where((t) => t.topicTitle.toLowerCase().contains(lower)).toList();
+    return all
+        .where((t) => t.topicTitle.toLowerCase().contains(lower))
+        .toList();
   }
 
   /// Campus Vibe投稿件数を取得（集計クエリ）

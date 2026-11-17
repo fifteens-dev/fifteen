@@ -129,9 +129,9 @@ service cloud.firestore {
       allow list: if isAuthenticated() &&
         resource.data.userId == request.auth.uid;
 
-      // 付けられるのは自分の投稿に、28 時（その回の 21 時の通知から 7 時間）
-      // まで。投稿もその回のもの（28 時までに投稿した人だけ付けられる）。
-      // 撮った日（その日に撮ったものか）はアプリで絞っている。
+      // 付けられるのは自分のその回の投稿に、その回の締切（21 時の通知から
+      // 24 時間＝翌日 20:59）まで。2026-11-17 に 28 時の期限をなくした。
+      // 撮った日は問わない。
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid &&
         photoWindowOpen(postId);
@@ -152,7 +152,7 @@ service cloud.firestore {
         isAdmin() ||
         !('notifiedAt' in state) ||
         (post.createdAt >= state.notifiedAt &&
-          request.time < state.notifiedAt + duration.value(7, 'h'))
+          request.time < state.notifiedAt + duration.value(24, 'h'))
       );
     }
 
@@ -515,6 +515,22 @@ service cloud.firestore {
       // 消せるのは管理者か、最後の 1 人が抜けるとき。
       allow delete: if isAdmin() ||
         (isAuthenticated() && resource.data.memberIds == [request.auth.uid]);
+
+      // 週のプレイリスト。作るのは Functions（weeklyGroupPlaylists）だけ。
+      match /playlists/{weekKey} {
+        allow read: if isAdmin() || (isAuthenticated() &&
+          request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds);
+
+        // 見た印。メンバーが自分の分だけ書ける（木曜のリマインドと輪の色に使う）。
+        match /views/{uid} {
+          allow read: if isAuthenticated() &&
+            request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+          allow create, update: if isAuthenticated() && request.auth.uid == uid &&
+            request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds &&
+            request.resource.data.keys().hasOnly(['viewedAt']) &&
+            request.resource.data.viewedAt == request.time;
+        }
+      }
     }
 
     // ── pokes コレクション（つつく）──────────────────────────

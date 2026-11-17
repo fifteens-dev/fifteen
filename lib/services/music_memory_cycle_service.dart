@@ -10,7 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// - タイムライン表示: `createdAt >= currentCycleStart`（＝直近 notifiedAt 以降）のみ。
 /// 投稿ルール（2026-11-02〜）。時刻はすべて JST:
 /// - 投稿: 21:00 〜 翌日 20:59（＝次の通知まで）。
-/// - 写真の追加: 28:00（翌 4:00）まで。28:00 を過ぎてから投稿した人は足せない。
+/// - 写真の追加: 投稿と同じ翌日 20:59 まで（2026-11-17 に 28:00 の期限をなくした）。
 /// - 通知: 25:00（翌 1:00）を過ぎたら送らない。
 class MusicMemoryCycleService {
   MusicMemoryCycleService._();
@@ -78,9 +78,10 @@ class MusicMemoryCycleService {
           .add(const Duration(hours: 45))
           .subtract(const Duration(seconds: 1));
 
-  /// [cycleStart] の回の写真追加の締切（28:00 = 翌 4:00 JST）。
+  /// [cycleStart] の回の写真追加の締切。投稿の締切（翌日 20:59）と同じ
+  /// （2026-11-17 に 28:00 = 翌 4:00 の期限をなくした）。
   static DateTime photoDeadlineFor(DateTime cycleStart) =>
-      _jstDayStart(cycleStart).add(const Duration(hours: 28));
+      postDeadlineFor(cycleStart);
 
   /// [cycleStart] の回で通知を止める時刻（25:00 = 翌 1:00 JST）。
   /// Live Activity もここで閉じる。
@@ -195,7 +196,7 @@ class MusicMemoryCycleService {
     return start == null ? null : postDeadlineFor(start);
   }
 
-  /// 今の回の写真追加の締切（28:00）。notifiedAt が無いときは null。
+  /// 今の回の写真追加の締切（翌日 20:59）。notifiedAt が無いときは null。
   DateTime? get currentPhotoDeadline {
     final start = _notifiedAt;
     return start == null ? null : photoDeadlineFor(start);

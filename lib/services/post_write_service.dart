@@ -44,7 +44,8 @@ class PostWriteService {
       final user = await _userService.getUser(userId);
       final update = <String, dynamic>{
         if (!snapshot.isEmpty) 'profileSnapshot': snapshot.toMap(),
-        if (user?.name != null && user!.name!.isNotEmpty) 'authorName': user.name,
+        if (user?.name != null && user!.name!.isNotEmpty)
+          'authorName': user.name,
       };
       if (update.isEmpty) return;
       await _firestore.collection(_postsCollection).doc(postId).update(update);
@@ -85,14 +86,13 @@ class PostWriteService {
     String? adlTeamId,
     String audience = 'public',
     ProfileSnapshot? profileSnapshot,
+    List<String>? groupIds,
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
 
       final now = DateTime.now();
-      final vibeDate = isVibe
-          ? DateTime(now.year, now.month, now.day)
-          : null;
+      final vibeDate = isVibe ? DateTime(now.year, now.month, now.day) : null;
 
       // Music Memory 投稿のサイクル情報。作成時点の通知時刻を cycleStart に、
       // 締切（翌1:00）超過なら isLate=true を付与する。通知未発火(null)なら通常扱い。
@@ -137,7 +137,8 @@ class PostWriteService {
         'vibeTopicId': vibeTopicId,
         'vibeTopicTitle': vibeTopicTitle,
         'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
-        'cycleStart': cycleStart != null ? Timestamp.fromDate(cycleStart) : null,
+        'cycleStart':
+            cycleStart != null ? Timestamp.fromDate(cycleStart) : null,
         'isLate': isLate,
         'emotionTag': emotionTag,
         'theme': theme != null ? theme.toMap() : null,
@@ -150,6 +151,8 @@ class PostWriteService {
         'campusVibePost': campusVibeParticipating == true && university != null,
         'adlTeamId': adlTeamId,
         'audience': audience,
+        // 載せるグループ（投稿のときに選ぶ）。グループに入っていない人は空。
+        if (groupIds != null) 'groupIds': groupIds,
         // 投稿前に用意できていれば最初から入れる。入れずに後追いすると、
         // 書き込み直後に読み直す画面（ホーム）で裏面が空のまま出る。
         if (profileSnapshot != null && !profileSnapshot.isEmpty)
@@ -386,7 +389,8 @@ class PostWriteService {
           body: '$senderUsernameがあなたのChoiceに$emoji',
         );
         if (kDebugMode) {
-          AppLog.debug('✅ リアクション通知作成: postId=$postId, emoji=$emoji, recipient=$postOwnerId');
+          AppLog.debug(
+              '✅ リアクション通知作成: postId=$postId, emoji=$emoji, recipient=$postOwnerId');
         }
       }
     } catch (e) {
@@ -413,7 +417,8 @@ class PostWriteService {
   }
 
   /// アナリティクスイベントを記録（analytics_events コレクション）
-  Future<void> trackAnalyticsEvent({required String uid, required String type}) async {
+  Future<void> trackAnalyticsEvent(
+      {required String uid, required String type}) async {
     await _firestore.collection('analytics_events').add({
       'userId': uid,
       'type': type,

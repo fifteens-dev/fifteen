@@ -22,6 +22,7 @@ import '../services/spotify_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/deep_link_service.dart';
 import '../services/live_activity_service.dart';
+import '../services/group_service.dart';
 import '../services/music_memory_cycle_service.dart';
 import '../services/music_service_manager.dart';
 import '../models/music_service_type.dart';
@@ -210,7 +211,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// 自分の投稿のうち、既に写真が付いているもの。バーを出すかの判定に使う。
   Set<String> _postsWithPhoto = {};
 
-  /// 今が写真を足せる時間帯か（28:00 まで）。
+  /// 今が写真を足せる時間帯か（翌日 20:59 まで）。
   /// 判定には通知時刻が要るので、取得できてから立てる。
   bool _canAddPhoto = false;
 

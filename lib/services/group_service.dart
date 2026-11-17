@@ -15,8 +15,8 @@ import 'post_photo_service.dart';
 class GroupCycleStatus {
   final GroupModel group;
 
-  /// 今のサイクルに投稿したメンバーの投稿（uid → 最新の 1 件）。
-  /// 1 回の締切の間に何曲でも投稿できるので、出すのは一番新しいもの。
+  /// 今のサイクルにこのグループへ投稿したメンバーの投稿（uid → 最新の 1 件）。
+  /// 1 グループに 1 日 1 曲だが、選ぶ前の投稿が重なることもあるので新しい方。
   final Map<String, PostModel> postsByMember;
 
   /// 各メンバーがこのサイクルで最初に投稿した時刻（並び順に使う）。
@@ -84,8 +84,8 @@ class GroupService {
         .collection(_groupsCollection)
         .where('memberIds', arrayContains: uid)
         .get();
-    return snap.docs.any((d) =>
-        (d.data()['memberIds'] as List? ?? const []).contains(otherUid));
+    return snap.docs.any(
+        (d) => (d.data()['memberIds'] as List? ?? const []).contains(otherUid));
   }
 
   /// uid 群のユーザーをまとめて取得する（whereIn は 30 件上限）。
@@ -186,7 +186,8 @@ class GroupService {
   }
 
   /// 友達（どこかのグループで一緒の人）のうち、[group] にまだいない人。
-  Future<List<UserModel>> fetchFriendsNotIn(GroupModel group, String uid) async {
+  Future<List<UserModel>> fetchFriendsNotIn(
+      GroupModel group, String uid) async {
     final snap = await _firestore
         .collection(_groupsCollection)
         .where('memberIds', arrayContains: uid)
@@ -197,8 +198,8 @@ class GroupService {
       ..remove(uid)
       ..removeAll(group.memberIds);
     final users = await fetchUsers(ids);
-    users.sort((a, b) => (a.name ?? a.username ?? '')
-        .compareTo(b.name ?? b.username ?? ''));
+    users.sort((a, b) =>
+        (a.name ?? a.username ?? '').compareTo(b.name ?? b.username ?? ''));
     return users;
   }
 
@@ -220,7 +221,7 @@ class GroupService {
   static String inviteUrl(String code) =>
       'https://fifteens-39cfe.web.app/g/$code';
 
-    static final Random _random = Random.secure();
+  static final Random _random = Random.secure();
 
   /// 招待コード（6 桁、小文字英字と数字）。紛らわしい 0/o/1/l は使わない。
   static String newInviteCode() {
@@ -312,6 +313,30 @@ class GroupService {
     });
   }
 
+  /// 今のサイクルに自分が投稿済みのグループ（1 グループに 1 日 1 曲、2026-11-17）。
+  ///
+  /// グループを選ぶ前の投稿（groupIds が無い）は、[groups] のすべてに
+  /// 載っている扱い。
+  Future<Set<String>> postedGroupIds(
+      String uid, List<GroupModel> groups) async {
+    final cutoff = MusicMemoryCycleService().currentCycleStart;
+    final snap = await _firestore
+        .collection(_postsCollection)
+        .where('userId', isEqualTo: uid)
+        .where('createdAt', isGreaterThan: Timestamp.fromDate(cutoff))
+        .get();
+    final used = <String>{};
+    for (final d in snap.docs) {
+      final data = d.data();
+      if (data['isDummyPost'] == true || data['isVibe'] == true) continue;
+      final post = PostModel.fromFirestore(d);
+      for (final g in groups) {
+        if (post.isInGroup(g.groupId)) used.add(g.groupId);
+      }
+    }
+    return used;
+  }
+
   /// 今のサイクル（直近の 21:00 以降）に各メンバーが投稿したか。
   ///
   /// タイムラインに載らない投稿（ダミー / Vibe）は数えない。同じ人が
@@ -333,6 +358,8 @@ class GroupService {
           final data = d.data();
           if (data['isDummyPost'] == true || data['isVibe'] == true) continue;
           final post = PostModel.fromFirestore(d);
+          // このグループに載せていない投稿は数えない（投稿先を選べる）。
+          if (!post.isInGroup(group.groupId)) continue;
           final prev = posts[post.userId];
           if (prev == null || post.createdAt.isAfter(prev.createdAt)) {
             posts[post.userId] = post;

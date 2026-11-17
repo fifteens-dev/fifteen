@@ -17,6 +17,7 @@ import '../widgets/common/app_toast.dart';
 import '../widgets/common/glass_circle_button.dart';
 import '../widgets/common/liquid_glass.dart';
 import 'group_screen.dart';
+import 'qr_join_scanner_screen.dart';
 import 'group_settings_sheet.dart' show GroupIconImage;
 
 // グループの作成・参加・招待のダイアログ。
@@ -460,14 +461,18 @@ class CreateGroupDialog {
 class JoinGroupDialog {
   static Future<void> show(BuildContext context, {String? initialCode}) async {
     ({String groupId, String name, bool alreadyMember})? joined;
+    var openScanner = false;
     await _showTopCard(
       context,
       _TopCardDialog(
         title: 'コードで参加',
         placeholder: '招待コード（6桁）',
-        note: '招待リンクのQRは、iPhoneのカメラで読み取ると参加できます。',
+        note: '招待のQRは、下の「カメラで読み取る」かiPhoneのカメラで読み取れます。',
         initialText: initialCode,
         maxLength: 6,
+        // アプリの中で QR を読む（2026-11-17）。読めたらコードを入れて出し直す。
+        footerLabel: 'カメラで読み取る',
+        onFooter: () => openScanner = true,
         canSubmit: (code) => code.length == 6,
         onSubmit: (ctx, code) async {
           try {
@@ -483,15 +488,21 @@ class JoinGroupDialog {
         },
       ),
     );
+    if (openScanner && context.mounted) {
+      final code = await QrJoinScannerScreen.push(context);
+      if (code != null && context.mounted) {
+        await show(context, initialCode: code);
+      }
+      return;
+    }
     final j = joined;
     if (j == null || !context.mounted) return;
-    AppToast.show(
-        context,
-        j.alreadyMember
-            ? '「${j.name}」にはもう参加しています'
-            : '「${j.name}」に参加しました');
+    AppToast.show(context,
+        j.alreadyMember ? '「${j.name}」にはもう参加しています' : '「${j.name}」に参加しました');
     final group = await GroupService().watchGroup(j.groupId).first;
-    if (group != null && context.mounted) await GroupScreen.push(context, group);
+    if (group != null && context.mounted) {
+      await GroupScreen.push(context, group);
+    }
   }
 }
 
@@ -552,8 +563,7 @@ class _InviteCard extends StatelessWidget {
   const _InviteCard({required this.group, required this.code});
 
   String get _url => GroupService.inviteUrl(code);
-  String get _message =>
-      '15sのグループ「${group.name}」に参加しよう\n招待コード: $code\n$_url';
+  String get _message => '15sのグループ「${group.name}」に参加しよう\n招待コード: $code\n$_url';
 
   Future<void> _share() => Share.share(_message);
 
@@ -612,7 +622,8 @@ class _InviteCard extends StatelessWidget {
                 border: Border.all(color: const Color(0xFFDADADE)),
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: GroupIconImage(iconIndex: group.iconIndex, size: 60, radius: 13),
+              child: GroupIconImage(
+                  iconIndex: group.iconIndex, size: 60, radius: 13),
             ),
           ),
           Positioned(
@@ -663,8 +674,12 @@ class _InviteCard extends StatelessWidget {
             width: 266,
             child: SizedBox(height: 1, child: ColoredBox(color: _divider)),
           ),
-          row(404, Image.asset('assets/home_v2/line_logo.png', width: 28, height: 28),
-              'LINEでシェア', () => _shareLine(context)),
+          row(
+              404,
+              Image.asset('assets/home_v2/line_logo.png',
+                  width: 28, height: 28),
+              'LINEでシェア',
+              () => _shareLine(context)),
           const Positioned(
             left: 30,
             top: 462,
@@ -682,7 +697,6 @@ class _InviteCard extends StatelessWidget {
     );
   }
 }
-
 
 // ── 友達を追加 ───────────────────────────────────────────
 
@@ -702,7 +716,8 @@ class GroupFriendPicker {
         ctx,
         Stack(
           children: [
-            Positioned(left: 38, top: 162, child: _FriendPickerCard(group: group)),
+            Positioned(
+                left: 38, top: 162, child: _FriendPickerCard(group: group)),
           ],
         ),
       ),
@@ -757,8 +772,8 @@ class _FriendPickerCardState extends State<_FriendPickerCard> {
     if (_busy || _selected.isEmpty) return;
     setState(() => _busy = true);
     try {
-      final n = await _service.addMembers(
-          widget.group.groupId, _selected.toList());
+      final n =
+          await _service.addMembers(widget.group.groupId, _selected.toList());
       if (mounted) Navigator.of(context).pop(n);
     } on GroupJoinException catch (e) {
       if (mounted) AppToast.show(context, e.message);
@@ -822,7 +837,9 @@ class _FriendPickerCardState extends State<_FriendPickerCard> {
                   child: _busy
                       ? const CupertinoActivityIndicator(color: Colors.black)
                       : Text(
-                          _selected.isEmpty ? '追加する' : '${_selected.length}人を追加',
+                          _selected.isEmpty
+                              ? '追加する'
+                              : '${_selected.length}人を追加',
                           style: _rounded(16, Colors.black, 510)),
                 ),
               ),

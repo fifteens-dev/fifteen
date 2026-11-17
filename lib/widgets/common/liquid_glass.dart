@@ -24,17 +24,25 @@ class LiquidGlass extends StatelessWidget {
 
   final Widget child;
 
+  /// false の間はネイティブのガラスを作らず、半透明の板で代わりに描く。
+  ///
+  /// 画面遷移のアニメの最中にネイティブのビューを作ると、一瞬画面全体が
+  /// 黒くなることがある。アニメが終わってから true にする。
+  final bool native;
+
   const LiquidGlass({
     super.key,
     this.radius,
     this.clear = false,
     this.tint,
+    this.native = true,
     required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
     if (!Platform.isIOS) return _fallback();
+    if (!native) return _plain();
     return Stack(
       fit: StackFit.passthrough,
       children: [
@@ -53,6 +61,23 @@ class LiquidGlass extends StatelessWidget {
         ),
         child,
       ],
+    );
+  }
+
+  /// ぼかし無しの代わり（BackdropFilter はネイティブのガラスを消すので使わない）。
+  Widget _plain() {
+    final shape = radius == null
+        ? const StadiumBorder()
+        : RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius!));
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        shape: shape.copyWith(
+          side: BorderSide(
+              color: Colors.white.withValues(alpha: 0.14), width: 0.8),
+        ),
+        color: tint ?? const Color(0xE62A2A2E),
+      ),
+      child: child,
     );
   }
 

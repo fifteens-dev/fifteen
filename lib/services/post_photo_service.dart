@@ -25,10 +25,9 @@ class PostPhotoService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final StorageService _storage = StorageService();
 
-  /// 写真を足せる時間帯か（28:00 = 翌 4:00 まで）。
+  /// 写真を足せる時間帯か（その回の投稿の締切＝翌日 20:59 まで）。
   ///
-  /// 28 時を過ぎたら投稿はできても写真は足せない。28 時を過ぎてから
-  /// 投稿した人は、その時点でもう締切後なので自然に足せない。
+  /// 投稿できる間はいつでも足せる（2026-11-17 に 28 時の期限をなくした）。
   ///
   /// 通知時刻が未取得なら取りに行く。アプリを開いた直後は未取得で、
   /// そのまま見ると締切が不明＝「追加できない」になってしまう
@@ -47,18 +46,6 @@ class PostPhotoService {
     final deadline = MusicMemoryCycleService().currentPhotoDeadline;
     if (deadline == null) return false;
     return DateTime.now().isBefore(deadline);
-  }
-
-  /// その写真が「今日撮ったもの」か。
-  ///
-  /// 判定はサイクル（通知 21:00）ではなく暦日で行う。ユーザーの感覚が
-  /// 「今日撮った写真」であり、20 時に撮った写真を弾くと理屈に合わないため。
-  static bool isTakenToday(DateTime? createdAt) {
-    if (createdAt == null) return false;
-    final now = DateTime.now();
-    return createdAt.year == now.year &&
-        createdAt.month == now.month &&
-        createdAt.day == now.day;
   }
 
   /// 写真を保存する。成功したら true。

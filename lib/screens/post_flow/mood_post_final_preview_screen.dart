@@ -3,17 +3,17 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../../providers/current_user_provider.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../models/group_model.dart';
 import '../../models/post_model.dart';
 import '../../models/profile_snapshot.dart';
 import '../../models/track_model.dart';
 import '../../models/user_model.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/friend_widget_service.dart';
+import '../../services/group_service.dart';
 
 import '../../services/post_photo_service.dart';
 import 'add_photo_flow.dart';
@@ -77,7 +77,8 @@ class MoodPostFinalPreviewScreen extends StatefulWidget {
     // ホームの initState より先に立てる。Navigator の操作は次のフレームで
     // 反映されるので、ここで立てておけば自動表示の判定に間に合う。
     _openCount++;
-    nav.push(
+    nav
+        .push(
       PageRouteBuilder<void>(
         opaque: false,
         barrierDismissible: false,
@@ -89,7 +90,8 @@ class MoodPostFinalPreviewScreen extends StatefulWidget {
           child: child,
         ),
       ),
-    ).whenComplete(() {
+    )
+        .whenComplete(() {
       if (_openCount > 0) _openCount--;
     });
   }
@@ -118,11 +120,48 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   // ── 投稿状態 ──
   bool _isPosting = false;
 
+  // ── 載せるグループ（2026-11-17）──
+  // 1 グループに 1 日 1 曲。選べるのはまだ今日載せていないグループで、
+  // 最初は何も選んでいない。グループに入っていなければ選ばずに投稿できる。
+
+  /// 自分のグループ。読み込み中は null。
+  List<GroupModel>? _groups;
+
+  /// 今日もう載せたグループ（選べない）。
+  Set<String> _usedGroupIds = const {};
+
+  /// 選んだグループ。
+  final Set<String> _selectedGroupIds = {};
+
+  bool get _needsGroup => (_groups?.isNotEmpty ?? false);
+  bool get _canSubmit =>
+      _groups != null && (!_needsGroup || _selectedGroupIds.isNotEmpty);
+
+  Future<void> _loadGroups() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      setState(() => _groups = const []);
+      return;
+    }
+    try {
+      final service = GroupService();
+      final groups = await service.watchMyGroups(uid).first;
+      final used = await service.postedGroupIds(uid, groups);
+      if (!mounted) return;
+      setState(() {
+        _groups = groups;
+        _usedGroupIds = used;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _groups = const []);
+    }
+  }
+
   /// 投稿前に選んでおいた写真。投稿が終わってから紐づける
   /// （この時点では postId がまだ無い）。
   XFile? _pendingPhoto;
 
-  /// 今が写真を足せる時間帯か（28:00 まで）。
+  /// 今が写真を足せる時間帯か（翌日 20:59 まで）。
   bool _canAddPhoto = false;
 
   /// カード裏面に焼き込む top artists / recent choice。
@@ -159,6 +198,8 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
     super.initState();
     _startSnapshot();
     _loadMe();
+    // ignore: discarded_futures
+    _loadGroups();
     // ignore: discarded_futures
     _loadCanAddPhoto();
     _extractColors();
@@ -217,6 +258,10 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
   /// 画面はそのまま留まり、上部に「楽曲を追加しています...」を表示、
   /// 完了後にホームへ pushNamedAndRemoveUntil する。
   Future<void> _submit() async {
+    if (!_canSubmit) {
+      if (_needsGroup) AppToast.show(context, '載せるグループを選んでください');
+      return;
+    }
     if (_isPosting) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -224,10 +269,6 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       return;
     }
     setState(() => _isPosting = true);
-
-    // 管理者は 1 サイクル 1 投稿の制限を受けない。引換券も取らない
-    // （券は 1 枚しか置けず、2 回目は書き込みごと失敗するため）。
-    final exempt = context.read<CurrentUserProvider>().isAdmin;
 
     try {
       // 表示に必要な値をキャプチャ
@@ -248,8 +289,8 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       // 人質に取らせないため上限を切り、間に合わなければ空で進める。
       // 空で渡すと createPost 側が従来どおり後追いで集計して入れてくれる
       // （[PostWriteService._writeProfileSnapshot]）。
-      final snapshot = await _snapshot
-          ?.timeout(_snapshotWait, onTimeout: () => ProfileSnapshot.empty);
+      final snapshot = await _snapshot?.timeout(_snapshotWait,
+          onTimeout: () => ProfileSnapshot.empty);
 
       final postId = await PostSubmission.submit(
         userId: user.uid,
@@ -281,7 +322,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
           audioDurationSec: 15,
           university: university,
           profileSnapshot: snapshot,
-          exemptFromCycleLimit: exempt,
+          groupIds: _selectedGroupIds.toList(),
         ),
       );
 
@@ -348,8 +389,8 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       return;
     }
 
-    // 写真を足せない時間（28:00 以降）の投稿では聞かない。押しても
-    // 「28時までです」と断るだけのシートになってしまう。
+    // 写真を足せない時間（締切の後）の投稿では聞かない。押しても
+    // 断るだけのシートになってしまう。
     if (!await PostPhotoService.instance.canAddPhotoNow()) return;
     if (!ctx.mounted) return;
 
@@ -376,22 +417,40 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
               child: ColoredBox(color: Color(0xB3000000)),
             ),
             // 中央: 反転カード
-            Center(
-              child: SizedBox(
-                width: 324,
-                height: 576,
+            // 下にグループの選択と「投稿する」を置くので、低い画面ではカードを縮める。
+            Positioned(
+              left: 0,
+              right: 0,
+              top: topPadding + 52,
+              bottom: 170,
+              child: Center(
                 child: FittedBox(
-                  fit: BoxFit.fill,
                   child: SizedBox(
-                    width: 363,
-                    height: 645,
-                    // 最終確認では裏返さない。投稿されるのは 1 枚のカードで、
-                    // ここで見せたいのは「どの曲を出すか」だけ。
-                    child: _buildFront(),
+                    width: 324,
+                    height: 576,
+                    child: FittedBox(
+                      fit: BoxFit.fill,
+                      child: SizedBox(
+                        width: 363,
+                        height: 645,
+                        // 最終確認では裏返さない。投稿されるのは 1 枚のカードで、
+                        // ここで見せたいのは「どの曲を出すか」だけ。
+                        child: _buildFront(),
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
+
+            // 下部: 載せるグループ（投稿前のみ）。デザインが無いので仮の形。
+            if (!_isPosting && _needsGroup)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 104,
+                child: _groupPicker(),
+              ),
 
             // 上部: 戻るボタン (投稿前のみ)
             if (!_isPosting)
@@ -444,13 +503,16 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
                   child: GestureDetector(
                     onTap: _submit,
                     behavior: HitTestBehavior.opaque,
-                    child: Container(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 48,
                         vertical: 14,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: _canSubmit
+                            ? Colors.white
+                            : Colors.white.withValues(alpha: 0.35),
                         borderRadius: BorderRadius.circular(28),
                       ),
                       child: const Text(
@@ -468,6 +530,79 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
           ],
         ),
       ),
+    );
+  }
+
+  /// 載せるグループを選ぶ丸いボタンの列。今日もう載せたグループは押せない。
+  Widget _groupPicker() {
+    final groups = _groups ?? const <GroupModel>[];
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          '載せるグループを選ぶ',
+          style: TextStyle(
+            color: Color(0xCCFFFFFF),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            decoration: TextDecoration.none,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 36,
+          child: Center(
+            child: ListView.separated(
+              shrinkWrap: true,
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: groups.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, i) {
+                final g = groups[i];
+                final used = _usedGroupIds.contains(g.groupId);
+                final selected = _selectedGroupIds.contains(g.groupId);
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: used
+                      ? () => AppToast.show(context, '「${g.name}」には今日もう載せています')
+                      : () => setState(() {
+                            if (!_selectedGroupIds.remove(g.groupId)) {
+                              _selectedGroupIds.add(g.groupId);
+                            }
+                          }),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: used ? 0.06 : 0.14),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color:
+                            Colors.white.withValues(alpha: selected ? 1 : 0.2),
+                      ),
+                    ),
+                    child: Text(
+                      used ? '${g.name}（投稿済み）' : g.name,
+                      style: TextStyle(
+                        color: selected
+                            ? Colors.black
+                            : Colors.white.withValues(alpha: used ? 0.4 : 1),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -492,7 +627,7 @@ class _MoodPostFinalPreviewScreenState extends State<MoodPostFinalPreviewScreen>
       hideAudienceBadge: true,
       preExtractedGradientStart: _gradientStart,
       preExtractedGradientEnd: _gradientEnd,
-      // 28:00 までなら写真を選べる。投稿が終わってから紐づける。
+      // 締切（翌日 20:59）までなら写真を選べる。投稿が終わってから紐づける。
       onAddPhoto: (_canAddPhoto && !_isPosting) ? _pickPhoto : null,
       addPhotoLabel: _pendingPhoto != null ? '写真を変更する' : null,
     );

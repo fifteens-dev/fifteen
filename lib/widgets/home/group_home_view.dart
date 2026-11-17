@@ -11,10 +11,14 @@ import '../../constants/profile_fonts.dart';
 import '../../models/group_model.dart';
 import '../../models/post_model.dart';
 import '../../models/track_model.dart';
+import '../../screens/group_playlist_screen.dart';
+import '../../services/group_playlist_service.dart';
 import '../../services/group_service.dart';
 import '../../services/poke_service.dart';
+import '../../services/post_photo_service.dart';
 import '../common/glass_circle_button.dart';
 import '../notification_badge.dart';
+import 'playlist_story_row.dart';
 
 /// 新しいホーム（グループ一覧）。
 ///
@@ -41,6 +45,9 @@ class GroupHomeView extends StatefulWidget {
 
   /// 「今日聴いた15曲から選ぶ」。既存の曲選び（左スライドのカルーセル）へ。
   final VoidCallback onChooseTrack;
+
+  /// 投稿後のカードの「写真を追加」。写真がまだ無く、締切前のときだけ出す。
+  final void Function(String postId)? onAddPhoto;
   final VoidCallback onOpenMusicMemory;
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenNotifications;
@@ -64,6 +71,7 @@ class GroupHomeView extends StatefulWidget {
     this.cycleKey,
     required this.recentTracks,
     required this.onChooseTrack,
+    this.onAddPhoto,
     required this.onOpenMusicMemory,
     required this.onOpenProfile,
     required this.onOpenNotifications,
@@ -91,12 +99,12 @@ const Color _rowBg = Color(0xFF28262B);
 const Color _subGrey = Color(0xFF9B94A0);
 const Color _artistGrey = Color(0xFF8F8894);
 
-/// 1 行に重ねるジャケットの最大数（Figma は 6 人のグループで 5 枚）。
-const int _maxJackets = 5;
+/// 1 行に重ねるジャケットの最大数。グループは最大 10 人なので全員分出す
+/// （10 枚で見た目がどうなるか確認中、11/11）。
+const int _maxJackets = 10;
 
-/// 今日の 1 曲のカードに出すリアクションの最大数。
-/// 「Music Memoryを見る ›」に重ならない数。
-const int _maxReactions = 4;
+/// 今日の 1 曲のカードに出すリアクションの最大数。絵文字は 5 種類なので全部。
+const int _maxReactions = 5;
 
 /// SF Pro Rounded は可変フォントなので fontWeight だけでは細く出る。
 /// Figma の太さを wght で渡す（日本語はフォールバックの Hiragino になる）。
@@ -153,10 +161,29 @@ class _GroupHomeViewState extends State<GroupHomeView> {
   /// グループごとの今のサイクルの状況。引っ張って更新したら作り直す。
   final Map<String, Future<GroupCycleStatus>> _statusFutures = {};
 
+  /// 各グループの最新の週のプレイリスト（上のストーリーの列）。
+  late final HomePlaylists _playlists = HomePlaylists(widget.uid);
+
   @override
   void initState() {
     super.initState();
     _subscribe();
+  }
+
+  @override
+  void dispose() {
+    _playlists.dispose();
+    super.dispose();
+  }
+
+  void _openPlaylist(List<GroupPlaylistEntry> entries, int index) {
+    GroupPlaylistScreen.open(
+      context,
+      entries: entries,
+      initialIndex: index,
+      uid: widget.uid,
+      onOpened: _playlists.markOpened,
+    );
   }
 
   @override
@@ -183,16 +210,31 @@ class _GroupHomeViewState extends State<GroupHomeView> {
     _statusFutures.clear();
   }
 
+  /// 引っ張って更新。購読を張り直し、各グループの状況を読み直す。
+  /// 読み終わるまでくるくるを出しておく（すぐ戻すと更新したか分からない）。
   Future<void> _refresh() async {
-    setState(_statusFutures.clear);
+    setState(_subscribe);
+    final groups = _lastGroups;
+    await Future.wait([
+      Future<void>.delayed(const Duration(milliseconds: 600)),
+      for (final g in groups) _statusOf(g).then((_) {}, onError: (_) {}),
+    ]);
   }
+
+  /// 自分の今の投稿。変わったら（投稿した瞬間）グループの状況を読み直し、
+  /// 人数やジャケットにすぐ自分の分を入れる。
+  String? _lastMyPostId;
+
+  /// 直近に描いたグループの一覧（引っ張って更新で読み直す対象）。
+  List<GroupModel> _lastGroups = const [];
 
   Future<GroupCycleStatus> _statusOf(GroupModel g) {
     // メンバーが変わったら取り直す。
     final key = '${g.groupId}:${g.memberIds.join(',')}';
     return _statusFutures.putIfAbsent(
         key,
-        () => widget.debugStatusOf?.call(g) ?? _groupService.loadCycleStatus(g));
+        () =>
+            widget.debugStatusOf?.call(g) ?? _groupService.loadCycleStatus(g));
   }
 
   @override
@@ -202,83 +244,125 @@ class _GroupHomeViewState extends State<GroupHomeView> {
 
     return ColoredBox(
       color: _bg,
-      child: StreamBuilder<PostModel?>(
-        stream: _myPostStream,
-        builder: (context, mySnap) {
-          final myPost = mySnap.data;
-          final posted = myPost != null;
-          return StreamBuilder<List<GroupModel>>(
-            stream: _groupsStream,
-            builder: (context, groupSnap) {
-              final groups = groupSnap.data ?? const <GroupModel>[];
-              final mates = {
-                for (final g in groups) ...g.memberIds,
-              }..remove(widget.uid);
+      child: ListenableBuilder(
+        listenable: _playlists,
+        builder: (context, _) => StreamBuilder<PostModel?>(
+          stream: _myPostStream,
+          builder: (context, mySnap) {
+            final myPost = mySnap.data;
+            final posted = myPost != null;
+            if (myPost?.postId != _lastMyPostId) {
+              _lastMyPostId = myPost?.postId;
+              _statusFutures.clear();
+            }
+            return StreamBuilder<List<GroupModel>>(
+              stream: _groupsStream,
+              builder: (context, groupSnap) {
+                final groups = groupSnap.data ?? const <GroupModel>[];
+                final mates = {
+                  for (final g in groups) ...g.memberIds,
+                }..remove(widget.uid);
+                _lastGroups = groups;
+              if (widget.debugGroups == null) _playlists.update(groups);
 
-              return Stack(
-                children: [
-                  CustomScrollView(
-                    physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics(),
-                    ),
-                    slivers: [
-                      SliverToBoxAdapter(
-                        child: SizedBox(height: media.padding.top),
+                return Stack(
+                  children: [
+                    CustomScrollView(
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
                       ),
-                      CupertinoSliverRefreshControl(onRefresh: _refresh),
-                      // Figma の y=62〜142（安全領域の下から今日の 1 曲のカードまで）。
-                      SliverToBoxAdapter(
-                        child: _scaled(scale, _header(), height: 80),
-                      ),
-                      SliverToBoxAdapter(
-                        child: _scaled(
-                          scale,
-                          posted
-                              ? _postedCard(myPost, mates)
-                              : StreamBuilder<List<PokeEntry>>(
-                                  stream: _pokesStream,
-                                  builder: (context, snap) => _chooseCard(
-                                    pokedBy: snap.data?.firstOrNull?.fromName,
-                                  ),
-                                ),
-                          height: posted ? 120 : 306,
-                        ),
-                      ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(height: (posted ? 27 : 23) * scale),
-                      ),
-                      SliverToBoxAdapter(
-                        child: _scaled(scale, _groupsHeading(posted), height: 26),
-                      ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(height: (posted ? 5 : 11) * scale),
-                      ),
-                      if (groupSnap.hasData && groups.isEmpty)
+                      slivers: [
                         SliverToBoxAdapter(
-                          child: _scaled(scale, _noGroups(), height: 80),
+                          child: SizedBox(height: media.padding.top),
                         ),
-                      SliverList.separated(
-                        itemCount: groups.length,
-                        separatorBuilder: (_, __) =>
-                            SizedBox(height: (posted ? 18 : 12) * scale),
-                        itemBuilder: (context, i) => _scaled(
-                          scale,
-                          _groupRow(groups[i], blurJackets: !posted),
-                          height: 80,
+                        CupertinoSliverRefreshControl(
+                          onRefresh: _refresh,
+                          // 地が黒いので、くるくるは白にする。
+                          builder: (context, mode, pulled, trigger, extent) =>
+                              CupertinoTheme(
+                            data: const CupertinoThemeData(
+                                brightness: Brightness.dark),
+                            child: CupertinoSliverRefreshControl
+                                .buildRefreshIndicator(
+                                    context, mode, pulled, trigger, extent),
+                          ),
                         ),
-                      ),
-                      // 下のボタンに最後の行が隠れないだけの余白。
-                      SliverToBoxAdapter(
-                        child: SizedBox(height: 120 * scale + media.padding.bottom),
-                      ),
-                    ],
-                  ),
-                  _bottomButtons(scale, media.padding.bottom),
-                ],
-              );
-            },
-          );
-        },
+                        // Figma の y=62〜142（安全領域の下から今日の 1 曲のカードまで）。
+                        // プレイリストが届いていたら、その下に y=142〜258 の列を足す
+                        // （Figma 6712:12359）。
+                        ...() {
+                          final playlists = _playlists.visible(DateTime.now());
+                          final hasNew = playlists.any((e) => !e.viewed);
+                          return [
+                            SliverToBoxAdapter(
+                              child: _scaled(scale, _header(hasNew),
+                                  height: playlists.isEmpty ? 80 : 96),
+                            ),
+                            if (playlists.isNotEmpty)
+                              SliverToBoxAdapter(
+                                child: _scaled(
+                                  scale,
+                                  PlaylistStoryRow(
+                                    entries: playlists,
+                                    onOpen: (i) => _openPlaylist(playlists, i),
+                                  ),
+                                  height: 114,
+                                ),
+                              ),
+                          ];
+                        }(),
+                        SliverToBoxAdapter(
+                          child: _scaled(
+                            scale,
+                            posted
+                                ? _postedCard(myPost, mates)
+                                : StreamBuilder<List<PokeEntry>>(
+                                    stream: _pokesStream,
+                                    builder: (context, snap) => _chooseCard(
+                                      pokedBy: snap.data?.firstOrNull?.fromName,
+                                    ),
+                                  ),
+                            height: posted ? 120 : 306,
+                          ),
+                        ),
+                        SliverToBoxAdapter(
+                          child: SizedBox(height: (posted ? 27 : 23) * scale),
+                        ),
+                        SliverToBoxAdapter(
+                          child: _scaled(scale, _groupsHeading(posted),
+                              height: 26),
+                        ),
+                        SliverToBoxAdapter(
+                          child: SizedBox(height: (posted ? 5 : 11) * scale),
+                        ),
+                        if (groupSnap.hasData && groups.isEmpty)
+                          SliverToBoxAdapter(
+                            child: _scaled(scale, _noGroups(), height: 80),
+                          ),
+                        SliverList.separated(
+                          itemCount: groups.length,
+                          separatorBuilder: (_, __) =>
+                              SizedBox(height: (posted ? 18 : 12) * scale),
+                          itemBuilder: (context, i) => _scaled(
+                            scale,
+                            _groupRow(groups[i], blurJackets: !posted),
+                            height: 80,
+                          ),
+                        ),
+                        // 下のボタンに最後の行が隠れないだけの余白。
+                        SliverToBoxAdapter(
+                          child: SizedBox(
+                              height: 120 * scale + media.padding.bottom),
+                        ),
+                      ],
+                    ),
+                    _bottomButtons(scale, media.padding.bottom),
+                  ],
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -304,13 +388,13 @@ class _GroupHomeViewState extends State<GroupHomeView> {
 
   /// Figma の y=62〜142。「15s」(16,68)、日付 (16,116)、
   /// 右上にカレンダー（Music Memory）(284,70) とプロフィール (339,70)。
-  Widget _header() {
+  Widget _header(bool hasNewPlaylist) {
     final now = DateTime.now();
     // 日付は「今日の曲」のサイクルの日（21:00 に始まった日）。
     final d = widget.cycleStart.isAfter(now) ? now : widget.cycleStart;
     const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
     final dateText =
-        '${d.month}月${d.day}日 （${weekdays[d.weekday - 1]}）今日の曲が届いています';
+        '${d.month}月${d.day}日 （${weekdays[d.weekday - 1]}）${homeDeliveryText(hasNewPlaylist)}';
     return Stack(
       children: [
         Positioned(
@@ -321,6 +405,8 @@ class _GroupHomeViewState extends State<GroupHomeView> {
         Positioned(
           left: 16,
           top: 116 - _designTopInset,
+          // プレイリストの文言は長いので 2 行に折り返す（Figma は 300 幅）。
+          width: 300,
           child: Text(dateText, style: _rounded(14, _subGrey, 400)),
         ),
         Positioned(
@@ -369,7 +455,8 @@ class _GroupHomeViewState extends State<GroupHomeView> {
             Positioned(
               left: 15,
               top: 18,
-              child: Text('今日の1曲を選ぼう', style: _jp(20, Colors.white, bold: true)),
+              child:
+                  Text('今日の1曲を選ぼう', style: _jp(20, Colors.white, bold: true)),
             ),
             if (pokedBy != null && pokedBy.isNotEmpty)
               Positioned(
@@ -496,7 +583,8 @@ class _GroupHomeViewState extends State<GroupHomeView> {
                 height: 81,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: _artwork(post.track.albumImageUrl, const Color(0xFF3A363E)),
+                  child: _artwork(
+                      post.track.albumImageUrl, const Color(0xFF3A363E)),
                 ),
               ),
               Positioned(
@@ -536,13 +624,28 @@ class _GroupHomeViewState extends State<GroupHomeView> {
                   ],
                 ),
               ),
+              // 写真がまだ無ければ、見出しの行の右端に「写真を追加」。
+              // デザインは無いので小さく置く（2026-11-17）。
+              if (widget.onAddPhoto != null)
+                Positioned(
+                  right: 6,
+                  top: 4,
+                  child: _AddPhotoButton(
+                    postId: post.postId,
+                    onTap: () => widget.onAddPhoto!(post.postId),
+                  ),
+                ),
               // リアクションは右寄せで、左から多い順（Figma は 28 間隔、右端 358）。
+              // 5 つのときは「Music Memoryを見る ›」に重ならないよう詰める。
               for (var i = 0; i < emojis.length; i++)
                 Positioned(
-                  left: 338 - 28.0 * (emojis.length - 1 - i),
-                  top: 86,
+                  left: 338 -
+                      (emojis.length > 4 ? 24.0 : 28.0) *
+                          (emojis.length - 1 - i),
+                  top: emojis.length > 4 ? 87 : 86,
                   child: Text(emojis[i],
-                      style: const TextStyle(fontSize: 20, height: 1.2)),
+                      style: TextStyle(
+                          fontSize: emojis.length > 4 ? 18 : 20, height: 1.2)),
                 ),
             ],
           ),
@@ -570,8 +673,7 @@ class _GroupHomeViewState extends State<GroupHomeView> {
               children: [
                 const Icon(Icons.lock_outline, size: 12, color: _subGrey),
                 const SizedBox(width: 2),
-                Text('投稿するとジャケットがはっきり見えます',
-                    style: _rounded(12, _subGrey, 400)),
+                Text('投稿するとジャケットがはっきり見えます', style: _rounded(12, _subGrey, 400)),
               ],
             ),
           ),
@@ -625,6 +727,11 @@ class _GroupHomeViewState extends State<GroupHomeView> {
               final shown = jackets.length > _maxJackets
                   ? jackets.sublist(jackets.length - _maxJackets)
                   : jackets;
+              // ぼかすかはグループごと。このグループにまだ載せていなければぼかす
+              // （1 グループに 1 日 1 曲で、載せる先を選べる）。
+              final blur = status == null
+                  ? blurJackets
+                  : !status.postsByMember.containsKey(widget.uid);
 
               return Stack(
                 children: [
@@ -669,7 +776,8 @@ class _GroupHomeViewState extends State<GroupHomeView> {
                     Positioned(
                       left: 294 - 25.5 * (shown.length - 1 - i),
                       top: 21,
-                      child: _jacket(shown[i].track.albumImageUrl, blur: blurJackets),
+                      child: _jacket(shown[i].track.albumImageUrl,
+                          blur: blur),
                     ),
                   const Positioned(left: 343, top: 33, child: _RowChevron()),
                 ],
@@ -753,6 +861,80 @@ class _GroupHomeViewState extends State<GroupHomeView> {
 }
 
 /// 行の右端の「›」。Figma は 9.9 の線 2 本を ±45° に回したもの（7 角の箱）。
+/// 投稿後のカードの「写真を追加」。写真が付いている・締切を過ぎたら出さない。
+class _AddPhotoButton extends StatefulWidget {
+  final String postId;
+  final VoidCallback onTap;
+  const _AddPhotoButton({required this.postId, required this.onTap});
+
+  @override
+  State<_AddPhotoButton> createState() => _AddPhotoButtonState();
+}
+
+class _AddPhotoButtonState extends State<_AddPhotoButton> {
+  /// 写真が付いているか。調べ終わるまでは null（出さない）。
+  bool? _hasPhoto;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+    PostPhotoService.instance.photoAdded.addListener(_onAdded);
+  }
+
+  @override
+  void didUpdateWidget(_AddPhotoButton old) {
+    super.didUpdateWidget(old);
+    if (old.postId != widget.postId) {
+      _hasPhoto = null;
+      _check();
+    }
+  }
+
+  @override
+  void dispose() {
+    PostPhotoService.instance.photoAdded.removeListener(_onAdded);
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    final id = widget.postId;
+    final results = await Future.wait([
+      PostPhotoService.instance.photoUrl(id),
+      PostPhotoService.instance.canAddPhotoNow(),
+    ]);
+    if (!mounted || id != widget.postId) return;
+    final can = results[1] as bool;
+    setState(() => _hasPhoto = results[0] != null || !can);
+  }
+
+  void _onAdded() {
+    if (PostPhotoService.instance.photoAdded.value.contains(widget.postId)) {
+      setState(() => _hasPhoto = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hasPhoto != false) return const SizedBox.shrink();
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          children: [
+            const Icon(CupertinoIcons.camera,
+                size: 13, color: Color(0xFFD9D3DD)),
+            const SizedBox(width: 4),
+            Text('写真を追加', style: _rounded(12, const Color(0xFFD9D3DD), 600)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _RowChevron extends StatelessWidget {
   const _RowChevron();
 
@@ -768,8 +950,12 @@ class _RowChevron extends StatelessWidget {
       height: 14,
       child: Stack(
         children: [
-          Positioned(top: 6, child: line('assets/home_v2/chevron_line_down.svg', math.pi / 4)),
-          Positioned(top: 6, child: line('assets/home_v2/chevron_line_up.svg', -math.pi / 4)),
+          Positioned(
+              top: 6,
+              child: line('assets/home_v2/chevron_line_down.svg', math.pi / 4)),
+          Positioned(
+              top: 6,
+              child: line('assets/home_v2/chevron_line_up.svg', -math.pi / 4)),
         ],
       ),
     );

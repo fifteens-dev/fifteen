@@ -317,8 +317,8 @@ const PHOTO_REMINDER_FIRST_HOUR = 21;
 /** この時刻（JST）以降の投稿には送らない。1 時間後が 25:00 を過ぎる（通知は 25 時まで）。 */
 const PHOTO_REMINDER_LAST_HOUR = 24;
 const PHOTO_REMINDER_TITLE = '今日の1枚も残す？📷';
-// 写真は 28:00（翌 4:00）まで足せる。
-const PHOTO_REMINDER_BODY = '28時（翌4時）まで写真を追加できるよ。';
+// 写真は投稿の締切（翌日 20:59）まで足せる（2026-11-17 に 28 時の期限をなくした）。
+const PHOTO_REMINDER_BODY = '明日の20:59まで写真を追加できるよ。';
 
 /**
  * Music Memory に投稿したが写真を付けていない人へ、投稿の 1 時間後に
@@ -326,8 +326,10 @@ const PHOTO_REMINDER_BODY = '28時（翌4時）まで写真を追加できるよ
  * （通知は 25 時まで）。
  *
  * 5 分ごとに「1 時間〜1 時間 10 分前」の投稿を見る。窓を実行間隔より
- * 広く取り、取りこぼしを防ぐ。重複は `photo_reminders/{postId}` を
+ * 広く取り、取りこぼしを防ぐ。重複は `photo_reminders/{サイクルの鍵}_{uid}` を
  * create（既にあれば失敗）で予約して防ぐ。
+ * 1 回の締切に何曲投稿しても、送るのは 1 人 1 通まで。
+ * 25 時を過ぎたら送らない（つつきと同じ）。
  */
 exports.photoReminderNotification = onSchedule(
   { schedule: '*/5 * * * *', timeZone: 'Asia/Tokyo', timeoutSeconds: 120 },
@@ -339,9 +341,11 @@ exports.photoReminderNotification = onSchedule(
 
     try {
       // 今のサイクル（今日の 21:00 通知以降）の投稿だけが写真を足せる。
-      const stateSnap = await db.doc(MM_STATE_REF_PATH).get();
-      const cycleStart = stateSnap.data()?.notifiedAt?.toDate?.();
-      if (!cycleStart) return;
+      const cycle = await currentCycle(db);
+      if (!cycle) return;
+      const cycleStart = cycle.start;
+      // 25 時（サイクル開始日の翌 1:00）以降は送らない。
+      if (pokeQuietNow(cycle, now)) return;
 
       const postsSnap = await db.collection('posts')
         .where('createdAt', '>', admin.firestore.Timestamp.fromDate(from))
@@ -364,9 +368,11 @@ exports.photoReminderNotification = onSchedule(
         const userSnap = await db.collection('users').doc(p.userId).get();
         if (!userSnap.exists || userSnap.data().notifVibeEnabled === false) continue;
 
+        // 何曲でも投稿できるので、催促は 1 回の締切につき 1 人 1 通まで。
         try {
-          await db.collection('photo_reminders').doc(doc.id).create({
+          await db.collection('photo_reminders').doc(`${cycle.key}_${p.userId}`).create({
             userId: p.userId,
+            postId: doc.id,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         } catch (_) {
@@ -426,13 +432,25 @@ function pokeQuietNow(cycle, now = Date.now()) {
   return now >= cycle.start.getTime() + POKE_QUIET_AFTER_MS;
 }
 
-/** 相手が今のサイクルに投稿済みか。 */
-async function postedInCycle(db, uid, cycleStart) {
+/** 投稿がそのグループに載っているか。groupIds が無いのは選ぶ前の投稿で、全グループ扱い。 */
+function postIsInGroup(post, groupId) {
+  return !Array.isArray(post.groupIds) || post.groupIds.includes(groupId);
+}
+
+/**
+ * 相手が今のサイクルに投稿済みか。[groupId] を渡すとそのグループに載せたか
+ * （1 グループに 1 日 1 曲で、載せる先を選べる。2026-11-17）。
+ */
+async function postedInCycle(db, uid, cycleStart, groupId = null) {
   const snap = await db.collection('posts')
     .where('userId', '==', uid)
     .where('createdAt', '>', admin.firestore.Timestamp.fromDate(cycleStart))
     .get();
-  return snap.docs.some((d) => d.data().isVibe !== true && d.data().isDummyPost !== true);
+  return snap.docs.some((d) => {
+    const p = d.data();
+    if (p.isVibe === true || p.isDummyPost === true) return false;
+    return groupId == null || postIsInGroup(p, groupId);
+  });
 }
 
 /**
@@ -498,7 +516,7 @@ exports.onPokeCreated = onDocumentCreated('pokes/{pokeId}', async (event) => {
     // 古いサイクルの札・25 時以降・投稿済みは送らない。
     if (!cycle || poke.cycleKey !== cycle.key || pokeQuietNow(cycle) ||
         await pokeMuted(db, poke) ||
-        await postedInCycle(db, poke.toUid, cycle.start)) {
+        await postedInCycle(db, poke.toUid, cycle.start, poke.groupId)) {
       await pokeRef.update({ notified: true, skipped: true });
       return;
     }
@@ -561,10 +579,18 @@ exports.pokeDigestNotification = onSchedule(
         const markAll = (extra = {}) => Promise.all(
           docs.map((d) => d.ref.update({ notified: true, ...extra })));
 
-        if (quiet || await postedInCycle(db, toUid, cycle.start)) {
+        if (quiet) {
           await markAll({ skipped: true });
           continue;
         }
+        // もう載せたグループからのつつきは送らずに片付ける。
+        for (let i = docs.length - 1; i >= 0; i--) {
+          if (await postedInCycle(db, toUid, cycle.start, docs[i].data().groupId)) {
+            await docs[i].ref.update({ notified: true, skipped: true });
+            docs.splice(i, 1);
+          }
+        }
+        if (docs.length === 0) continue;
 
         const stateRef = db.collection('poke_notify').doc(`${cycle.key}_${toUid}`);
         const due = await db.runTransaction(async (tx) => {
@@ -697,6 +723,20 @@ exports.syncGroupPeers = onDocumentWritten('groups/{groupId}', async (event) => 
 
   const affected = [...new Set([...before, ...after])];
   await Promise.all(affected.map(rebuildGroupPeers));
+
+  // 抜けた人を残す。その週のプレイリストには抜けた人の曲も入れるため。
+  const left = before.filter((u) => !after.includes(u));
+  if (left.length > 0) {
+    const db = admin.firestore();
+    const groupId = event.params.groupId;
+    await Promise.all(left.map((uid) =>
+      db.collection('group_departures').doc(`${groupId}_${uid}`).set({
+        groupId,
+        uid,
+        leftAt: admin.firestore.FieldValue.serverTimestamp(),
+      })
+    ));
+  }
 });
 
 /** uid と同じグループにいる人を集め直して group_peers/{uid} に書く。 */
@@ -793,6 +833,276 @@ exports.addGroupMembers = onCall(async (request) => {
   }
   return { added: result.added };
 });
+
+/** 1 つのプレイリストに入れる曲の上限（ドキュメントの大きさを抑える）。 */
+const GROUP_PLAYLIST_MAX_TRACKS = 300;
+/** 木曜のリマインドを送る時間帯（JST、分）。この中のランダムな時刻に送る。 */
+const GROUP_PLAYLIST_REMINDER_FROM_MIN = 12 * 60; // 12:00
+const GROUP_PLAYLIST_REMINDER_TO_MIN = 22 * 60;   // 22:00
+
+/** Date を JST の 'YYYY-MM-DD' にする。 */
+function jstDateKey(date) {
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, '0')}-${String(jst.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** 'YYYY-MM-DD' の JST 21:00。 */
+function jstNineFor(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 21 - 9));
+}
+
+/** 'YYYY-MM-DD' に days 日足した鍵。 */
+function addDaysToKey(key, days) {
+  const [y, m, d] = key.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
+}
+
+/**
+ * グループの週のプレイリスト。
+ *
+ * 毎週月曜、その日の 21:00 の通知が出たあとに、先週（月曜 21:00 〜 今日の
+ * 21:00 ＝ 月〜日の 7 回分）の曲をグループごとにまとめて
+ * `groups/{groupId}/playlists/{週の月曜の鍵}` に書く。
+ *
+ * - 曲はその週にメンバーが投稿したものすべて（1 日に何曲でも）。週の途中で
+ *   抜けた人の曲も入れる（`group_departures`）。
+ * - 曲が 1 つも無いグループには作らない。
+ * - 通知は別に送らない。21:00 の通知と同時に、ホームとグループ画面に出る。
+ * - グループごとに create するので、途中で落ちても次の回で残りを作る。
+ *   全部できたら `weekly_group_playlists/{週の鍵}` に done を立てて以後は見ない。
+ */
+exports.weeklyGroupPlaylists = onSchedule(
+  { schedule: '*/5 21-23 * * 1', timeZone: 'Asia/Tokyo', timeoutSeconds: 540 },
+  async () => {
+    const db = admin.firestore();
+    const cycle = await currentCycle(db);
+    if (!cycle) return;
+    const todayKey = jstDateKey(new Date());
+    // 今日（月曜）の 21:00 の通知がまだなら待つ。
+    if (cycle.key !== todayKey) return;
+    const weekKey = addDaysToKey(todayKey, -7);
+    const markerRef = db.collection('weekly_group_playlists').doc(weekKey);
+    const marker = await markerRef.get();
+    if (marker.exists && marker.data().done === true) return;
+
+    try {
+      const startSnap = await db.collection(MM_CYCLES_COLLECTION).doc(weekKey).get();
+      const weekStart = startSnap.data()?.notifiedAt?.toDate?.() || jstNineFor(weekKey);
+      const weekEnd = cycle.start;
+      const result = await buildGroupPlaylists(db, weekKey, weekStart, weekEnd);
+      await markerRef.set({
+        done: true,
+        weekStart: admin.firestore.Timestamp.fromDate(weekStart),
+        weekEnd: admin.firestore.Timestamp.fromDate(weekEnd),
+        ...result,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      console.log(`weeklyGroupPlaylists ${weekKey}:`, result);
+    } catch (error) {
+      console.error('weeklyGroupPlaylists error:', error);
+    }
+  }
+);
+
+/** 全グループの [weekStart, weekEnd) のプレイリストを作る（あるものは飛ばす）。 */
+async function buildGroupPlaylists(db, weekKey, weekStart, weekEnd) {
+  const postsSnap = await db.collection('posts')
+    .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(weekStart))
+    .where('createdAt', '<', admin.firestore.Timestamp.fromDate(weekEnd))
+    .get();
+  const postsByUser = new Map();
+  for (const doc of postsSnap.docs) {
+    const p = doc.data();
+    if (!p.userId || p.isVibe === true || p.isDummyPost === true) continue;
+    if (!postsByUser.has(p.userId)) postsByUser.set(p.userId, []);
+    postsByUser.get(p.userId).push(doc);
+  }
+
+  const departures = await db.collection('group_departures')
+    .where('leftAt', '>=', admin.firestore.Timestamp.fromDate(weekStart))
+    .get();
+  const leftByGroup = new Map();
+  departures.forEach((d) => {
+    const { groupId, uid } = d.data();
+    if (!leftByGroup.has(groupId)) leftByGroup.set(groupId, new Set());
+    leftByGroup.get(groupId).add(uid);
+  });
+
+  const photoCache = new Map();
+  async function hasPhotos(postIds) {
+    const missing = postIds.filter((id) => !photoCache.has(id));
+    for (let i = 0; i < missing.length; i += 100) {
+      const refs = missing.slice(i, i + 100).map((id) => db.collection('post_photos').doc(id));
+      const snaps = await db.getAll(...refs);
+      snaps.forEach((s) => photoCache.set(s.id, s.exists && !!s.data()?.photoUrl));
+    }
+  }
+
+  const groupsSnap = await db.collection('groups').get();
+  let created = 0;
+  let skipped = 0;
+  for (const g of groupsSnap.docs) {
+    const group = g.data();
+    const members = group.memberIds || [];
+    const authors = new Set([...members, ...(leftByGroup.get(g.id) || [])]);
+    const docs = [...authors]
+      .flatMap((uid) => postsByUser.get(uid) || [])
+      .filter((d) => postIsInGroup(d.data(), g.id));
+    if (docs.length === 0) continue;
+    docs.sort((a, b) => a.data().createdAt.toMillis() - b.data().createdAt.toMillis());
+    const picked = docs.slice(0, GROUP_PLAYLIST_MAX_TRACKS);
+    await hasPhotos(picked.map((d) => d.id));
+
+    const tracks = picked.map((d) => {
+      const p = d.data();
+      const t = p.track || {};
+      const at = p.createdAt.toDate();
+      return {
+        postId: d.id,
+        userId: p.userId,
+        username: p.username || '',
+        userIconUrl: p.userIconUrl || null,
+        // 21:00 始まりのサイクルの日（21 時間戻した JST の日付）。
+        cycleKey: jstDateKey(new Date(at.getTime() - 21 * 60 * 60 * 1000)),
+        createdAt: p.createdAt,
+        hasPhoto: photoCache.get(d.id) === true,
+        track: {
+          trackId: t.trackId || '',
+          trackName: t.trackName || '',
+          artistName: t.artistName || '',
+          albumImageUrl: t.albumImageUrl || '',
+          previewUrl: t.previewUrl || null,
+          trackUrl: t.trackUrl || null,
+        },
+      };
+    });
+
+    try {
+      await g.ref.collection('playlists').doc(weekKey).create({
+        weekKey,
+        startKey: weekKey,
+        endKey: addDaysToKey(weekKey, 6),
+        weekStart: admin.firestore.Timestamp.fromDate(weekStart),
+        weekEnd: admin.firestore.Timestamp.fromDate(weekEnd),
+        deliveredAt: admin.firestore.Timestamp.fromDate(weekEnd),
+        memberCount: members.length,
+        dayCount: 7,
+        trackCount: tracks.length,
+        tracks,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      created++;
+    } catch (e) {
+      if (e.code === 6 /* ALREADY_EXISTS */) skipped++;
+      else throw e;
+    }
+  }
+  return { created, skipped };
+}
+
+/**
+ * 週のプレイリストを見ていない人へ、木曜に 1 回だけ送る。
+ *
+ *   1 グループ : 「サークル同期の先週のプレイリスト、まだ聞いてないよ🎧」
+ *                「みんなの1週間、38曲」
+ *   複数       : 「先週のプレイリストが3つ届いているよ🎧」
+ *                「月曜21時に新しい週と入れ替わります」
+ *
+ * 送る時刻は木曜 12:00〜22:00 のランダム（全員同じ時刻）。木曜の 12〜22 時に
+ * 5 分ごとに走り、その週の時刻を `playlist_reminder_state/{週}` に決めて、
+ * 来ていたらトランザクションで送信済みにしてから送る。
+ *
+ * 見たかどうかは `groups/{id}/playlists/{週}/views/{uid}`。通知を切っている
+ * グループ（mutedMemberIds）は数えない。重複は `playlist_reminders/{週}_{uid}` を
+ * create して防ぐ。
+ */
+exports.groupPlaylistReminder = onSchedule(
+  {
+    schedule: '*/5 12-22 * * 4',
+    timeZone: 'Asia/Tokyo',
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const db = admin.firestore();
+    const now = new Date();
+    // 今週の月曜に届いた分（週の鍵＝その 7 日前の月曜）。
+    const todayKey = jstDateKey(now);
+    const weekKey = addDaysToKey(todayKey, -10);
+    const stateRef = db.collection('playlist_reminder_state').doc(weekKey);
+    const fire = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(stateRef);
+      const st = snap.exists ? snap.data() : {};
+      if (st.sentAt) return false;
+      let at = st.scheduledFor?.toDate?.();
+      if (!at) {
+        const span = GROUP_PLAYLIST_REMINDER_TO_MIN - GROUP_PLAYLIST_REMINDER_FROM_MIN;
+        const min = GROUP_PLAYLIST_REMINDER_FROM_MIN + Math.floor(Math.random() * (span + 1));
+        at = new Date(jstDayStartFor(now).getTime() + min * 60 * 1000);
+        tx.set(stateRef, { scheduledFor: admin.firestore.Timestamp.fromDate(at) }, { merge: true });
+      }
+      if (now < at) return false;
+      tx.set(stateRef, { sentAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      return true;
+    });
+    if (!fire) return;
+    try {
+      const groupsSnap = await db.collection('groups').get();
+      const unseen = new Map(); // uid -> [{ groupName, trackCount }]
+      for (const groupSnap of groupsSnap.docs) {
+        const pl = await groupSnap.ref.collection('playlists').doc(weekKey).get();
+        if (!pl.exists) continue;
+        const viewsSnap = await pl.ref.collection('views').get();
+        const group = groupSnap.data();
+        const viewed = new Set(viewsSnap.docs.map((v) => v.id));
+        const muted = new Set(group.mutedMemberIds || []);
+        for (const uid of group.memberIds || []) {
+          if (viewed.has(uid) || muted.has(uid)) continue;
+          if (!unseen.has(uid)) unseen.set(uid, []);
+          unseen.get(uid).push({
+            groupName: group.name || '',
+            trackCount: pl.data().trackCount || 0,
+          });
+        }
+      }
+
+      let sent = 0;
+      for (const [uid, items] of unseen) {
+        const user = await db.collection('users').doc(uid).get();
+        if (!user.exists || user.data().notifVibeEnabled === false) continue;
+        try {
+          await db.collection('playlist_reminders').doc(`${weekKey}_${uid}`).create({
+            uid,
+            weekKey,
+            count: items.length,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        } catch (_) {
+          continue; // 送信済み
+        }
+        const one = items.length === 1;
+        await broadcastPush(db, [uid], {
+          title: one
+            ? `${items[0].groupName}の先週のプレイリスト、まだ聞いてないよ🎧`
+            : `先週のプレイリストが${items.length}つ届いているよ🎧`,
+          body: one
+            ? `みんなの1週間、${items[0].trackCount}曲`
+            : '月曜21時に新しい週と入れ替わります',
+          data: {
+            notificationType: 'group_playlist',
+            weekKey,
+            click_action: 'FLUTTER_NOTIFICATION_CLICK',
+          },
+        });
+        sent++;
+      }
+      console.log(`groupPlaylistReminder ${weekKey}: unseen=${unseen.size} sent=${sent}`);
+    } catch (error) {
+      console.error('groupPlaylistReminder error:', error);
+    }
+  }
+);
 
 const WEEKLY_RECAP_TITLE = 'Your Weekly Recap is here🎧';
 const WEEKLY_RECAP_BODY = 'あなたの1週間の音楽が、ひとつの作品になったよ。';
@@ -911,17 +1221,6 @@ exports.sendPushNotification = onDocumentCreated(
       }
 
       const senderId = request.senderId || '';
-
-      // 「◯◯が投稿しました」は 25 時（サイクル開始日の翌 1:00）から次の
-      // 21:00 までは送らない（投稿ルール「通知は 25 時以降は送らない」）。
-      // アプリ内の通知一覧には残る。
-      if (notificationType === 'post') {
-        const cycle = await currentCycle(admin.firestore());
-        if (cycle && pokeQuietNow(cycle)) {
-          await snap.ref.update({ processed: true, skipped: 'quiet_hours' });
-          return;
-        }
-      }
 
       // 通知タイプ別タイトル・本文
       let notifTitle;
@@ -1301,8 +1600,10 @@ async function processPostNotificationForRecipient(db, recipientId, senderId, se
  * トリガー: Firestore `posts` コレクションへの書き込み
  *
  * 処理:
- * 1. 投稿者のフォロワーリストを取得
- * 2. 各フォロワーの通知状態に応じて状態遷移を実行
+ * 1. 投稿者と同じグループのメンバーを集める（11/11 にフォロワーから変更）
+ * 2. 各メンバーの通知状態に応じて状態遷移を実行
+ *
+ * 1 回の締切に何曲でも投稿でき、2 曲目以降も 1 曲ごとに通知する。
  */
 exports.onPostCreated = onDocumentCreated(
   { document: 'posts/{postId}', timeoutSeconds: 300, retry: false },
@@ -1328,7 +1629,18 @@ exports.onPostCreated = onDocumentCreated(
         return;
       }
 
-      const followers = posterDoc.data().followers || [];
+      // 宛先は載せたグループのメンバー（重複はまとめる）。groupIds が無いのは
+      // 選ぶ前の投稿で、自分のすべてのグループに送る。
+      const groupsSnap = await db.collection('groups')
+        .where('memberIds', 'array-contains', posterId)
+        .get();
+      const mates = new Set();
+      groupsSnap.forEach((g) => {
+        if (!postIsInGroup(post, g.id)) return;
+        (g.data().memberIds || []).forEach((m) => mates.add(m));
+      });
+      mates.delete(posterId);
+      const recipients = [...mates];
 
       // 投稿の楽曲取得元を users に記録する（参考値。連携先の判定には使わない）。
       if (post.isDummyPost !== true) {
@@ -1344,8 +1656,8 @@ exports.onPostCreated = onDocumentCreated(
           const cycleStart = mmState.data()?.notifiedAt?.toDate?.();
           if (cycleStart) {
             await markOwnLiveActivityPosted(db, posterId, cycleStart);
-            if (followers.length > 0) {
-              await promoteFollowersLiveActivity(db, followers, cycleStart);
+            if (recipients.length > 0) {
+              await promoteFollowersLiveActivity(db, recipients, cycleStart);
             }
           }
         } catch (e) {
@@ -1353,17 +1665,16 @@ exports.onPostCreated = onDocumentCreated(
         }
       }
 
-      if (followers.length === 0) {
-        console.log(`onPostCreated: user ${posterId} has no followers`);
+      if (recipients.length === 0) {
+        console.log(`onPostCreated: user ${posterId} has no groupmates`);
         return;
       }
 
-      console.log(`onPostCreated: processing ${followers.length} followers for ${posterUsername}`);
+      console.log(`onPostCreated: processing ${recipients.length} groupmates for ${posterUsername}`);
 
       // notifPostEnabled チェック（未設定はデフォルトで通知あり）
-      // 大量フォロワー対策: 最大1000人まで処理
       // ラウンドトリップ削減のため whereIn (最大30件/クエリ) で一括取得
-      const followersToProcess = followers.length > 1000 ? followers.slice(0, 1000) : followers;
+      const followersToProcess = recipients;
       const whereInLimit = 30;
       const enabledFollowers = [];
       for (let i = 0; i < followersToProcess.length; i += whereInLimit) {
@@ -1379,7 +1690,7 @@ exports.onPostCreated = onDocumentCreated(
         }
       }
 
-      console.log(`onPostCreated: ${enabledFollowers.length} / ${followers.length} followers enabled`);
+      console.log(`onPostCreated: ${enabledFollowers.length} / ${recipients.length} groupmates enabled`);
 
       // 各フォロワーの状態遷移を処理 (10件ずつ並列実行)
       const chunkSize = 10;

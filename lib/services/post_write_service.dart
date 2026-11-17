@@ -44,7 +44,8 @@ class PostWriteService {
       final user = await _userService.getUser(userId);
       final update = <String, dynamic>{
         if (!snapshot.isEmpty) 'profileSnapshot': snapshot.toMap(),
-        if (user?.name != null && user!.name!.isNotEmpty) 'authorName': user.name,
+        if (user?.name != null && user!.name!.isNotEmpty)
+          'authorName': user.name,
       };
       if (update.isEmpty) return;
       await _firestore.collection(_postsCollection).doc(postId).update(update);
@@ -85,20 +86,13 @@ class PostWriteService {
     String? adlTeamId,
     String audience = 'public',
     ProfileSnapshot? profileSnapshot,
-    /// 1 サイクル 1 投稿の制限を受けないか（管理者）。
-    ///
-    /// true のときは引換券を取らない。券は 1 サイクルに 1 枚しか置けず、
-    /// 2 回目は書き込みごと失敗してしまうため。ルール側も管理者には券を
-    /// 要求しない。
-    bool exemptFromCycleLimit = false,
+    List<String>? groupIds,
   }) async {
     try {
       final postRef = _firestore.collection(_postsCollection).doc();
 
       final now = DateTime.now();
-      final vibeDate = isVibe
-          ? DateTime(now.year, now.month, now.day)
-          : null;
+      final vibeDate = isVibe ? DateTime(now.year, now.month, now.day) : null;
 
       // Music Memory 投稿のサイクル情報。作成時点の通知時刻を cycleStart に、
       // 締切（翌1:00）超過なら isLate=true を付与する。通知未発火(null)なら通常扱い。
@@ -143,7 +137,8 @@ class PostWriteService {
         'vibeTopicId': vibeTopicId,
         'vibeTopicTitle': vibeTopicTitle,
         'vibeDate': vibeDate != null ? Timestamp.fromDate(vibeDate) : null,
-        'cycleStart': cycleStart != null ? Timestamp.fromDate(cycleStart) : null,
+        'cycleStart':
+            cycleStart != null ? Timestamp.fromDate(cycleStart) : null,
         'isLate': isLate,
         'emotionTag': emotionTag,
         'theme': theme != null ? theme.toMap() : null,
@@ -156,36 +151,17 @@ class PostWriteService {
         'campusVibePost': campusVibeParticipating == true && university != null,
         'adlTeamId': adlTeamId,
         'audience': audience,
+        // 載せるグループ（投稿のときに選ぶ）。グループに入っていない人は空。
+        if (groupIds != null) 'groupIds': groupIds,
         // 投稿前に用意できていれば最初から入れる。入れずに後追いすると、
         // 書き込み直後に読み直す画面（ホーム）で裏面が空のまま出る。
         if (profileSnapshot != null && !profileSnapshot.isEmpty)
           'profileSnapshot': profileSnapshot.toMap(),
       };
 
-      // Music Memory の投稿は 1 サイクル 1 回。投稿と同じバッチで
-      // 「引換券」を取る。券は ID が '<uid>_<サイクルの鍵>' で固定されて
-      // おり、create は 2 回目が必ず失敗する（ルールで update/delete も
-      // 禁じている）。したがって 2 投稿目はバッチごと落ちる。
-      //
-      // サイクルの鍵が分からないときは券を取らない。ルール側もその場合は
-      // 制限を掛けないようにしてある（締めると誰も投稿できなくなる）。
-      final cycleKey =
-          (isMoodPost && !exemptFromCycleLimit) ? mmCycle.cycleKey : null;
-      if (cycleKey != null && cycleKey.isNotEmpty) {
-        final batch = _firestore.batch();
-        batch.set(postRef, postData);
-        batch.set(
-          _firestore.collection('post_claims').doc('${userId}_$cycleKey'),
-          {
-            'userId': userId,
-            'postId': postRef.id,
-            'createdAt': FieldValue.serverTimestamp(),
-          },
-        );
-        await batch.commit();
-      } else {
-        await postRef.set(postData);
-      }
+      // 1 回の締切（21:00〜翌 20:59）の間に何曲でも投稿できる（2026-11-10）。
+      // 以前は 1 サイクル 1 回で、同じバッチで post_claims の札を取っていた。
+      await postRef.set(postData);
       postCreated.value++;
 
       // カード裏面に出す「その時点の音楽の顔」。
@@ -413,7 +389,8 @@ class PostWriteService {
           body: '$senderUsernameがあなたのChoiceに$emoji',
         );
         if (kDebugMode) {
-          AppLog.debug('✅ リアクション通知作成: postId=$postId, emoji=$emoji, recipient=$postOwnerId');
+          AppLog.debug(
+              '✅ リアクション通知作成: postId=$postId, emoji=$emoji, recipient=$postOwnerId');
         }
       }
     } catch (e) {
@@ -440,7 +417,8 @@ class PostWriteService {
   }
 
   /// アナリティクスイベントを記録（analytics_events コレクション）
-  Future<void> trackAnalyticsEvent({required String uid, required String type}) async {
+  Future<void> trackAnalyticsEvent(
+      {required String uid, required String type}) async {
     await _firestore.collection('analytics_events').add({
       'userId': uid,
       'type': type,

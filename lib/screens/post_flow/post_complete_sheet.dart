@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 /// 投稿が終わったあとに出すシート（Figma 5838-11206）。
 ///
-/// 「写真を追加する」か「あとで」を選ばせる。写真は 28:00（翌 4:00）まで足せるので、
+/// 「写真を追加する」か「あとで」を選ばせる。写真は翌日の 20:59 まで足せるので、
 /// ここで断っても投稿カードのバーから後で足せる。
 class PostCompleteSheet extends StatelessWidget {
   const PostCompleteSheet({super.key});
@@ -66,7 +66,7 @@ class PostCompleteSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  '28時（翌4時）まで写真を追加できます',
+                  '明日の20:59まで写真を追加できます',
                   style: TextStyle(
                     color: Color(0xB8FFFFFF),
                     fontSize: 14,

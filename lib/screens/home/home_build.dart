@@ -125,6 +125,7 @@ extension HomeBuild on _HomeScreenState {
       cycleKey: MusicMemoryCycleService().cycleKey,
       recentTracks: _warmTracks,
       onChooseTrack: _openPostFlow,
+      onAddPhoto: _addPhoto,
       onOpenMusicMemory: () {
         _homeAudioService.stop();
         MusicMemoryMonthScreen.push(
@@ -133,27 +134,10 @@ extension HomeBuild on _HomeScreenState {
           accountCreatedAt: _auth.currentUser?.metadata.creationTime,
         );
       },
-      // プロフィールは別途作り直す。それまでは今の画面を開く。
+      // ホームの上にガラスのカードで重ねる（Figma 6672:12190）。
       onOpenProfile: () {
         _homeAudioService.stop();
-        Navigator.push(
-          context,
-          CupertinoPageRoute(
-            builder: (_) => Scaffold(
-              backgroundColor: AppColors.background,
-              body: Stack(
-                children: [
-                  const ProfileScreen(),
-                  Positioned(
-                    left: 4,
-                    top: MediaQuery.of(context).padding.top + 4,
-                    child: const BackButton(color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+        ProfileScreen.showCard(context);
       },
       onOpenNotifications: () {
         _homeAudioService.stop();
@@ -232,7 +216,7 @@ extension HomeBuild on _HomeScreenState {
           : null,
       isSaved: savedItems.isPostOrTrackSaved(post),
       backSideEnabled: true,
-      // 写真は自分の投稿に、28:00 まで、まだ無いときだけ足せる。
+      // 写真は自分の投稿に、翌日 20:59 まで、まだ無いときだけ足せる。
       onAddPhoto: (post.userId == currentUserId &&
               _canAddPhoto &&
               !_postsWithPhoto.contains(post.postId))

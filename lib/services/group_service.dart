@@ -15,8 +15,12 @@ import 'post_photo_service.dart';
 class GroupCycleStatus {
   final GroupModel group;
 
-  /// 今のサイクルに投稿したメンバーの投稿（uid → 最新の 1 件）。
+  /// 今のサイクルにこのグループへ投稿したメンバーの投稿（uid → 最新の 1 件）。
+  /// 1 グループに 1 日 1 曲だが、選ぶ前の投稿が重なることもあるので新しい方。
   final Map<String, PostModel> postsByMember;
+
+  /// 各メンバーがこのサイクルで最初に投稿した時刻（並び順に使う）。
+  final Map<String, DateTime> firstPostedAt;
 
   /// 写真を付けた投稿の写真（postId → URL）。カメラマークと裏面に使う。
   final Map<String, String> photoUrls;
@@ -27,6 +31,7 @@ class GroupCycleStatus {
     required this.group,
     required this.postsByMember,
     this.photoUrls = const {},
+    this.firstPostedAt = const {},
   });
 
   int get memberCount => group.memberIds.length;
@@ -79,8 +84,8 @@ class GroupService {
         .collection(_groupsCollection)
         .where('memberIds', arrayContains: uid)
         .get();
-    return snap.docs.any((d) =>
-        (d.data()['memberIds'] as List? ?? const []).contains(otherUid));
+    return snap.docs.any(
+        (d) => (d.data()['memberIds'] as List? ?? const []).contains(otherUid));
   }
 
   /// uid 群のユーザーをまとめて取得する（whereIn は 30 件上限）。
@@ -181,7 +186,8 @@ class GroupService {
   }
 
   /// 友達（どこかのグループで一緒の人）のうち、[group] にまだいない人。
-  Future<List<UserModel>> fetchFriendsNotIn(GroupModel group, String uid) async {
+  Future<List<UserModel>> fetchFriendsNotIn(
+      GroupModel group, String uid) async {
     final snap = await _firestore
         .collection(_groupsCollection)
         .where('memberIds', arrayContains: uid)
@@ -192,8 +198,8 @@ class GroupService {
       ..remove(uid)
       ..removeAll(group.memberIds);
     final users = await fetchUsers(ids);
-    users.sort((a, b) => (a.name ?? a.username ?? '')
-        .compareTo(b.name ?? b.username ?? ''));
+    users.sort((a, b) =>
+        (a.name ?? a.username ?? '').compareTo(b.name ?? b.username ?? ''));
     return users;
   }
 
@@ -215,7 +221,7 @@ class GroupService {
   static String inviteUrl(String code) =>
       'https://fifteens-39cfe.web.app/g/$code';
 
-    static final Random _random = Random.secure();
+  static final Random _random = Random.secure();
 
   /// 招待コード（6 桁、小文字英字と数字）。紛らわしい 0/o/1/l は使わない。
   static String newInviteCode() {
@@ -307,13 +313,38 @@ class GroupService {
     });
   }
 
+  /// 今のサイクルに自分が投稿済みのグループ（1 グループに 1 日 1 曲、2026-11-17）。
+  ///
+  /// グループを選ぶ前の投稿（groupIds が無い）は、[groups] のすべてに
+  /// 載っている扱い。
+  Future<Set<String>> postedGroupIds(
+      String uid, List<GroupModel> groups) async {
+    final cutoff = MusicMemoryCycleService().currentCycleStart;
+    final snap = await _firestore
+        .collection(_postsCollection)
+        .where('userId', isEqualTo: uid)
+        .where('createdAt', isGreaterThan: Timestamp.fromDate(cutoff))
+        .get();
+    final used = <String>{};
+    for (final d in snap.docs) {
+      final data = d.data();
+      if (data['isDummyPost'] == true || data['isVibe'] == true) continue;
+      final post = PostModel.fromFirestore(d);
+      for (final g in groups) {
+        if (post.isInGroup(g.groupId)) used.add(g.groupId);
+      }
+    }
+    return used;
+  }
+
   /// 今のサイクル（直近の 21:00 以降）に各メンバーが投稿したか。
   ///
   /// タイムラインに載らない投稿（ダミー / Vibe）は数えない。同じ人が
-  /// 複数あれば新しい方を採る。
+  /// 複数あれば新しい方を出し、並び順は最初に投稿した時刻で決める。
   Future<GroupCycleStatus> loadCycleStatus(GroupModel group) async {
     final cutoff = MusicMemoryCycleService().currentCycleStart;
     final posts = <String, PostModel>{};
+    final firsts = <String, DateTime>{};
     final uids = group.memberIds;
     for (var i = 0; i < uids.length; i += 30) {
       final chunk = uids.skip(i).take(30).toList();
@@ -327,9 +358,15 @@ class GroupService {
           final data = d.data();
           if (data['isDummyPost'] == true || data['isVibe'] == true) continue;
           final post = PostModel.fromFirestore(d);
+          // このグループに載せていない投稿は数えない（投稿先を選べる）。
+          if (!post.isInGroup(group.groupId)) continue;
           final prev = posts[post.userId];
           if (prev == null || post.createdAt.isAfter(prev.createdAt)) {
             posts[post.userId] = post;
+          }
+          final first = firsts[post.userId];
+          if (first == null || post.createdAt.isBefore(first)) {
+            firsts[post.userId] = post.createdAt;
           }
         }
       } catch (e) {
@@ -351,6 +388,7 @@ class GroupService {
       group: group,
       postsByMember: posts,
       photoUrls: photos,
+      firstPostedAt: firsts,
     );
   }
 }

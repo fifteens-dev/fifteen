@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import 'package:flutter_svg/flutter_svg.dart';
+
 import '../constants/profile_fonts.dart';
 import '../models/post_model.dart';
 import '../models/user_model.dart';
@@ -15,8 +17,11 @@ import '../services/post_service.dart';
 import '../services/profile_snapshot_service.dart';
 import '../services/user_service.dart';
 import '../utils/album_image.dart';
+import '../widgets/common/glass_circle_button.dart';
+import '../widgets/common/liquid_glass.dart';
 import '../widgets/profile_widgets.dart';
 import 'invite_share_sheet.dart';
+import 'profile_share_screen.dart';
 import 'milfolha_ranking_screen.dart';
 import 'laneige_ranking_screen.dart';
 import 'settings_screen.dart';
@@ -28,7 +33,34 @@ import 'settings_screen.dart';
 /// 倍率をかけて描く。要素が全て絶対座標で置かれた「ポスター」型のデザインなので、
 /// 個々の値を端末幅で割るより崩れにくい。縦に入り切らない端末ではスクロールする。
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  /// 渡すとホームの上に重ねるガラスのカード（Figma 6672:12190）で描き、
+  /// 左上のバツで呼ぶ。null なら今までの全画面のプロフィール。
+  final VoidCallback? onClose;
+
+  const ProfileScreen({super.key, this.onClose});
+
+  /// ホーム右上のプロフィールボタンから、ホームの上にカードで開く。
+  static Future<void> showCard(BuildContext context) {
+    return Navigator.of(context).push(PageRouteBuilder<void>(
+      opaque: false,
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 260),
+      reverseTransitionDuration: const Duration(milliseconds: 200),
+      pageBuilder: (context, _, __) =>
+          ProfileScreen(onClose: () => Navigator.of(context).pop()),
+      transitionsBuilder: (_, animation, __, child) {
+        final curved =
+            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    ));
+  }
 
   @override
   State<ProfileScreen> createState() => ProfileScreenState();
@@ -50,6 +82,15 @@ const int _postsForAggregation = 30;
 
 const double _designW = 402;
 const double _designH = 874;
+
+/// ホームに重ねるカード（Figma 6672:12122）。画面 402×874 の (9,117) に置く。
+const double _cardW = 384;
+const double _cardH = 703;
+const Offset _cardOrigin = Offset(9, 117);
+
+/// カードでは top artists / recent choice を全画面の座標からこれだけずらす
+/// （横は 402→384 の中央合わせ、縦はヘッダーを詰めたぶん）。
+const Offset _cardSectionShift = Offset(-(_designW - _cardW) / 2, -160);
 
 /// 3 つ並ぶタイルの寸法。left は Figma の並び（0 / 116 / 232）。
 const double _tile = 105;
@@ -74,6 +115,34 @@ class ProfileScreenState extends State<ProfileScreen> {
 
   UserModel? _user;
   bool _loading = true;
+
+  /// カードのネイティブのガラスを出してよいか。開くアニメの最中に作ると
+  /// 一瞬画面が真っ黒になることがあるので、アニメが終わってから出し、
+  /// 閉じ始めたら引っ込める。
+  bool _glassReady = false;
+  Animation<double>? _routeAnimation;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.onClose == null) return;
+    final anim = ModalRoute.of(context)?.animation;
+    if (anim == _routeAnimation) return;
+    _routeAnimation?.removeStatusListener(_onRouteStatus);
+    _routeAnimation = anim?..addStatusListener(_onRouteStatus);
+    _onRouteStatus(anim?.status ?? AnimationStatus.completed);
+  }
+
+  void _onRouteStatus(AnimationStatus status) {
+    final ready = status == AnimationStatus.completed;
+    if (ready != _glassReady && mounted) setState(() => _glassReady = ready);
+  }
+
+  @override
+  void dispose() {
+    _routeAnimation?.removeStatusListener(_onRouteStatus);
+    super.dispose();
+  }
 
   /// 集計のもとになる自分の投稿（新しい順）。
   List<PostModel> _posts = const [];
@@ -218,6 +287,21 @@ class ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  /// カードの共有ボタン。以前の共有シートと同じ招待カードを、グループの
+  /// 共有画面と同じ形の画面で見せる（2026-11-17）。
+  Future<void> _openShareScreen() async {
+    final uid = _uid;
+    final user = _user;
+    final handle = user?.username;
+    if (uid == null || handle == null || handle.isEmpty) return;
+    await ProfileShareScreen.push(
+      context,
+      username: handle,
+      uid: uid,
+      inviteCode: user?.inviteCode,
+    );
+  }
+
   /// 連続投稿日数を数える。
   ///
   /// 暦日ではなく 15s Day（通知 〜 次の通知）で数える。進行中のサイクルに
@@ -225,8 +309,8 @@ class ProfileScreenState extends State<ProfileScreen> {
   /// 投稿していないだけで連続が途切れたことにはしないため。
   /// 連続投稿日数。規則は他人のプロフィールと同じものを使う
   /// （[MusicMemoryCycleService.streakDays]）。
-  Future<int> _calcStreak(List<PostModel> posts) =>
-      MusicMemoryCycleService().streakDays([for (final p in posts) p.createdAt]);
+  Future<int> _calcStreak(List<PostModel> posts) => MusicMemoryCycleService()
+      .streakDays([for (final p in posts) p.createdAt]);
 
   /// top artists を集計する。中身は [ProfileSnapshotService] に寄せてある。
   /// 投稿カードの裏面も同じ集計を出すので、ここで独自には持たない。
@@ -259,6 +343,8 @@ class ProfileScreenState extends State<ProfileScreen> {
         ),
       );
     }
+
+    if (widget.onClose != null) return _buildCard(context);
 
     // デザインは画面の最上端（y=0）から始まるので、リロードのインジケータを
     // 既定のまま出すとノッチ / ステータスバーの裏に入って見えない。
@@ -334,6 +420,98 @@ class ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
+
+  String get _displayName =>
+      _user?.name?.isNotEmpty == true ? _user!.name! : (_user?.username ?? '');
+
+  List<({String name, String? artistId})> get _topArtists => [
+        for (final name in _topArtistNames)
+          (name: name, artistId: _artistIdOf(name)),
+      ];
+
+  List<({String albumImageUrl, String trackName, String artistName})>
+      get _recentPosts => [
+            for (final p in _posts.take(3))
+              (
+                albumImageUrl: p.track.albumImageUrl,
+                trackName: p.track.trackName,
+                artistName: p.track.artistName,
+              ),
+          ];
+
+  Future<void> _openSettings() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+    final uid = _uid;
+    if (uid != null) await _loadUser(uid);
+  }
+
+  /// ホームに重ねるカード。画面幅に合わせて拡大し、縦に入り切らない端末では
+  /// さらに縮めて、下の安全領域の上に収める。
+  Widget _buildCard(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    final scale = size.width / _designW;
+    final top = _cardOrigin.dy * scale;
+    final available = size.height - top - padding.bottom - 8;
+    final s = (_cardH * scale > available) ? available / _cardH : scale;
+
+    return Material(
+      type: MaterialType.transparency,
+      child: Stack(
+        children: [
+          // カードの外をタップしても閉じる。
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onClose,
+            ),
+          ),
+          Positioned(
+            left: (size.width - _cardW * s) / 2,
+            top: top,
+            width: _cardW * s,
+            height: _cardH * s,
+            // カードの中の空いたところのタップは、外へ抜けて閉じないよう止める。
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {},
+              child: FittedBox(
+                fit: BoxFit.fill,
+                child: SizedBox(
+                  width: _cardW,
+                  height: _cardH,
+                  child: LiquidGlass(
+                    radius: 39,
+                    native: _glassReady,
+                    child: _loading
+                        ? const Center(
+                            child: CupertinoActivityIndicator(
+                                color: Colors.white, radius: 14),
+                          )
+                        : ProfileView.card(
+                            name: _displayName,
+                            username: _user?.username,
+                            avatarUrl: _user?.profileImageUrl,
+                            topArtists: _topArtists,
+                            recentPosts: _recentPosts,
+                            onClose: widget.onClose!,
+                            // 中身は以前の招待カード、見た目はグループの共有画面と同じ。
+                            onOpenShare: _openShareScreen,
+                            // 新しい設定画面は別途作る。それまでは今の設定画面。
+                            onOpenSettings: _openSettings,
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// プロフィールの見た目だけを持つ層。
@@ -384,6 +562,12 @@ class ProfileView extends StatelessWidget {
   /// （他人を見ているときは共有が無いので場所が空く）。
   final VoidCallback? onBack;
 
+  /// ホームに重ねるカードの見た目（[ProfileView.card]）か。
+  final bool card;
+
+  /// カードの左上のバツ。
+  final VoidCallback? onClose;
+
   const ProfileView({
     super.key,
     required this.name,
@@ -402,10 +586,43 @@ class ProfileView extends StatelessWidget {
     this.onOpenSettings,
     this.onOpenMilfolhaRanking,
     this.onBack,
-  });
+  })  : card = false,
+        onClose = null;
+
+  /// ホームに重ねるガラスのカード（Figma 6672:12190）。
+  ///
+  /// 出すのはアイコン・名前・ID・top artists・recent choice だけ。地はガラスなので
+  /// 中身に背景色は敷かない。カードの座標（384×703）で描く。
+  const ProfileView.card({
+    super.key,
+    required this.name,
+    required this.username,
+    required this.avatarUrl,
+    required this.topArtists,
+    required this.recentPosts,
+    required VoidCallback this.onClose,
+    required VoidCallback this.onOpenShare,
+    required VoidCallback this.onOpenSettings,
+  })  : card = true,
+        friendCount = 0,
+        friendIcons = const [],
+        postCount = 0,
+        streakDays = 0,
+        showMilfolhaRanking = false,
+        pillLabel = null,
+        showFriendsPill = false,
+        onOpenMilfolhaRanking = null,
+        onBack = null;
 
   @override
   Widget build(BuildContext context) {
+    if (card) {
+      return SizedBox(
+        width: _cardW,
+        height: _cardH,
+        child: Stack(children: _cardContent()),
+      );
+    }
     final width = MediaQuery.sizeOf(context).width;
     final scale = width / _designW;
     return SizedBox(
@@ -437,6 +654,93 @@ class ProfileView extends StatelessWidget {
         ..._topArtistsSection(),
         ..._recentChoiceSection(),
       ];
+
+  // ── カード（Figma 6672:12122）─────────────────────────────
+
+  List<Widget> _cardContent() => [
+        // 上のガラスの丸ボタン（45 角）。左からバツ / 共有 / 設定。
+        _cardButton(
+          left: 22,
+          onTap: onClose!,
+          child: SvgPicture.asset('assets/profile_v3/close.svg',
+              width: 17, height: 16),
+        ),
+        _cardButton(
+          left: 270,
+          onTap: onOpenShare!,
+          child:
+              const Icon(CupertinoIcons.share, color: Colors.white, size: 21),
+        ),
+        _cardButton(
+          left: 322,
+          onTap: onOpenSettings!,
+          child: const Icon(CupertinoIcons.gear_alt,
+              color: Colors.white, size: 23),
+        ),
+        Positioned(
+          left: (_cardW - 84) / 2,
+          top: 80,
+          child: ClipOval(
+            child: Container(
+              width: 84,
+              height: 84,
+              color: const Color(0x33FFFFFF),
+              child: ProfileImage(imageUrl: avatarUrl, size: 84),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 20,
+          right: 20,
+          top: 176,
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              fontFamily: kSfProRounded,
+            ),
+          ),
+        ),
+        Positioned(
+          left: 20,
+          right: 20,
+          top: 204,
+          child: Text(
+            (username == null || username!.isEmpty) ? '' : '@$username',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              // ガラスの上では #A3A3A3 だと沈むので、白を薄くして載せる。
+              color: Color(0xB3FFFFFF),
+              fontSize: 14,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              fontFamily: kSfProRounded,
+            ),
+          ),
+        ),
+        ..._topArtistsSection(shift: _cardSectionShift),
+        ..._recentChoiceSection(shift: _cardSectionShift),
+      ];
+
+  Widget _cardButton({
+    required double left,
+    required VoidCallback onTap,
+    required Widget child,
+  }) {
+    return Positioned(
+      left: left,
+      top: 19,
+      child: GlassCircleButton(size: 45, onTap: onTap, child: child),
+    );
+  }
 
   // ── ヘッダー ───────────────────────────────────────────
 
@@ -506,7 +810,8 @@ class ProfileView extends StatelessWidget {
               width: 20,
               height: 20,
               child: Center(
-                child: Icon(CupertinoIcons.share, color: Colors.white, size: 19),
+                child:
+                    Icon(CupertinoIcons.share, color: Colors.white, size: 19),
               ),
             ),
           ],
@@ -749,14 +1054,16 @@ class ProfileView extends StatelessWidget {
 
   // ── top artists ───────────────────────────────────────
 
-  List<Widget> _topArtistsSection() {
+  /// [shift] はカードに載せるときのずらし（全画面では 0）。
+  List<Widget> _topArtistsSection({Offset shift = Offset.zero}) {
     final artists = topArtists;
+    final origin = _artistsOrigin + shift;
     return [
       // タイトルは 4x 書き出し。影のぶん左右に 16pt ずつ余白が入っているので、
       // 画像幅 = canvas/4 で置けば文字が Figma の位置に来る。
       Positioned(
-        left: (_designW - 1395 / 4) / 2,
-        top: 421.9,
+        left: (_designW - 1395 / 4) / 2 + shift.dx,
+        top: 421.9 + shift.dy,
         child: Image.asset(
           'assets/profile_v2/title_top_artists.png',
           width: 1395 / 4,
@@ -764,8 +1071,8 @@ class ProfileView extends StatelessWidget {
       ),
       for (var i = 0; i < 3; i++) ...[
         Positioned(
-          left: _artistsOrigin.dx + _tileLefts[i],
-          top: _artistsOrigin.dy + 49,
+          left: origin.dx + _tileLefts[i],
+          top: origin.dy + 49,
           child: _artistTile(
             artist: i < artists.length ? artists[i] : null,
             isFirst: i == 0,
@@ -773,14 +1080,14 @@ class ProfileView extends StatelessWidget {
         ),
         // 順位の数字はタイルの上に重なる。ベースラインを揃えたいので下端で置く。
         Positioned(
-          left: _artistsOrigin.dx + _tileLefts[i],
-          top: _artistsOrigin.dy + 49,
+          left: origin.dx + _tileLefts[i],
+          top: origin.dy + 49,
           width: _tile,
           child: _rankNumeral(i),
         ),
         Positioned(
-          left: _artistsOrigin.dx + _tileLefts[i] - 12,
-          top: _artistsOrigin.dy + 169,
+          left: origin.dx + _tileLefts[i] - 12,
+          top: origin.dy + 169,
           width: _tile + 24,
           child: Text(
             i < artists.length ? artists[i].name : '',
@@ -855,12 +1162,13 @@ class ProfileView extends StatelessWidget {
 
   // ── recent choice ─────────────────────────────────────
 
-  List<Widget> _recentChoiceSection() {
+  List<Widget> _recentChoiceSection({Offset shift = Offset.zero}) {
     final recent = recentPosts;
+    final origin = _recentOrigin + shift;
     return [
       Positioned(
-        left: (_designW - 1562 / 4) / 2,
-        top: 595.9,
+        left: (_designW - 1562 / 4) / 2 + shift.dx,
+        top: 595.9 + shift.dy,
         child: Image.asset(
           'assets/profile_v2/title_recent_choice.png',
           width: 1562 / 4,
@@ -868,8 +1176,8 @@ class ProfileView extends StatelessWidget {
       ),
       for (var i = 0; i < 3; i++) ...[
         Positioned(
-          left: _recentOrigin.dx + _tileLefts[i],
-          top: _recentOrigin.dy,
+          left: origin.dx + _tileLefts[i],
+          top: origin.dy,
           child: Container(
             width: _tile,
             height: _tile,
@@ -889,8 +1197,8 @@ class ProfileView extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: _recentOrigin.dx + _tileLefts[i] - 12,
-          top: _recentOrigin.dy + 114,
+          left: origin.dx + _tileLefts[i] - 12,
+          top: origin.dy + 114,
           width: _tile + 24,
           child: Text(
             i < recent.length ? recent[i].trackName : '',
@@ -907,8 +1215,8 @@ class ProfileView extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: _recentOrigin.dx + _tileLefts[i] - 12,
-          top: _recentOrigin.dy + 133,
+          left: origin.dx + _tileLefts[i] - 12,
+          top: origin.dy + 133,
           width: _tile + 24,
           child: Text(
             i < recent.length ? recent[i].artistName : '',

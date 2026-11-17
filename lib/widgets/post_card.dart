@@ -99,7 +99,7 @@ class PostCard extends StatefulWidget {
 
   /// 「写真を追加する」バーを押したとき。null なら出さない。
   ///
-  /// 自分の投稿かつ 28:00 前のときだけ呼び出し側が渡す。
+  /// 自分の投稿かつ写真の締切（翌日 20:59）前のときだけ呼び出し側が渡す。
   final VoidCallback? onAddPhoto;
 
   /// 裏面に出す写真の URL。渡すとプロフィールの代わりに写真を全面に出す。

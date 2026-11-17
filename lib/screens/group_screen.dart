@@ -5,18 +5,25 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
 import '../constants/profile_fonts.dart';
 import '../models/group_model.dart';
+import '../services/group_playlist_service.dart';
+import 'group_playlist_screen.dart';
+import '../widgets/home/playlist_story_row.dart' show PlaylistRing;
 import '../models/post_model.dart';
 import '../models/post_theme.dart';
 import '../models/user_model.dart';
 import '../providers/current_user_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/group_service.dart';
+import '../services/music_memory_cycle_service.dart';
 import '../services/poke_service.dart';
+import '../services/reaction_picker_service.dart';
+import 'group_share_screen.dart';
 import '../services/post_flow_request.dart';
 import '../services/post_service.dart';
 import '../utils/color_extractor.dart';
@@ -26,6 +33,7 @@ import 'group_settings_sheet.dart';
 import '../widgets/common/glass_circle_button.dart';
 import '../widgets/home/group_home_view.dart' show groupReactionEmojis;
 import '../widgets/post_card.dart';
+import '../widgets/reaction_overlay.dart' show kReactionEmojis;
 import '../widgets/post_card/enlarge_flip_cell.dart';
 import '../widgets/profile_widgets.dart';
 
@@ -126,6 +134,14 @@ class _GroupScreenState extends State<GroupScreen> {
   /// つつく途中の相手（二度押し防止）。
   final Set<String> _poking = {};
 
+  /// 自分が付けたリアクションを先に反映した投稿（postId → 投稿）。
+  /// 読み直すまでの間、小さいカードにも拡大したカードにもすぐ出す。
+  final Map<String, PostModel> _reacted = {};
+
+  /// 最新の週のプレイリスト。次の週のものが届くまで出し続ける。
+  StreamSubscription<GroupPlaylistEntry?>? _playlistSub;
+  GroupPlaylistEntry? _playlist;
+
   String get _uid =>
       widget.debugUid ?? FirebaseAuth.instance.currentUser?.uid ?? '';
 
@@ -134,6 +150,11 @@ class _GroupScreenState extends State<GroupScreen> {
     super.initState();
     _load();
     if (widget.debugStatus == null) {
+      _playlistSub = GroupPlaylistService.instance
+          .watchEntry(widget.group, _uid)
+          .listen((e) {
+        if (mounted) setState(() => _playlist = e);
+      });
       _groupSub = _groupService.watchGroup(widget.group.groupId).listen((g) {
         if (!mounted || g == null) return;
         final membersChanged = !_sameMembers(g.memberIds, _group.memberIds);
@@ -159,6 +180,7 @@ class _GroupScreenState extends State<GroupScreen> {
   @override
   void dispose() {
     _groupSub?.cancel();
+    _playlistSub?.cancel();
     if (_audioUsed) _audio.stop();
     super.dispose();
   }
@@ -180,6 +202,7 @@ class _GroupScreenState extends State<GroupScreen> {
     ]);
     if (!mounted) return;
     setState(() {
+      _reacted.clear();
       _status = results[0] as GroupCycleStatus;
       _users = {for (final u in results[1] as List<UserModel>) u.uid: u};
       _poked = results[2] as Set<String>;
@@ -188,12 +211,16 @@ class _GroupScreenState extends State<GroupScreen> {
 
   /// 自分 → 投稿した順 → まだの人 → 招待（10 人未満のとき）。
   List<_Slot> _slots(GroupCycleStatus status) {
-    final posts = status.postsByMember;
+    final posts = {
+      for (final e in status.postsByMember.entries)
+        e.key: _reacted[e.value.postId] ?? e.value,
+    };
     final mine = posts[_uid];
     final others = [
       for (final e in posts.entries)
         if (e.key != _uid) e.value,
-    ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    ]..sort((a, b) => (status.firstPostedAt[a.userId] ?? a.createdAt)
+        .compareTo(status.firstPostedAt[b.userId] ?? b.createdAt));
     return [
       mine != null
           ? _PostSlot(mine, isMe: true)
@@ -238,6 +265,44 @@ class _GroupScreenState extends State<GroupScreen> {
 
   void _comingSoon() => AppToast.show(context, '準備中です');
 
+  void _openPlaylist(GroupPlaylistEntry entry) {
+    if (_audioUsed) _audio.stop();
+    GroupPlaylistScreen.open(
+      context,
+      entries: [
+        GroupPlaylistEntry(
+          group: _group,
+          playlist: entry.playlist,
+          viewedAt: entry.viewedAt,
+        )
+      ],
+      initialIndex: 0,
+      uid: _uid,
+    );
+  }
+
+  /// その日のみんなの曲を 1 枚の画像にして共有する（Figma 6541:12058 ほか）。
+  /// 並びはグループ画面と同じ（自分 → 投稿した順）。自分がまだなら共有できない。
+  void _openShare() {
+    final status = _status;
+    if (status == null) return;
+    if (!status.postsByMember.containsKey(_uid)) {
+      AppToast.show(context, '曲を選ぶと共有できます');
+      return;
+    }
+    final posts = [
+      for (final slot in _slots(status))
+        if (slot case _PostSlot(:final post)) post,
+    ];
+    GroupShareScreen.push(
+      context,
+      posts: posts,
+      day: MusicMemoryCycleService().currentCycleStart,
+      fullHouse:
+          status.memberCount >= 2 && status.postedCount >= status.memberCount,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
@@ -257,12 +322,29 @@ class _GroupScreenState extends State<GroupScreen> {
               ),
               slivers: [
                 // Figma のグリッドは y=125（ヘッダー 57〜101 の下）。
+                // プレイリストがあれば y=112 にその帯を置き、グリッドは y=202
+                // （Figma 6716:12450）。
                 SliverToBoxAdapter(
                   child: SizedBox(
-                      height:
-                          media.padding.top + (125 - _designTopInset) * scale),
+                      height: media.padding.top +
+                          ((_playlist == null ? 125 : 112) - _designTopInset) *
+                              scale),
                 ),
                 CupertinoSliverRefreshControl(onRefresh: _load),
+                if (_playlist case final entry?)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: 15 * scale),
+                      child: SizedBox(
+                        height: 75 * scale,
+                        child: FittedBox(
+                          fit: BoxFit.fitWidth,
+                          alignment: Alignment.topLeft,
+                          child: _playlistBanner(entry),
+                        ),
+                      ),
+                    ),
+                  ),
                 SliverPadding(
                   padding: EdgeInsets.only(
                     left: _gridLeft * scale,
@@ -286,6 +368,99 @@ class _GroupScreenState extends State<GroupScreen> {
             ),
           _header(media, scale),
         ],
+      ),
+    );
+  }
+
+  // ── 先週のプレイリスト（Figma 6716:12450：y=112、374×75）────────
+
+  Widget _playlistBanner(GroupPlaylistEntry entry) {
+    final pl = entry.playlist;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openPlaylist(entry),
+      child: SizedBox(
+        width: _designW,
+        height: 75,
+        child: Stack(
+          children: [
+            Positioned(
+              left: 14,
+              top: 0,
+              width: 374,
+              height: 75,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF28262B),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 27,
+              top: 10,
+              child: PlaylistRing(
+                size: 55,
+                viewed: entry.viewed,
+                child: GroupIconImage(
+                  iconIndex: _group.iconIndex,
+                  size: 43,
+                  radius: 21.5,
+                ),
+              ),
+            ),
+            Positioned(
+              left: 95,
+              top: 18,
+              child: Row(
+                children: [
+                  const Text(
+                    '先週のプレイリスト',
+                    style: TextStyle(
+                      fontSize: 15,
+                      height: 1.2,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  if (!entry.viewed) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      height: 20,
+                      padding: const EdgeInsets.symmetric(horizontal: 9),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEDB8FE),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text('NEW',
+                          style: _rounded(11, const Color(0xFF7B2C9C), 700)),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Positioned(
+              left: 95,
+              top: 43,
+              child: Text(
+                '${pl.rangeLabel}　${pl.memberCount}人 × ${pl.dayCount}日　'
+                '${pl.trackCount}曲',
+                style: const TextStyle(
+                  fontSize: 13,
+                  height: 1.2,
+                  color: _subGrey,
+                ),
+              ),
+            ),
+            const Positioned(
+              left: 362,
+              top: 26,
+              child:
+                  Icon(CupertinoIcons.chevron_right, color: _subGrey, size: 20),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -369,7 +544,7 @@ class _GroupScreenState extends State<GroupScreen> {
                 top: 0,
                 child: GlassCircleButton(
                   size: 44,
-                  onTap: _comingSoon,
+                  onTap: _openShare,
                   child: const Icon(CupertinoIcons.share,
                       color: Colors.white, size: 21),
                 ),
@@ -394,12 +569,13 @@ class _GroupScreenState extends State<GroupScreen> {
       case _PostSlot(:final post, :final isMe):
         final compact = _CompactPostCard(
           post: post,
+          name: _nameOrUsername(post),
           isMe: isMe,
           hasPhoto: status.postIdsWithPhoto.contains(post.postId),
           reactionEmojis: groupReactionEmojis(
             post.reactions,
             _group.memberIds.toSet(),
-            max: 6,
+            max: 5,
           ),
         );
         // 自分がまだのうちは、ほかの人の投稿をぼかして裏返せなくする（BeReal と同じ）。
@@ -418,7 +594,14 @@ class _GroupScreenState extends State<GroupScreen> {
         }
         return EnlargeFlipCell(
           key: ValueKey('post_${post.postId}'),
-          cell: _fit(compact),
+          // 小さいままでも長押しでリアクションできる（タップは拡大に使う）。
+          cell: Builder(
+            builder: (cellCtx) => GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onLongPress: () => _pickReaction(cellCtx, post),
+              child: _fit(compact),
+            ),
+          ),
           cardBuilder: (key, onTap, requestClose) {
             _audioUsed = true;
             return PostCard(
@@ -460,7 +643,52 @@ class _GroupScreenState extends State<GroupScreen> {
     }
   }
 
+  /// 表示名（設定した名前、無ければユーザー名）。投稿に残っている名前は
+  /// 投稿した時点のもので、名前が読めなかったときの「ユーザー」が入っている
+  /// ことがあるので、今のプロフィールを優先する。
+  String _nameOrUsername(PostModel post) {
+    final name = _nameOf(post.userId);
+    return name.isNotEmpty ? name : post.username;
+  }
+
+  /// 小さいカードの長押し。カードの上に絵文字の吹き出しを出す（iOS のみ）。
+  Future<void> _pickReaction(BuildContext cellCtx, PostModel post) async {
+    final box = cellCtx.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final topLeft = box.localToGlobal(Offset.zero);
+    final rect = topLeft & box.size;
+    HapticFeedback.selectionClick();
+    final emoji = await ReactionPickerService.show(
+        emojis: kReactionEmojis, anchorRect: rect);
+    if (emoji == null || !mounted) return;
+    HapticFeedback.lightImpact();
+    await _react(post, emoji);
+  }
+
+  /// 自分のリアクションを先に反映する（同じ絵文字なら外す）。
+  void _applyReactionLocally(PostModel post, String emoji) {
+    final current = _reacted[post.postId] ?? post;
+    final mine = current.reactionOf(_uid);
+    final others = [
+      for (final r in current.reactions)
+        if (r.userId != _uid) r,
+    ];
+    setState(() {
+      _reacted[post.postId] = current.copyWith(reactions: [
+        if (mine != emoji)
+          PostReaction(
+            userId: _uid,
+            emoji: emoji,
+            iconUrl: context.read<CurrentUserProvider>().iconUrl ?? '',
+            ts: DateTime.now().millisecondsSinceEpoch,
+          ),
+        ...others,
+      ]);
+    });
+  }
+
   Future<void> _react(PostModel post, String emoji) async {
+    _applyReactionLocally(post, emoji);
     try {
       await _postService.setReaction(
         postId: post.postId,
@@ -479,12 +707,16 @@ class _GroupScreenState extends State<GroupScreen> {
 /// 色は本物のカードと同じテーマ（保存済みのものか、ジャケットから抽出）。
 class _CompactPostCard extends StatefulWidget {
   final PostModel post;
+
+  /// アイコンの横に出す名前。
+  final String name;
   final bool isMe;
   final bool hasPhoto;
   final List<String> reactionEmojis;
 
   const _CompactPostCard({
     required this.post,
+    required this.name,
     required this.isMe,
     required this.hasPhoto,
     required this.reactionEmojis,
@@ -574,7 +806,7 @@ class _CompactPostCardState extends State<_CompactPostCard> {
             top: 186,
             right: badgeRight + 40,
             child: Text(
-              post.username,
+              widget.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(

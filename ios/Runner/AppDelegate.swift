@@ -123,6 +123,11 @@ import ObjectiveC.runtime
       )
     }
 
+    // Liquid Glass（ボタンやカードの背景）
+    if let registrar = self.registrar(forPlugin: "LiquidGlassPlugin") {
+      registrar.register(LiquidGlassFactory(), withId: "com.fifteen/liquid_glass")
+    }
+
     // 透明 UIButton + UIMenu（3 点メニュー）
     if #available(iOS 14.0, *) {
       if let registrar = self.registrar(forPlugin: "NativeMenuButtonPlugin") {
@@ -865,3 +870,82 @@ class VariableBlurFactory: NSObject, FlutterPlatformViewFactory {
   }
 }
 
+
+// MARK: - Liquid Glass（iOS 26 の UIGlassEffect）
+
+// Flutter のボタンやカードの背景に、iOS 本来のガラスを敷く PlatformView。
+// iOS 26 未満では同じ形のぼかし（UIBlurEffect）に落とす。
+// 中身（アイコンや文字）は Flutter が上に描き、タッチも Flutter 側で受ける。
+
+class LiquidGlassPlatformView: NSObject, FlutterPlatformView {
+  private let container: LiquidGlassContainer
+
+  init(frame: CGRect, args: Any?) {
+    let dict = args as? [String: Any] ?? [:]
+    // 負の値は「丸（カプセル）」の意味。
+    let radius = CGFloat((dict["cornerRadius"] as? Double) ?? -1)
+    let clear = (dict["style"] as? String) == "clear"
+    var tint: UIColor?
+    if let argb = dict["tint"] as? Int {
+      tint = UIColor(
+        red: CGFloat((argb >> 16) & 0xFF) / 255,
+        green: CGFloat((argb >> 8) & 0xFF) / 255,
+        blue: CGFloat(argb & 0xFF) / 255,
+        alpha: CGFloat((argb >> 24) & 0xFF) / 255)
+    }
+    container = LiquidGlassContainer(frame: frame, radius: radius, clear: clear, tint: tint)
+    super.init()
+  }
+
+  func view() -> UIView { return container }
+}
+
+final class LiquidGlassContainer: UIView {
+  private let effectView: UIVisualEffectView
+  private let radius: CGFloat
+
+  init(frame: CGRect, radius: CGFloat, clear: Bool, tint: UIColor?) {
+    self.radius = radius
+    if #available(iOS 26.0, *) {
+      let glass = UIGlassEffect(style: clear ? .clear : .regular)
+      glass.tintColor = tint
+      effectView = UIVisualEffectView(effect: glass)
+    } else {
+      effectView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+    }
+    super.init(frame: frame)
+    isUserInteractionEnabled = false
+    backgroundColor = .clear
+    // アプリは暗い画面なので、ガラスも暗い側の見た目にそろえる。
+    overrideUserInterfaceStyle = .dark
+    effectView.isUserInteractionEnabled = false
+    addSubview(effectView)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    effectView.frame = bounds
+    let r = radius < 0 ? min(bounds.width, bounds.height) / 2 : radius
+    if #available(iOS 26.0, *) {
+      effectView.cornerConfiguration = .corners(radius: .fixed(r))
+    } else {
+      effectView.layer.cornerRadius = r
+      effectView.layer.cornerCurve = .continuous
+      effectView.clipsToBounds = true
+    }
+  }
+
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { return nil }
+}
+
+class LiquidGlassFactory: NSObject, FlutterPlatformViewFactory {
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    return FlutterStandardMessageCodec.sharedInstance()
+  }
+
+  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+    return LiquidGlassPlatformView(frame: frame, args: args)
+  }
+}

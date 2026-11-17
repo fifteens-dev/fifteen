@@ -14,8 +14,9 @@ void main() {
         jst(2026, 10, 25, 20, 59, 59));
   });
 
-  test('写真は 28:00（翌 4:00）まで', () {
-    expect(MusicMemoryCycleService.photoDeadlineFor(start), jst(2026, 10, 25, 4));
+  test('写真も投稿と同じ翌日 20:59:59 まで（28 時の期限はなくした）', () {
+    expect(MusicMemoryCycleService.photoDeadlineFor(start),
+        jst(2026, 10, 25, 20, 59, 59));
   });
 
   test('通知は 25:00（翌 1:00）で止める', () {
@@ -24,6 +25,7 @@ void main() {
 
   test('月またぎでも暦日で数える', () {
     final s = jst(2026, 10, 31, 21, 3);
-    expect(MusicMemoryCycleService.photoDeadlineFor(s), jst(2026, 11, 1, 4));
+    expect(MusicMemoryCycleService.photoDeadlineFor(s),
+        jst(2026, 11, 1, 20, 59, 59));
   });
 }
